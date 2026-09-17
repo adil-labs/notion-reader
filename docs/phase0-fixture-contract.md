@@ -286,18 +286,91 @@ kept the threshold out of the specification.
 
 ---
 
+## 3b. Pagination and real-page coverage (2026-09-17)
+
+Two questions the fixture alone could not answer: does the app handle a page larger than one
+`page_size` batch, and how much of a realistic workspace does it actually read?
+
+### Pagination — verified in the app
+
+The integration spec page (`3dec9345-e10a-81e8-8b28-e7d04672e53e`) has **338 top-level blocks**, and
+Notion caps `page_size` at 100, so the app must issue four batched requests. A debug build was pinned
+to that page via a temporary `local.properties` override and installed on the Pixel 8 Pro.
+
+| Observation | Result |
+|---|---|
+| Chunk count reported | **Paragraph 1 of 343** — 338 blocks plus 5 sentence/word splits |
+| If pagination stopped after batch 1 | would have been ~100, so 343 rules truncation out |
+| Position clamped at the end | **343 of 343**, no wrap or overflow |
+| Final chunk | `Once that contract is stable, add pagination and recursive children before introducing playback.` |
+| That text is | **block 338**, the last block on the page |
+
+Ordering was checked **across the batch boundary**, which is where a dropped or duplicated batch
+would surface and nowhere else. API blocks 99–104 map to chunks 101–106 in sequence:
+
+| Chunk | Text | API block |
+|---|---|---|
+| 101 | `Never store client secrets directly in the Android application…` | 99 |
+| 102 | `Surface revoked/expired/unauthorized access…` | 100 — **last of batch 1** |
+| 103 | `Page retrieval` | 101 — **first of batch 2** |
+| 104 | `Given a page ID:` | 102 |
+| 105 | `Retrieve page metadata needed by the reader…` | 103 |
+| 106 | `Retrieve all first-level child blocks.` | 104 |
+
+No duplication, no gap: `Pagination is invisible to callers` (invariant 4) holds.
+
+### Real-page coverage — a census of every accessible page
+
+Block-type census over all 18 accessible pages, 1666 blocks total:
+
+| | Blocks | Share |
+|---|---|---|
+| Mapped to a spoken chunk | 1656 | **99.4%** |
+| Dropped | 9 | 0.6% |
+| Silent by design (`divider`) | 1 | — |
+
+The 9 dropped blocks are **8 × `image`** and **1 × `child_database`**. No table, column, bookmark,
+equation, file, embed or child page appears anywhere in this workspace.
+
+Per-page, only five pages lose anything:
+
+| Page | Blocks | Spoken | Dropped |
+|---|---|---|---|
+| Click me to learn how to see your content your way | 8 | 5 | 3 × `image` |
+| Click me to learn how to hide checked items | 9 | 6 | 3 × `image` |
+| Reader Fixture — Block Type Coverage | 28 | 26 | 1 × `image` |
+| Click me to see even more detail | 8 | 6 | 2 × `image` |
+| To Do List | 2 | 1 | 1 × `child_database` |
+
+### Two limitations this exposes
+
+1. **Image captions are lost.** Notion images frequently carry a text caption, and a caption is
+   speakable content. The `image` block's `caption` rich text is not read — the census shows this
+   affects 8 blocks here. Reading the caption while still ignoring the binary would recover real
+   content for a small change, and is a better reading of "unsupported blocks degrade locally".
+2. **A page that is mostly an embedded database reads as nearly empty.** `To Do List` yields 1 chunk
+   from 2 blocks because `child_database` is skipped by design (Q4). Correct per the decision, but
+   the user-visible result is a page that looks broken rather than deliberately unsupported.
+
+The deeper concern is not the 0.6% — it is that **coverage was measured against this workspace only**.
+A page containing a table would lose the entire table, because `table_row` cells carry no `rich_text`
+in the current DTOs and unsupported blocks emit no chunk. This workspace has no tables, so nothing here
+would catch that.
+
+---
+
 ## 4. Traceability to the spec's acceptance criteria
 
 | Acceptance criterion | Covered here |
 |---|---|
 | Known page ID loads | yes — fixture ID; also **verified on a device via discovery** (§3a) |
-| All paginated children retrieved in order | yes — order is §1 and was confirmed on device (§3a) |
+| All paginated children retrieved in order | yes — **device-verified on a 338-block page**, including across the batch boundary (§3b) |
 | Nested supported content included | yes — 9.1, 10.1, 23.1 |
 | Raw response converted to `ReaderDocument` | yes — §3 is the target |
 | Title, sections, chunks deterministic and inspectable | yes — D7/D8 make IDs deterministic |
 | Unsupported blocks do not crash loading | yes — block 21, confirmed on device (§3a) |
 | Auth / permission / network / not-found distinguishable | **no** — needs a separate error-mapping fixture, not this page |
-| Unit tests cover mapping, hierarchy, pagination, errors | partly — this page drives mapping and hierarchy; **pagination and error mapping are still untested** |
+| Unit tests cover mapping, hierarchy, pagination, errors | partly — mapping and hierarchy are covered; **pagination and error mapping have no unit test**. Pagination is device-verified (§3b) but unprotected against regression, and only one page in the workspace is large enough to exercise it |
 | No TTS dependency in repository or mapper | n/a — structural, checked by review |
 
 ---
