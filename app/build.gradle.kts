@@ -167,6 +167,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    // viewModelScope, and the ViewModel that owns the listening session. The session's lifetime has to be
+    // the task's rather than the Activity's: with no `android:configChanges`, every configuration change
+    // rebuilds the Activity, and a session owned by one died with it (see ReaderViewModel).
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")

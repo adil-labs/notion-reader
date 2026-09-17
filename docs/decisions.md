@@ -2346,6 +2346,212 @@ deliberately instead of by accident.
 - **`BuildConfig.NOTION_PAGE_ID`** and the blank-reference auto-discovery path are still unconsumed.
 - **An inexact restore** has still not been observed on a device; it is covered by unit tests only.
 
+## 19. Eleventh round — an architecture audit, and six ownership corrections
+
+§18 put the layers in the tree and enforced them. This round asked a different question of the same code:
+*for each piece of mutable state, who owns it, what event changes it, and can any other component
+independently disagree with it?* The layering was already sound — the audit found no new cycle, no Notion
+DTO above the integration boundary, no second playback model, and no state that two holders could drift
+apart on. What it found instead were four places where a **result was applied without checking whether it
+was still wanted**, one place where the **session's lifetime was a screen's**, and one contract clause that
+was satisfiable in three lines and unmet.
+
+The classification §18 used is repeated here, because it is what decided the change set: **A** correct and
+left alone, **B** works with unnecessary complexity, **C** plausible bug or race, **D** violates a governing
+specification, **E** missing behaviour for the current milestone. Nothing in this round is a **B**; a
+cosmetic refactor is not what was asked for.
+
+### 19.1 The worst one: a superseded fetch could be read aloud as the new session's Note 1 (D, C)
+
+`ReaderSession.supplyDocument(document)` checked only `QueueState.awaiting`, which answers "is a Note
+wanted?" and not "is *this* Note wanted?". Those differ exactly when a session is replaced while a fetch is
+in flight, which is not an exotic interleaving on Notion: opening one page is several HTTP requests, and
+§4 already measured a 343-chunk page taking tens of seconds.
+
+```
+playAll(A)   queue = A, awaiting, A0's fetch begins and suspends
+playAll(B)   queue = B, awaiting, B0's fetch begins
+A0's fetch returns
+             -> accepted, because the session is awaiting something
+```
+
+The session then announced and read **A0 as B's first Note**, with B's queue position on screen. If A0 is
+not in B at all the listener hears a Note they never queued, at a position claiming to be note 1 — and the
+route to it is ordinary: `Play all`, Back to Browse, change the search, `Play all` again. `failCurrentNote`
+had the mirror-image hole: a slow *failure* from the replaced session would stall the one that replaced it,
+offering Retry for a Note that session had never asked for.
+
+**The correction is a rule of the state machine rather than a guard at the call site:** a document may enter
+a session only when its `pageId` is the page the queue currently awaits, and a failure must name the page it
+belongs to. A caller cannot be trusted to know whether its own request is still current — by the time it
+returns, the thing it was loading for may not exist — so the check is where the state is, and it holds for
+every caller, including the next one to be written.
+
+*Why `pageId` and not a request counter.* A queue identifies its Notes by page id, so a matching document
+*is* the awaited document by definition; two entries with the same page id are the same Note, and the
+residual window (same id, superseded session) resolves to the right content. This also kept the change to
+two lines and five test sites rather than twenty-five, which is what the same fix written as a token
+threaded through every `supplyDocument` call would have cost.
+
+### 19.2 A Note with nothing to read was a silent dead end (E, D)
+
+`NotionRepository` deliberately treats a page with **no blocks** as a valid empty document rather than a
+failure, and that is right — the document is a faithful description of the page. It is not, however,
+*playable*, and the queue advances on a completion signal an empty document never produces:
+`ReaderEngineImpl.play()` returns immediately when there is nothing to speak, so `hasReachedEnd` never
+becomes true and `onCurrentNoteFinished` is never called. A titled but empty Notion page — reachable, and
+listed by Browse — left the session on that Note for the life of the process, with an enabled Play button
+that did nothing and nothing on screen to explain it.
+
+`QueueLoader` now reports an unplayable document the way it reports an unreadable one, on the taxonomy's
+existing `UNSUPPORTED_DOCUMENT_STRUCTURE` ("This page has no content the reader can speak"): the listener is
+told, the queue keeps its position, and the Note is not silently skipped — the choice §14.3 (B3) already
+made. The repository's decision is untouched; only the *loader*, which owns "did this Note load?", changed.
+
+### 19.3 Two screens could describe different Notes, and Retry reloaded the wrong one (C)
+
+`NoteViewer.load` let the **last to finish** win, which is not the same as the last to be *asked for*, and
+the two diverge precisely when one page is slower than the next. Worse, the viewer wrote its `pageId` when
+the load started and its `document` when it finished, so a late result left the two describing **different
+pages** — and Retry then re-loaded the interactive one's id while the other one's text was on screen. That
+is the ambiguity this class exists to remove, so it is now resolved the only way that has a stable answer:
+a request counter, and a superseded load publishes nothing — not its document, not its state, not an error.
+`BrowseModel.load` had the identical shape and got the identical fix, because a superseded index reload
+could replace a newer one.
+
+The counter is not a `Job`: the caller owns the coroutine and therefore owns cancellation, and neither class
+may acquire a scope — the same reason `ReaderSession` has none.
+
+### 19.4 The session's lifetime was the Activity's, and a configuration change is not a navigation (D)
+
+`MainActivity` built `ReaderApp` in `onCreate` and called `shutdown()` in `onDestroy`, and the manifest
+declares no `android:configChanges`. So **every configuration change** — rotating the phone, raising the font
+size, or the system switching to dark mode at dusk — shut the speech engine down and discarded the live
+session, replacing it with a fresh one on the demo document and re-fetching the Browse index. None of that is
+navigation (which the contract forbids from owning playback) and none of it is process death (which the
+Active Queue & Reader Session spec does handle). It was a plainly reachable loss of the listener's place.
+
+Ownership moved one level up, to a `ReaderViewModel`: state whose lifetime is longer than a screen's and
+shorter than the process's, which is exactly the boundary the session needs. `onCleared` — called when the
+Activity is *finished*, not when it is recreated — became the single shutdown point. Because it is a
+composition-root concern it lives in the root package, which is the one package allowed to name `data`,
+`platform` and `application` together.
+
+The three collectors and the two loaders went with it, so the Activity stopped being the thing that writes
+history and fetches the index, and they are now subscribed once per task rather than once per rebuild. Two
+job slots were added at the same time, so a superseded fetch is **cancelled** as well as ignored: the counter
+is the correctness property (it holds however the caller behaves) and the cancellation is the saving, and
+both are deliberate for that reason. The ordering constraint from §17 survives verbatim and is now stated in
+one place: `loadHistory()` must finish before the persistence collector subscribes, or the first write
+persists an empty history plus the live session and erases everything on disk.
+
+### 19.5 The same request was fetched twice (C)
+
+`Continue` restores a session *and* the queue observer sees the same state change, so `loadPendingQueueNote`
+was reached twice for one Note — two fetches of a page that is several requests, and an inconsistent state if
+exactly one of the two failed, because a failure cannot be told from a request still running. `QueueLoader`
+now guards on the **request** rather than on "something is in flight", which is what keeps superseding
+immediate: a new `Play all`, or a Continue on a different session, is a different request and starts at once
+instead of queueing behind the one it replaced. The session supplies the request identity
+(`PendingNoteRequest` = page id + a counter that changes on every transition that issues a request), because
+which Note is wanted is session state and a loader tracking it itself would be a second copy of the queue.
+
+### 19.6 Browse could not keep the user's place, and three lines fixed it (D)
+
+Invariant 13 is "Browse state survives temporary navigation where practical", and Browse's *query* was
+already safe — it lives in `BrowseModel`, which is application state above the screens, and the result set is
+derived from it rather than stored. The **result position** was not: the shell's `when (current)` removes
+`BrowseScreen` from composition, and its `LazyColumn`'s `rememberSaveable` list state went with it. A
+listener who scrolled forty results, opened one and came back was at the top again.
+
+The shell now wraps the destination in a `rememberSaveableStateHolder().SaveableStateProvider(current.name)`,
+which is the mechanism `NavHost` uses for the same purpose: each destination keeps its own `rememberSaveable`
+state while another is on screen. Applied at the shell rather than inside `BrowseScreen`, because it is a
+property of *switching surfaces*, not of one screen.
+
+### 19.7 Audited and deliberately not changed (A)
+
+Each of these was read with the question in the section heading above, and each answered it:
+
+- **Persistence failure isolation.** `DataStoreSessionStore` swallows read and write failures at the
+  boundary, `SessionStore` has no error channel, and `ListeningHistory` is pure. The spec's "a failed write
+  must not stop, pause, or alter playback" is satisfied by construction rather than by handling.
+- **What is stored.** `StoredSession` holds identities, a `ReaderDocumentPosition` and no numeric chunk
+  index, no content, no derived coordinate, and no per-Note position. Retention and ordering are pure
+  functions with the live session pinned. Unchanged.
+- **Navigation cannot own playback.** `ReaderNavigator` holds no session reference, so Back *cannot* mean
+  Pause — a stronger guarantee than a comment asking the next person not to.
+- **The Active Queue is a snapshot.** `ActiveQueue`'s constructor is private and `snapshotOf` copies; a queue
+  built from Browse results is not a live view of them. Unchanged since §15.
+- **One playback state, two surfaces.** The Player and the mini-player both read `session.state`, and Home's
+  card and the mini-player share `ContinueListeningCard`, so they cannot describe one session differently.
+  No second playback model was found anywhere.
+- **The engine's stale-callback guard.** `utteranceToken` discards a completion from a cancelled utterance.
+  Correct, and it is the pattern the three new staleness guards follow.
+- **Notion DTOs stay below the boundary.** `ui`, `application` and `domain` name nothing in `data.notion`,
+  and §18's rule table fails the build if that changes.
+- **Everything deferred for a missing specification.** Settings, the Saved and Smart tabs, `Add to queue`,
+  `Add all to queue`, Browse's facets, raw Notion navigation, the Player's `Queue` action and background
+  playback are all still absent for the same reason as before: each needs a specification that does not
+  exist, and shipping an inert control is the objection §12.5 already settled. Not touched.
+
+### 19.8 Verified
+
+- **303 JVM tests, 0 failures** (was 295). Eight additions, and every one of the fixes above has a test that
+  **fails when its guard is removed and no others do** — the same failing-first discipline §13 used, applied
+  to all six:
+  - removing the document-identity check fails exactly `aDocumentForANoteTheQueueIsNotWaitingForIsRefused`;
+  - removing the failure-identity check fails exactly `aFailureForANoteTheQueueIsNotWaitingForIsIgnored`;
+  - removing the unplayable-Note branch fails exactly `aQueueNoteWithNothingToReadStallsInsteadOfStallingSilently`;
+  - removing either request counter fails exactly its two race tests (4 in total);
+  - removing the queue loader's guard fails exactly `aNoteIsFetchedOnceEvenWhenItIsAskedForTwice`.
+- **Five existing test files were migrated, not weakened.** The session's identity rule means a test must
+  supply the document the queue is actually awaiting, so `TestDocument` gained `originalDocumentFor(pageId)`
+  and `testDocument(..., pageId = ...)`. The resume tests were handing a session a document whose page id had
+  never matched the queued Note's; they now say which Note it is, which is what the session always assumed.
+- **47 instrumented tests, 0 failures**, unchanged and unaffected: they call `setContent` with one screen and
+  never build `MainActivity`, which is why §19.4 is proved on the device instead.
+- **The debug APK builds.** `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug`.
+- **On device, a configuration change under a live session** (`tools/probe-config-change.ps1`, new). It walks
+  `Browse → Play all → Player`, moves the reader two sections in with `Next section`, changes the **system
+  font scale** — the least invasive change that still rebuilds the Activity, restored in a `finally` — and
+  reads the accessibility tree on both sides:
+
+  ```
+  before:  Note 1 of 19 | Section 3 of 64 · Goals | Paragraph 10 of 263 | Playing
+  after:   Note 1 of 19 | Section 3 of 64 · Goals | Paragraph 11 of 263 | Playing
+  ```
+
+  All five checks pass, and one detail in that transcript is the whole point: **the paragraph advanced from
+  10 to 11 across the rebuild**, so speech was never interrupted rather than merely resumed afterwards. Then
+  `Next section` moved *this* session to "Section 4 of 64 · Non-goals", which a rebuilt app could not do
+  because it would be sitting on Home with the demo document. The checks are discriminating on purpose: a
+  Player on top, the same queue line, a position that did not reset, `Playing`, and a live engine still
+  answering.
+- **On device, the flow from §18 is unchanged** (`tools/probe-listening-tab.ps1`: install → Browse → Play all
+  → Player → `am force-stop` → relaunch → Queues). All five checks pass, so moving the persistence
+  orchestrators into the ViewModel did not disturb the load-before-subscribe ordering that history depends
+  on.
+
+### 19.9 What this round did not do
+
+- **The result-position fix is verified by construction, not by a test.** It is four lines of Compose
+  runtime behaviour with no JVM-testable surface, and the instrumented suite tests screens in isolation, so
+  the shell it lives in has no test — the same gap as slice A′. Stated rather than implied.
+- **A superseded Note load is still *fetched*, once, before it is discarded.** Cancellation now usually wins
+  (the ViewModel cancels the previous job), but the session's identity rule is what makes the outcome
+  correct, and it is what holds if a future caller has no job to cancel.
+- **A failed Note load in a queue is still a dead end.** §14.3 (B3) chose stall-with-Retry over skip or
+  abort, and §19.2 follows it, so a Note that will never load — one with no content, say — stops the queue
+  with Retry as the only option and no way past. That is a product gap owned by a queue-management
+  specification that does not exist, not a defect in this round's corrections.
+- **Play on the Note screen with an unplayable document** still does nothing visible, for the same reason.
+  The single-Note case has no queue to stall, and §19.2's fix is in the queue loader.
+- **Everything §18.9 listed** — the TalkBack listening gate, background playback, Saved and Smart Queues,
+  slice A′, the Compose v2 rule, `playFromStart()`, the unconsumed `NOTION_PAGE_ID`, the unobserved inexact
+  restore — is still open. This round was an audit, and an audit that starts refactoring things that are
+  already correct is the failure mode it was written to avoid.
+
 ## Still open
 
 - The TalkBack listening gate (§11), now the oldest outstanding item.
@@ -2355,3 +2561,4 @@ deliberately instead of by accident.
 - `ReaderEngine.playFromStart()`'s absent caller (§13.4).
 - `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path (§17.1).
 - An inexact restore on a device (§17.6).
+- Background playback (§16.4), and a shell-level test with it (§19.9).

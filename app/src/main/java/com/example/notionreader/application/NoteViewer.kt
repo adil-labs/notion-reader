@@ -54,20 +54,47 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
     /**
      * Loads the Note identified by [pageId], replacing the inspected document on success.
      *
-     * Safe to call again — it is also the Retry action — because it holds no in-flight state of its own:
-     * the caller owns the job (and therefore owns cancellation), and the last call to finish is the one
-     * whose result is visible. Cancellation is not folded into failure here; [LoadReaderDocument]
-     * throws it, and it propagates so that superseding a load cannot leave "could not load" on screen.
+     * ## The newest request is the only one allowed to publish
+     *
+     * This is also the Retry action, and a Browse result can be activated twice — tap a row, come back,
+     * tap another — so two loads can genuinely overlap. The first version of this method let the **last
+     * to finish** win, which is a different thing from the last to be *asked for*, and the two diverge
+     * exactly when one page is slower than the next:
+     *
+     * ```
+     * load(A) starts, slow — several requests for a large page
+     * load(B) starts, fast
+     * load(B) completes, B is shown
+     * load(A) completes -> overwrote B, so the screen now shows the Note the user navigated away from
+     * ```
+     *
+     * The damage is worse than a stale screen, because [pageId] and [document] are written at different
+     * moments: the late result left them describing **different pages**, so Retry re-loaded B while A was
+     * on screen. Two fields that can disagree about which Note is being inspected is the ambiguity this
+     * class exists to avoid.
+     *
+     * [requestToken] closes it by asking the only question that has a stable answer — "am I still the
+     * newest request?" — instead of relying on which coroutine happened to finish last. A superseded load
+     * publishes nothing at all: not its document, not its load state, and not an error.
+     *
+     * Cancellation is not folded into failure here; [LoadReaderDocument] throws it, and it propagates so
+     * that superseding a load cannot leave "could not load" on screen.
      *
      * On failure the *previous* document stays loaded and readable. That is deliberate: a failed refresh
      * of content the user can already read should not blank the screen, and it is what the screen's
      * three-state notice is for.
      */
     suspend fun load(pageId: String, loader: LoadReaderDocument) {
+        val token = ++requestToken
         _pageId.value = pageId
         _loadState.value = DocumentLoadState.Loading
 
-        loader(pageId).fold(
+        val result = loader(pageId)
+
+        // Requested first, answered second: a superseded load is dropped rather than applied.
+        if (token != requestToken) return
+
+        result.fold(
             onSuccess = { loaded ->
                 _document.value = loaded
                 _loadState.value = DocumentLoadState.Loaded(loaded)
@@ -83,4 +110,14 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
             }
         )
     }
+
+    /**
+     * Which load is allowed to publish. Incremented by every [load] call.
+     *
+     * Deliberately not a `Job`: the caller owns the coroutine (and therefore owns cancellation), and this
+     * class must not acquire a scope of its own — the same reason [ReaderSession] has none. A counter is
+     * all that is needed to decide whether a result still has a claimant, and it cannot be forgotten to be
+     * reset because nothing else compares against it.
+     */
+    private var requestToken: Int = 0
 }

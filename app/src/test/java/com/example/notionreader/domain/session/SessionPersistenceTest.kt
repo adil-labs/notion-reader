@@ -8,6 +8,7 @@ import com.example.notionreader.domain.ReaderDocumentPosition
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadException
 import com.example.notionreader.domain.originalDocument
+import com.example.notionreader.domain.originalDocumentFor
 import com.example.notionreader.domain.positionAt
 import com.example.notionreader.domain.queue.ActiveQueue
 import com.example.notionreader.domain.queue.QueueOrigin
@@ -246,7 +247,9 @@ class SessionPersistenceTest {
         val session = ReaderSession(engine)
         session.restore(resumeRecord())
 
-        session.supplyDocument(originalDocument())
+        // The saved record's current Note is the second one ("p2"), and a session takes only the document
+        // it is awaiting, so the fixture document is handed over under that identity.
+        session.supplyDocument(originalDocumentFor("p2"))
 
         assertEquals(4, session.state.value.currentParagraphIndex)
         assertEquals(
@@ -276,7 +279,8 @@ class SessionPersistenceTest {
         session.supplyDocument(
             testDocument(
                 testSection("s1", "One", testChunk("a"), testChunk("b"), testChunk("c")),
-                testSection("s2", "Two", testChunk("d"), testChunk("e", part = 1))
+                testSection("s2", "Two", testChunk("d"), testChunk("e", part = 1)),
+                pageId = "p2"
             )
         )
 
@@ -296,11 +300,11 @@ class SessionPersistenceTest {
         val session = ReaderSession(engine)
         session.start(ActiveQueue.snapshotOf(listOf(noteA, noteB), QueueOrigin.BrowseResults))
 
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p1"))
         assertEquals(0, engine.announcements.size)
 
         session.onCurrentNoteFinished()
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p2"))
 
         assertEquals(listOf(noteB.title), engine.announcements)
     }
@@ -335,7 +339,7 @@ class SessionPersistenceTest {
         val session = ReaderSession(FakeReaderEngine())
         session.restore(resumeRecord())
 
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p2"))
 
         assertEquals(PositionMatch.CHUNK, session.lastResume.value?.match)
         assertNull("an exact resume says nothing", session.lastResume.value?.announcement)
@@ -358,7 +362,8 @@ class SessionPersistenceTest {
         session.supplyDocument(
             testDocument(
                 testSection("s1", "One", testChunk("a"), testChunk("b"), testChunk("c")),
-                testSection("s2", "Two", testChunk("d"))
+                testSection("s2", "Two", testChunk("d")),
+                pageId = "p1"
             )
         )
 
@@ -372,11 +377,11 @@ class SessionPersistenceTest {
         // restore's match quality as if it belonged to this Note.
         val session = ReaderSession(FakeReaderEngine())
         session.restore(resumeRecord())
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p2"))
         val afterRestore = session.lastResume.value
 
         session.onCurrentNoteFinished()
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p3"))
 
         assertEquals("the record still describes the restore", afterRestore, session.lastResume.value)
     }
@@ -429,7 +434,7 @@ class SessionPersistenceTest {
         val engine = FakeReaderEngine()
         val session = ReaderSession(engine)
         session.start(ActiveQueue.snapshotOf(listOf(noteA, noteB), QueueOrigin.BrowseResults))
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p1"))
         repeat(2) { engine.nextParagraph() }
 
         session.onCurrentNoteFinished()
@@ -442,7 +447,7 @@ class SessionPersistenceTest {
         val session = ReaderSession(FakeReaderEngine())
         session.restore(resumeRecord())
 
-        session.failCurrentNote(ReaderLoadException(ReaderErrorCategory.NETWORK_UNAVAILABLE, "offline"))
+        session.failCurrentNote("p2", ReaderLoadException(ReaderErrorCategory.NETWORK_UNAVAILABLE, "offline"))
         assertTrue(session.queueState.value.isStalled)
         assertEquals(
             "a stalled session still knows the position of the Note it is trying to load, so an " +
@@ -452,7 +457,7 @@ class SessionPersistenceTest {
         )
 
         session.retryCurrentNote()
-        session.supplyDocument(originalDocument())
+        session.supplyDocument(originalDocumentFor("p2"))
 
         assertEquals("Retry must not restart a Note the listener was halfway through", 4, session.state.value.currentParagraphIndex)
     }

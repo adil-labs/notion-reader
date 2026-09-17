@@ -122,6 +122,52 @@ class ReaderSessionQueueTest {
 
     // --- Supplying documents ----------------------------------------------------------------------
 
+    /**
+     * The stale-result rule, at the level of identity rather than of timing.
+     *
+     * `awaiting` says a Note is wanted; it does not say which. The gap is reachable without any unusual
+     * timing: the first Note of a Notion page takes several HTTP requests, so pressing `Play all` from
+     * Browse, going Back, changing the search and pressing `Play all` again leaves the first fetch in
+     * flight. Before this rule the first fetch's document was accepted by the *second* session — which
+     * then read a Note the listener had not queued, at a queue position claiming it was note 1.
+     */
+    @Test
+    fun aDocumentForANoteTheQueueIsNotWaitingForIsRefused() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+
+        session.start(queue(alpha, beta))
+        session.start(queue(gamma))
+
+        // The answer to a question the session has stopped asking.
+        session.supplyDocument(alpha)
+
+        assertEquals(0, engine.setDocumentCount)
+        assertEquals(QueuedNote.of(gamma), session.queueState.value.currentItem)
+        assertTrue("the newer session is still waiting for its own Note", session.queueState.value.awaiting)
+
+        // ...and the rule is not a brick wall: the Note this session *is* waiting for is accepted.
+        session.supplyDocument(gamma)
+        assertEquals(1, engine.setDocumentCount)
+        assertFalse(session.queueState.value.awaiting)
+    }
+
+    @Test
+    fun aFailureForANoteTheQueueIsNotWaitingForIsIgnored() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+
+        session.start(queue(alpha, beta))
+        session.start(queue(gamma))
+
+        // A slow failure belonging to the replaced session must not stall the one that replaced it, or
+        // the Player would offer Retry for a Note this session never asked for.
+        session.failCurrentNote("alpha", failure())
+
+        assertFalse(session.queueState.value.isStalled)
+        assertTrue(session.queueState.value.awaiting)
+    }
+
     @Test
     fun supplyingTheFirstNotePlaysItWithoutAnnouncingItsTitle() {
         val engine = FakeReaderEngine()
@@ -231,7 +277,7 @@ class ReaderSessionQueueTest {
         val session = ReaderSession(engine)
 
         session.start(queue(alpha, beta))
-        session.failCurrentNote(failure())
+        session.failCurrentNote("alpha", failure())
         session.onCurrentNoteFinished()
         assertEquals(0, session.queueState.value.index)
         assertTrue(session.queueState.value.isStalled)
@@ -256,7 +302,7 @@ class ReaderSessionQueueTest {
         session.supplyDocument(alpha)
         session.onCurrentNoteFinished()
 
-        session.failCurrentNote(failure())
+        session.failCurrentNote("beta", failure())
 
         // Stalled, not skipped and not aborted: the Note the user asked for is still the current one.
         assertEquals(1, session.queueState.value.index)
@@ -274,7 +320,7 @@ class ReaderSessionQueueTest {
         session.start(queue(alpha, beta))
         session.supplyDocument(alpha)
         session.onCurrentNoteFinished()
-        session.failCurrentNote(failure())
+        session.failCurrentNote("beta", failure())
 
         session.retryCurrentNote()
 
@@ -304,7 +350,7 @@ class ReaderSessionQueueTest {
         val engine = FakeReaderEngine()
         val session = ReaderSession(engine)
 
-        session.failCurrentNote(failure())
+        session.failCurrentNote("alpha", failure())
 
         assertNull(session.queueState.value.queue)
         assertFalse(session.queueState.value.isStalled)
@@ -326,7 +372,7 @@ class ReaderSessionQueueTest {
         // Stalled on a failed Note.
         session.supplyDocument(alpha)
         session.onCurrentNoteFinished()
-        session.failCurrentNote(failure())
+        session.failCurrentNote("beta", failure())
         val callsWhileStalled = engine.callCount
         session.play()
         assertEquals(callsWhileStalled, engine.callCount)

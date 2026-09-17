@@ -27,8 +27,19 @@ internal fun testSection(id: String, title: String?, vararg chunks: ReaderChunk)
     chunks = chunks.toList()
 )
 
-internal fun testDocument(vararg sections: ReaderSection) = ReaderDocument(
-    pageId = "note-1",
+/**
+ * [pageId] is declared after the `vararg` deliberately, so it can only be passed by name.
+ *
+ * A session accepts a document only when it is the document the queue is currently awaiting, which is the
+ * rule that stops a superseded `Play all` from reading its Note into the session that replaced it. Tests
+ * therefore have to say which Note a document is, and a named argument at the call site says it where the
+ * value is used instead of hiding it behind a second overload.
+ */
+internal fun testDocument(
+    vararg sections: ReaderSection,
+    pageId: String = "note-1"
+) = ReaderDocument(
+    pageId = pageId,
     title = "A Note",
     sections = sections.toList()
 )
@@ -46,6 +57,15 @@ internal fun originalDocument() = testDocument(
     testSection("s2", "Two", testChunk("d"), testChunk("e")),
     testSection("s3", "Three", testChunk("f"))
 )
+
+/**
+ * [originalDocument] carrying [pageId], for tests that hand a document to a session.
+ *
+ * The content — and therefore every position resolution against it — is identical; only the identity
+ * differs. It exists because a session's queue identifies its current Note by page id, and refuses a
+ * document for any other Note.
+ */
+internal fun originalDocumentFor(pageId: String) = originalDocument().copy(pageId = pageId)
 
 internal fun queuedNote(pageId: String, title: String = "Note $pageId") = QueuedNote(pageId, title)
 

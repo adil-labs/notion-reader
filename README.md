@@ -23,6 +23,9 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
   when already there — so one press re-reads the section and two presses go back one.
 - Late completion callbacks from a cancelled utterance are discarded, so pause/next/previous can never
   cause an unexpected jump.
+- The listening session survives a configuration change — rotating the phone, changing the font size, or
+  the system switching to dark mode at dusk. Speech is not interrupted, and the queue, its position and
+  its history entry are the same afterwards (`docs/decisions.md` §19.4).
 - The display is held awake while playing so a hands-free session is not interrupted by the screen
 timing out. A background `MediaSessionService` is still the correct long-term answer for playback with
 the app closed (see Later Architecture in the spec).
@@ -101,7 +104,9 @@ data.notion   data.content   data.local          domain (+ queue / session / dis
                     |
                    ui  (screens; depends on domain, player and application)
 
-MainActivity is the composition root and may name anything.
+The root package holds the composition root: `MainActivity` (the Compose host) and `ReaderViewModel`
+(the retained owner of the application object, and of the I/O that surrounds it). Only the root may name
+`data`, `platform` and `application` together, which is what wiring is.
 ```
 
 - `domain/` — the provider-agnostic model, and nothing else. `ReaderDocument`, `ReaderSection`,
@@ -130,6 +135,14 @@ Two rules matter more than the names. **Notion DTOs never reach the reader domai
 the types it produces live in `domain`. And **`application` never depends on `ui`**: a read model the
 application builds and screens render belongs to the application, which is why `ContinueListeningCard` is
 where it is rather than in the file that first drew it.
+
+A third is about lifetime rather than direction. **Nothing that must outlive a screen lives in one.** The
+listening session is owned by the root package's `ReaderViewModel`, not by `MainActivity`, because the
+system rebuilds the Activity for every configuration change — rotating the phone, changing the font size,
+or the system switching to dark mode at dusk. While the session was owned by the Activity, any of those
+ended playback mid-sentence, discarded the queue and its position, and started a fresh session on the demo
+document (`docs/decisions.md` §19.4). `tools/probe-config-change.ps1` drives exactly that on a device and
+reads what survived.
 
 Because of that split, the hard-coded `ReaderDocument.Demo` and a `NotionRepository`-produced document
 are interchangeable without touching navigation.
@@ -216,7 +229,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 295 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 303 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 

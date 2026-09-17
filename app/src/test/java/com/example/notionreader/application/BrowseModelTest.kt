@@ -7,6 +7,10 @@ import com.example.notionreader.domain.ReaderLoadException
 import com.example.notionreader.domain.discovery.BrowseSort
 import java.time.Instant
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,6 +27,7 @@ import org.junit.Test
  * tests pin that: the query is never touched by a load, and the results are always the query applied to
  * whatever the index currently holds.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class BrowseModelTest {
 
     private fun entry(id: String, title: String) = ReaderIndexEntry(
@@ -157,5 +162,58 @@ class BrowseModelTest {
         assertFalse(model.state.value.isLoading)
         assertTrue(model.state.value.results.isEmpty)
         assertNull(model.state.value.error)
+    }
+
+    /**
+     * Reloads overlap in practice — once at launch, and again on Retry — and a reload of a large workspace
+     * is much slower than one of a small one, so the last reload to *finish* is not reliably the last one
+     * to be *asked for*.
+     */
+    @Test
+    fun aSupersededReloadCannotReplaceANewerIndex() = runTest {
+        val model = BrowseModel()
+
+        val slow = CompletableDeferred<Unit>()
+        val older = listOf(entry("old", "Older index"))
+        val newer = listOf(entry("new", "Newer index"))
+
+        val first = launch { model.load { slow.await(); older } }
+        runCurrent()
+
+        val second = launch { model.load { newer } }
+        second.join()
+        assertEquals(listOf("new"), model.state.value.entries.map { it.pageId })
+
+        slow.complete(Unit)
+        first.join()
+
+        assertEquals("the late answer is dropped, not applied", listOf("new"), model.state.value.entries.map { it.pageId })
+        assertFalse(model.state.value.isLoading)
+    }
+
+    @Test
+    fun aSupersededFailureCannotReplaceANewerIndex() = runTest {
+        val model = BrowseModel()
+
+        val slow = CompletableDeferred<Unit>()
+        val newer = listOf(entry("new", "Newer index"))
+
+        val failing = launch {
+            model.load {
+                slow.await()
+                throw ReaderLoadException(ReaderErrorCategory.NETWORK_UNAVAILABLE)
+            }
+        }
+        runCurrent()
+
+        val succeeding = launch { model.load { newer } }
+        succeeding.join()
+
+        slow.complete(Unit)
+        failing.join()
+
+        // A failure belonging to a request the user has moved past must not be put over a loaded index.
+        assertNull(model.state.value.error)
+        assertEquals(listOf("new"), model.state.value.entries.map { it.pageId })
     }
 }

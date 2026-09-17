@@ -161,6 +161,68 @@ class ReaderAppTest {
         assertEquals(0, engine.callCount)
     }
 
+    /**
+     * "Last to finish" is not "last requested", and the two only diverge when one load is slower than the
+     * next — which for a Notion page is not exotic: opening one is several requests, so a small page
+     * routinely overtakes a large one that was asked for first.
+     *
+     * The damage was not only a stale screen: the viewer wrote its `pageId` when the load *started* and its
+     * `document` when it finished, so a late result left those two describing different pages and Retry
+     * re-loaded the wrong one.
+     */
+    @Test
+    fun aSupersededNoteLoadCannotOverwriteTheNewerOne() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        val slow = CompletableDeferred<Unit>()
+        val slowPage = note("page-slow", "Slow page")
+        val fastPage = note("page-fast", "Fast page")
+
+        val first = launch { app.loadNote("page-slow", DefaultLoadReaderDocument { slow.await(); slowPage }) }
+        runCurrent()
+
+        val second = launch { app.loadNote("page-fast", DefaultLoadReaderDocument { fastPage }) }
+        second.join()
+        assertEquals(fastPage, app.noteViewer.document.value)
+
+        slow.complete(Unit)
+        first.join()
+
+        assertEquals("the late answer is dropped, not applied", fastPage, app.noteViewer.document.value)
+        assertEquals("page-fast", app.noteViewer.pageId.value)
+        assertEquals(DocumentLoadState.Loaded(fastPage), app.noteViewer.loadState.value)
+    }
+
+    @Test
+    fun aSupersededFailureCannotReportAnErrorOverTheNewerNote() = runTest {
+        val app = appWith(FakeReaderEngine(demo), inspected = demo)
+
+        val slow = CompletableDeferred<Unit>()
+        val fastPage = note("page-fast", "Fast page")
+
+        val failing = launch {
+            app.loadNote(
+                "page-slow",
+                DefaultLoadReaderDocument {
+                    slow.await()
+                    throw ReaderLoadException(ReaderErrorCategory.NETWORK_UNAVAILABLE)
+                }
+            )
+        }
+        runCurrent()
+
+        val succeeding = launch { app.loadNote("page-fast", DefaultLoadReaderDocument { fastPage }) }
+        succeeding.join()
+
+        slow.complete(Unit)
+        failing.join()
+
+        // An error from a request the user has moved on from must not be put over a Note they can read.
+        assertEquals(fastPage, app.noteViewer.document.value)
+        assertFalse(app.noteViewer.loadState.value is DocumentLoadState.Error)
+    }
+
     @Test
     fun cancellingALoadIsNotReportedAsAFailure() = runTest {
         val engine = FakeReaderEngine(demo)
@@ -414,6 +476,81 @@ class ReaderAppTest {
 
         // A load attempt stops while stalled, so a caller looping on `awaiting` cannot spin.
         assertFalse(app.loadPendingQueueNote())
+    }
+
+    @Test
+    fun aQueueNoteWithNothingToReadStallsInsteadOfStallingSilently() = runTest {
+        val engine = FakeReaderEngine(demo)
+        // A titled but empty Notion page. The integration returns a *valid* document for one — a page with
+        // no blocks is an empty document rather than a failure — and Browse lists it, so `Play all` can
+        // reach it.
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(ReaderNavigation(top = ReaderDestination.Browse)),
+            loadDocument = DefaultLoadReaderDocument { pageId ->
+                if (pageId == "page-Alpha") ReaderDocument(pageId = pageId, title = "Alpha")
+                else note(pageId, "Queued $pageId")
+            }
+        )
+
+        app.playAll(queued("Alpha", "Beta"))
+        assertTrue(app.loadPendingQueueNote())
+
+        // Reported, not accepted. An empty document never produces the completion signal the queue
+        // advances on — the engine returns immediately when there is nothing to speak and `hasReachedEnd`
+        // stays false — so accepting it left the session on that Note for the life of the process, with
+        // an enabled Play button that did nothing and no explanation.
+        val stalled = app.session.queueState.value
+        assertTrue(stalled.isStalled)
+        assertEquals("Alpha", stalled.currentItem?.title)
+        assertEquals(0, stalled.index)
+        assertEquals(ReaderErrorCategory.UNSUPPORTED_DOCUMENT_STRUCTURE, stalled.failure?.category)
+        assertFalse(app.session.canPlay)
+        assertEquals("nothing was handed to the engine", 0, engine.setDocumentCount)
+    }
+
+    /**
+     * Two callers, one Note.
+     *
+     * `Continue` restores a session *and* the queue observer sees the same state change, so both reach the
+     * loader for the same request. The duplicate is not merely wasteful — a page is several HTTP requests —
+     * it is inconsistent: if exactly one of the two attempts failed, the queue would stall on a Note that
+     * had in fact arrived, because a failure cannot be told from a request that is still running.
+     */
+    @Test
+    fun aNoteIsFetchedOnceEvenWhenItIsAskedForTwice() = runTest {
+        val engine = FakeReaderEngine(demo)
+        var fetches = 0
+        val gate = CompletableDeferred<Unit>()
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(ReaderNavigation(top = ReaderDestination.Browse)),
+            loadDocument = DefaultLoadReaderDocument { pageId ->
+                fetches += 1
+                gate.await()
+                note(pageId, "Queued $pageId")
+            }
+        )
+
+        app.playAll(queued("Alpha", "Beta"))
+
+        val first = launch { app.loadPendingQueueNote() }
+        runCurrent()
+        assertEquals("the first ask is fetching", 1, fetches)
+
+        val second = launch { app.loadPendingQueueNote() }
+        runCurrent()
+        assertEquals("the second ask is the same request, so it starts nothing", 1, fetches)
+
+        gate.complete(Unit)
+        first.join()
+        second.join()
+
+        assertEquals(1, fetches)
+        assertFalse(app.session.queueState.value.awaiting)
+        assertEquals("page-Alpha", engine.currentDocument.pageId)
     }
 
     @Test

@@ -91,6 +91,15 @@ class ReaderSession(val engine: ReaderEngine) {
      */
     private var restoring: Boolean = false
 
+    /**
+     * Which request for a Note the queue is on. See [pendingRequest].
+     *
+     * Incremented by every transition that issues a request — starting, restoring, advancing, retrying —
+     * and deliberately *not* by supplying a document or recording a failure, because those answer a
+     * request rather than making one.
+     */
+    private var loadToken: Int = 0
+
     private val _lastResume = MutableStateFlow<ResumeDecision?>(null)
 
     /**
@@ -143,6 +152,7 @@ class ReaderSession(val engine: ReaderEngine) {
         id = newSessionId()
         restoring = false
         pendingPosition = null
+        loadToken += 1
         _queueState.value = QueueState(queue = ActiveQueue.of(document))
 
         // The index is given to setDocument rather than relying on its default, so "from the beginning"
@@ -169,6 +179,7 @@ class ReaderSession(val engine: ReaderEngine) {
         id = newSessionId()
         restoring = false
         pendingPosition = null
+        loadToken += 1
         _queueState.value = QueueState(queue = queue, index = 0, awaiting = true)
     }
 
@@ -194,6 +205,7 @@ class ReaderSession(val engine: ReaderEngine) {
         id = snapshot.id
         restoring = true
         pendingPosition = snapshot.position
+        loadToken += 1
 
         _queueState.value = QueueState(
             queue = queue,
@@ -236,6 +248,33 @@ class ReaderSession(val engine: ReaderEngine) {
         }
 
     /**
+     * The Note the queue is currently waiting for, or null when it is waiting for nothing.
+     *
+     * ## Why a page id is not enough to say *which* request this is
+     *
+     * A queue asks for a Note in several ways — starting, advancing, restoring, retrying — and the same
+     * page id can be asked for twice in a row (a queue whose first two Notes are the same page, or a retry
+     * after a failure). The loader needs to tell "I am already fetching this" from "this is a new ask for a
+     * page that happens to look the same", because those have opposite answers: the first must wait, the
+     * second must fetch.
+     *
+     * [token] is that distinction. It changes on every transition that issues a request, so two requests are
+     * the same request exactly when the token matches — which is the whole of the comparison
+     * [com.example.notionreader.application.QueueLoader] needs to fetch a Note once while still being able
+     * to supersede an in-flight fetch immediately.
+     *
+     * The session, not the loader, decides this: which Note is wanted is session state, and a loader that
+     * tracked it itself would be a second copy of the queue that could disagree with the first.
+     */
+    val pendingRequest: PendingNoteRequest?
+        get() {
+            val current = _queueState.value
+            if (!current.awaiting) return null
+            val pageId = current.currentItem?.pageId ?: return null
+            return PendingNoteRequest(pageId, loadToken)
+        }
+
+    /**
      * This session as a record, or null when it has no queue or no identity.
      *
      * A pure read of current state: it writes nothing and changes nothing, which is what lets the caller
@@ -261,15 +300,41 @@ class ReaderSession(val engine: ReaderEngine) {
     private fun newSessionId(): String = UUID.randomUUID().toString()
 
     /**
-     * Hands the session the document it was waiting for.
+     * Hands the session the document it was waiting for, if it is still waiting for *that* document.
      *
-     * Ignored when nothing is awaited, so a load that finishes after the session moved on cannot pull the
-     * queue backwards. That is the same stale-result problem the engine solves with its utterance token,
-     * and the same answer: a result that no longer has a claimant is dropped rather than applied.
+     * ## Why "something is awaited" is not the same question as "this is what is awaited"
+     *
+     * The first version of this method checked only [QueueState.awaiting], which identifies that *a* Note
+     * is wanted and not *which* one. That is not enough, and the gap was reachable:
+     *
+     * ```
+     * playAll(A)         queue = A, awaiting, A0's fetch begins and suspends
+     * playAll(B)         queue = B, awaiting, B0's fetch begins
+     * A0's fetch returns
+     *                    -> accepted, because the session is awaiting something
+     * ```
+     *
+     * …and the session then read A0 aloud as B's first Note, with B's queue position. If A0 is not in B
+     * at all, the listener hears a Note they did not queue, from a position that claims to be note 1.
+     * A stale *failure* had the mirror-image effect: a failed load for A would stall the session that had
+     * already moved to B, and the stall would name a Note B had never asked for.
+     *
+     * ## The rule
+     *
+     * A document may enter a session only when its `pageId` is the page the queue is currently waiting for.
+     * That is the whole of "the document this queue awaited", because a queue identifies its Notes by page
+     * id — two entries with the same page id are the same Note, so a document that matches is the right
+     * document by definition, and one that does not match cannot be.
+     *
+     * The check is here rather than only at the call site because a caller cannot be trusted to know
+     * whether its own request is still current: by the time it returns, the thing it was loading for may
+     * not exist. Being a rule of the state machine, it is the same rule for every caller — the queue
+     * loader today, and whatever loads a Note next.
      */
     fun supplyDocument(document: ReaderDocument) {
         val current = _queueState.value
         if (!current.awaiting) return
+        if (current.currentItem?.pageId != document.pageId) return
 
         val pending = pendingPosition
         val wasRestoring = restoring
@@ -321,6 +386,9 @@ class ReaderSession(val engine: ReaderEngine) {
         if (current.awaiting || current.isStalled || current.completed) return
 
         _queueState.value = if (current.hasNext) {
+            // A transition issues a new request, so a fetch of the Note that just ended can no longer be
+            // mistaken for the fetch this session is now waiting on.
+            loadToken += 1
             current.copy(index = current.index + 1, awaiting = true)
         } else {
             // "At the final Note: announce that the queue has ended; stop automatic progression; mark
@@ -331,7 +399,7 @@ class ReaderSession(val engine: ReaderEngine) {
     }
 
     /**
-     * The current Note's document could not be loaded.
+     * The document of the Note identified by [pageId] could not be loaded.
      *
      * **The queue stalls** — the position is kept and nothing advances. This is the product decision
      * recorded in `docs/decisions.md` §14.3 (B3); neither contract stated it. Skipping the Note would
@@ -339,10 +407,16 @@ class ReaderSession(val engine: ReaderEngine) {
      * snapshot rule exists to prevent. Aborting the queue would discard Notes that are still perfectly
      * playable, for a failure the error taxonomy already classifies as often transient. Stalling keeps
      * the user's options: Retry, or leave.
+     *
+     * [pageId] is required for the same reason [supplyDocument] checks identity: a failure belongs to the
+     * request that produced it. Without it, a slow failure from a session the listener has already
+     * replaced — `playAll(A)` then `playAll(B)`, with A0's fetch failing afterwards — would stall B on a
+     * Note B never asked for, and the Player would offer Retry for A0 while claiming to be B.
      */
-    fun failCurrentNote(failure: ReaderLoadException) {
+    fun failCurrentNote(pageId: String, failure: ReaderLoadException) {
         val current = _queueState.value
         if (current.queue == null) return
+        if (current.currentItem?.pageId != pageId) return
 
         _queueState.value = current.copy(awaiting = false, failure = failure)
     }
@@ -352,6 +426,7 @@ class ReaderSession(val engine: ReaderEngine) {
         val current = _queueState.value
         if (!current.isStalled) return
 
+        loadToken += 1
         _queueState.value = current.copy(failure = null, awaiting = true)
     }
 
@@ -377,3 +452,20 @@ class ReaderSession(val engine: ReaderEngine) {
     /** Releases speech resources. The session must not be used afterwards. */
     fun shutdown() = engine.shutdown()
 }
+
+/**
+ * One request for one Note: which page, and which ask for it.
+ *
+ * It is a value rather than a pair of properties so that "is this the same request?" is a single equality
+ * on two facts that must travel together — the identity of the Note and the identity of the request — and
+ * so that comparing them cannot accidentally compare only one of the two.
+ *
+ * [token] is an implementation detail of that comparison. It has no meaning outside the session and the
+ * loader, and in particular it is never persisted: the Active Queue & Reader Session specification forbids
+ * storing a numeric playback coordinate, and a load token is even less durable than one.
+ */
+data class PendingNoteRequest(
+    val pageId: String,
+    /** Opaque. Only equality against another request's token means anything. */
+    val token: Int
+)

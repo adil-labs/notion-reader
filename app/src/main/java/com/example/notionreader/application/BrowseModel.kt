@@ -105,6 +105,12 @@ class BrowseModel {
     /**
      * Loads the index.
      *
+     * **The newest request is the only one allowed to publish.** Browse is loaded once at launch, on
+     * Retry, and on any future pull-to-refresh, so two reloads can overlap — and a reload of a large
+     * workspace is much slower than one of a small one, which means the last to *finish* is not reliably
+     * the last to be *asked for*. Applying a superseded result would replace a newer index, or an error
+     * from a request the user had already moved past would land on top of a freshly loaded one.
+     *
      * Cancellation propagates rather than being reported as a failed load: leaving Browse is not a Note
      * that could not be loaded, and a cancellation folded into an error would leave "Could not load Notes"
      * on a screen the user had already left.
@@ -114,29 +120,51 @@ class BrowseModel {
      * refresh of readable content must not blank the screen.
      */
     suspend fun load(loader: suspend () -> List<ReaderIndexEntry>) {
+        val token = ++requestToken
+
         if (!_state.value.hasIndex) {
             _state.value = _state.value.copy(index = BrowseIndexStatus.Loading)
         }
 
-        try {
-            _state.value = _state.value.copy(
-                entries = loader(),
-                index = BrowseIndexStatus.Loaded
-            )
+        // The outcome is carried out of the `try` so that one "am I still the newest request?" check
+        // covers the success and the failure path alike. Two checks would be two places to forget one.
+        val outcome: Result<List<ReaderIndexEntry>> = try {
+            Result.success(loader())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // A total mapping: an unmapped failure becomes MALFORMED_RESPONSE via readerErrorCategory,
-            // the same fallback the loading use case uses. The category as well as the text, because the
-            // screen decides whether to offer Retry from the category, not by reading the sentence.
-            // `entries` is deliberately left alone.
-            val failure = e.asReaderLoadException()
-            _state.value = _state.value.copy(
-                index = BrowseIndexStatus.Error(
-                    category = failure.readerErrorCategory,
-                    message = failure.readerErrorMessage
-                )
-            )
+            // the same fallback the loading use case uses.
+            Result.failure(e)
         }
+
+        // Requested first, answered second: a superseded reload is dropped rather than applied.
+        if (token != requestToken) return
+
+        _state.value = outcome.fold(
+            onSuccess = { loaded ->
+                _state.value.copy(entries = loaded, index = BrowseIndexStatus.Loaded)
+            },
+            onFailure = { failure ->
+                // The category as well as the text, because the screen decides whether to offer Retry
+                // from the category, not by reading the sentence. `entries` is deliberately left alone.
+                val mapped = failure.asReaderLoadException()
+                _state.value.copy(
+                    index = BrowseIndexStatus.Error(
+                        category = mapped.readerErrorCategory,
+                        message = mapped.readerErrorMessage
+                    )
+                )
+            }
+        )
     }
+
+    /**
+     * Which load is allowed to publish. Incremented by every [load] call.
+     *
+     * The caller owns the coroutine and therefore owns cancellation; this class stays scope-free like the
+     * rest of the app's state, and a counter is all that is needed to decide whether a result still has a
+     * claimant.
+     */
+    private var requestToken: Int = 0
 }

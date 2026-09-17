@@ -1,7 +1,6 @@
 package com.example.notionreader
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -15,114 +14,70 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope
-import com.example.notionreader.data.local.DataStoreSessionStore
-import com.example.notionreader.application.NoteViewer
-import com.example.notionreader.application.ReaderApp
+import androidx.lifecycle.ViewModelProvider
 import com.example.notionreader.application.ReaderDestination
-import com.example.notionreader.application.ReaderNavigator
-import com.example.notionreader.data.notion.KtorNotionApi
-import com.example.notionreader.data.notion.NotionRepository
-import com.example.notionreader.application.DefaultLoadReaderDocument
-import com.example.notionreader.application.LoadReaderDocument
-import com.example.notionreader.domain.ReaderDocument
-import com.example.notionreader.player.ReaderEngineImpl
-import com.example.notionreader.application.ReaderSession
-import com.example.notionreader.domain.PositionMatch
-import com.example.notionreader.platform.AndroidSpeechEngine
-import com.example.notionreader.player.SpeechEngine
 import com.example.notionreader.ui.BrowseScreen
 import com.example.notionreader.ui.HomeScreen
 import com.example.notionreader.ui.MiniPlayer
 import com.example.notionreader.ui.NoteScreen
 import com.example.notionreader.ui.PlayerScreen
 import com.example.notionreader.ui.QueuesScreen
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 
 /**
- * Holds the application state above the surface being rendered, and wires it to the Compose UI.
+ * The Compose host, and nothing else: it draws the destination the application is on and forwards
+ * intents to [ReaderViewModel].
  *
- * Everything of consequence lives in [ReaderApp] rather than here, and deliberately so: what is being
- * read aloud belongs to a listening session that must outlive whichever screen is on top, and this
- * Activity is the lowest place that outlives all of them. A screen that owned it would stop playback
- * on the way out, which the UI contract forbids twice ("playback may outlive the Player screen" and
- * "navigating away from Player does not stop playback").
+ * It deliberately owns no application state. What is being read aloud, what the Note screen is showing,
+ * and which surface is on top all live in the ViewModel, because a listening session must outlive the
+ * screen it was started from and *this Activity does not* — the system rebuilds it for every
+ * configuration change. Until that moved, rotating the phone ended playback and discarded the session;
+ * see [ReaderViewModel] for the boundary and what it fixes. The Activity's remaining job is the two
+ * things a composition root must do: build the retained root of the object graph, and render it.
  *
- * **Two documents, not one.** The Note screen shows what [NoteViewer] holds — the page as loaded —
+ * **Two documents, not one.** The Note screen shows what the `NoteViewer` holds — the page as loaded —
  * while the listening session holds its own snapshot, taken when Play was pressed. They are the same
  * document only until the user does something. Before this split there was a single document, and
  * since `setDocument` stops speech and resets the position, loading a page to read it was also how the
- * app ended whatever was playing: this Activity starts a load after `setContent`, so tapping Play on
- * the demo document and letting the load finish silently killed playback, and Retry — the same call —
- * did it too. `ReaderAppTest` pins the fix.
+ * app ended whatever was playing: a load started after `setContent` meant tapping Play on the demo
+ * document and letting the load finish silently killed playback, and Retry — the same call — did it too.
+ * `ReaderAppTest` pins the fix.
  *
- * The Note screen starts on the hard-coded [ReaderDocument.Demo] and is replaced by a Notion page once
- * the user opens one, so the shell has something readable with no network and no credentials, and the
- * session has something to play. A failure never blocks reading: the previous document stays on screen
- * and the Note screen reports what went wrong and, when the failure's category says it is worth it,
- * offers Retry.
+ * The Note screen starts on the hard-coded demo document and is replaced by a Notion page once the user
+ * opens one, so the shell has something readable with no network and no credentials, and the session has
+ * something to play. A failure never blocks reading: the previous document stays on screen and the Note
+ * screen reports what went wrong and, when the failure's category says it is worth it, offers Retry.
  *
  * **Nothing is fetched at launch.** There used to be an eager load of `BuildConfig.NOTION_PAGE_ID` that
- * opened the Note screen and then called [ReaderApp.openHome], and since Home is a top-level destination
- * whose whole job is to clear whatever was pushed on top of it, that load navigated to a screen it was
- * immediately navigated away from. The page was fetched on every launch and displayed nowhere. It was
- * left over from the two-screen architecture, where the Note screen *was* the start destination and so
- * had to be loaded to be useful; in the shell the Note screen is reached from a Browse result, which
- * names the page itself, so a page chosen at launch could only ever have been the wrong one. Deleting it
- * removes a network request, a wasted 40-second page fetch on the pinned spec page, and a stale
- * `NOTION_PAGE_ID` build field's last consumer — see `docs/decisions.md` §17.
+ * opened the Note screen and then returned Home, and since Home is a top-level destination whose whole job
+ * is to clear whatever was pushed on top of it, that load navigated to a screen it was immediately
+ * navigated away from. The page was fetched on every launch and displayed nowhere. Deleting it removes a
+ * network request, a wasted 40-second page fetch on the pinned spec page, and a stale `NOTION_PAGE_ID`
+ * build field's last consumer — see `docs/decisions.md` §17. The Browse index *is* loaded at launch, which
+ * is a request Browse's default result set needs and which now happens once per task rather than once per
+ * Activity.
  *
- * Navigating between the two screens is modelled by the app package rather than by a navigation
- * library. The reasoning is recorded in `docs/decisions.md` §12.6; the short version is that the UI
- * contract's real graph is four top-level destinations plus ten secondary screens, and three of them
- * have no content yet, so the shape that would be frozen is not yet known.
+ * Navigating between the screens is modelled by the app package rather than by a navigation library. The
+ * reasoning is recorded in `docs/decisions.md` §12.6; the short version is that the UI contract's real
+ * graph is four top-level destinations plus ten secondary screens, and three of them have no content yet,
+ * so the shape that would be frozen is not yet known.
  */
 class MainActivity : ComponentActivity() {
 
-    private companion object {
-        const val TAG = "NotionReader"
-    }
-
-    private lateinit var speechEngine: SpeechEngine
-    private lateinit var app: ReaderApp
-
-    /** Set when the device cannot speak at all, which no amount of retrying will fix. */
-    private val speechMessage = MutableStateFlow<String?>(null)
-
-    private var loadJob: Job? = null
+    /**
+     * The retained owner of everything that must outlive this Activity.
+     *
+     * Obtained rather than constructed, and obtained with `ViewModelProvider` rather than with a delegate,
+     * so that this class needs nothing but `lifecycle-viewmodel`: the Activity's own factory already knows
+     * how to build an `AndroidViewModel` from the [android.app.Application].
+     */
+    private val model: ReaderViewModel by lazy { ViewModelProvider(this)[ReaderViewModel::class.java] }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        speechEngine = AndroidSpeechEngine(applicationContext) { message ->
-            speechMessage.value = message
-        }
-
-        app = ReaderApp(
-            session = ReaderSession(
-                ReaderEngineImpl(
-                    speechEngine = speechEngine,
-                    initialDocument = ReaderDocument.Demo
-                )
-            ),
-            noteViewer = NoteViewer(ReaderDocument.Demo),
-            navigator = ReaderNavigator(),
-            // One loader for every Note: the one the Note screen shows, and each Note in a queue, so
-            // queue loading inherits the error taxonomy rather than growing a second, thinner path.
-            loadDocument = notionLoader(),
-            sessionStore = DataStoreSessionStore(applicationContext)
-        )
-
-        observeQueue()
-        observeHistory()
-        observeResumeQuality()
-        loadBrowseIndex()
+        val app = model.app
 
         setContent {
             MaterialTheme {
@@ -133,7 +88,7 @@ class MainActivity : ComponentActivity() {
                     val noteDocument by app.noteViewer.document.collectAsState()
                     val noteLoad by app.noteViewer.loadState.collectAsState()
                     val browseState by app.browse.state.collectAsState()
-                    val speech by speechMessage.collectAsState()
+                    val speech by model.speechMessage.collectAsState()
                     val navigation by app.navigator.state.collectAsState()
                     // Not used directly: collecting it is what makes the lambda below re-run when history
                     // changes, since `continueListeningCards()` reads values rather than being a flow.
@@ -152,74 +107,86 @@ class MainActivity : ComponentActivity() {
                     // owns the same controls, and absent when there is no resumable session.
                     val miniPlayerVisible = app.isSessionResumable && current != ReaderDestination.Player
 
+                    // Each destination keeps its own `rememberSaveable` state while another destination is
+                    // on screen — Browse's position in its result list, most visibly. Without this the
+                    // `when (current)` below removes the surface from composition and takes that state with
+                    // it, which is what made `Browse -> Note -> Back` lose the user's place. The contract
+                    // asks Browse to restore "search text; filters; sort; result position"; the query came
+                    // from `BrowseModel` and was already safe, and this is what makes the position safe too.
+                    //
+                    // Keyed by the destination's name rather than by the enum itself, because the key is
+                    // written into the saved-instance-state bundle and a string is unambiguous there.
+                    val destinationState = rememberSaveableStateHolder()
+
                     Column(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f)) {
-                            when (current) {
-                                ReaderDestination.Home -> HomeScreen(
-                                    // Reading `history` here is what makes Home recompose when the session
-                                    // moves; the cards themselves are derived from it and from the live
-                                    // session, so nothing here has to know which session is which.
-                                    continueListening = history.let { app.continueListeningCards() },
-                                    onContinue = { id -> lifecycleScope.launch { app.continueSession(id) } },
-                                    onBrowse = app::openBrowse,
-                                    onPlayPause = app::togglePlayPause
-                                )
+                            destinationState.SaveableStateProvider(current.name) {
+                                when (current) {
+                                    ReaderDestination.Home -> HomeScreen(
+                                        // Reading `history` here is what makes Home recompose when the
+                                        // session moves; the cards themselves are derived from it and from
+                                        // the live session, so nothing here has to know which session is
+                                        // which.
+                                        continueListening = history.let { app.continueListeningCards() },
+                                        onContinue = model::continueSession,
+                                        onBrowse = app::openBrowse,
+                                        onPlayPause = app::togglePlayPause
+                                    )
 
-                                ReaderDestination.Browse -> BrowseScreen(
-                                    state = browseState.results,
-                                    isLoading = browseState.isLoading,
-                                    error = browseState.error,
-                                    queryText = browseState.query.text,
-                                    onQueryChange = app.browse::setText,
-                                    onOpenNote = { entry ->
-                                        lifecycleScope.launch { app.openNote(entry.pageId) }
-                                    },
-                                    onPlayAll = app::playAllVisibleResults,
-                                    onClearQuery = app.browse::clearQuery,
-                                    onRetry = ::loadBrowseIndex
-                                )
+                                    ReaderDestination.Browse -> BrowseScreen(
+                                        state = browseState.results,
+                                        isLoading = browseState.isLoading,
+                                        error = browseState.error,
+                                        queryText = browseState.query.text,
+                                        onQueryChange = app.browse::setText,
+                                        onOpenNote = { entry -> model.openNote(entry.pageId) },
+                                        onPlayAll = app::playAllVisibleResults,
+                                        onClearQuery = app.browse::clearQuery,
+                                        onRetry = model::retryBrowseIndex
+                                    )
 
-                                ReaderDestination.Queues -> QueuesScreen(
-                                    // Both lists are read from `history`, which is collected above for the
-                                    // same reason Home collects it: the entries are derived from it and
-                                    // from the live session, so nothing here has to know which session is
-                                    // which.
-                                    continueListening = history.let { app.listeningContinueEntries() },
-                                    recentlyCompleted = history.let { app.listeningCompletedEntries() },
-                                    // Continue restores the named session; Play on a completed entry starts
-                                    // a new one. Two different operations, so two different calls rather
-                                    // than one with a flag.
-                                    onContinue = { id -> lifecycleScope.launch { app.continueSession(id) } },
-                                    onReplay = { id -> lifecycleScope.launch { app.replayCompleted(id) } }
-                                )
+                                    ReaderDestination.Queues -> QueuesScreen(
+                                        // Both lists are read from `history`, which is collected above for
+                                        // the same reason Home collects it: the entries are derived from it
+                                        // and from the live session, so nothing here has to know which
+                                        // session is which.
+                                        continueListening = history.let { app.listeningContinueEntries() },
+                                        recentlyCompleted = history.let { app.listeningCompletedEntries() },
+                                        // Continue restores the named session; Play on a completed entry
+                                        // starts a new one. Two different operations, so two different calls
+                                        // rather than one with a flag.
+                                        onContinue = model::continueSession,
+                                        onReplay = model::replayCompleted
+                                    )
 
-                                ReaderDestination.Note -> NoteScreen(
-                                    // The inspected document, not the one being read. Loading another
-                                    // Note must leave the session alone, and this is what makes that
-                                    // visible.
-                                    document = noteDocument,
-                                    loadState = noteLoad,
-                                    // Play means "creates a new Active Queue containing only this Note;
-                                    // starts from the beginning; opens Player" — the one place a Note
-                                    // becomes playback, which is why it is a named action rather than a
-                                    // side effect of loading.
-                                    onPlay = app::playNote,
-                                    onRetry = ::retryNoteLoad,
-                                    statusMessage = speech
-                                )
+                                    ReaderDestination.Note -> NoteScreen(
+                                        // The inspected document, not the one being read. Loading another
+                                        // Note must leave the session alone, and this is what makes that
+                                        // visible.
+                                        document = noteDocument,
+                                        loadState = noteLoad,
+                                        // Play means "creates a new Active Queue containing only this Note;
+                                        // starts from the beginning; opens Player" — the one place a Note
+                                        // becomes playback, which is why it is a named action rather than a
+                                        // side effect of loading.
+                                        onPlay = app::playNote,
+                                        onRetry = model::retryNoteLoad,
+                                        statusMessage = speech
+                                    )
 
-                                ReaderDestination.Player -> PlayerScreen(
-                                    state = sessionState,
-                                    // The session's title, not the Note screen's: the Player shows what
-                                    // is being read, which is the document Play was pressed on.
-                                    documentTitle = sessionDocument.title,
-                                    onPlayPause = app::togglePlayPause,
-                                    onNextSection = app.session::nextSection,
-                                    onPreviousSection = app.session::previousSection,
-                                    statusMessage = speech,
-                                    queueState = queueState,
-                                    onRetryQueueNote = app::retryQueueNote
-                                )
+                                    ReaderDestination.Player -> PlayerScreen(
+                                        state = sessionState,
+                                        // The session's title, not the Note screen's: the Player shows
+                                        // what is being read, which is the document Play was pressed on.
+                                        documentTitle = sessionDocument.title,
+                                        onPlayPause = app::togglePlayPause,
+                                        onNextSection = app.session::nextSection,
+                                        onPreviousSection = app.session::previousSection,
+                                        statusMessage = speech,
+                                        queueState = queueState,
+                                        onRetryQueueNote = app::retryQueueNote
+                                    )
+                                }
                             }
                         }
 
@@ -262,149 +229,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-    }
-
-    /**
-     * The two signals the queue needs from outside itself.
-     *
-     * Both are observations rather than callbacks the session fires, because the session is deliberately
-     * scope-free and synchronous: it cannot start a coroutine to load a Note, and the engine publishes
-     * completion as state rather than as an event. These two collectors are the whole of that boundary.
-     *
-     * They are collected on the lifecycle scope, so a load in flight stops when the Activity does.
-     */
-    private fun observeQueue() {
-        // A Note finished, so the queue may advance to the next one. `distinctUntilChanged` matters: the
-        // engine keeps reporting `hasReachedEnd` until a new document is set, and without it the queue
-        // would advance once per emission rather than once per Note.
-        lifecycleScope.launch {
-            app.session.state
-                .map { it.hasReachedEnd }
-                .distinctUntilChanged()
-                .collect { finished -> if (finished) app.onNoteFinished() }
-        }
-
-        // While a Note is awaited, fetch it. One step per emission, and a failed load clears `awaiting`,
-        // so this cannot spin: it stops until the user presses Retry, which sets `awaiting` again.
-        lifecycleScope.launch {
-            app.session.queueState
-                .map { it.awaiting }
-                .distinctUntilChanged()
-                .collect { awaiting -> if (awaiting) app.loadPendingQueueNote() }
-        }
-    }
-
-    /**
-     * Records the live session into history.
-     *
-     * ## The load must finish before this subscribes, and that is a correctness requirement rather than a
-     * ## nicety
-     *
-     * [ReaderApp.persistSession] writes the retained set, which is history **plus** the live session. If a
-     * write could happen first, it would persist an empty history plus the live session and silently
-     * discard every session already on disk — the listener's entire Continue listening list, erased by the
-     * launch of the app. So history is loaded in the same coroutine, before the collector starts.
-     *
-     * Collecting the position rather than a timer is what makes a session interrupted *while playing*
-     * resumable. Writing only on pause would mean the common case — the phone being taken out of the
-     * listener's hand mid-Note — loses everything since the last pause.
-     */
-    private fun observeHistory() {
-        lifecycleScope.launch {
-            app.loadHistory()
-
-            combine(
-                app.session.state.map { listOf(it.currentParagraphIndex, it.isPlaying, it.hasReachedEnd) },
-                app.session.queueState.map { listOf(it.index, it.awaiting, it.completed) }
-            ) { reading, queue -> reading + queue }
-                .distinctUntilChanged()
-                .collect { app.persistSession() }
-        }
-    }
-
-    /**
-     * Records the match quality of a restore.
-     *
-     * The Active Queue & Reader Session spec requires this to be recorded, and it is the only way to tell an
-     * exact resume from a fallback: both start playback at a plausible place, and the difference is
-     * invisible in the audio until the listener notices they have heard a paragraph before. An exact resume
-     * logs nothing, because there is nothing to say and a log line per resume would train the reader to
-     * ignore the ones that matter.
-     */
-    private fun observeResumeQuality() {
-        lifecycleScope.launch {
-            // No `distinctUntilChanged`: the source is already a StateFlow, which conflates, so applying it
-            // to the flow directly is a deprecated no-op. The filter below is what decides what is worth
-            // recording.
-            app.session.lastResume.collect { decision ->
-                val match = decision?.match ?: return@collect
-                val announcement = decision.announcement
-
-                // An exact resume says nothing: the text is the continuation, and a log line per resume
-                // would train the reader to ignore the ones that matter.
-                if (match == PositionMatch.CHUNK && announcement == null) return@collect
-
-                Log.i(
-                    TAG,
-                    "resume match=$match startIndex=${decision.startIndex} " +
-                        "announcement=${announcement ?: "none"}"
-                )
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        app.shutdown()
-        super.onDestroy()
-    }
-
-    /**
-     * Loads the Browse index.
-     *
-     * A no-op without a token: there is nothing to list, and the demo document keeps the rest of the app
-     * usable. The index is otherwise a single request for the pages the integration can see, so it is
-     * loaded when Browse opens rather than per keystroke.
-     */
-    private fun loadBrowseIndex() {
-        if (BuildConfig.NOTION_TOKEN.isBlank()) return
-
-        lifecycleScope.launch {
-            app.loadBrowseIndex {
-                val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
-                try {
-                    repository.getBrowseIndex()
-                } finally {
-                    repository.close()
-                }
-            }
-        }
-    }
-
-    /**
-     * Retries the Note screen's load.
-     *
-     * Re-loads the page the viewer asked for, not the configured page id — a Browse result can open any
-     * page, so those are no longer the same thing.
-     */
-    private fun retryNoteLoad() {
-        loadJob?.cancel()
-        loadJob = lifecycleScope.launch { app.retryNoteLoad() }
-    }
-
-    /**
-     * Builds the use case that fetches one page by reference.
-     *
-     * A fresh client per call, deliberately rather than sharing one: a retry that reuses a closed client
-     * is a bug that only appears on the failure path, and this is now called once per Note in a
-     * multi-Note queue rather than once per screen.
-     */
-    private fun notionLoader(): LoadReaderDocument = DefaultLoadReaderDocument { reference ->
-        val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
-        try {
-            repository.getDocument(reference)
-        } finally {
-            repository.close()
         }
     }
 }
