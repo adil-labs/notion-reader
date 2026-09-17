@@ -35,6 +35,15 @@ $callableDeclaration = "(?m)^($modifiers)(?:fun|val|var)\s+(?:<[^>\r\n]+>[ \t]+)
 
 # A captured name that is itself a keyword means the pattern matched a keyword position, not a
 # declaration. Rejecting them is cheaper than making the pattern airtight.
+#
+# KNOWN LIMITATION, and it has already bitten once: the index holds **top-level** declarations only, so a
+# legitimate import of an extension declared as a *member of an object* - `import pkg.A11y.assertIsReachable`
+# - is not vouched for and is pruned. Members cannot simply be added to the index either: registering every
+# member name would offer `import ...A11y.document` to any file mentioning `document`, and the add step is
+# driven by the compiler but the *prune* is not, so such an import would survive unreferenced and could
+# create a layer violation out of nothing. The mitigation is the compile target list below: the tool now
+# compiles every source set, so a pruned member-import surfaces as an unresolved reference and the run
+# stops and says so, rather than reporting success.
 $keywords = @(
     'interface', 'class', 'object', 'fun', 'val', 'var', 'typealias', 'enum', 'data', 'sealed', 'open',
     'abstract', 'internal', 'public', 'private', 'protected', 'const', 'inline', 'suspend', 'operator',
@@ -198,7 +207,17 @@ for ($round = 1; $round -le $MaxRounds; $round++) {
     Write-Output ""
     Write-Output "Round $round : compiling"
 
-    $output = & (Join-Path $repoRoot 'gradlew.bat') :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --console=plain 2>&1
+    # All three source sets, and the androidTest one is not optional.
+    #
+    # The first version compiled `main` and the unit tests only. That is the whole tree except the one
+    # source set that had lost the most: the prune removes any `com.example.notionreader` import the index
+    # does not vouch for, and the instrumented tests import an **extension declared as a member of an
+    # object** (`A11y.assertIsReachable`), which is legal Kotlin and which no top-level declaration index
+    # can see. So the import was removed, the compile that would have noticed was never run, and the
+    # breakage was committed - with the suite reporting 295 green, because neither `testDebugUnitTest` nor
+    # `assembleDebug` compiles `androidTest`. A tool that reports success while a source set is broken is
+    # worse than no tool.
+    $output = & (Join-Path $repoRoot 'gradlew.bat') :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin --console=plain 2>&1
     $raw = ($output | ForEach-Object { "$_" }) -join "`n"
 
     if (-not ($raw -match '(?m)^e: ')) {

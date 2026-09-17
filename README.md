@@ -29,17 +29,27 @@ the app closed (see Later Architecture in the spec).
 
 ## Screens
 
-The UI contract separates manual reading from continuous listening, so there are two screens and
-they are not interchangeable:
+The UI contract separates manual reading from continuous listening, so the screens are not
+interchangeable:
 
+- **Home** — Continue listening, as a list of listening sessions you have not finished.
+- **Browse** — the default result set (the pages the integration can see), search, sort, and `Play all`.
+- **Queues** — the Listening tab: Continue listening and Recently completed.
 - **Note** — manual reading and inspection. Renders the whole document in reading order; opening it
   never starts playback and moving focus through it never changes playback progress.
 - **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
-  and Previous section / Play-Pause / Next section. Back returns to the Note while playback continues.
+  and Previous section / Play-Pause / Next section. Back returns to the previous screen while playback
+  continues.
+
+Queues ships **one of its three tabs**. Saved and Smart Queues need two specifications that do not
+exist, and two permanently unusable controls one tap from a populated surface is the same problem as
+an empty screen, only better hidden (see `docs/decisions.md` §18.4). The tab row is in place so each
+deferred tab is one tab and one screen. Settings is absent for the same reason it always was — it has
+no content by definition.
 
 The Player's `Queue` control and the Note's `Add to queue` action are deliberately absent: both need
-an Active Queue, which belongs to a specification that does not exist yet, and a visible control that
-does nothing is worse for a TalkBack user than an absent one.
+Saved or Smart Queues, and a visible control that does nothing is worse for a TalkBack user than an
+absent one.
 
 ## Install on a device
 
@@ -53,10 +63,11 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Not yet implemented
 
-- Queue surfaces (the Player's `Queue` control, the Note's `Add to queue`, the mini-player's own
+- Queue surfaces (the Player's `Queue` control, the Note's `Add to queue`, and the mini-player's own
   screen).
-- Queues: the Listening tab exists only as data (`ReaderApp.completedSessions`); there is no surface for
-  completed sessions, and Saved and Smart Queues need two specifications that do not exist.
+- Queues' **Saved** and **Smart** tabs. The **Listening** tab is built; the other two need two
+  specifications that do not exist, and the integration spec explicitly delegates their persistence
+  away from itself.
 - Browse facets, and Home's Explore and Your queues sections, which all need the Content Metadata &
   Workspace Schema Adapters specification. Browse itself is built (search, sort by most recently edited,
   `Play all`).
@@ -74,33 +85,51 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Architecture
 
+The layers are the Product & Architecture Contract's, and `LayerRulesTest` fails the build if a package
+depends on a layer above it, if a file's package disagrees with its directory, or if a layer named in the
+rule table does not exist. The names below are packages under `com.example.notionreader`.
+
 ```
-Notion            demo document
-   |                   |
-   v                   v
-NotionRepository -> ReaderDocument -> ReaderEngine -> UI (Compose, TalkBack)
-                                          |
-                                          v
-                                     SpeechEngine -> Android TextToSpeech
+platform (Android TTS adapter)
+        \
+         v
+data.notion   data.content   data.local          domain (+ queue / session / discovery)
+        \           |              /                       ^
+         \          v             /                        |
+          ----> application -> player ---------------------+
+                    ^
+                    |
+                   ui  (screens; depends on domain, player and application)
+
+MainActivity is the composition root and may name anything.
 ```
 
-The reader never depends on Android TTS or on Notion:
+- `domain/` — the provider-agnostic model, and nothing else. `ReaderDocument`, `ReaderSection`,
+  `ReaderChunk`, `ChunkMetadata`; `ReaderDocumentPosition` and the resolver that reports how much of a
+  saved position survived an edit; the `ReaderErrorCategory` taxonomy. `chunkTexts` is the flat projection
+  playback consumes.
+- `domain/queue/` — `ActiveQueue`, `QueuedNote`, `QueueOrigin`, `QueueState`.
+- `domain/session/` — `StoredSession`, the `SessionStore` port, `ListeningHistory` (retention and
+  ordering) and `ResumePolicy`. Pure, and JVM-testable with no dispatcher.
+- `domain/discovery/` — normalized discovery metadata and the query over it.
+- `player/` — `ReaderState` (the immutable reading position and navigation), `ReaderEngine`, and the
+  `SpeechEngine` port. Depends only on `domain`.
+- `application/` — the use cases and application state: `ReaderSession` (the owner of playback),
+  `NoteViewer` (the inspected Note, deliberately separate), `QueueLoader`, `BrowseModel`,
+  `LoadReaderDocument`, `ReaderNavigator`, and the read models `ContinueListeningCard` and
+  `HistoryEntry`.
+- `data/notion/` — `NotionApi` (HTTP, retry, error mapping), `NotionModels` (JSON), `NotionRepository`.
+- `data/content/` — `NotionBlockNormalizer` (Notion block types → `NormalizedBlock`),
+  `ReaderDocumentMapper`, `TextChunker`.
+- `data/local/` — `SessionCodec` (the versioned wire form) and `DataStoreSessionStore`.
+- `platform/` — `AndroidSpeechEngine`.
+- `ui/` — state and callbacks only, no business logic.
 
-- `reader/ReaderDocument.kt` — provider-agnostic document model: `ReaderDocument(pageId, title,
-  sections, lastEditedAt)`, `ReaderSection`, `ReaderChunk`, `ChunkMetadata`. `chunkTexts` is the flat
-  projection playback consumes.
-- `reader/ReaderState.kt` — immutable reading position, navigation, section outline and playback flags.
-- `reader/ReaderEngine.kt` — coordinates navigation and speech through the `StateFlow<ReaderState>` the
-  UI observes. Navigation logic lives in `ReaderState`, not in the UI.
-- `reader/ReaderDocumentPosition.kt` — the stable-identity handoff type and the resolver that reports how
-  much of a saved position survived an edit. It reports facts, never resume policy.
-- `reader/ReaderLoadError.kt`, `reader/LoadReaderDocument.kt` — the error taxonomy and the single
-  high-level use case the spec asks for, returning `Result<ReaderDocument>`.
-- `reader/TextChunker.kt` — sentence → word → hard-split fallback chain and the split threshold.
-- `speech/` — `SpeechEngine` interface, `AndroidSpeechEngine` implementation, and a JVM test double.
-- `notion/` — `NotionApi` (HTTP, retry, error mapping), `NotionModels` (JSON), `NotionBlockNormalizer`
-  (Notion block types → `NormalizedBlock`), `NotionRepository` (wiring), `ReaderDocumentMapper`.
-- `ui/NoteScreen.kt`, `ui/PlayerScreen.kt` — state + callbacks only, no business logic.
+Two rules matter more than the names. **Notion DTOs never reach the reader domain** — the mapper consumes
+`NormalizedBlock`, not `NotionBlock`, which is why the content-mapping code lives in `data/content` while
+the types it produces live in `domain`. And **`application` never depends on `ui`**: a read model the
+application builds and screens render belongs to the application, which is why `ContinueListeningCard` is
+where it is rather than in the file that first drew it.
 
 Because of that split, the hard-coded `ReaderDocument.Demo` and a `NotionRepository`-produced document
 are interchangeable without touching navigation.
@@ -187,16 +216,20 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 146 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 295 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 
 Ktor must be 3.6.0 or newer: 3.2.0 contains a field name with spaces that R8 cannot dex for `minSdk 26`
 (`Space characters in SimpleName 'use streaming syntax' are not allowed prior to DEX version 040`).
 
+The JVM suite includes the architecture rules (`LayerRulesTest`) and the frozen stored-session wire
+format (`SessionWireFormatTest`), both of which exist to fail loudly on changes that would otherwise
+be silent.
+
 ### Instrumented accessibility tests
 
-The 32 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+The 47 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
 consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
 directly:
 
@@ -204,11 +237,20 @@ directly:
 pwsh -File tools/run-accessibility-tests.ps1
 ```
 
-The wrapper exists because the device has to be prepared in two ways that a plain Gradle run cannot do:
-it wakes the screen and dismisses the keyguard, and it raises `screen_off_timeout` for the duration.
-A stock 30-second timeout is shorter than a run, so the screen can sleep mid-test and make
-`assertIsDisplayed` fail intermittently in a way that looks like a layout bug. The original timeout is
-restored in a `finally`.
+The wrapper exists because the device has to be prepared in ways a plain Gradle run cannot do:
+
+- **It requires the device to be unlocked, and refuses to run otherwise.** With the keyguard up the test
+  activity never reaches the foreground, so no Compose hierarchy is drawn and *every* test fails with
+  "No compose hierarchies found in the app". That is 45 failures out of 47, in exactly the shape of a
+  catastrophic regression, while the only thing wrong is that a phone on a desk locked itself. The
+  wrapper wakes the display, dismisses the keyguard and verifies that it went, retrying because a
+  dismiss issued in the same breath as the wake can race. It will not attempt a secure unlock: that needs
+  the owner's PIN.
+- **It raises `screen_off_timeout` for the duration**, because a stock 30-second timeout is shorter than
+  a run and a display that sleeps mid-test is indistinguishable from a layout bug. The original values
+  are restored in a `finally`. `stay_on_while_plugged_in` is set too, but it only has any effect while
+  charging, so on battery — the usual case — `screen_off_timeout` is what keeps the display on. The
+  wrapper says so rather than implying otherwise.
 
 Two other things are pinned deliberately, both because the failure they prevent is misleading:
 
@@ -223,8 +265,14 @@ Controls are driven through `SemanticsActions.OnClick` rather than synthetic tap
 accessibility service performs, and unlike a synthesised touch it cannot be silently dropped by the
 device's window.
 
-Note: the `connectedDebugAndroidTest` task currently exits non-zero even when all 32 tests pass, so
-read the HTML report at `app/build/reports/androidTests/connected/debug/index.html` for the verdict.
+A real failure is retried only when **every** failing test matches a short list of harness signatures —
+the harness losing the activity, or the locked-device signature above. Any unclassified or mixed result
+is red immediately, because a retry must never be able to launder a real defect into a pass.
+
+Note: the `connectedDebugAndroidTest` task currently exits non-zero even when all 47 tests pass. The
+wrapper derives its own exit code from the collected results, reading both the XML and the HTML report
+and using the worse count, because the two have disagreed in both directions on this project. The HTML
+report is at `app/build/reports/androidTests/connected/debug/index.html`.
 
 ## Accessibility rules
 

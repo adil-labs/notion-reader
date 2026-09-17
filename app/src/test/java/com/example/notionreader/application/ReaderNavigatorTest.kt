@@ -122,11 +122,31 @@ class ReaderNavigatorTest {
     }
 
     @Test
-    fun onlyTheTwoContentSurfacesAreTopLevel() {
+    fun onlyThePopulatedContentSurfacesAreTopLevel() {
         // "The Player is not a fifth bottom-navigation destination" and "The Note screen is not a
         // top-level destination" — the shell reads this, so it is asserted rather than assumed.
-        assertEquals(listOf(ReaderDestination.Home, ReaderDestination.Browse), ReaderDestination.entries.filter { it.isTopLevel })
+        //
+        // Queues joined this list when the Listening tab gave it content. It is the same rule that has
+        // kept Settings out: a top-level destination is one a listener can be sent to and find something
+        // there, and the UI contract's four destinations are shipped as three while Settings has nothing
+        // to show. The list is asserted exactly, rather than by counting, because a destination silently
+        // becoming a tab is what this test exists to notice.
+        assertEquals(
+            listOf(ReaderDestination.Home, ReaderDestination.Browse, ReaderDestination.Queues),
+            ReaderDestination.entries.filter { it.isTopLevel }
+        )
         assertFalse(ReaderDestination.Note.isTopLevel)
         assertFalse(ReaderDestination.Player.isTopLevel)
+    }
+
+    @Test
+    fun backFromQueuesReturnsHomeRatherThanFinishing() {
+        // The §12.5 rule applied to the new destination: Back reverses visual navigation, and a bottom
+        // navigation destination that exits the application on Back is a surprise.
+        val navigator = ReaderNavigator()
+        navigator.openTopLevel(ReaderDestination.Queues)
+
+        assertTrue(navigator.back())
+        assertEquals(ReaderDestination.Home, navigator.state.value.top)
     }
 }

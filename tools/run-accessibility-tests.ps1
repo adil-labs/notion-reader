@@ -98,7 +98,18 @@ function Get-HtmlReportCounter([string]$Html, [string]$ElementId) {
 $HARNESS_FAILURE_PATTERNS = @(
     'Cannot run onActivity since Activity has been destroyed already',
     'Process crashed',
-    'Instrumentation run failed'
+    'Instrumentation run failed',
+
+    # The locked-device signature. Included as a second line of defence behind the preflight check
+    # below: if the keyguard returns mid-run, every Compose test fails with this and nothing about the
+    # app is implicated, so a single retry is the right response rather than a red suite.
+    #
+    # It is worth knowing why this one is easy to misread. It does not look like a device problem - it
+    # names the app's own setContent - so it reads as "the composition is broken", and because it fails
+    # *every* test uniformly it reads as a catastrophic regression rather than as an environment fault.
+    # The measured cause was the keyguard being up: the test activity cannot come to the foreground
+    # behind a lock screen, so it never draws a Compose hierarchy at all.
+    'No compose hierarchies found in the app'
 )
 
 <#
@@ -277,10 +288,61 @@ if ([string]::IsNullOrWhiteSpace($originalStayOn)) { $originalStayOn = '0' }
 Write-Output "Device screen_off_timeout was $originalTimeout ms; raising to $TEST_TIMEOUT_MS ms for this run."
 Write-Output "Device stay_on_while_plugged_in was $originalStayOn; setting to 7 (always on) for this run."
 
-try {
-    # Keyguard first: a locked device will not display the test activity either.
+<#
+    The device must be unlocked before anything runs, and this is checked rather than assumed.
+
+    It is not a nicety. With the keyguard up, the test activity cannot come to the foreground, so
+    `setContent` never draws a Compose hierarchy, and **every** test in every suite fails with "No
+    compose hierarchies found in the app". That is 45 failures out of 47 on this project, reported as
+    `RESULT: FAILED`, in exactly the shape of a catastrophic regression - while the only thing wrong was
+    that a phone lying on a desk had locked itself.
+
+    Two earlier versions of this script did attempt to handle it and were not enough. The first woke the
+    display and called `wm dismiss-keyguard` once, which races: a dismiss issued in the same breath as
+    the wake can arrive before there is a window to dismiss. The second relied on
+    `stay_on_while_plugged_in=7` to keep the display on, which **does nothing on a device that is on
+    battery** - the setting only applies while charging - and this device is routinely unplugged, so the
+    mitigation was inert for the case it was added for.
+
+    So: wake, dismiss, and then *verify*, retrying the pair a few times because the race is real. If the
+    keyguard is still showing, the script refuses to run rather than producing a result that looks like
+    an app failure. Unlocking a secure device needs the owner's PIN and is deliberately not attempted -
+    a script that typed credentials would be a worse problem than the one it solved.
+#>
+$keyguardDismissed = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
     & $adb shell input keyevent KEYCODE_WAKEUP | Out-Null
     & $adb shell wm dismiss-keyguard | Out-Null
+
+    # `dumpsys window` is the only place this is published; the lock settings do not report it.
+    $keyguardState = (& $adb shell dumpsys window | Select-String -Pattern 'isKeyguardShowing=\w+' |
+        Select-Object -First 1).Matches.Value
+
+    if ($keyguardState -eq 'isKeyguardShowing=false') { $keyguardDismissed = $true; break }
+}
+
+if (-not $keyguardDismissed) {
+    throw "The device is locked ($keyguardState) and could not be woken and dismissed into an unlocked " +
+        "state. Refusing to run: with the keyguard up every test fails with 'No compose hierarchies " +
+        "found in the app', which is indistinguishable from a total regression and is not one. " +
+        "Unlock the device and re-run. (A secure lock needs its PIN typed by hand; this script will " +
+        "never handle a credential.)"
+}
+
+Write-Output 'Device is awake and unlocked.'
+
+$isCharging = (& $adb shell dumpsys battery | Select-String -Pattern '(AC|USB|Wireless) powered: true' |
+    Select-Object -First 1).Matches.Count -gt 0
+
+if (-not $isCharging) {
+    # Reported rather than silently relied on. `stay_on_while_plugged_in` is set below regardless,
+    # because it costs nothing and helps if the device is plugged in for a long run, but a reader should
+    # know that on battery the ONLY thing keeping the screen on is `screen_off_timeout`.
+    Write-Output ('Device is on battery, so stay_on_while_plugged_in has no effect; the raised ' +
+        'screen_off_timeout is what keeps the display on for this run.')
+}
+
+try {
     & $adb shell settings put system screen_off_timeout $TEST_TIMEOUT_MS | Out-Null
     & $adb shell settings put global stay_on_while_plugged_in 7 | Out-Null
 

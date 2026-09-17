@@ -266,4 +266,57 @@ internal object A11y {
 
         return this
     }
+
+    /**
+     * Asserts a node can be **read** by a listener: laid out on the surface, and with something to say.
+     *
+     * The difference from [assertIsReachable] is the absence of the `OnClick` requirement, and it is a
+     * real distinction rather than a weaker assertion. `assertIsReachable` answers "can a listener
+     * activate this", which is the right question for a control and the *wrong* one for a node that is
+     * deliberately not a control.
+     *
+     * A listening-history entry is exactly that case, and asserting reachability on it fails for the
+     * right reason: it has no `OnClick`, because the Active Queue & Reader Session spec requires
+     * "Continue is an explicit named control beside it, not part of the entry's announcement". The
+     * entry's job is to be one focus stop that says what the session is; the button beside it is the
+     * only thing that acts. Using the reachability assertion here would either fail a correct design or,
+     * if someone "fixed" it by making the whole row tappable, quietly collapse the two things the spec
+     * separates - a tappable title is an unlabelled gesture target to a screen reader, which is the
+     * "reachable only by a gesture" case the spec also forbids.
+     */
+    fun SemanticsNodeInteraction.assertIsReadable(): SemanticsNodeInteraction {
+        val node = fetchSemanticsNode()
+        val label = node.text() ?: node.contentDescription() ?: "node ${node.id}"
+        val bounds = node.boundsInRoot
+        val surface = generateSequence(node) { it.parent }.last().boundsInRoot
+
+        assertTrue(
+            "'$label' exists in the tree but has never been laid out (isPlaced=false); bounds=$bounds",
+            node.layoutInfo.isPlaced
+        )
+
+        assertTrue(
+            "'$label' is laid out but occupies no area, so it is invisible: bounds=$bounds",
+            bounds.width > 0f && bounds.height > 0f
+        )
+
+        val overlapsSurface = bounds.left < surface.right && bounds.right > surface.left &&
+            bounds.top < surface.bottom && bounds.bottom > surface.top
+
+        assertTrue(
+            "'$label' lies outside the app surface at $bounds (surface is $surface), so a listener " +
+                "would have to scroll to read it",
+            overlapsSurface
+        )
+
+        val name = "${node.text().orEmpty()} ${node.contentDescription().orEmpty()}".trim()
+
+        assertTrue(
+            "'$label' has no text and no content description, so a listener would reach a node that " +
+                "says nothing",
+            name.isNotBlank()
+        )
+
+        return this
+    }
 }

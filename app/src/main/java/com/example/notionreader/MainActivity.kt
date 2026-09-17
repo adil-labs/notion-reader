@@ -37,6 +37,7 @@ import com.example.notionreader.ui.HomeScreen
 import com.example.notionreader.ui.MiniPlayer
 import com.example.notionreader.ui.NoteScreen
 import com.example.notionreader.ui.PlayerScreen
+import com.example.notionreader.ui.QueuesScreen
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -178,6 +179,20 @@ class MainActivity : ComponentActivity() {
                                     onRetry = ::loadBrowseIndex
                                 )
 
+                                ReaderDestination.Queues -> QueuesScreen(
+                                    // Both lists are read from `history`, which is collected above for the
+                                    // same reason Home collects it: the entries are derived from it and
+                                    // from the live session, so nothing here has to know which session is
+                                    // which.
+                                    continueListening = history.let { app.listeningContinueEntries() },
+                                    recentlyCompleted = history.let { app.listeningCompletedEntries() },
+                                    // Continue restores the named session; Play on a completed entry starts
+                                    // a new one. Two different operations, so two different calls rather
+                                    // than one with a flag.
+                                    onContinue = { id -> lifecycleScope.launch { app.continueSession(id) } },
+                                    onReplay = { id -> lifecycleScope.launch { app.replayCompleted(id) } }
+                                )
+
                                 ReaderDestination.Note -> NoteScreen(
                                     // The inspected document, not the one being read. Loading another
                                     // Note must leave the session alone, and this is what makes that
@@ -236,6 +251,12 @@ class MainActivity : ComponentActivity() {
                                 onClick = { app.openBrowse() },
                                 icon = {},
                                 label = { Text("Browse") }
+                            )
+                            NavigationBarItem(
+                                selected = navigation.top == ReaderDestination.Queues,
+                                onClick = { app.openQueues() },
+                                icon = {},
+                                label = { Text("Queues") }
                             )
                         }
                     }

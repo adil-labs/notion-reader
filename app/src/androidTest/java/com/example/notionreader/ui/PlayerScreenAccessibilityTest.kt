@@ -3,6 +3,7 @@ package com.example.notionreader.ui
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
@@ -11,8 +12,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.test.SemanticsMatcher
 import com.example.notionreader.player.ReaderState
+import com.example.notionreader.player.sectionSpans
+import com.example.notionreader.ui.A11y.assertIsReachable
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

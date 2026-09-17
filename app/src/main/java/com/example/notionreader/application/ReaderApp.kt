@@ -115,7 +115,7 @@ class ReaderApp(
         get() = ListeningHistory.unfinished(historyIncludingLiveSession())
 
     /**
-     * Completed sessions, most recently active first. The Listening tab is a later slice; the data is here.
+     * Completed sessions, most recently active first. What the Listening tab's second section lists.
      *
      * Merged with the live session for the same reason [resumableSessions] is: a session that has just
      * finished is completed *now*, and making it wait for a disk write before it appears under Recently
@@ -128,6 +128,19 @@ class ReaderApp(
     /** Home's Continue listening entries. */
     fun continueListeningCards(limit: Int = HOME_HISTORY_LIMIT): List<ContinueListeningCard> =
         resumableSessions.take(limit).map { it.toCard() }
+
+    /**
+     * The Listening tab's first section: every unfinished session, most recently active first.
+     *
+     * Deliberately not [continueListeningCards], and the difference is the point of having both surfaces.
+     * The UI contract gives Home "a small useful subset" and the full history to `Queues -> Listening`, so
+     * this list is uncapped while Home's is capped at [HOME_HISTORY_LIMIT]. They are also different read
+     * models, because a history entry can be completed and a mini-player card cannot.
+     */
+    fun listeningContinueEntries(): List<HistoryEntry> = resumableSessions.map { it.toHistoryEntry() }
+
+    /** The Listening tab's second section: every completed session, most recently active first. */
+    fun listeningCompletedEntries(): List<HistoryEntry> = completedSessions.map { it.toHistoryEntry() }
 
     /**
      * Continue: restores the named session, or opens the Player if it is already the live one.
@@ -185,11 +198,46 @@ class ReaderApp(
         )
     }
 
+    /**
+     * A stored session as a history entry.
+     *
+     * The same one implementation for both Listening sections, so the two lists cannot describe the same
+     * session differently — and so that the completion state, which is what decides which section an entry
+     * appears in, is also what decides how it reads.
+     */
+    private fun StoredSession.toHistoryEntry(): HistoryEntry {
+        val isLive = id == session.id
+
+        return HistoryEntry(
+            sessionId = id,
+            title = currentNote?.title ?: notes.firstOrNull()?.title.orEmpty(),
+            membership = when {
+                // A finished queue's count is the only thing distinguishing it from a finished Note, so a
+                // completed session always states it, singular included.
+                completed -> if (notes.size == 1) "1 note" else "${notes.size} notes"
+                // An unfinished session's position is what Continue will resume, so it is stated whenever
+                // there is more than one Note to be positioned within.
+                notes.size > 1 -> "Note ${index + 1} of ${notes.size}"
+                else -> null
+            },
+            stateDescription = when {
+                completed -> "Completed"
+                isLive -> describeLive().stateDescription
+                else -> "Paused"
+            },
+            isPlaying = isLive && session.isPlaying && !completed,
+            isCompleted = completed,
+            lastActivityAt = lastActivityAt
+        )
+    }
+
     fun openNote() = navigator.open(ReaderDestination.Note)
 
     fun openHome() = navigator.openTopLevel(ReaderDestination.Home)
 
     fun openBrowse() = navigator.openTopLevel(ReaderDestination.Browse)
+
+    fun openQueues() = navigator.openTopLevel(ReaderDestination.Queues)
 
     /**
      * The Note screen's Play: "creates a new Active Queue containing only this Note; starts from the

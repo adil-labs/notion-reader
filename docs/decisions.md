@@ -2093,3 +2093,245 @@ rather than hard-coding them, which is the lesson `probe-player-back.ps1` alread
 - `ReaderEngine.playFromStart()`'s absent caller (§13.4).
 - `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path, both now unconsumed (§17.1).
 - An inexact restore has not been observed on a device; it is covered by unit tests only (§17.6).
+
+# 18. The architecture stated in the tree, and the Listening tab
+
+Round 11. Two things were asked for together: implement what the specifications still require, and move the
+code toward the architecture the product contract already declares. They turned out to be the same job in
+one place — the contract names the layers and the boundary rules, and the code was contradicting them.
+
+## 18.1 What was actually wrong, measured rather than guessed
+
+The internal import graph, read out of the source tree, had two cycles:
+
+| Cycle | Edges |
+|---|---|
+| application ⇄ ui | `ReaderApp` → `ui.ContinueListeningCard`, while `BrowseScreen` → `app.BrowseIndexStatus` and `HomeScreen` → `app.describeLastActivity` |
+| reader ⇄ notion | `ReaderDocumentMapper` → `notion.NormalizedBlock`, while `NotionApi` → `reader.ReaderErrorCategory` |
+
+The first is the one that mattered. An application layer that depends on the presentation layer cannot be
+exercised without it, and "which direction does this dependency point" stops having an answer. The second is
+the product contract's own rule, stated twice — "Notion API DTOs must not leak into ... ReaderDocument
+construction" — being false in the direction nobody checks, since the mapper reaching *down* into the Notion
+DTOs is the leak the rule names.
+
+Three more, each smaller and each real:
+
+- `DataStoreSessionStore` lived in the application package. An adapter that constructs `DataStore` is not
+  application state.
+- `SessionCodec` lived in the reading domain. A wire format is an adapter concern; the domain should not
+  contain the thing that knows how the domain is written to disk.
+- The `SpeechEngine` port and `AndroidSpeechEngine` were in one package, so the port could not be seen to be
+  a port.
+
+**None of this was a behaviour.** 276 tests were green before the change and the same 276 were green after
+it, which is the point: a dependency cycle is not a behaviour, it is a property nobody was asserting.
+
+## 18.2 What the tree looks like now
+
+| Package | Holds | May depend on |
+|---|---|---|
+| `domain` | the reader model, the Active Queue and session domain, normalized discovery metadata | nothing |
+| `domain.discovery`, `domain.queue`, `domain.session` | the three sub-domains | `domain` |
+| `player` | the engine, its state, and the `SpeechEngine` port | `domain` |
+| `application` | use cases, application state, read models, navigation | `domain`, `player` |
+| `data.content` | normalized content, the mapper, the chunker | `domain` |
+| `data.notion`, `data.local` | the API client and its DTOs; the wire format | `domain` |
+| `platform` | the Android TTS adapter | `player` |
+| `ui` | the screens | `domain`, `player`, `application` |
+| *(root)* | `MainActivity`, the composition root | anything |
+
+Two of the moves were not tidying, and both are worth recording because the *placement* was the fix:
+
+- **`ContinueListeningCard` moved from `ui` to `application`.** It was declared in `ui/HomeScreen.kt` and
+  imported by `ReaderApp`, and that single import was the whole cycle. It belongs to the application because
+  of what it is — a read model that `ReaderApp` builds and two screens render, containing no Compose type and
+  no formatting (`lastActivityAt` is a raw instant precisely so the UI decides how to say it). A value the
+  application layer constructs and the UI layer renders is an application-layer value; that it was written
+  down in the file of its first consumer was an accident of history.
+- **`DocumentLoadState` moved *out* of `ReaderDocument.kt` into `application`.** The same reasoning in
+  reverse: it is the outcome of a use case, not a fact about a document, and its `Error` arm carries a display
+  message and a retryable flag. Leaving it beside the document is what put an `application` import into the
+  `domain` once the file had moved.
+
+## 18.3 The rules are enforced, not documented
+
+`LayerRulesTest` scans the sources and fails the build on a forbidden edge. Before it existed it reported
+seven violations, of which the five documented above were the real ones. It also asserts two things that
+matter more than they look:
+
+- **Every file's package matches its directory.** Kotlin does not require this, which is exactly why it is
+  asserted: the migration rewrote package declarations before it moved files, so a build green in between
+  would have described a tree that did not exist.
+- **Every layer named in the rule table exists as a package.** Without this, renaming a package in the tree
+  and not in the table makes `allowed[ownFamily]` return null and the loop `continue` — the whole layer stops
+  being checked, silently, while the suite stays green.
+
+Two scoping decisions inside the test are deliberate. Rules are stated per **family** (`domain.queue` and
+`domain` are both `domain`), because the contract's diagram is about layers and not sub-packages and an
+intra-family ordering would be invented. And comments are stripped before scanning, because a KDoc link to
+another layer is prose, not a dependency, and flagging it would push the explanation out of the file that
+needs it.
+
+## 18.4 The Listening tab
+
+Queues is now the third shipped top-level destination, with the Listening tab populated. It was blocked on
+nothing but a decision: §17.7 recorded that `completedSessions` could list what the listener had finished and
+nothing could show it, because Saved and Smart Queues — the other two of the contract's three tabs — need two
+specifications that do not exist.
+
+**One of three tabs ships, and that is a scoped deferral of exactly the kind §12.5 already settled.** Two
+permanently unusable controls one tap from a populated surface is the same wrong as an empty screen, only
+better hidden. The tab row is present with one tab so that the structure which will hold three is in place;
+TalkBack therefore announces "Listening, tab, selected, 1 of 1", which is true, and the contract's "1 of 3"
+arrives with the two tabs it counts.
+
+The spec had already settled everything the surface needs, so this round added a read model and a screen, not
+a rule:
+
+- **`HistoryEntry` is a second type rather than a reuse of `ContinueListeningCard`.** The two surfaces show
+  different things about the same sessions, and the difference is normative: an entry can be *completed*,
+  which is a session with no playback state to describe and no position to resume, whose control starts a new
+  session rather than continuing this one. Merging them would make each carry a field it does not use. Two
+  types, because "a completed session is history, not resumable state" is one rule with two consequences.
+- **Two controls, two verbs.** Continue restores that exact session; Play on a completed entry starts a new
+  session over the same Notes from the beginning. One label for both would be a lie about what happens next.
+- **Home stays capped at 3 and Listening is uncapped**, which is the contract's "a small useful subset" for
+  Home against the full history under `Queues → Listening`. Asserted, because the failure mode is silent: if
+  the Listening tab had inherited Home's cap, session four would have nowhere to be seen.
+
+`ListeningTabTest` covers the surface-independent half (which sessions, in what order, what each says) and
+`QueuesScreenAccessibilityTest` the semantics: one focus stop per entry, a named control beside it, an omitted
+section heading rather than a blank one, relative times and no raw timestamp, tab role and selection, a pane
+title.
+
+## 18.5 Two defects the tests found, and one the tests could not
+
+**`assertIsReachable` was conflating "visible" with "activatable".** Its first use on a history entry failed
+for the right reason: the entry has no `OnClick`, because the spec requires Continue to be a separate named
+control rather than part of the entry's announcement. The alternative fixes were both worse than the
+observation — relaxing the assertion would have lost the control check elsewhere, and making the whole row
+tappable would make the title an unlabelled gesture target, which is the "reachable only by a gesture" case
+the spec also forbids. So `A11y.assertIsReadable` was added: laid out on the surface, with something to say,
+and no claim about activation. The two assertions now answer the two different questions.
+
+**A locked device reads as a total regression, and the runner was not checking.** The instrumented suite
+reported 45 failures out of 47, uniformly, with `No compose hierarchies found in the app`. That message names
+the app's own `setContent`, so it reads as broken composition, and because it fails *every* test it reads as
+catastrophe rather than environment. The cause, measured: `isKeyguardShowing=true`. Behind a lock screen the
+test activity never comes to the foreground, so no Compose hierarchy is ever drawn.
+
+Two earlier mitigations existed and were both insufficient, each for a reason worth keeping:
+
+1. Waking the display and calling `wm dismiss-keyguard` **once, in the same breath as the wake**, races — the
+   dismiss can arrive before there is a window to dismiss.
+2. `stay_on_while_plugged_in=7` was relied on to keep the display on, and **does nothing on a device that is
+   on battery**. This device is routinely unplugged, so the mitigation was inert for the case it was added
+   for. That is now measured and reported rather than assumed.
+
+The runner now wakes, dismisses and **verifies**, retrying the pair, and refuses to run if the keyguard is
+still up — because a result that looks like 45 app failures when the phone is locked is worse than no result.
+It does not attempt to unlock a secure device: that needs the owner's PIN, and a script that typed
+credentials would be a worse problem than the one it solved. The locked-device signature is also classified as
+a harness failure, as a second line of defence.
+
+**What no test could have found, and did not:** the migration tooling, which is §18.6.
+
+## 18.6 The migration, and four ways PowerShell lied
+
+`tools/apply-layer-refactor.ps1` moves the files and rewrites every reference; it is dry-run by default and
+idempotent, like `apply-spec-amendments.ps1`. `tools/fix-unresolved-imports.ps1` then converges the imports
+against the compiler. Four distinct traps, all recorded in the tools:
+
+1. **`@{}` is a case-insensitive Hashtable.** `ReaderErrorCategory` (an enum) and `readerErrorCategory` (the
+   extension property that maps a failure onto it) merged into one entry declared in two packages, so the
+   index dropped it as ambiguous. Same for `QueuedNote`/`queuedNote` and `StoredSession`/`storedSession`. A
+   name missing from the index is invisible: the prune does not remove it, the compiler is not asked about it,
+   and nothing reports it. The index silently lost its most-referenced entries. Fixed with `Dictionary`/
+   `HashSet` built on `StringComparer.Ordinal`.
+2. **`-match` and `Sort-Object -Unique` are also case-insensitive.** `-match` made `readerErrorCategory`
+   "present" in `ReaderErrorCategory` and added an import — which made *`domain` depend on `application`*, the
+   one edge this refactor exists to remove, invisible because Kotlin does not report an unused import.
+   `Sort-Object -Unique` deduplicated `io.ktor.http.ContentType` against `io.ktor.http.contentType` and kept
+   one, dropping a Ktor type the file needed. Both are now ordinal.
+3. **A function returning an empty collection returns null.** The pipeline unrolls it, so an empty `HashSet`
+   arrives as `$null` and the failure surfaces at the caller as "cannot call a method on a null-valued
+   expression". `,@collection` fixes it. This is the same family as the exporter's missing list numbers —
+   the symptom points at the consumer, the cause is in the producer.
+4. **A regex that never matches is indistinguishable from a build with no errors.** The error pattern used
+   `(?<path>[^:]+)` for the file path, and a Windows path contains a colon of its own in the drive letter, so
+   it matched `D` and failed on everything. The tool reported success twice over a tree full of unresolved
+   references. The path is now captured lazily.
+
+The convergent design is the durable lesson, and it replaced a wrong approach that is kept in the script
+beside the right one: **a scan can decide what is *legal* to import, but not what is *needed*.** Only the
+compiler can answer the second question, so the tool asks it and iterates to a fixpoint. The first version
+tried to infer need from appearance, and `fun interface BlockChildrenSource` taught it why that fails — the
+pattern captured `interface` as a declaration name, and every file containing the word inherited an import
+for it.
+
+One limitation is deliberate and documented: the index holds **top-level** declarations, so a legal import of
+an extension declared as a *member of an object* (`import ...A11y.assertIsReachable`) is not vouched for and
+was pruned. Members cannot simply be added — registering every member name would offer `import ...A11y.document`
+to any file mentioning `document`, and because the *prune* is not compiler-driven, such an import would
+survive unreferenced and could create a layer violation from nothing. The mitigation is the compile target
+list, and it is the second version of it: the first compiled `main` and the unit tests only, which is every
+source set **except the one that had lost the most**. `testDebugUnitTest` and `assembleDebug` do not compile
+`androidTest`, so the breakage was committed with the suite reporting 295 green. The tool now compiles all
+three, and a tool that reports success while a source set is broken is worse than no tool.
+
+## 18.7 The frozen wire format
+
+A persistence round-trip test that encodes and decodes within one build **cannot fail for the reason that
+matters**: rename a field, or change a `QueueOrigin` wire name, and the encoder and decoder agree with each
+other perfectly while disagreeing with every record already on a device.
+
+What makes that worse than an ordinary compatibility break is what the application then does, by design: a
+record that will not decode is silently dropped, the history reads as empty, and the first position change
+writes the retained set — which is now history-without-those-records. The listener's entire Continue
+listening list is erased by launching the app, with nothing shown, nothing logged, and no way to tell it from
+a first run.
+
+`SessionWireFormatTest` pins the encoder to the exact bytes of schema version 1 and feeds those same bytes
+back to the decoder. Both directions, because they fail separately: a renamed field breaks the first, a field
+made non-nullable breaks the second. Note what the frozen string shows — `"origin":{"type":"browse_results"}` —
+that `QueueOrigin` is polymorphic, so its wire form is a discriminator plus a serial name and either half
+changing breaks stored records while leaving a round trip green.
+
+When that test fails, the question is not how to update the constant. It is whether the change breaks records
+already written, and if so whether `SESSION_SCHEMA_VERSION` needs bumping so the old ones are discarded
+deliberately instead of by accident.
+
+## 18.8 Verified
+
+- **295 JVM tests, 0 failures** (was 276). The additions are the 3 architecture rules, the 11 Listening-tab
+  behaviours, the 4 wire-format checks, and 1 navigator case for the new destination.
+- **47 instrumented tests, 0 failures**, across Note (17), Player (15) and Queues (15). One attempt, after the
+  device was unlocked — the unlock was the whole cause of the earlier 45-failure run.
+- **The debug APK builds**, and the refactor changed no behaviour: the same 276 tests passed before and after.
+
+## 18.9 What this round did not do
+
+- **The TalkBack listening gate is still open.** Unchanged since §11, and still the only acceptance criterion
+  no test can close. It is now the oldest open item on the project.
+- **Background playback is still last**, for the same reason as §16.4: it blocks nothing and is blocked by
+  nothing, so it loses every critical-path comparison while being the largest functional gap in a listening
+  app.
+- **Saved and Smart Queues**, and `Add to queue` — the contract's primary Note action that still does not
+  exist. Both need specifications authored in Notion first.
+- **Slice A′** (Home's instrumented checks) is still unwritten, and Home is still the only shipped surface
+  with no instrumented test of its own.
+- **The Compose test rule's v2 migration** (§17.3) remains the proper fix for the harness losing the activity.
+- **`ReaderEngine.playFromStart()`** still has no production caller.
+- **`BuildConfig.NOTION_PAGE_ID`** and the blank-reference auto-discovery path are still unconsumed.
+- **An inexact restore** has still not been observed on a device; it is covered by unit tests only.
+
+## Still open
+
+- The TalkBack listening gate (§11), now the oldest outstanding item.
+- The Compose test rule's v2 migration (§17.3).
+- Slice A′ (Home's instrumented checks), slice E (raw Notion navigation), slice F (Saved/Smart queues and
+  `Add to queue`), plus slice C's facets and the two deferred Queues tabs.
+- `ReaderEngine.playFromStart()`'s absent caller (§13.4).
+- `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path (§17.1).
+- An inexact restore on a device (§17.6).
