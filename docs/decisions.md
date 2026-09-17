@@ -1129,3 +1129,789 @@ exits non-zero even when every test passes, because AGP's exit-code bookkeeping 
 instrumentation shell's status rather than the collected results. It is a false negative from the
 runner, reproducible, and not a test failure — but a CI job would fail on it, so it needs resolving
 before this suite can gate anything.
+
+---
+
+## 12. Fifth round — the UI Screens & Navigation Contract as an implementation plan
+
+**Date:** 2026-09-17. **Scope:** order the UI contract into implementable slices, and name the first one.
+This section changes no code.
+
+### 12.1 Reading the contract as a work list
+
+The contract has 30 navigation invariants, but they are not 30 independent tasks. Most of them are
+statements about *ownership* — who is allowed to change what, and what must not happen as a side effect
+of navigation. That is why most of them cannot be verified by looking at a screen. They are verified by
+looking at which component is allowed to call which operation.
+
+The invariants audited against the code as it stands:
+
+| Invariant | Requires | Today | Verdict |
+|---|---|---|---|
+| 25 Navigating away from Player does not stop playback | the session outlives the screen | already true — Back out of Player does not touch the engine | satisfied, but incidentally |
+| 26 The mini-player reflects the existing session and creates no second state | one session, two observers | one session exists; nothing observes it from a second screen | not implemented |
+| 27 Back changes visual navigation, not playback | the Back handler must not call the engine | true — `MainActivity`'s `BackHandler` only flips a value | satisfied |
+| 1–3 Four top-level destinations; Player is not one; Note is not one | an application shell | `ReaderDestination` is a two-value enum, `Note ⇄ Player` | not implemented |
+| 28 Manual TalkBack Note navigation never changes Player progress | inspection and playback must be different state | **the engine holds one document, and loading a document stops playback** | **violated in structure** |
+| 11, 12 `Play all` / `Add all to queue` | an Active Queue and a Saved Queue | neither exists | blocked |
+| 14–23 Queues | three queue kinds | none exists | blocked |
+
+### 12.2 The decisive finding: `setDocument` cannot be called while a session is running
+
+`ReaderEngineImpl` holds exactly one `document` StateFlow and one `ReaderState`. `setDocument` does:
+
+```kotlin
+invalidateUtterance()
+speechEngine.stop()
+_document.value = document
+_state.value = document.stateAt(startParagraphIndex)
+```
+
+so *loading a Note to read is the same operation as ending playback*. The interface's own doc comment
+for `document` says "The document currently loaded, for the UI title", and `MainActivity` passes that one
+document to the Note screen and `document.title` to the Player. A single document serves both screens.
+
+This is not a defect today, and it is worth being precise about why: today there is no way to open a Note
+other than the one already loaded, so the Note screen and the session are the same document by
+construction. It becomes a defect the first time a second producer of Notes exists — Browse, Home's
+Continue, a Saved Queue, or Raw Notion navigation — because "open this Note so I can read it" would then
+silently kill the listening session. The contract forbids exactly that, twice, in different words:
+> If playback is occurring while another Note is manually inspected, the existing playback session
+> remains unchanged.
+
+> Moving accessibility focus through the Note must not alter Player progress.
+
+and the product contract's "Manual reading and spoken playback are separate modes".
+
+**The cheapest moment to separate them is the slice that adds the application shell**, for a specific
+reason: the shell is what makes a session observable from a second screen, because the mini-player is
+that second observer. Until then a regression here has nowhere to appear and no test can see it. Waiting
+until Browse lands means unpicking the coupling at the same time as adding Browse, with the symptom
+surfacing in a screen that is not the cause.
+
+> **Corrected in §13.1.** "Not a defect today" was wrong. The coupling was reachable in the shipped
+> build, because `MainActivity` starts its load after `setContent`: tapping Play on the demo document and
+> letting the load finish stopped playback silently, and Retry did the same. The conclusion — separate
+> them now — was right; the severity was understated.
+
+### 12.3 Decisions
+
+**D24 — The listening session and the inspected Note are separate state. SETTLED.**
+A session holder owns the Active Queue snapshot, the currently playing Note, the playback position and
+`isPlaying`. The Note screen owns a separate *inspection* document with its own load state. Two load
+paths, one speech engine.
+
+Not two engines: the session holder is owned above the navigation host, so switching destinations neither
+recreates nor pauses it, which is what makes invariant 26 true by construction rather than by discipline.
+`ReaderEngineImpl`'s behaviour does not change — it stops being an application-level singleton and
+becomes the session's playback engine. For this slice a session is still one Note, which is what the
+product contract says single-note playback is ("Playing one Note therefore creates an Active Queue
+containing one item"), so no queue semantics are invented here.
+
+**D25 — "Resumable" means playback has started and the queue has not completed. SETTLED for the shell.**
+The contract's presence rule is "when a playing or resumable Active Queue session exists" and "if no
+resumable session exists, the mini-player is absent". Read literally, the demo document loaded at launch
+is already a session, so the mini-player would be on screen from first launch describing a Note the user
+never chose to play. The rule adopted: a session is surfaced once playback has begun, and stops being
+surfaced at `hasReachedEnd` — a finished session belongs to `Queues → Listening → Recently completed`,
+not to the mini-player. Retention of completed sessions stays with the session spec that does not exist
+yet; this decision only fixes what the mini-player shows.
+
+**D26 — Adopt Navigation Compose in the shell slice. PROPOSED.**
+The comment in `MainActivity` explains why a navigation library was avoided: the real graph was not yet
+determined, so freezing its shape by introducing one to move between two screens would have been
+premature. That reason has now expired. The contract names four top-level destinations and ten secondary
+screens, it names the Back rule ("Back reverses visual navigation. It does not reverse playback."), and
+it names the retention rule (Browse keeps search, filters, sort and result position; Queues keeps its
+selected tab). A hand-written stack grown to fourteen destinations duplicates what the library does.
+
+Recorded as PROPOSED rather than SETTLED because it has to be verified before being depended on: the
+artifact must build and dex against minSdk 26 / compileSdk 37, and per §11.3 and the Ktor 3.2.0 lesson the
+*transitive* set is part of that choice. A `NavHost` also changes how per-destination state survives, so
+the retention rule needs explicit `saveState`/`restoreState` rather than a fresh instance per switch. If
+the spike fails, the fallback is a hand-written stack — cheap for four destinations, but it is the thing
+the contract keeps growing.
+
+**D27 — The mini-player is an observer, not a control surface, and it is absent on Player. SETTLED
+except for the Note screen.** It reads the session's flows and calls the session's play/pause; it holds
+no state of its own. Shown on the four top-level destinations, hidden on Player, whose full surface
+already owns the same controls. Whether it appears on the Note screen is a genuine ambiguity rather than
+an oversight — §12.5.
+
+### 12.4 The plan
+
+Ordered by what unblocks what, not by screenshot order. "Blocked" means a governing document does not
+exist yet.
+
+| # | Slice | Delivers | Blocked by | Verified by |
+|---|---|---|---|---|
+| A | App shell, session ownership, mini-player | the session hoisted above the nav host; the mini-player; Home with a real Continue listening section; Player Back returning to the originating destination. Destinations ship only when they have content (§12.6) | nothing | JVM: a navigation sweep calls nothing on the engine; one session identity; the presence rule; session replacement. Instrumented: tab semantics for the destinations that ship; the mini-player is two focus targets; entry focus is neither the bar nor the mini-player |
+| B | Active Queue (multi-note) and lazy Note loading | an ordered queue of Note identities; auto-advance across Notes; "Note 3 of 8"; the end-of-queue announcement | nothing — the product contract already defines the snapshot | JVM: order frozen against later source mutation; the next Note is loaded at the transition, not upfront; position maps onto `ReaderDocumentPosition` |
+| C | Browse default state | `All Notes`, `Sort: Recently updated`, search, result → Note, `Play all` | default state and search: nothing. Facets (Type/Area/Topics/Project): the absent Content Metadata & Workspace Schema Adapters spec, plus §5's verified gaps | JVM: the default query and its ordering; result activation opens the Note without touching the session. Instrumented: one result row is one focus target |
+| D | Queues → Listening tab | Continue listening and Recently completed; Continue restores a frozen session | the Active Queue & Reader Session spec — the integration spec explicitly refuses persistence ownership (§6, C1) | a session-store round trip; `ReaderDocumentPosition` resolved against a since-edited document |
+| E | Raw Notion navigation | Browse Notion structure → Database → Page → Note | nothing | an unorganised page renders in the standard Note screen unchanged |
+| F | Saved and Smart Queues, Queue Destination | the remaining Queues surfaces, `Add to queue`, `Add all to queue` | two specs that do not exist (Queue Creation & Queue Management; Active Queue & Reader Session) | — |
+
+Two ordering points are worth stating rather than leaving implicit:
+
+- **B before C.** `Play all` is a Browse action, but multi-note playback is session behaviour. Building
+  the Active Queue against a fixture producer and JVM tests keeps Browse out of the engine's design, and
+  leaves C as wiring.
+- **E after C.** Raw Notion navigation is the contract's "secondary escape hatch" and C is the primary
+  discovery surface. E is cheap and unblocked, which makes it the right thing to do *while* C's facets
+  wait on a missing spec — not the right thing to do first.
+
+B also needs something C does not: a session spanning many Notes cannot load every Note upfront, so the
+transition has to fetch the next `ReaderDocument` at the moment it is reached. That is the difference
+between a queue of identities and a queue of documents.
+
+> **This order was revised in §14.1.** A (the shell) cannot precede B and C, because a shell needs two
+> populated top-level destinations and Browse is the only unblocked candidate for the second one. The
+> revised order is B → runner fix → C → A.
+
+### 12.5 Ambiguities — resolved by product decision
+
+The contract's own acceptance criterion is "no downstream coding agent needs to invent a
+navigation-level product rule". Four were open. All four now have answers, recorded here so the shell
+slice does not have to invent them.
+
+| # | Question | Answer | Effect |
+|---|---|---|---|
+| 1 | Back from a top-level destination other than Home | **return to Home** | the standard bottom-navigation convention: Back from Browse or Queues lands on Home rather than finishing the Activity |
+| 2 | Mini-player on the Note screen | **shown** | a reading session is exactly when the control is wanted. The entry-focus rule still applies, so the mini-player must not take focus on entry — the same constraint as elsewhere, now with a second surface to check |
+| 3 | Empty Settings | **omit the tab until it has content** | see §12.6 — a recorded scoped deferral, not a redefinition |
+| 4 | Is a never-played session resumable? | **no** | confirms D25 |
+
+Answer 3 is the only one that touches a governing document. UI-contract invariant 1 names Home, Browse,
+Queues and Settings as the four top-level destinations, so shipping three is a temporary deviation. It is
+recorded as a **scoped deferral with a condition** rather than as a decision that overrides the contract,
+which keeps it inside the product contract's conflict protocol: the reading is "not yet", not "no
+longer". The moment Settings is dropped permanently rather than deferred, invariant 1 has to be amended
+in Notion first, dependents reviewed, and only then implemented.
+
+The rule behind answer 3 is broader than Settings, and that is where it becomes interesting: Settings
+was omitted *because it would have been empty*, and the same test applies to Browse and Queues here.
+
+### 12.6 What answer 3 does to this slice, and to D26
+
+Applying "do not ship an empty surface" consistently changes slice A rather than merely trimming it, and
+the change runs against D26. It is recorded here so the scope was chosen deliberately rather than
+drifting into place.
+
+Browse and Queues have no content in this slice — Browse's default state is slice C and the Listening tab
+is slice D — so by the same argument that removed Settings they should not ship either. What remains is a
+shell hosting **Home, Note and Player**, where Home carries the one section that is genuinely
+implementable today: Continue listening, which is a projection of the resumable session and therefore the
+same object the mini-player already observes. Home's Your queues and Explore sections are omitted for now,
+which the contract explicitly permits ("If no resumable session exists, omit the section").
+
+Two consequences follow.
+
+**D26's justification weakens, and its spike matters more.** D26 rests on the contract's *eventual* graph —
+four top-level destinations and ten secondary screens — not on this slice's three. Three destinations are
+cheap to hand-write, so the honest position is that adopting Navigation Compose in slice A is a bet on the
+graph arriving, not a present need. It should still be spiked first, and the fallback is now clearly
+adequate rather than merely acceptable.
+
+**D24 is unaffected, which is the point.** The session/Note separation is verified by navigation between
+*any* two surfaces, so Home supplies the second top-level one and the mini-player needs a surface that is
+not Player. The structural work and its tests therefore do not depend on how many destinations ship —
+which also means a cheaper slice A is available: fix D24 on its own, with the session holder and its JVM
+tests but no shell, and add the shell when slice C gives Browse real content. That is a legitimate option
+and should be chosen explicitly if chosen at all.
+
+### 12.7 Sequencing constraints and risks
+
+- **The instrumented runner's false negative has to be fixed first.** §11.3 records that
+  `connectedDebugAndroidTest` exits non-zero even when every test passes. The shell is the slice whose
+  most valuable checks are instrumented — focus landing, tab semantics, the mini-player's focus count —
+  so a runner that always reports failure is now blocking, not merely inconvenient.
+- **The existing 32 tests must be extended, not replaced.** They already pin "focus lands somewhere
+  meaningful" and "loading is not empty" for two screens. A `Scaffold` with a bottom bar is precisely the
+  change that can move entry focus onto the bar, so those tests are the canary for this slice and their
+  `paneTitle` assertions should keep passing unchanged.
+- **One unused dependency is already sitting in the build.** `androidx.datastore:datastore-preferences`
+  is declared in `app/build.gradle.kts` and referenced nowhere in the codebase; it was added for the
+  persistence work that §6's C1 then moved to a spec that does not exist. Slice A must not build
+  persistence. Slice D is where this dependency earns its place or is removed.
+- **Deliberately not in slice A:** queue semantics, Browse content, persistence, and any change to what
+  is read aloud. A is a structural slice — it moves ownership and adds one surface — and it should be
+  verifiable almost entirely by JVM tests that assert *that no engine call happened*.
+
+### Still open
+
+- The immediate order recorded here — D26 spike, runner exit code, then slice A — was superseded on
+  2026-09-17: D24 alone was implemented first instead (§13), because it turned out to be a live defect
+  and because its fix and its tests need neither the device nor the navigation decision. The spike and
+  the runner exit code are both still open, and both still precede the shell.
+- Slices D and F are blocked on governing documents, not on effort: the Active Queue & Reader Session
+  spec and the Queue Creation & Queue Management spec. The UI contract names both as dependents and
+  leaves them the details it defers — retention limits, the Saved Queue persistence schema, the Smart
+  Queue query representation.
+- Slice C's facets are blocked on the Content Metadata & Workspace Schema Adapters spec, and §5 already
+  records that the workspace cannot satisfy part of what it would have to say: no data source has a
+  `relation` property, `Status` vocabularies differ per schema, and `ReaderEntryKind`/`ReaderSourceSchema`
+  have no value for Skills or Inbox.
+- The four ambiguities in §12.5 are resolved as of 2026-09-17: none remain open. Answer 3 was the one
+  that touched a governing document, and it changed the slice's scope rather than only its presentation
+  — see §12.6.
+
+---
+
+## 13. Sixth round — D24 implemented: the session and the inspected Note are separate state
+
+**Date:** 2026-09-17. **Scope:** §12.6's cheaper option, chosen deliberately. The shell, the mini-player
+and the persistence are not in this round.
+
+### 13.1 The defect was live, not latent
+
+§12.2 called the coupling "not a defect today". That was wrong, and the correction is the reason this
+round came first. The coupling was reachable in the shipped build:
+
+```kotlin
+setContent { /* ... */ }              // the UI is live from here
+if (BuildConfig.NOTION_TOKEN.isNotBlank()) loadNotionDocument()
+
+// on success:
+readerEngine.setDocument(document)    // -> speechEngine.stop(), position reset to 0
+```
+
+Because the load starts after `setContent`, Play is tappable while the load is in flight. Tap Play on
+the demo document, let the Notion load finish, and `setDocument` stops the speech and resets the
+position — silently, with no message and no visible failure. Two variants are worse than the timing
+window suggests, because `loadNotionDocument` is *also* the Retry action: a failed load leaves the demo
+document playing, and the retry that follows kills it. Retry is pressed most often when a load is slow,
+which is when the window is widest.
+
+Nothing caught it. The 32 instrumented tests assert semantics trees, and no test played while a load was
+in flight. The window is the load latency, so the symptom is intermittent — the shape of bug that gets
+reported as "sometimes the reading stops".
+
+### 13.2 The shape of the fix
+
+Ownership is now stated once, in `ReaderApp`, and the table is in its doc comment. State that outlives a
+screen is held by the Activity, above the surface being rendered:
+
+| State | Owner | Lifetime |
+|---|---|---|
+| what is being read aloud, and where | `ReaderSession` | the process, across every navigation |
+| what the Note screen shows | `NoteViewer` | until another Note is loaded |
+| which surface is on screen | `ReaderNavigator` | the process |
+
+The enforcement is structural rather than disciplinary, which is the part that matters:
+
+- **`NoteViewer` holds no reference to a session.** There is no call it *could* make that interrupts
+  playback, so the bug is unreachable rather than fixed. `load` writes to two of its own flows.
+- **`ReaderNavigator` holds no reference to a session either.** Back therefore cannot mean Pause, Stop
+  or Previous — the contract's "Back must never implicitly mean" list — because nothing in that file is
+  able to reach playback. Both classes are Android-free as a consequence, so both are JVM-testable.
+- **`ReaderApp.playNote()` is the only operation in the application that hands a document to the
+  session.** Load a different Note while one is playing and the session keeps reading the old one. That
+  is the product contract's "Saved Queue edits must not mutate an Active Queue already created from that
+  Saved Queue" arriving at one-Note scale: the frozen snapshot is not a rule that was added, it is what
+  falling out of a single transfer point looks like. It also gives slice B the exact place to put a real
+  queue snapshot.
+
+`ReaderEngineImpl` is unchanged. It stops being an application-level singleton and becomes the session's
+playback engine, which is all §12.2 needed: the engine still does not know what a screen is.
+
+### 13.3 Verification
+
+**157 JVM tests, 0 failures** (was 146; the 11 new ones are `ReaderAppTest`, plus `FakeReaderEngine`).
+
+**The regression tests were shown to have teeth, not merely to pass.** Re-introducing the coupling —
+one line in `loadNote` calling `session.engine.setDocument(...)` — failed exactly five tests and no
+others:
+
+```
+ReaderAppTest > loadingANoteWhilePlayingLeavesTheSessionAlone FAILED
+ReaderAppTest > retryingAFailedLoadWhilePlayingDoesNotInterruptPlayback FAILED
+ReaderAppTest > aFailedLoadReportsTheCategoryWithoutBlankingTheNote FAILED
+ReaderAppTest > aLoadInFlightReportsLoadingWhileThePreviousNoteStaysReadable FAILED
+ReaderAppTest > playFreezesTheInspectedNoteSoALaterLoadCannotChangeWhatIsRead FAILED
+11 tests completed, 5 failed
+```
+
+Then the line was removed and the suite was green again. This is the check that distinguishes a test
+that asserts the invariant from a test that happens to pass, and it is cheap enough to be routine.
+
+`FakeReaderEngine` is a *recording* engine — "zero calls" is a statement about the engine boundary, so
+it is asserted there rather than inferred from speech calls further down. It deliberately **mirrors the
+real engine's destructive `setDocument`**, because a double that quietly made `setDocument` harmless
+would make the regression impossible to reproduce: a test double that cannot fail the way the real
+dependency fails is not evidence.
+
+**On device, via `tools/probe-player-back.ps1`:** Note → Play → Player (`Section 1 of 59 · Summary`,
+`Paragraph 2 of 349`, `Playing`) → Back → Note, with a new utterance created by `com.google.android.tts`
+after Back, so playback survived.
+
+### 13.4 Found while verifying
+
+- **The probe was reporting wrong answers.** Its screen classifier matched the document title
+  `Reader Fixture — Block Type Coverage`, but the app discovers the *most recently edited* page, and the
+  spec-amendment work made a spec page the most recently edited one — so the Note screen stopped
+  matching and was reported as `PLAYER`. It now classifies by the Player's own controls. A probe that
+  misreports the thing it exists to check is worse than no probe, because it produces a conclusion.
+- **Its audio check was measuring TalkBack.** `dumpsys audio | Select-String 'new player'` took the
+  newest player regardless of process, and TalkBack's earcons are SoundPool players too. On this device
+  that meant the "is the reader still speaking?" check was reading TalkBack's timestamps and looking
+  like evidence. It now excludes TalkBack explicitly.
+- **TalkBack is enabled on the device.** `settings get secure enabled_accessibility_services` returns
+  `com.x8bit.bitwarden/...:com.google.android.marvin.talkback/.TalkBackService`. §11.2 records it as
+  installed but not enabled, so that is now out of date, and the integration spec's long-open gate —
+  "perform the complete playback/navigation flow with TalkBack enabled" — is testable in its current
+  device state. It has not been done. It carries a real risk the automated half cannot see: whether
+  TalkBack's speech and the reader's TTS overlap in practice.
+- **`ReaderEngine.playFromStart()` now has no production caller.** `ReaderSession.start` uses
+  `setDocument(...) + play()` because the document itself is being replaced, and `playFromStart` restarts
+  the document already loaded. It is not dead code — it is still covered by three `ReaderEngineTest`
+  cases and the UI contract names "restart behavior" as a future contextual action — but it is currently
+  reachable only from tests, which is worth knowing rather than discovering later.
+
+### 13.5 What is deliberately not here
+
+Recorded because each is a plausible thing to add while in the neighbourhood, and each needs a consumer
+to be correct:
+
+- **No queue.** The session is one Note, because the product contract says single-Note playback *is* a
+  one-item Active Queue. A queue of one is not a queue; slice B gives it ordered Note identities and the
+  lazy loading of the next Note.
+- **No persistence.** The integration spec explicitly refuses to own it (C1), so it waits for the Active
+  Queue & Reader Session specification.
+- **No mini-player, and therefore no `isResumable` presence rule.** A presence rule with no surface to
+  render it is a guess about what "resumable" should mean. D25 already settles the answer; the code
+  arrives with the surface.
+- **No destination beyond Note and Player**, and no navigation library. §12.6 explains why the library
+  decision is now weaker: with three eventual destinations a hand-written stack is adequate, so adopting
+  Navigation Compose is a bet on the eventual fourteen-destination graph rather than a present need.
+  D26 stays PROPOSED and is deferred to slice C, where Browse gives the graph something to hold.
+
+### Still open
+
+- **The integration spec's TalkBack gate** (§11.2) is now testable, since TalkBack is enabled — see
+  §13.4. Not done, and the user's call.
+- **The instrumented runner's exit code** (§11.3) still needs fixing before any instrumented test can
+  gate anything. It matters less than it did: slice A's structural half is now verified on the JVM, so
+  instrumentation is needed for the shell's focus and tab-semantics checks rather than for this.
+- **Slice A's remaining half** — the shell, Home with Continue listening, and the mini-player — is
+  unblocked and is the natural next slice, along with slice B (multi-note Active Queue and lazy Note
+  loading), which `ReaderApp.playNote` and `ReaderSession.start` were shaped to receive.
+- Slices D and F remain blocked on governing documents; slice C's facets remain blocked on the Content
+  Metadata & Workspace Schema Adapters spec (§12's "Still open" still holds).
+
+---
+
+## 14. Seventh round — the plan for the queue, and a correction to §12.4
+
+**Date:** 2026-09-17. **Scope:** order the next slices and name the decisions each needs first. No code.
+
+### 14.1 The correction: a shell cannot ship with one top-level destination
+
+§12.4 put the shell (A) first, and §12.6 then shrank it to Home, Note and Player. Reading that against
+the contract exposes the flaw: Note and Player are explicitly *secondary* destinations ("The Player is
+not a fifth bottom-navigation destination", "The Note screen is not a top-level destination"). So A as
+scoped had exactly **one** top-level destination — and a bottom navigation bar with one item is not a
+shell, there is nothing to navigate between.
+
+A shell therefore needs a second populated top-level destination. The candidates:
+
+| Candidate | Content available today | Verdict |
+|---|---|---|
+| Settings | none | omitted by the §12.5 answer |
+| Queues | none: Listening needs persistence (blocked), Saved and Smart need two specs | blocked |
+| Browse | the default state is implementable now | **the only unblocked candidate** |
+
+Browse is only *partly* blocked, which §12 stated but did not exploit: the missing Content Metadata &
+Workspace Schema Adapters spec blocks Browse's **facets** (Type, Area, Topics, Project) and Home's
+Explore section, not its default state. The contract's default is "`All Notes`, `Sort = Recently
+updated`" with search, and the pieces for that already exist or are small:
+
+- `NotionApi.searchMostRecentPage()` already calls `POST /v1/search`; a list-returning variant with
+  cursor pagination is a small addition rather than a new capability.
+- Titles come from `NotionPage.title()`, which already exists and is already used for the single-page
+  load. So a result row can show a real title without the metadata spec.
+- "Recently updated" is `last_edited_time`, already carried on `NotionPage`.
+
+Browse's result-set actions include `Play all`, which needs an Active Queue. So the natural companion of
+Browse v0 needs B first. **Revised order: B → runner fix → C → A.**
+
+This is recorded as a correction because §12.4's reasoning was not wrong, it was incomplete: it ordered
+slices by which unblocked which, and did not account for the shell needing two populated destinations to
+exist at all.
+
+### 14.2 The immediate slice: the Active Queue (B)
+
+Why this is next:
+
+- **It is the product's core.** The premise is listening through many Notes; today the engine reads one
+  document, and the Player's position line says "Paragraph 2 of 349" with no notion of a Note 3 of 8.
+- **It is unblocked.** The product contract defines the Active Queue, the snapshot contract, the four
+  origins, and the session/resume contract. Nothing here waits on a missing document.
+- **Its verification is JVM**, with a fixture producer for the parser — the same shape as §13, which
+  needed no device, no runner fix, and no navigation decision. Given §11.3's broken exit code, a slice
+  whose best evidence is JVM is worth more than one whose best evidence is instrumented.
+- **Three later things are already expressed in its terms.** `Play all`; Home's "Note 3 of 8" and
+  "11 notes"; the Listening tab's frozen sessions. All three of the UI contract's own examples are
+  multi-Note, which is why building the surfaces first would mean building displays for a concept that
+  does not exist.
+- **The engine does not change.** `setDocument` already exists, and a queue is many documents in
+  sequence. This is the same leverage §13 got: the structural fix was in ownership, not in the engine.
+
+### 14.3 Decisions needed before implementing B
+
+**B1 — What is a Note identity in a queue? → `pageId` + `title`, content loaded lazily.**
+The title is carried because `Note 3 of 8`, the between-Notes announcement, and the later queue rows all
+need to name a Note at a point where its document is *not* loaded. It is cheap: it arrives in the page
+response. The alternative — identity as `pageId` alone — would force I/O to render a list. This is the
+"ordered Note identities" the contract requires and nothing more; the spec's `ReaderLibraryEntry` will
+*widen* it when the metadata spec exists rather than replace it. Deliberately **not** carried: a
+per-Note resume position, because the product contract puts resume on the session — "Resume and playback
+progress belong to the listening session and Active Queue, not permanently to individual Notes".
+
+**B2 — Who performs the lazy load? → the session owns the sequence and the transition *intent*; the
+caller owns the I/O.**
+The session advances to the next identity and reports that it is waiting for a document; a coordinator
+above it loads that document and hands it in. This keeps cancellation, retry and the error taxonomy out
+of the playback state machine, keeps the session synchronously testable with no coroutine scope of its
+own, and preserves §13's rule that only a deliberate, named transfer hands a document to playback. The
+cost is a real between-Notes state — which the Player needs regardless, because something has to be on
+screen while the next Note loads.
+
+**B3 — What happens when a mid-queue Note fails to load? → needs a product answer; it is audible.**
+**Neither contract states this.** The UI contract says "at the end of one Note, Player should continue
+automatically to the next Note", and its error section offers "Could not load this Note. Retry" — but
+nothing says whether the queue stalls, skips, or aborts. Recommendation: **stall and retry.** The queue
+holds its position, the Player shows the failure with Retry, and playback does not advance past it.
+Skipping would silently drop a Note the user asked to hear — the audible form of the mutation the
+snapshot rule exists to prevent — and aborting discards a remaining queue that is still valid, for a
+failure the taxonomy already marks as often transient.
+
+**B4 — End of queue.**
+The contract asks for an announcement, an end to automatic progression, and the session marked completed
+"according to the Reader Session specification" — which does not exist. So: expose completion as a
+session *fact* and invent no retention. `ReaderState.hasReachedEnd` already covers one document; the
+session needs the queue-level equivalent. Separately, the contract says a brief title announcement "may"
+identify the next Note: do it, because the alternative is silence between Notes, which is
+indistinguishable from a stall.
+
+**B5 — Carry `origin` from the start? → yes.**
+The contract lists "origin information where useful" among the Active Queue's minimum contents. It is one
+field, and it is what a later Listening row displays ("Smart Queue · 8 current matches").
+
+### 14.4 Order after B
+
+| # | Step | Why here |
+|---|---|---|
+| 1 | **B** — Active Queue, lazy next-Note load, end-of-queue | §14.2 |
+| 2 | **The instrumented runner's exit code** (§11.3) | bounded, and it gates every instrumented check below |
+| 3 | **C** — Browse default state, search, `Play all` | the second top-level destination, so it is what makes a shell possible; independently the app becomes navigable |
+| 4 | **A** — the shell over Home + Browse, plus the mini-player | needs 3 and 1 |
+| 5 | **The missing spec, then D** — persistence, Listening tab, a Home with real history | D is blocked on the Active Queue & Reader Session spec, which §6's C1 shows the integration spec refuses to own |
+
+### 14.5 The open question this exposes: Home is thin until persistence exists
+
+Home's Continue listening shows *recent unfinished* sessions — plural, with "Paused 2 hours ago". That is
+history, and history is persistence. With an in-memory session only, Home can show at most the session
+that is currently loaded, which is very nearly what the mini-player shows.
+
+So the shell's Home is the weaker surface, and the two options are in direct tension with a decision
+already made:
+
+- **Ship Home now**, with Continue listening reading the live session and Your queues / Explore absent.
+  The contract permits the section to be absent ("If no resumable session exists, omit the section") —
+  but a Home with none of its three sections is an empty screen, which is exactly what §12.5's answer
+  rejected for Settings.
+- **Defer the shell until D**, so Home is never the weak surface, and accept that Browse v0 ships
+  without a shell — still useful (it is a screen and a query), just not reachable as a tab.
+
+Surfaced rather than resolved: it is a product answer, and it trades visible progress against a surface
+that would be argued about. Note also that the §12.5 answer's own logic cuts both ways — Settings was
+omitted for *never* having content, while Home's emptiness is conditional and temporary.
+
+### 14.6 The outstanding validation needs ears, not tests
+
+§13.4 found TalkBack is now **enabled** on the device, so the integration spec's long-open gate — "perform
+the complete playback/navigation flow with TalkBack enabled" — is finally testable. It stays open because
+nothing in it can be verified by instrumentation:
+
+- whether TalkBack's own speech and the reader's TTS overlap in practice;
+- where focus actually lands on entry, as opposed to what the semantics tree says;
+- whether the chunking *sounds* right on a real page.
+
+The third deserves naming plainly. Every acceptance criterion closed so far is about **structure** —
+chunk counts, index alignment, id stability, semantics trees. None of them is about whether listening to
+a real page is pleasant, and the largest real page in this workspace produces 343 chunks of a
+specification. A pipeline can be exactly correct and still be unpleasant to listen to, and that
+distinction is invisible to every test in this repository.
+
+### Still open
+
+- **B3** needs a product answer, and it is the only one blocking B's implementation.
+- **§14.5** needs a product answer before the shell is built.
+- The runner exit code (§11.3) and the TalkBack listening validation (§14.6) both remain open.
+- `ReaderEngine.playFromStart()` still has no production caller (§13.4).
+
+---
+
+## 15. Eighth round — the queue, Browse, and the shell
+
+**Date:** 2026-09-17. **Scope:** §14's plan, implemented end to end: B (Active Queue), the runner's exit
+code, C (Browse's default state) and A (the shell, Home and the mini-player).
+
+### 15.1 Slice B — the Active Queue
+
+**What a queue element is** (§14.3 B1): `QueuedNote(pageId, title)`. Identity plus a label, no content —
+a `Play all` over hundreds of pages must not fetch them all upfront, and the title is needed *before* its
+document exists, for `Note 3 of 8` and for the between-Notes announcement. `ReaderLibraryEntry` will widen
+this rather than replace it.
+
+**Who loads** (B2): `ReaderSession` owns the queue, the position and the playback state, and is
+**synchronous and scope-free** — it reports `QueueState.awaiting` and a caller fetches. `QueueLoader`
+performs the one step of I/O. The state machine that decides *what should happen* has no coroutine, no
+dispatcher and no failure path, so the between-Notes transition — the part most likely to be wrong — is
+tested one step at a time with no waiting.
+
+**A failed mid-queue Note stalls** (B3, product decision, since neither contract states it). Skipping
+would silently drop a Note the user asked to hear — the audible form of the mutation the snapshot rule
+exists to prevent — and aborting would discard Notes that are still playable for a failure the taxonomy
+already calls transient. The position is kept and Retry re-loads the same Note.
+
+**The queue's own bug, found by its test.** The first `ActiveQueue` took the caller's list, so a queue
+built from a Browse result set was a *live view* of it: re-sorting the results would have re-sorted a
+playing queue. `ActiveQueueTest`'s "snapshot" case caught it, and the fix is a private constructor plus
+`snapshotOf`, which copies. A queue that shares storage with its source is not frozen, however immutable
+it looks — and the contract's four "must not mutate" invariants all rest on this one property.
+
+**End of queue** (B4): a session fact (`QueueState.completed`) and no invented retention, because
+retention belongs to the Active Queue & Reader Session specification that does not exist. The next Note's
+title is announced through the engine (`announceThenPlay`), because D9 says the title is not a chunk and,
+for a listener with the screen off, an unannounced Note change is indistinguishable from the reader
+having stopped.
+
+**`origin`** is carried from the start (B5): `SingleNote`, `BrowseResults`, or a saved/smart queue by
+*name* rather than by query, since holding a query would invite the re-evaluation four invariants forbid.
+
+### 15.2 The instrumented runner's exit code — fixed
+
+`connectedDebugAndroidTest` exits non-zero on a green suite, and a CI job would therefore fail on one. The
+script now **derives its exit code from the collected results**, and reads **both** reports, using the
+worse count:
+
+```
+HTML report: tests=32 failures=0
+WARNING: Gradle exited 1 even though the collected results report no failures. This is the known AGP
+bookkeeping discrepancy, not a test failure - see docs/decisions.md section 11.3.
+RESULT: PASSED - 32 tests, 0 failures.
+SCRIPT EXIT: 0
+```
+
+Reading both is not belt-and-braces: the two reports have disagreed in **both** directions on this
+project, so neither is trustworthy alone and a green verdict requires both to be green. A missing counter
+is treated as unknown rather than as zero, because an unreadable report must not be able to look like a
+passing one.
+
+### 15.3 Slice C — Browse's default state
+
+The correction in §14.1 held up: Browse's default state needed no metadata specification. `POST /v1/search`
+already returns exactly the pages shared with the integration, so "All Notes" is a fact about permissions
+rather than a filter the app invents. On device, Browse listed **18 pages**, newest first — which matches
+the block census recorded in round 4 exactly, so the index is complete as well as ordered.
+
+Two design consequences worth naming:
+
+- **The result set is derived, not stored.** `BrowseState.results` is `query.applyTo(entries)`, so the
+  contract's "Browse state survives temporary navigation" is satisfied by construction: there is nothing
+  to save and therefore nothing to forget to save.
+- **`ReaderIndexEntry` lives in the reader domain, not in `browse`.** The product contract's architecture
+  puts "normalized discovery metadata" *below* Browse, so a repository returning a Browse type would point
+  the dependency the wrong way down its own diagram. That was the first version, and it was moved.
+
+**The second bug its tests found:** `BrowseIndex.Loaded(entries)` / `Error(category, message)` meant a
+failed reload had to overwrite the loaded entries with the error, destroying content that was on screen
+and readable — the same rule the Note screen already follows for a failed refresh. Entries and status are
+now separate fields, so neither can be destroyed by the other changing.
+
+**Two interpretations recorded rather than left implicit:** `Play all` snapshots the whole result set, not
+the rows currently visible in the viewport (18 queued, 9 on screen) — the contract says "the currently
+visible result set", which reads as the set being looked at rather than the window of it. And search
+matches **titles only**, because the Browse/Search specification that owns the real answer does not exist;
+it cannot match a word that appears only in a Note's body.
+
+### 15.4 Slice A — the shell
+
+`ReaderDestination` gained Home and Browse and a split between top-level and secondary destinations, and
+`ReaderNavigator` grew from one value to `ReaderNavigation(top, secondary: List)`, because Back stopped
+being one edge:
+
+| From | Back goes to |
+|---|---|
+| Player opened from Browse | Browse |
+| Player opened from a **Note** | Note |
+| Note | the tab it was opened from |
+| Browse | Home (§12.5) |
+
+The second row is why it is a list: Play is reachable from the Note screen, so the previous visual context
+is not always a tab. Note and Player — the entire graph until this round — are now both *secondary*.
+`ReaderNavigator` still holds no reference to playback, so "Back does not reverse playback" remains
+structural rather than observed.
+
+**Home ships with only Continue listening.** Your queues needs two missing specifications and Explore
+needs the metadata specification, so two of the three sections are absent. With nothing to continue, Home
+explains itself and offers Browse rather than rendering as a blank list — which is what distinguishes it
+from the "empty result set" the contract warns about, and is why it is not the empty-Settings case.
+It remains the weakest surface until persistence exists (§14.5).
+
+**The mini-player** takes a `ContinueListeningCard` — a description plus two callbacks — and holds no
+state, so it cannot start playback because it is not given the means to. It is absent on the Player, whose
+full surface owns the same controls, and absent with no resumable session (D25).
+
+### 15.5 Verified on device
+
+`tools/probe-player-back.ps1` was rewritten to walk the contract's own example and to read tap targets out
+of the accessibility dump instead of hard-coding coordinates:
+
+```
+home:        HOME | mini-player: absent
+browse:      BROWSE | mini-player: absent
+player:      PLAYER | Section 1 of 59 · Summary || Paragraph 2 of 349 || Playing | mini-player: absent
+after back:  BROWSE | mini-player: Note 1 of 18 · Playing
+speech after back: 20:00:37  com.google.android.tts  usage=USAGE_MEDIA content=CONTENT_TYPE_SPEECH
+```
+
+So: `Play all` → Player over a snapshot of 18 Notes → Back → Browse → playback still producing utterances,
+with the mini-player present. The old version hard-coded Play at `(139,2154)`, which silently became a tap
+on empty space the moment the shell changed what was on screen — worth recording as a class: *a probe that
+misses reports a wrong answer with full confidence.* Two other defects in it were fixed in round 6.
+
+**Not verified on device:** the between-Notes transition and the end-of-queue announcement. Reaching either
+means reading a 349-paragraph document to its end. They are covered by JVM tests, which is the reason the
+session was built scope-free.
+
+### 15.6 What went wrong, and what is still wrong
+
+**Two mistakes of mine, both caught by tests rather than review**, and both the same shape — a type that
+looked immutable but was not:
+
+1. `ActiveQueue` storing the caller's list (§15.1). The queue was not a snapshot.
+2. `BrowseIndex.Error` replacing entries on a failed reload (§15.3). A failed refresh blanked the screen.
+
+Both were found by writing the test that states the *property* ("the queue is a snapshot", "a failed
+reload must not blank the screen") rather than the test that states the mechanism. Worth generalising: on
+this project the property-shaped test has found more than the mechanism-shaped one.
+
+**A wrong fix, reverted.** The intermittent instrumented `assertIsDisplayed` failure was attacked with
+`performScrollTo().assertIsDisplayed()`. It throws — *"Semantic Node has no parent layout with a Scroll
+SemanticsAction"* — because those controls are siblings of the scrolling content, not inside it. The
+intent was right (assert reachability, which is how a listener reaches a control) and the mechanism was
+wrong. Reverted, with the reason recorded at the assertion.
+
+**Still open: the instrumented suite is intermittently flaky, and now visibly so.** Across four full runs
+after the changes: 32/0, 32/1, 32/2, 32/0. A *different* test fails each time and the symptom is always
+`assertIsDisplayed` reporting `is not displayed` about a control that is plainly present. Two candidate
+causes were ruled out by measurement: the device's `screen_off_timeout` was already raised, and
+`stay_on_while_plugged_in` was raised too (read and restored, not assumed — it was `15`, not `0`), with no
+effect.
+
+The prime suspects are now the **two enabled accessibility services**: `TalkBackService` and Bitwarden's.
+`assertIsDisplayed` depends on the activity being resumed and drawn, which an accessibility overlay or an
+autofill service that acts on focus changes can affect, and these tests drive Compose directly through
+`createComposeRule`. That hypothesis is testable by disabling them for a run — which is a change to the
+device's accessibility configuration, so it was **not done without asking**.
+
+Two things follow, and the second is the important one:
+
+- The runner now **fails honestly** on these runs. That is the intended behaviour and not a regression:
+  an intermittent failure reported as a failure is what a gate is for. What is unresolved is the test or
+  device stability, not the verdict.
+- The narrowest fix that keeps the requirement without the device dependency is to assert the control is
+  laid out with real bounds (`fetchSemanticsNode().size`) instead of that it is displayed in the window.
+  That is a deliberate narrowing of an accessibility assertion, so it is left as a recommendation rather
+  than applied unilaterally at the end of a round.
+
+### Still open
+
+- **The instrumented flake** (§15.6), with the prime suspects named and the two candidate fixes.
+- **The TalkBack listening gate** (§14.6) is still open, and it is now more valuable than before: there is
+  a queue, an announcement between Notes and a mini-player, all of which have only been verified as
+  structure.
+- Slice A's own instrumented checks — tab semantics, and the mini-player being two focus stops rather than
+  one or six — are **not written**. The shell was verified on device by dump instead.
+- Slices D and F remain blocked on governing documents; slice C's facets remain blocked on the metadata
+  specification.
+- `ReaderEngine.playFromStart()` still has no production caller (§13.4).
+- `androidx.datastore:datastore-preferences` is still declared and still referenced nowhere.
+
+---
+
+## 16. Priority order
+
+**Date:** 2026-09-17. **Scope:** what to do next and in what order, after §15. No code.
+
+### 16.1 The ordering principle, stated so it can be overruled
+
+Four things are ranked, and they are **not** ranked by user-visible value:
+
+1. **Remove ambiguity from future rounds.** An intermittent failure that reports honestly makes every
+   subsequent round's verdict ambiguous, so it is paid for first even though it adds no feature.
+2. **Things the existing code was already shaped for.** Phase 5 built `ReaderDocumentPosition`, its
+   resolver and four tests *as a handoff* to the session specification and deliberately gave them no
+   production caller. `androidx.datastore:datastore-preferences` is declared and unused for the same
+   reason. Code built to wait for a document is the clearest possible statement of which document is next.
+3. **User-visible unlock.**
+4. **Silent data loss.**
+
+Where this diverges from product value is recorded in §16.4, because it does: the single most valuable
+thing for a listening app is arguably not on this list at all.
+
+### 16.2 The order
+
+| # | Item | Kind | Why here | Blocked on |
+|---|---|---|---|---|
+| P0 | **The instrumented flake** (§15.6) | decision, then ~30 min | every future round's verdict is currently ambiguous: a random failure appears as "1 failing" and has to be explained | one answer from the product owner |
+| P0 | **The launch-load defect** | ~15 min | `loadNotionDocument()` opens the Note then calls `openHome()`, which is top-level and clears the secondary, so the preloaded page is fetched on every launch and displayed nowhere. It is not a missing feature; it is a wired-up flow going nowhere | nothing |
+| P1 | **Active Queue & Reader Session spec**, then implement it | document, then code | §16.3 | writing it |
+| P2 | **Queue Creation & Queue Management spec**, then slice F | document, then code | the largest user-visible gap: the contract's Note actions are "Play, Add to queue" and only Play exists, so a primary action is simply absent | writing it |
+| P3 | **Content Metadata & Workspace Schema Adapters spec** | document, then slice C's facets | unlocks Browse's filters, Home's Explore, and Smart Queues — which are impossible without it | writing it; partly a record of what the workspace cannot support |
+| P4 | **Background Playback, Media Controls & Hands-Free Commands spec** | document | see §16.4 | writing it |
+| — | **Small evidence-backed fixes** | code | can slot into any gap: image captions are speakable and dropped (8 blocks in this workspace), and a page dominated by a child database reads as ~empty (1 chunk from 2 blocks). Both from round 4's census | nothing |
+| — | **Slice E — Raw Notion navigation** | code | the one roadmap slice still undone, and genuinely unblocked, but the lowest-value destination in the contract ("secondary escape hatch") | nothing |
+| — | **Slice A′ — the shell's instrumented checks** | code | tab semantics and the mini-player's focus count; completes slice A, which was verified by accessibility dump instead | P0 |
+
+### 16.3 Why the session spec is P1 rather than P2, given P2 unlocks more visible surface
+
+Three reasons, none of them preference:
+
+- **The code was already built for it.** `ReaderDocumentPosition`, `positionAt(index)`, `resolve(position)`
+  and `ReaderIdentityStabilityTest` were written in Phase 5 as the handoff to this specification, and the
+  integration spec *refuses* to own resume policy precisely so this document can. A second persistence
+  client existing first would mean choosing the storage story twice.
+- **It is what makes the app remember**, which is what makes Home, the mini-player and the Listening tab
+  thin. §14.5 recorded Home as "the weaker surface until persistence exists" — one document away.
+- **It settles persistence before Saved Queues need it**, which is the same argument from the other side:
+  P2's saved queues need a store, and the store should be decided once.
+
+### 16.4 Where this order disagrees with product value
+
+**Background playback is the highest-value item on the list and is ranked last.** The Player holds the
+screen awake with `keepScreenOn` as a stated workaround, which means this listening app cannot currently
+be listened to while walking, with the screen off, or from a headset button. For an application whose
+purpose is hands-free listening, that is the largest functional gap in the product — larger than saved
+queues.
+
+It is ranked P4 anyway because it blocks nothing and is blocked by nothing, so it loses every comparison
+on the critical path. That is a real cost of ordering by unblocking, and it is written down so the choice
+is visible rather than emergent: **if the priority is product value rather than unblocking, background
+playback moves to P1.**
+
+### 16.5 Two decisions needed
+
+- **The flake** (§15.6): whether to test the accessibility-service hypothesis by disabling TalkBack and
+  Bitwarden for one run — a change to the device's accessibility configuration, so not done unilaterally —
+  or to narrow the assertion to laid-out bounds and keep the requirement without the device dependency.
+- **P1 vs P4**: whether to keep ordering by unblocking (then the session spec is next), or by product value
+  (then background playback is).
+
+### Still open
+
+- All of §15's open items, unchanged: the flake, the TalkBack listening gate, slice A′, slices D and F,
+  slice C's facets, `playFromStart`'s absent caller, and the unused DataStore dependency.

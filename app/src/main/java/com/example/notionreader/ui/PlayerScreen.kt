@@ -3,6 +3,7 @@ package com.example.notionreader.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.notionreader.reader.QueueState
+import com.example.notionreader.reader.ReaderLoadException
 import com.example.notionreader.reader.ReaderState
 
 /**
@@ -57,7 +60,9 @@ fun PlayerScreen(
     onNextSection: () -> Unit,
     onPreviousSection: () -> Unit,
     modifier: Modifier = Modifier,
-    statusMessage: String? = null
+    statusMessage: String? = null,
+    queueState: QueueState = QueueState(),
+    onRetryQueueNote: () -> Unit = {}
 ) {
     // Reading is hands-free, so the display must not time out mid-paragraph. It is only held awake
     // while playing, so a paused reader still lets the device sleep. (A background playback service is
@@ -68,6 +73,10 @@ fun PlayerScreen(
         onDispose { view.keepScreenOn = false }
     }
 
+    // A queued Note is named by the queue, not by the engine: while the next Note is still loading, the
+    // engine is still holding the previous one, and showing its title would be showing the wrong Note.
+    val title = queueState.currentItem?.title ?: documentTitle
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -75,37 +84,71 @@ fun PlayerScreen(
             .semantics { paneTitle = "Player" }
     ) {
         Text(
-            text = documentTitle,
+            text = title,
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.semantics { heading() }
         )
 
-        val sectionLine = listOfNotNull(
-            state.sectionPositionDescription,
-            state.currentSection?.title
-        ).joinToString(" · ")
-
-        if (sectionLine.isNotEmpty()) {
+        // "queue position such as Note 3 of 8". Absent for a queue of one, which is every Play from the
+        // Note screen — "Note 1 of 1" on the common path would be noise rather than information.
+        val queuePosition = queueState.positionDescription
+        if (queuePosition != null) {
             Text(
-                text = sectionLine,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 12.dp)
+                text = queuePosition,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
 
-        Text(
-            text = state.positionDescription,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(top = 8.dp)
-        )
+        if (queueState.isStalled) {
+            // The queue is stalled on this Note: it did not load, and it has not been skipped. The
+            // section and position lines are deliberately not shown, because the engine is still holding
+            // the Note that already finished and would describe it as though it were current.
+            QueueFailureNotice(
+                failure = queueState.failure,
+                onRetry = onRetryQueueNote
+            )
+        } else if (queueState.awaiting) {
+            Text(
+                text = "Loading…",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        } else {
+            val sectionLine = listOfNotNull(
+                state.sectionPositionDescription,
+                state.currentSection?.title
+            ).joinToString(" · ")
 
-        Text(
-            text = state.playbackStateDescription,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .semantics { liveRegion = LiveRegionMode.Polite }
-        )
+            if (sectionLine.isNotEmpty()) {
+                Text(
+                    text = sectionLine,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
+
+            Text(
+                text = state.positionDescription,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            // "At the final Note: announce that the queue has ended". Shown in place of the playback
+            // state rather than as well as it: "End of queue" and "End of note" are different facts and
+            // saying both would be saying the less useful one twice.
+            val playbackLine = if (queueState.completed) "End of queue" else state.playbackStateDescription
+
+            Text(
+                text = playbackLine,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
 
         if (statusMessage != null) {
             Text(
@@ -115,14 +158,20 @@ fun PlayerScreen(
             )
         }
 
-        Text(
-            text = state.currentParagraph,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(top = 16.dp)
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-        )
+        if (!queueState.awaiting && !queueState.isStalled) {
+            Text(
+                text = state.currentParagraph,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            )
+        } else {
+            // Keeps the controls at the bottom of the screen in both states, so a transition cannot make
+            // the buttons move under the user's finger.
+            Spacer(modifier = Modifier.weight(1f))
+        }
 
         Row(
             modifier = Modifier
@@ -133,7 +182,7 @@ fun PlayerScreen(
         ) {
             Button(
                 onClick = onPreviousSection,
-                enabled = !state.isAtFirstParagraph,
+                enabled = !state.isAtFirstParagraph && !queueState.awaiting && !queueState.isStalled,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Previous section")
@@ -141,6 +190,9 @@ fun PlayerScreen(
 
             Button(
                 onClick = onPlayPause,
+                // Disabled while the queue cannot proceed. Enabling it would let Play call the engine and
+                // replay the Note that just ended, which reads as the queue jumping backwards.
+                enabled = !queueState.awaiting && !queueState.isStalled && !queueState.completed,
                 modifier = Modifier.weight(1f)
             ) {
                 Text(if (state.isPlaying) "Pause" else "Play")
@@ -148,10 +200,43 @@ fun PlayerScreen(
 
             Button(
                 onClick = onNextSection,
-                enabled = !state.isAtLastParagraph,
+                enabled = !state.isAtLastParagraph && !queueState.awaiting && !queueState.isStalled,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Next section")
+            }
+        }
+    }
+}
+
+/**
+ * A Note in the queue that could not be loaded, with Retry.
+ *
+ * The live region is on the message itself rather than on the Column that wraps it and the button. That
+ * is a defect this project already fixed once on the Note screen: semantics on a parent that does not
+ * merge its descendants creates its own node, so TalkBack watches an empty container while the changing
+ * text sits in a child — and the announcement silently never fires.
+ */
+@Composable
+private fun QueueFailureNotice(
+    failure: ReaderLoadException?,
+    onRetry: () -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = failure?.message ?: "Could not load this Note.",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+        )
+
+        // Only offered when retrying could plausibly succeed, which is the taxonomy's answer rather than
+        // a guess: repeated attempts at a missing page or a revoked token cannot start working.
+        if (failure?.category?.canRetry != false) {
+            Button(onClick = onRetry) {
+                Text("Retry")
             }
         }
     }

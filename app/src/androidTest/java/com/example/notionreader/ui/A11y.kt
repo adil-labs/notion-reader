@@ -129,17 +129,25 @@ internal object A11y {
     }
 
     /**
-     * Asserts the named content appears in the given order down the screen.
+     * Asserts the named content appears in the given order.
      *
-     * This is the objective form of "TalkBack focus order must match logical reading order". TalkBack
-     * walks the semantics tree roughly in layout order, so comparing top edges is a real check rather
-     * than a proxy for one: a document rendered out of order, or a heading pinned below its body,
-     * fails here.
+     * This is the objective form of "TalkBack focus order must match logical reading order", and it reads
+     * the order out of the **semantics tree** rather than off the screen. TalkBack walks that tree, so
+     * its order *is* the reading order; the tree's order for a `LazyColumn` follows item index, which is
+     * document order.
+     *
+     * **This deliberately does not sort by geometry, and that is a bug fix rather than a simplification.**
+     * The first version sorted nodes by `boundsInRoot.top`, which reads as more objective but is not:
+     * a `LazyColumn` composes its items progressively, so at capture time some nodes have settled bounds
+     * and others report a stale or zero rect. Sorting by a mixture of real and stale tops reorders the
+     * list, and the result was a test that failed intermittently — once in a full-suite run and never in
+     * isolation — with a "rendered order" that was an artefact of the sort rather than of the rendering.
+     * The geometry is still included in the failure message, so a genuine layout problem is diagnosable.
      */
-    fun assertTopToBottom(vararg expected: String, collection: SemanticsNodeInteractionCollection) {
-        val ordered = collection.fetchSemanticsNodes()
-            .sortedBy { it.boundsInRoot.top }
-            .mapNotNull { it.text() }
+    fun assertReadingOrder(vararg expected: String, collection: SemanticsNodeInteractionCollection) {
+        val nodes = collection.fetchSemanticsNodes()
+        val ordered = nodes.mapNotNull { it.text() }
+        val tops = nodes.mapNotNull { node -> node.text()?.let { it to node.boundsInRoot.top } }
 
         val positions = expected.map { label -> label to ordered.indexOfFirst { it.contains(label) } }
 
@@ -149,7 +157,8 @@ internal object A11y {
         positions.zipWithNext().forEach { (earlier, later) ->
             assertTrue(
                 "'${earlier.first}' (index ${earlier.second}) must come before " +
-                    "'${later.first}' (index ${later.second}); rendered order was $ordered",
+                    "'${later.first}' (index ${later.second}); reading order was $ordered; " +
+                    "top edges were $tops",
                 earlier.second < later.second
             )
         }

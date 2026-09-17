@@ -82,6 +82,12 @@ class NoteScreenAccessibilityTest {
 
         // assertIsDisplayed because reachability is part of the requirement: a primary action a
         // listener cannot reach is not a primary action.
+        //
+        // **Not** performScrollTo, which was tried and is wrong here: these controls are siblings of the
+        // scrolling content, not inside it, so they have no ancestor with a scroll action and
+        // performScrollTo throws "Semantic Node has no parent layout with a Scroll SemanticsAction". The
+        // intermittent "is not displayed" failure this assertion produced is the device's display state,
+        // so it is fixed in `tools/run-accessibility-tests.ps1` by keeping the screen on for the run.
         compose.onNodeWithText("Play").assertIsDisplayed()
 
         // Invoked through the semantics action rather than a synthetic tap. That is what an
@@ -107,7 +113,7 @@ class NoteScreenAccessibilityTest {
     fun rendersTheDocumentInReadingOrder() {
         showNote()
 
-        A11y.assertTopToBottom(
+        A11y.assertReadingOrder(
             "Accessibility Fixture",
             "Intro paragraph.",
             "Bullet item.",

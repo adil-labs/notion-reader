@@ -38,6 +38,12 @@ class NotionRepositoryTest {
             return notionJson.decodeFromString<NotionPageList>(searchResultsJson).results.firstOrNull()
         }
 
+        /** The same results as [searchMostRecentPage], since the fixture has no cursor in it. */
+        override suspend fun searchPages(): List<NotionPage> {
+            searchCount++
+            return notionJson.decodeFromString<NotionPageList>(searchResultsJson).results
+        }
+
         override fun close() = Unit
 
         companion object {

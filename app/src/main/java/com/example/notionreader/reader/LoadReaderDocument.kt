@@ -61,6 +61,22 @@ val Throwable.readerErrorCategory: ReaderErrorCategory
 val Throwable.readerErrorMessage: String
     get() = (this as? ReaderLoadException)?.message ?: readerErrorCategory.message
 
+/**
+ * The failure as a [ReaderLoadException], so anything that can fail can be rendered.
+ *
+ * [DefaultLoadReaderDocument] already guarantees this shape for loads that go through it, but a queue
+ * failure is reported to the session as a [ReaderLoadException] and nothing should be able to reach it
+ * holding a bare `RuntimeException`. Unmapped failures become `MALFORMED_RESPONSE` via
+ * [readerErrorCategory], which is the same total fallback the loader itself uses.
+ */
+fun Throwable.asReaderLoadException(): ReaderLoadException = this as? ReaderLoadException
+    ?: ReaderLoadException(
+        category = readerErrorCategory,
+        message = readerErrorMessage,
+        diagnostic = "unexpected ${this::class.simpleName}: $message",
+        cause = this
+    )
+
 /** Whether offering Retry for this failure is meaningful. */
 val Throwable.isReaderErrorRetryable: Boolean
     get() = readerErrorCategory.canRetry

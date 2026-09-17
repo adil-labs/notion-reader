@@ -29,6 +29,14 @@ internal class FixtureNotionApi private constructor(
 
     override suspend fun searchMostRecentPage(): NotionPage? = retrievePage("")
 
+    /**
+     * The fixture has one page, so a page listing returns that one.
+     *
+     * Deliberately not an empty list: Browse's default state is "All Notes", and a fixture that reports
+     * seeing nothing would make every Browse test exercise the empty state instead of the result set.
+     */
+    override suspend fun searchPages(): List<NotionPage> = listOf(retrievePage(""))
+
     override fun close() = Unit
 
     companion object {

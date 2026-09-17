@@ -56,6 +56,19 @@ interface NotionApi {
     /** `POST /v1/search` — the most recently edited page this integration can see, if any. */
     suspend fun searchMostRecentPage(): NotionPage?
 
+    /**
+     * `POST /v1/search` — every page this integration can see, following pagination.
+     *
+     * The same endpoint as [searchMostRecentPage] with the sort kept and the page size raised. That is
+     * the whole of Browse's data source: the integration sees exactly the pages that have been shared
+     * with it, so "All Notes" is a fact about permissions rather than a query the app invents.
+     *
+     * Deliberately returns pages rather than a `ReaderDocument` per result: a result needs a title and a
+     * date, both of which are already on [NotionPage], and fetching block children for every result would
+     * turn one request into hundreds before the user has looked at anything.
+     */
+    suspend fun searchPages(): List<NotionPage>
+
     fun close()
 }
 
@@ -103,21 +116,46 @@ class KtorNotionApi(
     }
 
     override suspend fun searchMostRecentPage(): NotionPage? {
-        val body = buildJsonObject {
-            put("filter", buildJsonObject {
-                put("property", "object")
-                put("value", "page")
-            })
-            // Notion only accepts a sort together with a filter.
-            put("sort", buildJsonObject {
-                put("direction", "descending")
-                put("timestamp", "last_edited_time")
-            })
-            put("page_size", 1)
-        }
-
+        val body = searchBody(pageSize = 1)
         val results: NotionPageList = call(path = "/search", body = body)
         return results.results.firstOrNull()
+    }
+
+    override suspend fun searchPages(): List<NotionPage> {
+        val pages = mutableListOf<NotionPage>()
+        var cursor: String? = null
+
+        while (true) {
+            val results: NotionPageList = call(
+                path = "/search",
+                body = searchBody(pageSize = PAGE_SIZE, startCursor = cursor)
+            )
+
+            pages += results.results
+
+            cursor = results.nextCursor
+            if (!results.hasMore || cursor == null) return pages
+        }
+    }
+
+    /**
+     * The `POST /v1/search` body.
+     *
+     * Sorted by `last_edited_time` descending, which is both what makes
+     * [searchMostRecentPage] return the newest page and what Browse's default order shows. Notion only
+     * accepts a sort together with a filter, hence the pairing.
+     */
+    private fun searchBody(pageSize: Int, startCursor: String? = null): JsonObject = buildJsonObject {
+        put("filter", buildJsonObject {
+            put("property", "object")
+            put("value", "page")
+        })
+        put("sort", buildJsonObject {
+            put("direction", "descending")
+            put("timestamp", "last_edited_time")
+        })
+        put("page_size", pageSize)
+        startCursor?.let { put("start_cursor", it) }
     }
 
     override fun close() {

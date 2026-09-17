@@ -92,6 +92,9 @@ class PlayerScreenAccessibilityTest {
     fun thePrimaryControlsAreLabelledAsSectionsRatherThanParagraphs() {
         showPlayer()
 
+        // Not scrolled into view: these controls are outside the scrolling content, so they have no
+        // scrollable ancestor. The intermittent "is not displayed" they produced was the device's display
+        // state, which the runner now holds on for the duration of a run.
         compose.onNodeWithText("Previous section").assertIsDisplayed()
         compose.onNodeWithText("Next section").assertIsDisplayed()
         compose.onNodeWithText("Play").assertIsDisplayed()

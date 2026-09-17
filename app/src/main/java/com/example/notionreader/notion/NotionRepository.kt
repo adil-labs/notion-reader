@@ -3,6 +3,7 @@ package com.example.notionreader.notion
 import com.example.notionreader.reader.ReaderDocument
 import com.example.notionreader.reader.ReaderDocumentMapper
 import com.example.notionreader.reader.ReaderErrorCategory
+import com.example.notionreader.reader.ReaderIndexEntry
 import com.example.notionreader.reader.ReaderLoadException
 import java.time.Instant
 
@@ -78,6 +79,36 @@ class NotionRepository(
     }
 
     fun close() = api.close()
+
+    /**
+     * Every page the integration can see, as Browse entries.
+     *
+     * `POST /v1/search` with no query returns exactly the pages that have been shared with the
+     * integration, so this is Browse's "All Notes": the set is a fact about permissions rather than a
+     * filter the app chooses, which is what lets the default result set exist without the missing
+     * Content Metadata & Workspace Schema Adapters specification.
+     *
+     * **A page with a blank title is dropped.** It cannot be named in a result row, in a queue
+     * ("Note 3 of 8"), or in the between-Notes announcement, so including it would put an unlabelled row
+     * in front of the user and an unnamed Note into a queue. Dropping it is the smaller wrong: the
+     * alternative is inventing a placeholder name and presenting that as the page's name. The count of
+     * dropped pages is not reported anywhere yet, which is recorded in `docs/decisions.md` §15.
+     *
+     * Date parsing is deliberately tolerant and cannot fail the call: a page whose `last_edited_time`
+     * cannot be read is still a readable Note, and the only thing lost is its position in "Recently
+     * updated" — which [ReaderIndexEntry] already handles by sorting unknown dates last.
+     */
+    suspend fun getBrowseIndex(): List<ReaderIndexEntry> = api.searchPages()
+        .mapNotNull { page ->
+            val title = page.title().trim()
+            if (title.isEmpty()) return@mapNotNull null
+
+            ReaderIndexEntry(
+                pageId = page.id,
+                title = title,
+                lastEditedAt = page.lastEditedTime.toInstantOrNull()
+            )
+        }
 
     private suspend fun resolvePage(pageReference: String): NotionPage {
         if (pageReference.isBlank()) {

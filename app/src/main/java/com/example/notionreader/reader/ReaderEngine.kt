@@ -32,6 +32,19 @@ interface ReaderEngine {
      */
     fun playFromStart()
 
+    /**
+     * Speaks [text] and then reads the loaded document from its first chunk.
+     *
+     * This exists because a queue moving to the next Note must say *which* Note started. The document
+     * carries no title chunk — the spec's decision D9 is that the title is announced rather than read
+     * as content, so the announcement is not something the document can supply.
+     *
+     * Speech, rather than a live region, because the failure case matters: a listener with the screen off
+     * has TalkBack silent and the reader's TTS as their only channel, and to them an unannounced Note
+     * change is indistinguishable from the reader having stopped.
+     */
+    fun announceThenPlay(text: String)
+
     /** Stops the current utterance and keeps the reading position. */
     fun pause()
 
@@ -97,6 +110,24 @@ class ReaderEngineImpl(
         speechEngine.stop()
         _state.value = current.copy(currentParagraphIndex = 0, hasReachedEnd = false).play()
         speakCurrentParagraph()
+    }
+
+    override fun announceThenPlay(text: String) {
+        val current = _state.value
+        if (current.paragraphs.isEmpty()) return
+
+        invalidateUtterance()
+        speechEngine.stop()
+        _state.value = current.copy(currentParagraphIndex = 0, hasReachedEnd = false).play()
+
+        // The state says Playing while the announcement is spoken, which is accurate: the session is
+        // playing, it is announcing. The announcement shares the utterance token, so moving away during
+        // it discards the start of the document the same way any other cancellation does.
+        val token = utteranceToken
+        speechEngine.speak(text) {
+            if (token != utteranceToken) return@speak
+            speakCurrentParagraph()
+        }
     }
 
     override fun pause() {
