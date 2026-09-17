@@ -132,7 +132,8 @@ ReaderDocument(
 ```
 
 **4 sections; ≥28 chunks** — 22 threshold-independent, plus at least 2 each for the three overlong
-blocks (22, 24, 25).
+blocks (22, 24, 25). At the current implementation constant (`DEFAULT_MAX_CHUNK_CHARS = 300`) the
+count is **exactly 28**, which is what the device produced (§3a).
 
 | Sec | id | title | level | # chunks |
 |---|---|---|---|---|
@@ -232,18 +233,71 @@ threshold.
 
 ---
 
+## 3a. On-device validation (2026-09-17)
+
+This contract was verified against the real API on a real device, not only against the offline
+snapshot. Evidence, in the order it was gathered:
+
+| Observation | Result |
+|---|---|
+| Device | Pixel 8 Pro (`husky`), app v0.1, via `adb` |
+| Page loaded | `Reader Fixture — Block Type Coverage` |
+| Discovered by | `POST /v1/search` most-recently-edited (no page id configured) |
+| Chunk count shown | **Paragraph 28 of 28** — exactly the predicted total |
+| Read to the end | last chunk was the tail of block 25 |
+| App process log | 8 lines total, **zero warnings or errors**, no exceptions |
+| TTS | bound and connected to `com.google.android.tts` |
+
+Walking backwards eleven chunks from the end reproduced the contract **at every index**:
+
+| On device | Expected by this contract |
+|---|---|
+| 28 `fallback chain defines and which should essentially never be reached by ordinary prose` | block 25 `:1` |
+| 27 `no sentence ending punctuation appears anywhere in this block …` | block 25 `:0` |
+| 26 `precisely the fallback path that must be exercised …` | block 24 `:1` |
+| 25 `This single sentence deliberately runs well past any plausible chunk threshold …` | block 24 `:0` |
+| 24 `Inside the toggle.` | block 23.1 |
+| 23 `Toggle summary` | block 23 |
+| 22 `Long paragraph sentence five … sentence six ends the block.` | block 22 `:1` |
+| 21 `Long paragraph sentence one …` | block 22 `:0` |
+| 20 `Paragraph after the empty heading.` | block 20 |
+| 19 `Body under the tertiary heading.` | block 18 |
+| 18 `Tertiary Heading` | block 17 |
+| 17 `val answer = 42` | block 15 — end of section 2 |
+| 16 `Quoted text for the fixture.` | block 14 |
+| 15 `Checked task` | block 13 |
+
+Three things this establishes that the offline tests could not:
+
+1. **All three rules of the D11 fallback chain ran.** Block 22 split at a *sentence* boundary
+   (rule 1); blocks 24 and 25 split mid-sentence at a *word* boundary (rule 2) — chunk 27 visibly
+   ends on "…the last resort **the**" with the remainder starting at "fallback chain". The fixture's
+two added blocks earned their place.
+2. **D4, D5 and D6 hold on real API data.** The page contains an empty heading, a divider and an
+   unsupported `image`; had any produced a chunk the total would have been 29 or 30, and the
+   per-index match above would have shifted. It is 28 and nothing shifted.
+3. **Nesting and containers work end to end.** Chunks 23/24 are the toggle and its child, adjacent
+   and in order, so children are read in place rather than appended or dropped.
+
+The regression risk this leaves: the chunk *indices* above are only valid while
+`DEFAULT_MAX_CHUNK_CHARS` is 300. Changing that constant renumbers every chunk after the first
+oversized block, so this table must be re-derived if the threshold is retuned — which is why D11
+kept the threshold out of the specification.
+
+---
+
 ## 4. Traceability to the spec's acceptance criteria
 
 | Acceptance criterion | Covered here |
 |---|---|
-| Known page ID loads | yes — fixture ID |
-| All paginated children retrieved in order | yes — order is §1 |
+| Known page ID loads | yes — fixture ID; also **verified on a device via discovery** (§3a) |
+| All paginated children retrieved in order | yes — order is §1 and was confirmed on device (§3a) |
 | Nested supported content included | yes — 9.1, 10.1, 23.1 |
 | Raw response converted to `ReaderDocument` | yes — §3 is the target |
 | Title, sections, chunks deterministic and inspectable | yes — D7/D8 make IDs deterministic |
-| Unsupported blocks do not crash loading | yes — block 21 |
+| Unsupported blocks do not crash loading | yes — block 21, confirmed on device (§3a) |
 | Auth / permission / network / not-found distinguishable | **no** — needs a separate error-mapping fixture, not this page |
-| Unit tests cover mapping, hierarchy, pagination, errors | partly — this page drives mapping and hierarchy |
+| Unit tests cover mapping, hierarchy, pagination, errors | partly — this page drives mapping and hierarchy; **pagination and error mapping are still untested** |
 | No TTS dependency in repository or mapper | n/a — structural, checked by review |
 
 ---
