@@ -16,30 +16,46 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.reader.ReaderState
 
 /**
- * Reader UI. It receives state and actions only; all navigation and playback logic lives in
- * [com.example.notionreader.reader.ReaderEngine].
+ * The Player: the dedicated continuous spoken-reading surface.
+ *
+ * It receives state and callbacks only; all navigation and playback logic lives in
+ * [com.example.notionreader.reader.ReaderEngine]. The UI contract's player content is honoured as far
+ * as the current milestone allows: current Note title, current section, progress, and Playing/Paused
+ * state are all shown, and the primary controls are Previous section / Play-Pause / Next section.
+ *
+ * **The `Queue` control is deliberately absent.** The contract lists it among the primary controls, but
+ * it "opens a view of the current frozen Active Queue/session", and neither the Active Queue nor its
+ * specification exists yet. A visible control that does nothing when pressed is worse for a TalkBack
+ * user than an absent one, so it is deferred to the Active Queue & Reader Session milestone rather
+ * than stubbed. Fine-grained chunk navigation is likewise absent: the contract allows it, but only as
+ * a secondary action.
  *
  * Accessibility:
- * - Every control has a self-explanatory accessible name ("Previous paragraph", "Play", "Pause",
- *   "Next paragraph") instead of "back"/"forward"/"button".
- * - The reading position is exposed as focusable text ("Paragraph 4 of 12").
- * - [statusMessage] is plain focusable text, not a live region: TalkBack can find it when the user
- *   explores, but it never speaks over the document while reading.
+ * - Every control has a self-explanatory accessible name ("Previous section", "Play", "Pause",
+ *   "Next section") instead of "back"/"forward"/"button".
+ * - [ReaderState.playbackStateDescription] sits in a polite live region, so paused, resumed and end of
+ *   note are announced exactly when they happen — those are required announcements. The position text
+ *   is *not* live, so it cannot talk over the document while every paragraph advances it.
+ * - The screen names itself with a pane title, so entering it says where the user is.
+ * - Controls that cannot do anything are disabled rather than silently inert.
  * - Nothing is force-focused, so TalkBack and the document TTS engine do not talk over each other.
  */
 @Composable
-fun ReaderScreen(
+fun PlayerScreen(
     state: ReaderState,
     documentTitle: String,
     onPlayPause: () -> Unit,
-    onNext: () -> Unit,
-    onPrevious: () -> Unit,
+    onNextSection: () -> Unit,
+    onPreviousSection: () -> Unit,
     modifier: Modifier = Modifier,
     statusMessage: String? = null
 ) {
@@ -56,19 +72,39 @@ fun ReaderScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(24.dp)
+            .semantics { paneTitle = "Player" }
     ) {
-        Text(
-            text = "Notion Reader",
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.semantics { heading() }
-        )
-
         Text(
             text = documentTitle,
             style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.semantics { heading() }
+        )
+
+        val sectionLine = listOfNotNull(
+            state.sectionPositionDescription,
+            state.currentSection?.title
+        ).joinToString(" · ")
+
+        if (sectionLine.isNotEmpty()) {
+            Text(
+                text = sectionLine,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+        }
+
+        Text(
+            text = state.positionDescription,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        Text(
+            text = state.playbackStateDescription,
+            style = MaterialTheme.typography.labelLarge,
             modifier = Modifier
                 .padding(top = 8.dp)
-                .semantics { heading() }
+                .semantics { liveRegion = LiveRegionMode.Polite }
         )
 
         if (statusMessage != null) {
@@ -78,12 +114,6 @@ fun ReaderScreen(
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
-
-        Text(
-            text = state.positionDescription,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(top = 16.dp)
-        )
 
         Text(
             text = state.currentParagraph,
@@ -102,10 +132,11 @@ fun ReaderScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Button(
-                onClick = onPrevious,
+                onClick = onPreviousSection,
+                enabled = !state.isAtFirstParagraph,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Previous paragraph")
+                Text("Previous section")
             }
 
             Button(
@@ -116,10 +147,11 @@ fun ReaderScreen(
             }
 
             Button(
-                onClick = onNext,
+                onClick = onNextSection,
+                enabled = !state.isAtLastParagraph,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Next paragraph")
+                Text("Next section")
             }
         }
     }

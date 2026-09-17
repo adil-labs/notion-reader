@@ -1,5 +1,7 @@
 package com.example.notionreader.notion
 
+import com.example.notionreader.reader.ReaderErrorCategory
+import com.example.notionreader.reader.ReaderLoadException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.decodeFromString
 import org.junit.Assert.assertEquals
@@ -191,11 +193,13 @@ class NotionRepositoryTest {
         assertEquals(listOf("Hello world."), document.chunkTexts)
     }
 
+    /** A genuinely empty page is empty, not broken, so it stays a valid empty document. */
     @Test
     fun toleratesPagesWithNoReadableBlocks() = runTest {
         val document = repository().getDocument(pageId)
 
         assertEquals(emptyList<String>(), document.chunkTexts)
+        assertEquals(0, document.sections.size)
     }
 
     @Test
@@ -239,9 +243,11 @@ class NotionRepositoryTest {
 
         val error = runCatching { NotionRepository(api).getDocument(secretLookingValue) }.exceptionOrNull()
 
-        assertTrue(error is NotionApiException)
-        assertTrue(error!!.message!!.contains("neither a page ID nor a page URL"))
+        assertTrue(error is ReaderLoadException)
+        assertEquals(ReaderErrorCategory.PAGE_NOT_FOUND, (error as ReaderLoadException).category)
+        assertTrue(error.message!!.contains("neither a page ID nor a page URL"))
         assertTrue(!error.message!!.contains("ntn_"))
+        assertTrue("a mistyped token must not reach a log either", !error.diagnostic.contains("ntn_"))
         assertEquals(0, api.searchCount)
     }
 
@@ -252,8 +258,43 @@ class NotionRepositoryTest {
 
         val error = runCatching { NotionRepository(api).getDocument(pageId) }.exceptionOrNull()
 
-        assertTrue(error is NotionApiException)
-        assertTrue(error!!.message!!.contains("trash"))
+        assertTrue(error is ReaderLoadException)
+        assertEquals(ReaderErrorCategory.PAGE_NOT_FOUND, (error as ReaderLoadException).category)
+        assertTrue(error.message!!.contains("trash"))
+    }
+
+    @Test
+    fun reportsAnIntegrationThatCannotSeeAnyPage() = runTest {
+        val api = FakeNotionApi(
+            pageJson = pageJson,
+            blockListJson = blockListJson(),
+            searchResultsJson = searchResultsJson()
+        )
+
+        val error = runCatching { NotionRepository(api).getDocument() }.exceptionOrNull()
+
+        assertTrue(error is ReaderLoadException)
+        assertEquals(ReaderErrorCategory.PERMISSION_DENIED, (error as ReaderLoadException).category)
+    }
+
+    /**
+     * A page with content that yields nothing speakable is a reportable failure, not an empty reader:
+     * the user asked for a page and would otherwise be shown nothing, with no explanation.
+     */
+    @Test
+    fun reportsAPageWhoseEntireContentIsUnsupported() = runTest {
+        val image = """
+            { "object": "block", "id": "9", "type": "image", "image": { "type": "external" } }
+        """.trimIndent()
+
+        val error = runCatching { repository(image).getDocument(pageId) }.exceptionOrNull()
+
+        assertTrue(error is ReaderLoadException)
+        assertEquals(
+            ReaderErrorCategory.UNSUPPORTED_DOCUMENT_STRUCTURE,
+            (error as ReaderLoadException).category
+        )
+        assertTrue("the diagnostic should say what was ignored", error.diagnostic.contains("image"))
     }
 
     @Test

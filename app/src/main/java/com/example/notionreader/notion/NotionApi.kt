@@ -1,6 +1,9 @@
 package com.example.notionreader.notion
 
+import com.example.notionreader.reader.ReaderErrorCategory
+import com.example.notionreader.reader.ReaderLoadException
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -30,8 +33,12 @@ internal val notionJson = Json {
     isLenient = true
 }
 
-/** Raised for every Notion failure. [message] is safe to show in the UI and to read out by TalkBack. */
-class NotionApiException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/*
+ * Every failure this layer produces is a [com.example.notionreader.reader.ReaderLoadException] carrying
+ * one of the nine categories the integration spec requires. The spec names this component
+ * (`NotionApiClient`) as the place responsible for error mapping, so nothing above this file has to
+ * know about HTTP status codes or Notion error codes.
+ */
 
 /**
  * The Notion API surface this app needs (https://developers.notion.com/reference).
@@ -58,10 +65,13 @@ interface NotionApi {
  * Behaviour follows the published Notion request limits
  * (https://developers.notion.com/reference/request-limits):
  * - `Authorization: Bearer <token>` and `Notion-Version` are sent on every request.
- * - HTTP 429 (`rate_limited`) and 529 (`service_overload`) are retried, honouring `Retry-After`.
- * - 500/502/503/504 are retried the same way, because every call this class makes is a read.
- * - Other 4xx responses are never retried; they are reported with the Notion error code and message.
+ * - HTTP 429 (`rate_limited`, honouring `Retry-After`) and 529/5xx (`service_overload`) are retried,
+ *   because every call this class makes is a read.
+ * - Nothing else is retried. In particular an authentication or permission failure is reported on
+ *   the first response: repeating it cannot change the answer.
  * - Retries are limited, and delays back off exponentially with jitter.
+ * - Every failure is mapped onto the spec's error taxonomy via [failureFor], so callers deal in
+ *   categories rather than in HTTP status codes.
  */
 class KtorNotionApi(
     private val token: String,
@@ -145,58 +155,28 @@ class KtorNotionApi(
                     delay(backoffMillis(attempt))
                     continue
                 }
-                throw NotionApiException(
-                    "Could not reach Notion. Check the network connection and try again.",
-                    e
+                throw ReaderLoadException(
+                    category = ReaderErrorCategory.NETWORK_UNAVAILABLE,
+                    diagnostic = "${e::class.simpleName} after $attempt attempts: ${e.message}",
+                    cause = e
                 )
             }
 
             val text = response.bodyAsText()
             if (response.status.isSuccess()) return decodeNotionResponse(text)
 
-            if (attempt < MAX_ATTEMPTS && response.isRetryable()) {
+            val failure = failureFor(response.status.value, text)
+
+            // Retry gates on the category, not on the status code, so the spec's "retry only
+            // transient failures" and "do not automatically retry permission/authentication
+            // failures" are decided in exactly one place.
+            if (attempt < MAX_ATTEMPTS && failure.category.canRetry) {
                 delay(response.retryDelayMillis(attempt))
                 continue
             }
 
-            throw NotionApiException(describeFailure(response.status.value, text))
+            throw failure
         }
-    }
-
-    private fun describeFailure(status: Int, body: String): String {
-        val error = runCatching { notionJson.decodeFromString<NotionErrorBody>(body) }.getOrNull()
-
-        val explanation = when (error?.code) {
-            "unauthorized" ->
-                "Notion rejected the integration token. Check that the token is correct and still active."
-
-            "restricted_resource" ->
-                "The integration does not have access to this page. Share the page with the integration in Notion."
-
-            "object_not_found" ->
-                "Notion could not find that page. Check the page reference and share the page with the integration."
-
-            "validation_error" ->
-                "Notion rejected the request as invalid."
-
-            "rate_limited" ->
-                "Notion is rate limiting this integration and the retries were used up. Try again shortly."
-
-            "service_overload" ->
-                "Notion is temporarily overloaded. Try again shortly."
-
-            else -> when (status) {
-                401 -> "Notion rejected the integration token (HTTP 401)."
-                404 -> "Notion could not find that page (HTTP 404)."
-                else -> "Notion request failed (HTTP $status)."
-            }
-        }
-
-        val detail = error?.message?.trim().orEmpty()
-
-        return listOf(explanation, detail)
-            .filter { it.isNotEmpty() }
-            .joinToString(" ")
     }
 
     companion object {
@@ -213,25 +193,7 @@ class KtorNotionApi(
 
         private const val MAX_RETRY_DELAY_MILLIS = 30_000L
 
-        fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
-            expectSuccess = false
-
-            install(ContentNegotiation) {
-                json(notionJson)
-            }
-
-            install(HttpTimeout) {
-                connectTimeoutMillis = 15_000
-                requestTimeoutMillis = 30_000
-                socketTimeoutMillis = 30_000
-            }
-        }
-
-        /** 429, 529 and the retryable server errors. See the request limits documentation. */
-        internal fun HttpResponse.isRetryable(): Boolean = when (status.value) {
-            429, 529, 500, 502, 503, 504 -> true
-            else -> false
-        }
+        fun createHttpClient(): HttpClient = HttpClient(OkHttp) { configureForNotion() }
 
         /** Honours the `Retry-After` header (integer seconds), otherwise backs off with jitter. */
         internal fun HttpResponse.retryDelayMillis(attempt: Int): Long {
@@ -249,9 +211,79 @@ class KtorNotionApi(
     }
 }
 
-/** Decodes a Notion payload, turning a schema surprise into a user-readable error. */
+/**
+ * Client configuration shared by the real client and by the tests.
+ *
+ * Tests build an engine of their own (`MockEngine`) but must not build their *own* client: a client
+ * configured differently would prove nothing about the one the app ships, and would not catch a
+ * missing `expectSuccess = false` (which would make Ktor throw before this class can map the status).
+ */
+fun HttpClientConfig<*>.configureForNotion() {
+    expectSuccess = false
+
+    install(ContentNegotiation) {
+        json(notionJson)
+    }
+
+    install(HttpTimeout) {
+        connectTimeoutMillis = 15_000
+        requestTimeoutMillis = 30_000
+        socketTimeoutMillis = 30_000
+    }
+}
+
+/**
+ * Maps one HTTP failure onto the spec's error taxonomy.
+ *
+ * Notion's own error `code` wins over the status, because the code is the more precise signal
+ * (`restricted_resource` and `unauthorized` can both arrive as 403). Statuses with no code, or codes
+ * this app has no specific category for, fall back to the status, and anything left over becomes
+ * [ReaderErrorCategory.MALFORMED_RESPONSE] — the exchange could not be completed and it is not a
+ * credential, access, rate or connectivity problem.
+ *
+ * The returned `diagnostic` keeps the status, code and Notion's message for a log; the user-facing
+ * message stays the category's one-sentence explanation, so nothing large or private is read aloud.
+ */
+internal fun failureFor(status: Int, body: String): ReaderLoadException {
+    val error = runCatching { notionJson.decodeFromString<NotionErrorBody>(body) }.getOrNull()
+
+    val category = when (error?.code) {
+        "unauthorized" -> ReaderErrorCategory.AUTHORIZATION_REQUIRED
+        "restricted_resource" -> ReaderErrorCategory.PERMISSION_DENIED
+        "object_not_found" -> ReaderErrorCategory.PAGE_NOT_FOUND
+        "rate_limited" -> ReaderErrorCategory.RATE_LIMITED
+        "service_overload" -> ReaderErrorCategory.SERVER_ERROR
+        else -> when (status) {
+            401 -> ReaderErrorCategory.AUTHORIZATION_REQUIRED
+            403 -> ReaderErrorCategory.PERMISSION_DENIED
+            404 -> ReaderErrorCategory.PAGE_NOT_FOUND
+            429 -> ReaderErrorCategory.RATE_LIMITED
+            in 500..599 -> ReaderErrorCategory.SERVER_ERROR
+            else -> ReaderErrorCategory.MALFORMED_RESPONSE
+        }
+    }
+
+    val diagnostic = buildString {
+        append("HTTP ").append(status)
+        error?.code?.let { append(" code=").append(it) }
+        error?.message?.takeIf { it.isNotBlank() }?.let { append(" message=").append(it.take(300)) }
+        // Only an error snippet is ever kept, and only briefly: a successful body is never logged, so
+        // no note content can reach a log through this path.
+        if (error == null && body.isNotBlank()) {
+            append(" body=").append(body.trim().take(300))
+        }
+    }
+
+    return ReaderLoadException(category = category, diagnostic = diagnostic)
+}
+
+/** Decodes a Notion payload, turning a schema surprise into a categorised, user-readable failure. */
 internal inline fun <reified T> decodeNotionResponse(text: String): T = try {
     notionJson.decodeFromString(text)
 } catch (e: SerializationException) {
-    throw NotionApiException("Notion returned a response this app could not read.", e)
+    throw ReaderLoadException(
+        category = ReaderErrorCategory.MALFORMED_RESPONSE,
+        diagnostic = "${e::class.simpleName}: ${e.message}",
+        cause = e
+    )
 }

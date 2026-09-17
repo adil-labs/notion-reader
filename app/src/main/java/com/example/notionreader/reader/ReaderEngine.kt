@@ -24,12 +24,26 @@ interface ReaderEngine {
     /** Starts reading [ReaderState.currentParagraph] from the beginning, then continues automatically. */
     fun play()
 
+    /**
+     * Starts a fresh reading pass from the first paragraph and begins playing.
+     *
+     * This is what the Note screen's Play action means: "Play creates a new Active Queue containing
+     * only this Note, starts from the beginning". Historical position is deliberately not resumed.
+     */
+    fun playFromStart()
+
     /** Stops the current utterance and keeps the reading position. */
     fun pause()
 
     fun nextParagraph()
 
     fun previousParagraph()
+
+    /** Moves to the next section, or to the last paragraph when already in the final section. */
+    fun nextSection()
+
+    /** Moves to the start of the current section, or to the previous section when already there. */
+    fun previousSection()
 
     /** Replaces the current document and resets the reading position. */
     fun setDocument(document: ReaderDocument, startParagraphIndex: Int = 0)
@@ -54,10 +68,7 @@ class ReaderEngineImpl(
     override val document: StateFlow<ReaderDocument> = _document.asStateFlow()
 
     private val _state = MutableStateFlow(
-        ReaderState(
-            paragraphs = initialDocument.chunkTexts,
-            currentParagraphIndex = initialParagraphIndex.coerceInIndex(initialDocument.chunkTexts)
-        )
+        initialDocument.stateAt(initialParagraphIndex)
     )
     override val state: StateFlow<ReaderState> = _state.asStateFlow()
 
@@ -78,6 +89,16 @@ class ReaderEngineImpl(
         speakCurrentParagraph()
     }
 
+    override fun playFromStart() {
+        val current = _state.value
+        if (current.paragraphs.isEmpty()) return
+
+        invalidateUtterance()
+        speechEngine.stop()
+        _state.value = current.copy(currentParagraphIndex = 0, hasReachedEnd = false).play()
+        speakCurrentParagraph()
+    }
+
     override fun pause() {
         val current = _state.value
         if (!current.isPlaying) return
@@ -91,14 +112,15 @@ class ReaderEngineImpl(
 
     override fun previousParagraph() = move { it.previousParagraph() }
 
+    override fun nextSection() = move { it.nextSection() }
+
+    override fun previousSection() = move { it.previousSection() }
+
     override fun setDocument(document: ReaderDocument, startParagraphIndex: Int) {
         invalidateUtterance()
         speechEngine.stop()
         _document.value = document
-        _state.value = ReaderState(
-            paragraphs = document.chunkTexts,
-            currentParagraphIndex = startParagraphIndex.coerceInIndex(document.chunkTexts)
-        )
+        _state.value = document.stateAt(startParagraphIndex)
     }
 
     override fun shutdown() {
@@ -146,7 +168,9 @@ class ReaderEngineImpl(
         if (!current.isPlaying) return
 
         if (current.isAtLastParagraph) {
-            _state.value = current.pause()
+            // Stopped because the note ended, not because the user paused: the Player has to be able
+            // to announce which of the two happened.
+            _state.value = current.finish()
             return
         }
 
@@ -157,6 +181,16 @@ class ReaderEngineImpl(
     /** Makes any in-flight completion callback stale. */
     private fun invalidateUtterance() {
         utteranceToken += 1
+    }
+
+    /** The state for a document, with its section outline and the start index clamped into range. */
+    private fun ReaderDocument.stateAt(startParagraphIndex: Int): ReaderState {
+        val paragraphs = chunkTexts
+        return ReaderState(
+            paragraphs = paragraphs,
+            currentParagraphIndex = startParagraphIndex.coerceInIndex(paragraphs),
+            sections = sectionSpans()
+        )
     }
 
     private fun Int.coerceInIndex(paragraphs: List<String>): Int =

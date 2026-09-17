@@ -6,9 +6,10 @@ Phase 0 of `docs/notion/notion-integration-implementation-spec.md` requires two 
    cases the spec's test strategy calls out;
 2. the expected `ReaderDocument` for that page, written down **by hand**.
 
-This file is the result. It is the acceptance oracle for Phase 3 (normalization) and Phase 4
-(reader mapping). Do not change it to match the implementation — change the implementation to
-match it, or change this file deliberately and say why.
+This file is the result. It began as the acceptance oracle for Phase 3 (normalization) and Phase 4
+(reader mapping); §3a–§3d now extend it to record the verification that closed Phase 5. Do not change
+the expected output to match the implementation — change the implementation to match it, or change this
+file deliberately and say why.
 
 ---
 
@@ -19,8 +20,9 @@ match it, or change this file deliberately and say why.
 | Title | `Reader Fixture — Block Type Coverage` |
 | Page ID | `3dec9345-e10a-8180-867d-fa96b49bd30b` |
 | URL | <https://app.notion.com/p/Reader-Fixture-Block-Type-Coverage-3dec9345e10a8180867dfa96b49bd30b> |
-| Top-level blocks | 23 |
-| Re-seed with | `pwsh -File tools/seed-reader-fixture.ps1` |
+| Top-level blocks | 25 (23 in the original seed, extended by `tools/extend-reader-fixture.ps1`) |
+| Re-capture snapshot | `pwsh -File tools/capture-reader-fixture.ps1` |
+| Capture edited state | `pwsh -File tools/verify-identity-stability.ps1` (edits, captures, restores, verifies) |
 
 Re-seeding creates a **duplicate** page and therefore a new page ID. If the page is ever
 re-created, every ID in section 4 below must be updated.
@@ -164,16 +166,16 @@ text; `the Notion docs` survives as the display text.
 
 ### Section 1 — Primary Heading
 
-| # | chunk id | kind | text |
-|---|---|---|---|
-| 0 | `…d4a070b01d1e:0` | `HEADING` | Primary Heading |
-| 1 | `…c8546d8725af:0` | `PARAGRAPH` | Body under the primary heading. |
+| # | chunk id | kind | text | metadata |
+|---|---|---|---|---|
+| 0 | `…d4a070b01d1e:0` | `HEADING` | Primary Heading | `headingLevel=1` |
+| 1 | `…c8546d8725af:0` | `PARAGRAPH` | Body under the primary heading. | |
 
 ### Section 2 — Secondary Heading
 
 | # | chunk id | kind | text | metadata |
 |---|---|---|---|---|
-| 0 | `…e576ba917ae4:0` | `HEADING` | Secondary Heading | |
+| 0 | `…e576ba917ae4:0` | `HEADING` | Secondary Heading | `headingLevel=2` |
 | 1 | `…d1bdb6e5b361:0` | `LIST_ITEM` | First bullet | |
 | 2 | `…ffe3baa1cd5e:0` | `LIST_ITEM` | Second bullet | |
 | 3 | `…ea1c79c92568:0` | `LIST_ITEM` | Nested bullet under the second bullet. | |
@@ -192,13 +194,14 @@ preserve source order" means.
 
 Note that `bulleted_list_item` and `numbered_list_item` both map to `LIST_ITEM`; list *style* is
 not in the domain model, so it is not distinguishable in a chunk. If list numbering needs to be
-spoken, `ChunkMetadata` must grow a field and this contract must change.
+spoken, `ChunkMetadata` must grow a field and this contract must change. (It has since grown one
+field — `headingLevel`, decisions.md D17 — but list style is still not in it, so this note stands.)
 
 ### Section 3 — Tertiary Heading
 
 | # | chunk id | kind | text | metadata |
 |---|---|---|---|---|
-| 0 | `…c7dac1c3c555:0` | `HEADING` | Tertiary Heading | |
+| 0 | `…c7dac1c3c555:0` | `HEADING` | Tertiary Heading | `headingLevel=3` |
 | 1 | `…de300f0710f6:0` | `PARAGRAPH` | Body under the tertiary heading. | |
 | 2 | `…f7b91a594c5a:0` | `PARAGRAPH` | Paragraph after the empty heading. | |
 | 3 | `…ce592e7b7181:0` | `PARAGRAPH` | Long paragraph sentence one, … past three hundred characters. | |
@@ -359,6 +362,128 @@ would catch that.
 
 ---
 
+## 3c. Note/Player split and error surface (2026-09-17)
+
+The single mixed `ReaderScreen` was replaced by `NoteScreen` (manual reading and inspection) and
+`PlayerScreen` (continuous spoken reading), per the UI contract's screen boundary. The decisions
+behind the split, and everything each screen deliberately omits, are in decisions.md D20.
+
+Verified on the device with `tools/probe-player-navigation.ps1` and `tools/probe-player-back.ps1`:
+
+| Check | Result |
+|---|---|
+| Note renders the whole fixture in reading order | 24 text nodes, headings/paragraphs/bullets/to-dos/quote/code-with-language in the documented order, one `Play` action |
+| Player primary information | title, `Section 1 of 4`, `Paragraph 1 of 28`, `Playing` |
+| Untitled intro section | section line shows `Section 1 of 4` with no title, and `Section 2 of 4 · Primary Heading` once titled |
+| Next section from the intro | not observed directly — the first press landed in section 4 only after a mangled multi-line paste delivered several taps; re-tested below with playback paused |
+| Next section in the final section | `Paragraph 28 of 28` — the last paragraph, as designed |
+| Next section when already at the end | no move |
+| Previous section past the section start | back to `Paragraph 18 of 28`, which is section 4's heading |
+| Previous section at a section start | `Section 3 of 4 · Secondary Heading`, `Paragraph 7 of 28` |
+| End of note | reported as `End of note`, distinct from `Paused` |
+| Disabled control | `Previous section` exposes `enabled=false` at the first paragraph, so TalkBack announces it as unavailable instead of it silently doing nothing |
+| Back leaves the Player | Note screen shown again |
+| Playback continues after Back | a new TTS audio player was created 5 s after the transition **while the Note screen was displayed** (`dumpsys audio`: `18:08:35.279` → `18:08:40.571`), so navigation does not own playback |
+| Authorization failure | with a deliberately rejected token the Note screen read "Could not load this Note. Notion authorization is required. Check that the integration token is still active.", offered **no** Retry, and left the demo document loaded and playable |
+
+The first press in that table is recorded as inconclusive rather than passed: the earlier probe
+script was pasted into a shell as one block and the tool's multi-line handling dropped lines, so
+several taps were delivered. The re-run with playback paused is the one that counts, and it confirms
+each press moves exactly one section.
+
+Gaps this milestone does not close, all deferred with reasons in decisions.md D20: numbered lists
+render with a bullet, link hrefs are not shown or activatable, and the Player's `Queue` control plus
+the mini-player wait on the Active Queue & Reader Session specification.
+
+---
+
+## 3d. Phase 5 — identity stability across edits (2026-09-17)
+
+The integration spec's Phase 5 is: "Expose stable page, source-block, section, and chunk identities,
+and prove that unchanged content produces unchanged identities across edits."
+
+### Why this needed real Notion data
+
+Our mapper derives every id from the Notion block id (`ReaderDocumentMapper`), so it *cannot*
+renumber anything. A test that edited a JSON string and fed it back would therefore prove only that
+our code is self-consistent — it would not test the assumption the whole scheme rests on, which is a
+fact about **Notion**, not about us:
+
+> does a block keep its id when it, or its neighbours, change?
+
+So `tools/verify-identity-stability.ps1` asks Notion directly. It makes three real edits to the
+fixture page, captures what the API reports, then restores the page and *verifies* the restore before
+exiting. The edits were chosen to cover every identity the spec names:
+
+| Edit | What it tests |
+|---|---|
+| one paragraph's text changed in place | a block's id and chunk id survive **their own** content changing |
+| one paragraph appended, then really deleted | insertion and deletion move no other identity |
+| one heading blanked (D4) | a vanished **section** shifts later paragraph indexes without moving any id |
+
+The third edit is the one that matters for the spec's "rather than silently remapped by numeric
+indexes" clause, because it is an edit that genuinely moves a paragraph index.
+
+### Result
+
+```
+top-level blocks before edit  : 25
+top-level blocks with the edit: 26
+ids that survived the edits   : 25 of 25
+edited block id unchanged     : True
+blanked heading id unchanged  : True
+page restored exactly         : True
+```
+
+Restoring was verified twice, independently:
+
+1. **In the script**, against the pre-edit capture: identical top-level block ids in identical order,
+   and both edited texts back to their original values.
+2. **By re-capturing the page afterwards** and diffing against the committed snapshot. The only
+   differences were timestamps (`capturedAt`, `request_id`, and the page's and edited blocks'
+   `last_edited_time`) — no id, no text, no structure. That diff is itself a small extra piece of
+   evidence: Notion changed the blocks' metadata and kept their ids.
+
+### What the tests assert, and one honest limitation
+
+The two snapshots are committed as `reader-fixture.json` and `reader-fixture-edited.json`, so
+`ReaderIdentityStabilityTest` (19 tests) runs offline and in CI. It asserts: every surviving block
+keeps its *exact* chunk ids; a block edited in place keeps its id while its text changes; surviving
+sections keep their ids; every `sourceBlockId` is a real Notion block id and every chunk id is derived
+from one (so no identity can have come from a list position); insertion and deletion touch nothing
+else; and a position saved before the edit still resolves to the same content **at a different
+paragraph index**.
+
+**The limitation:** blanking a heading removes exactly **one** chunk, not a whole section's worth.
+D4 keeps an empty heading's *content* in the enclosing section and drops only the heading itself, so
+later paragraphs shift by one position rather than by eleven. One position is enough to disprove the
+positional scheme — the very first edit breaks it — but a reader should not infer from this test that
+large shifts were exercised. A large shift was not reachable here: this API version rejects the
+`after` parameter, so a mid-page block cannot be deleted and restored to its original place, and
+deleting one would permanently reorder the fixture page.
+
+The section count changing from four to three is separately asserted, because it shows positional
+*section* references break on the same edit.
+
+### Design decisions in the handoff type
+
+`ReaderDocumentPosition(sourceBlockId, chunkId, sectionId, characterOffset)` follows the spec. Two
+choices inside it are ours:
+
+- **Resolution reports facts, not policy.** `ReaderDocument.resolve` returns *how precisely* a saved
+  position was located (`CHUNK` / `BLOCK` / `SECTION` / `NONE`) and where, but never decides whether
+to resume, where to fall back to, or what to say. The spec is explicit that those belong to the future
+Active Queue & Reader Session specification, so there is deliberately no `shouldResume` here.
+- **A `BLOCK` match anchors to the block's first part.** When a part index no longer exists because
+the block was re-split, landing on the middle of a re-split the listener never asked for would drop
+them into content out of order, so it lands on the block's first remaining chunk.
+- **No numeric index field.** The spec says indexes "are not stable persistence identities", so
+carrying one would invite the exact bug the type exists to prevent. `positionAt(index)` converts a
+playback coordinate into identities while the document that defines it is still in hand, which is the
+only moment that conversion is possible.
+
+---
+
 ## 4. Traceability to the spec's acceptance criteria
 
 | Acceptance criterion | Covered here |
@@ -369,9 +494,11 @@ would catch that.
 | Raw response converted to `ReaderDocument` | yes — §3 is the target |
 | Title, sections, chunks deterministic and inspectable | yes — D7/D8 make IDs deterministic |
 | Unsupported blocks do not crash loading | yes — block 21, confirmed on device (§3a) |
-| Auth / permission / network / not-found distinguishable | **no** — needs a separate error-mapping fixture, not this page |
-| Unit tests cover mapping, hierarchy, pagination, errors | partly — mapping and hierarchy are covered; **pagination and error mapping have no unit test**. Pagination is device-verified (§3b) but unprotected against regression, and only one page in the workspace is large enough to exercise it |
+| Auth / permission / network / not-found distinguishable | yes — nine-category taxonomy (`ReaderErrorCategory`), mapping and retry policy unit-tested in `KtorNotionApiTest`; the authorization path is device-verified (§3c) |
+| Unit tests cover mapping, hierarchy, pagination, errors | yes — mapping and hierarchy in `ReaderFixtureContractTest`; pagination and error mapping in `KtorNotionApiTest` over a fake HTTP engine (`MockEngine`), including cancellation during pagination (§3b, §3c) |
 | No TTS dependency in repository or mapper | n/a — structural, checked by review |
+
+All nine are now met. 146 JVM tests pass.
 
 ---
 
@@ -380,15 +507,18 @@ would catch that.
 A single test should be able to assert §3 against the live page, or against a captured JSON
 snapshot of it, without any Android or TTS classes involved.
 
-Blocking prerequisites, none of which exist yet:
+The prerequisites, all of which now exist:
 
-1. `ReaderDocument` gains `sections` and loses flat `paragraphs` — the current
-   `data class ReaderDocument(id, title, paragraphs: List<String>)` cannot express §3 at all.
-2. A normalized block model between the DTOs and the mapper (Phase 3). Revised D5 and D6 both
-   *require* this layer: a divider and an unsupported block now need somewhere to live, and the
-   chunk list is no longer that place. Unsupported-block diagnostics attach here too.
-3. `ChunkMetadata`, which the spec references but never defines.
-4. The split threshold, as a named constant at minimum — see §6.
+1. ~~`ReaderDocument` gains `sections` and loses flat `paragraphs`.~~ **done** —
+   `ReaderDocument(pageId, title, sections, lastEditedAt)`, with `chunkTexts` kept only as the flat
+   projection the playback layer still consumes.
+2. ~~A normalized block model between the DTOs and the mapper.~~ **done** —
+   `NormalizedBlock`, `NormalizedKind`, `NotionBlockNormalizer`; revised D5 and D6 both needed it.
+3. ~~`ChunkMetadata`, which the spec references but never defines.~~ **done** — see the definition
+   above, extended in decisions.md D17 with `headingLevel`.
+4. ~~The split threshold, as a named constant at minimum.~~ **done** — `DEFAULT_MAX_CHUNK_CHARS`,
+   with the sentence → word → hard-split fallback chain. Still deliberately not a contract value
+   (D11), so the fixture's long blocks assert threshold-independent properties.
 
 ---
 

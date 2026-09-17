@@ -140,7 +140,8 @@ class ReaderDocumentMapper(
         checked = checked,
         language = language,
         linkTargets = linkTargets,
-        hasInlineCode = hasInlineCode
+        hasInlineCode = hasInlineCode,
+        headingLevel = level.takeIf { it > 0 }
     )
 
     private class SectionBuilder(

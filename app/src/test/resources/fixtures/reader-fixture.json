@@ -1,13 +1,13 @@
 {
   "capturedFromPage": "3dec9345-e10a-8180-867d-fa96b49bd30b",
-  "capturedAt": "2026-09-17T11:41:07Z",
+  "capturedAt": "2026-09-17T12:54:39Z",
   "notionVersion": "2026-03-11",
   "note": "Offline snapshot of the Phase 0 fixture page. Regenerate with tools/capture-reader-fixture.ps1.",
   "page": {
     "object": "page",
     "id": "3dec9345-e10a-8180-867d-fa96b49bd30b",
     "created_time": "2026-09-17T11:00:00Z",
-    "last_edited_time": "2026-09-17T11:28:00Z",
+    "last_edited_time": "2026-09-17T12:53:00Z",
     "created_by": {
       "object": "user",
       "id": "3dec9345-e10a-8165-bb85-0027caf1119d"
@@ -52,7 +52,7 @@
     },
     "url": "https://app.notion.com/p/Reader-Fixture-Block-Type-Coverage-3dec9345e10a8180867dfa96b49bd30b",
     "public_url": null,
-    "request_id": "05e30608-f54d-4f7b-930c-1d8891fe5a42"
+    "request_id": "4cbd7246-2a46-497b-a769-bf9e41ce153e"
   },
   "children": {
     "3dec9345-e10a-8180-867d-fa96b49bd30b": [
@@ -64,7 +64,7 @@
           "page_id": "3dec9345-e10a-8180-867d-fa96b49bd30b"
         },
         "created_time": "2026-09-17T11:00:00Z",
-        "last_edited_time": "2026-09-17T11:00:00Z",
+        "last_edited_time": "2026-09-17T12:53:00Z",
         "created_by": {
           "object": "user",
           "id": "3dec9345-e10a-8165-bb85-0027caf1119d"
@@ -432,7 +432,7 @@
           "page_id": "3dec9345-e10a-8180-867d-fa96b49bd30b"
         },
         "created_time": "2026-09-17T11:00:00Z",
-        "last_edited_time": "2026-09-17T11:00:00Z",
+        "last_edited_time": "2026-09-17T12:53:00Z",
         "created_by": {
           "object": "user",
           "id": "3dec9345-e10a-8165-bb85-0027caf1119d"

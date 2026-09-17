@@ -565,21 +565,37 @@ it is still just protocol step 3, "update affected specifications".
 
 ### Status of this list
 
-**Round 1 reviewed 2026-09-17 11:16.** The Integration spec was edited in Notion: **§7.1 and §7.2
-are applied**, via **option (b)**.
+**Round 1 reviewed 2026-09-17 11:16** (Integration spec edited in Notion: §7.1 and §7.2 applied via
+option (b)).
+
+**Round 2 reviewed 2026-09-17 12:54.** Nine items are now applied and verified by re-reading the
+generated mirror rather than trusting the edit script.
 
 | Item | Status |
 |---|---|
 | §7.1 session-owned resume | **applied** — `# State and persistence` → `# Session persistence boundary` |
 | §7.2 `# Change handling` re-scope | **applied** |
-| §7.9 Progress tests | **applied** — `### Progress` → `### Stable position handoff` |
-| §7.3 chunk construction (D5/D6/D11) | outstanding |
-| §7.4 conditional intro section (D2) | outstanding |
-| §7.5 domain model (§3.1, ChunkMetadata) | outstanding |
-| §7.6 supported block set (to_do/code) | outstanding |
+| §7.3 chunk construction (D5/D6/D11) | **applied** — divider and unsupported no-chunk rules stated, and the threshold recorded as "an implementation constant rather than a specification value, so block-to-chunk counts are not contractual for long blocks" |
+| §7.4 conditional intro section (D2) | **applied** — "An introductory section is created only when content precedes the first heading." |
+| §7.5 domain model (§3.1, ChunkMetadata) | **applied** — `ReaderChunkKind` is down to the six reachable members, and `ChunkMetadata` is defined |
+| §7.6 supported block set (to_do/code) | **applied** — the `to_do` checked-state rule and the one-`CODE`-chunk rule are stated |
 | §7.7 `status` field, projectIds note | outstanding |
 | §7.8 TASK-by-schema, no KNOWLEDGE adapter | outstanding |
+| §7.9 Progress tests | **applied** — `### Progress` → `### Stable position handoff` |
 | §7.10 session-level interface | superseded by §7.1's handoff |
+| N1 Phase 5 contradicted the session boundary | **applied** — Phase 5 now reads "Expose stable page, source-block, section, and chunk identities, and prove that unchanged content produces unchanged identities across edits. This phase does not implement resume or persistence" |
+| N2 stale characterOffset question | **applied** — the question is gone from `# Open questions` |
+| N3 boundary statement inside `## Components` | **applied** — now `### Out of scope: session persistence` |
+| N4 residual per-note framing in Goals | not actioned; intent is still correct |
+
+**One item drifted rather than being missed.** §7.5 was applied to the shape this record proposed,
+but `ChunkMetadata` has since gained `headingLevel` (D17) and the spec's copy has not been updated.
+It is a small follow-up, recorded here so it is not mistaken for a deliberate omission: the spec's
+`ChunkMetadata` block is missing one field that the Note screen depends on.
+
+**§7.7 and §7.8 remain outstanding and are the only amendments still blocking anything.** Both gate
+Phase 8 (discovery and schema-aware queues) and the Browse screen, not the reader. Nothing in
+Phases 3–5 depends on them.
 
 **Option (b) was chosen**, and it was the better call. The amendment does not merely keep a
 page-keyed position and re-label it — it *refuses ownership explicitly*:
@@ -758,6 +774,268 @@ as §3.1, §7.3 and §7.4 define the mapper's behaviour — which is the point o
   `ReaderSessionStore`.
 - **Q6** — answered in the spec text: "`characterOffset` may remain 0 in the first implementation."
 
-**Still true, and still the reason not to start Phase 5:** the phase list itself is stale (N1). The
-`ReaderProgress` design is gone from the spec's model but survives in Phase 5's instruction, so
-following the phases in order would reintroduce the rejected design.
+---
+
+## 9. Second implementation round — error taxonomy and the Note/Player split
+
+**Date:** 2026-09-17. **Scope:** the POC's two remaining acceptance criteria (7, "authentication,
+permission, network, and not-found errors are distinguishable" and 8, "unit tests cover … pagination
+behavior, and error mapping"), plus the UI contract's Note and Player screens.
+
+D1–D12 and Q1–Q6 are unchanged. Two of the decisions below *extend* `ChunkMetadata` and
+`ReaderState`, so §2's `ChunkMetadata` definition and the fixture contract in
+`phase0-fixture-contract.md` are amended rather than replaced.
+
+### D13 — Retry policy is derived from the error category, not from the HTTP status — SETTLED
+
+C7 already confirmed that "the two agree" and that "the taxonomy stands as written", but left open
+*how* each failure reaches a category and what may be retried. The spec's requirements are that
+"retry only transient failures" and "do not automatically retry permission/authentication failures",
+and the UI contract adds "errors should appear where recovery is meaningful" with a `Retry` action.
+
+Those three statements are one statement if the category carries the answer. So
+`ReaderErrorCategory` gains `canRetry`, true for exactly `RATE_LIMITED`, `NETWORK_UNAVAILABLE` and
+`SERVER_ERROR`, and both the automatic retry loop and the UI's Retry button read it. This removes
+the previous arrangement in which the retry decision was a `when (status)` on the transport side and
+would have been a second, independent guess on the UI side.
+
+Mapping, with Notion's own `code` preferred over the status because the code is more precise
+(`unauthorized` and `restricted_resource` can both arrive as 403):
+
+| Notion code | HTTP status | Category |
+|---|---|---|
+| `unauthorized` | 401 | `AUTHORIZATION_REQUIRED` |
+| `restricted_resource` | 403 | `PERMISSION_DENIED` |
+| `object_not_found` | 404 | `PAGE_NOT_FOUND` |
+| `rate_limited` | 429 | `RATE_LIMITED` |
+| `service_overload` | 529 | `SERVER_ERROR` |
+| — | other 5xx | `SERVER_ERROR` |
+| — | any other status | `MALFORMED_RESPONSE` |
+| `IOException`, timeout | — | `NETWORK_UNAVAILABLE` |
+
+`MALFORMED_RESPONSE` is deliberately the catch-all rather than a narrow "the JSON was broken"
+category: for an unmapped rejection such as a 400 on a malformed cursor, what is true from the
+outside is that "the exchange did not complete and it is not a credential, access, rate or
+connectivity problem". A tenth category would express that more precisely, but the spec fixes the
+list at nine and adding to it would be a contract change, not an implementation choice.
+
+### D14 — Two messages per failure: one to read aloud, one to log — SETTLED
+
+`ReaderLoadException` carries `category` plus two strings. `message` is the category's single
+sentence and is what the screen shows and TalkBack reads; `diagnostic` holds the status, Notion's
+`code` and a truncated copy of Notion's `message`, and is never shown.
+
+*Evidence:* the spec requires both "user-meaningful categories" **and** "preserve enough diagnostic
+context for logs without exposing tokens or private note content unnecessarily", which one string
+cannot do. Previously the two were concatenated, so Notion's raw error text — which can name a page
+ID — sat inside the sentence read aloud.
+
+Redaction is structural rather than a filter: the token travels in an `Authorization` header, never
+in a URL, path, query or body, so nothing that reaches `diagnostic` can contain it. The one place a
+mistyped token *could* have reached a log is the page reference, so an unparseable reference logs its
+length only (`NotionRepository`), and a test asserts the value is absent from both fields.
+
+### D15 — `CANCELLED` is a real category, carried by a `CancellationException` subtype — SETTLED
+
+The spec requires that "cancellation must remain cancellation and must not be translated into a
+network error". A `Result`-returning use case is normally implemented with `runCatching`, which
+swallows `CancellationException` and would report "the user left the screen" as a load failure.
+
+`LoadReaderDocument` therefore catches `CancellationException` and rethrows it as
+`ReaderLoadCancelledException`, which extends `CancellationException`. Coroutine machinery still sees
+an ordinary cancellation (so nothing logs it as a crash and structured concurrency is intact), while
+the taxonomy's ninth member is carried by a real type instead of being decorative. The original
+exception is preserved as the cause, and the wrapper is idempotent.
+
+*Rejected alternative:* dropping `CANCELLED` from the enum because cancellation is thrown rather
+than returned. The spec fixes the list, and a category that can only be observed by catching is still
+observed — this is different from §3.1, where a member had **no** producer at all.
+
+### D16 — `UNSUPPORTED_DOCUMENT_STRUCTURE` fires only when a page yields nothing speakable — SETTLED
+
+Raised when a page has at least one block and maps to zero chunks. A page with no blocks is empty,
+not broken, and stays a valid empty document.
+
+This is the boundary the spec demands from both sides at once — "a single unsupported block should
+not invalidate an otherwise readable page" **and** the category's existence. A single `image` among
+readable paragraphs stays silent and is recorded as a diagnostic on the normalized node (D6); only a
+page that is *entirely* unreadable becomes this failure. The alternative — showing an empty reader
+with no explanation — is the worst outcome for a TalkBack user who asked for a page and received
+silence.
+
+### D17 — `ChunkMetadata` gains `headingLevel` — SETTLED (amends §2)
+
+```kotlin
+val headingLevel: Int? = null,   // heading_1..3 → 1..3, null otherwise
+```
+
+*Evidence:* D3 makes a heading both a section title and a spoken chunk, so the Note screen has two
+sources for the same text. Reading the level off the section works for the section's own heading and
+silently degrades for a nested one (`heading_3` inside a toggle's children), and rendering both
+sources draws every heading twice. Carrying the level on the chunk makes the hierarchy a property of
+the thing being drawn.
+
+This is the second field added to a type the spec names but never defines, after D10's `checked`.
+`§7.5` should therefore define `ChunkMetadata` as it now stands: `checked`, `language`,
+`linkTargets`, `hasInlineCode`, `headingLevel`.
+
+### D18 — Three playback states, not two — SETTLED
+
+`ReaderState` gains `hasReachedEnd`, and `playbackStateDescription` reports `Playing`, `Paused` or
+`End of note`.
+
+*Evidence:* the spec requires that "state changes such as paused, resumed, end of section, end of
+note, and errors must have concise spoken feedback" — an explicit obligation to say *why* reading
+stopped. It cannot be derived after the fact, because `isAtLastParagraph` is equally true while the
+last paragraph is still being read. `finish()` sets it; an explicit pause does not; any move that
+changes position clears it, and a move that changes nothing returns the same state so a boundary
+press cannot silently clear it.
+
+### D19 — Section navigation is "start of section", in both directions — SETTLED
+
+*Evidence:* the UI contract makes `Previous section / Play / Pause / Next section` the Player's
+**primary** controls, so their behaviour has to be defined rather than assumed.
+
+- **Next section** → the first paragraph of the following section, or the last paragraph of the
+  document when already in the final section.
+- **Previous section** → the start of the current section if the position is past its start,
+  otherwise the start of the previous section, otherwise no move.
+
+Landing on a section's *first* paragraph is deliberate: a heading is a spoken chunk (D3), so "next
+section" begins by reading that heading. The consequence for Previous is that one press re-reads the
+current section from its heading and a second press steps back a section, which is what makes the
+control usable mid-document. Without an outline both degrade to a single paragraph move, so a
+hand-built state stays meaningful.
+
+### D20 — The Note and Player screens are split, and what each omits — SETTLED
+
+The UI contract states the boundary — "The Note screen is for manual reading and inspection. It is
+not the primary continuous listening interface" — and lists the Player's primary information and
+controls. The single mixed `ReaderScreen` satisfied neither, so it is replaced by `NoteScreen` and
+`PlayerScreen`.
+
+Honoured: Note = document structure in reading order with a minimal primary action; Player = current
+Note title, current section, progress, playback state, and the three section-level controls. `Play`
+on the Note means what the contract says — "creates a new Active Queue containing only this Note;
+starts from the beginning; opens Player" — implemented as `playFromStart()`, so historical position
+is not resumed.
+
+Deliberately omitted, each with a reason rather than an omission:
+
+| Omitted | Why |
+|---|---|
+| Player `Queue` control | It "opens a view of the current frozen Active Queue/session", and no Active Queue or session specification exists. A control that does nothing when pressed is worse for a TalkBack user than an absent one. |
+| Note `Add to queue` | Same: Queue Destination does not exist. |
+| Mini-player | Owned by the UI contract's shell section and meaningful only once a session exists outside the Player screen. |
+| Ordered-list numbering | One `LIST_ITEM` kind serves bulleted and numbered items, so numbering is not recoverable. The contract defers detailed rendering to the Note Reading Screen specification, which does not exist; inventing a model field before it does would be guessing. Recorded as a known gap. |
+| Link activation / href display | The href is metadata and the contract lists URLs among things that "should not be spoken during ordinary reading"; activating links needs a navigation surface this round has none of. |
+| Explicit initial TalkBack focus | The contract wants focus at the screen heading on entry. Both screens expose a `paneTitle` and heading semantics, which is what Compose offers without a focus requester; sequencing focus properly belongs with the real navigation graph. |
+| Navigation Compose | The contract's graph is four top-level destinations plus ten secondary screens reached from surfaces that do not exist. A two-screen `when` in the Activity does not freeze a graph shape it cannot yet know. |
+
+`paneTitle` is used on both screens because the contract requires that opening a full screen "should
+place TalkBack focus at a meaningful starting point" and "must not unpredictably land on bottom
+navigation, mini-player, decorative content, arbitrary coordinates".
+
+### D21 — One device-visible behaviour changed: the load error is now actionable
+
+Previously a Notion failure left the demo document on screen with the reason appended to a status
+line. Now the Note screen shows the failure as a distinct state with its category sentence, and a
+`Retry` action **only** when `canRetry` is true.
+
+The demo document still stays loaded and playable underneath, which the on-device record depends on
+(the app is testable with no network and with a rejected token). What changed is that "could not
+load" is no longer silent. Verified on device with a deliberately rejected token: the screen read
+"Could not load this Note. Notion authorization is required. Check that the integration token is
+still active." with **no** Retry button, which is correct — pressing Retry cannot fix a revoked
+credential, and offering it would be a lie.
+
+The `Retry` button's *appearance* for a retryable category is covered by unit test rather than by
+device: `NETWORK_UNAVAILABLE` cannot be produced on this device without dropping the Wi-Fi
+connection that `adb` itself runs over.
+
+---
+
+## 10. Third round — Phase 5, identity stability
+
+**Date:** 2026-09-17. **Scope:** the integration spec's Phase 5, now that §7.3–§7.6 and N1 have been
+applied and the phase no longer contradicts the session boundary. Phase 5 reads:
+
+> Expose stable page, source-block, section, and chunk identities, and prove that unchanged content
+> produces unchanged identities across edits. This phase does not implement resume or persistence.
+
+D1–D21 are unchanged. Two decisions below are new; the evidence for the phase as a whole lives in
+`phase0-fixture-contract.md` §3d.
+
+### D22 — The identity claim is verified against the real API, not against an edited fixture — SETTLED
+
+Every id we produce is derived from the Notion block id, so **our mapper cannot renumber anything**. A
+test that hand-edited a JSON string and fed it back would therefore prove only that our code is
+self-consistent. It would not test the assumption the entire scheme rests on, which is a fact about
+Notion rather than about us:
+
+> does a block keep its id when it, or its neighbours, change?
+
+So `tools/verify-identity-stability.ps1` asks Notion directly: it edits the fixture page, captures what
+the API reports, restores the page, and **fails** if the restore does not verify on both ids and text.
+The two committed snapshots let 19 offline tests assert the property against real API data.
+
+Three edits, each covering an identity the spec names:
+
+| Edit | Identity under test |
+|---|---|
+| one paragraph's text changed in place | a block's id and chunk id survive **their own** content changing |
+| one paragraph appended, then really deleted | insertion and deletion move no other identity |
+| one heading blanked (D4) | a vanished **section** shifts later paragraph indexes without moving any id |
+
+*Rejected alternative:* declaring the property self-evident because ids come from `block.id`. That
+argument is exactly why the test is needed — it establishes that the *premise* holds, which no amount
+of inspecting our own code can do. It is also the cheapest available check: the whole script is ~140
+lines and its cost is one page edit.
+
+**Limitation, recorded rather than glossed:** blanking a heading removes exactly **one** chunk. D4 keeps
+an empty heading's content in the enclosing section and drops only the heading, so later paragraphs
+shift by one position, not by a whole section. One position is sufficient to disprove any positional
+scheme — the first edit breaks it — but the shift is smaller than "a section vanished" suggests. A
+larger shift was not reachable: this API version rejects `after`, so a mid-page block cannot be deleted
+and put back where it was.
+
+### D23 — Position resolution reports facts; the session layer decides — SETTLED
+
+`ReaderDocument.resolve(position)` returns how precisely a saved position was located and where, but
+never whether to resume, where to fall back to, or what to announce:
+
+```kotlin
+ReaderDocumentPosition(sourceBlockId?, chunkId?, sectionId?, characterOffset)
+→ ReaderPositionResolution(match, paragraphIndex?, resolvedSectionId?, blockSurvived, sectionSurvived)
+
+enum class PositionMatch { CHUNK, BLOCK, SECTION, NONE }
+```
+
+*Evidence:* the spec delegates the choices emphatically — "The Notion integration layer must not itself
+decide whether playback resumes, where Continue falls back, or what the user hears when a saved
+position no longer exists. Those behaviors belong to the future Active Queue & Reader Session
+specification." A `shouldResume` flag or a chosen fallback would be precisely that overreach, so the
+type has neither.
+
+Two consequences inside the resolution, both deliberate:
+
+- **A `BLOCK` match anchors to the block's first remaining part.** When a part index has gone because
+  the block was re-split, landing mid-re-split would drop the listener into content out of order.
+- **`PositionMatch.NONE` returns no index at all.** Reporting "position lost" *and* a number to resume
+  from would be a fallback decision smuggled in as data, and the caller would use it.
+
+The type also carries **no numeric index**. The spec is explicit that "numeric chunk indexes alone are
+not stable persistence identities because document edits can shift indexes", so carrying one would
+invite exactly the bug the type exists to prevent. `ReaderDocument.positionAt(index)` converts a
+transient playback coordinate into identities while the document that defines it is still in hand —
+the only moment at which that conversion is possible.
+
+### Still open
+
+- **§7.7 and §7.8** are the last two spec amendments, both gating Phase 8 and Browse, not the reader.
+- **`ChunkMetadata.headingLevel` is missing from the spec's copy** of `ChunkMetadata` (§7.5 drift).
+- **The third-party parser evaluation** is deferred by product decision, not overlooked. The
+  conclusion reached was that the only Android-capable JVM client replaces the smallest, best-tested
+  part of the pipeline while leaving the mapping logic — the part that actually encodes D1–D12 — as
+  ours, and adds a second JSON stack (Gson) and a version-drift surface of its own. It is worth
+  revisiting if write operations or a much wider block-type set arrive.

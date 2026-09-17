@@ -3,9 +3,6 @@ package com.example.notionreader.notion
 import com.example.notionreader.reader.ReaderChunkKind
 import com.example.notionreader.reader.ReaderDocument
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -432,40 +429,3 @@ class ReaderFixtureContractTest {
     }
 }
 
-/**
- * Serves the captured fixture snapshot offline.
- *
- * The snapshot is keyed by block id exactly as the real API is addressed, so the fetch path under
- * test — page children, then one call per block with children — is reproduced faithfully.
- */
-private class FixtureNotionApi private constructor(
-    private val pageElement: kotlinx.serialization.json.JsonElement,
-    private val childrenByBlock: Map<String, kotlinx.serialization.json.JsonElement>
-) : NotionApi {
-
-    override suspend fun retrievePage(pageId: String): NotionPage =
-        notionJson.decodeFromJsonElement(NotionPage.serializer(), pageElement)
-
-    override suspend fun retrieveBlockChildren(blockId: String): List<NotionBlock> {
-        val array = childrenByBlock[blockId]?.jsonArray ?: return emptyList()
-        return array.map { notionJson.decodeFromJsonElement(NotionBlock.serializer(), it) }
-    }
-
-    override suspend fun searchMostRecentPage(): NotionPage? = retrievePage("")
-
-    override fun close() = Unit
-
-    companion object {
-        fun fromResource(path: String): FixtureNotionApi {
-            val text = requireNotNull(FixtureNotionApi::class.java.getResourceAsStream(path)) {
-                "fixture snapshot not found on the test classpath: $path"
-            }.bufferedReader().use { it.readText() }
-
-            val root = Json.parseToJsonElement(text).jsonObject
-            val page = requireNotNull(root["page"]) { "snapshot has no 'page'" }
-            val children = requireNotNull(root["children"]) { "snapshot has no 'children'" }.jsonObject
-
-            return FixtureNotionApi(page, children)
-        }
-    }
-}

@@ -2,6 +2,7 @@ package com.example.notionreader
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -12,14 +13,19 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.notionreader.notion.KtorNotionApi
 import com.example.notionreader.notion.NotionRepository
+import com.example.notionreader.reader.DefaultLoadReaderDocument
 import com.example.notionreader.reader.DocumentLoadState
+import com.example.notionreader.reader.LoadReaderDocument
 import com.example.notionreader.reader.ReaderDocument
 import com.example.notionreader.reader.ReaderEngine
 import com.example.notionreader.reader.ReaderEngineImpl
+import com.example.notionreader.reader.readerErrorCategory
+import com.example.notionreader.reader.readerErrorMessage
 import com.example.notionreader.speech.AndroidSpeechEngine
 import com.example.notionreader.speech.SpeechEngine
-import com.example.notionreader.ui.ReaderScreen
-import kotlinx.coroutines.CancellationException
+import com.example.notionreader.ui.NoteScreen
+import com.example.notionreader.ui.PlayerScreen
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -27,12 +33,12 @@ import kotlinx.coroutines.launch
  * Owns the reader engine and the speech engine, and wires them to the Compose UI.
  *
  * The reader starts on the hard-coded [ReaderDocument.Demo] so playback is available immediately and
- * works with no network and no credentials. When a Notion token is configured (see the README: an
+ * works with no network and no credentials. When a Notion token is configured (see the README: a
  * `NOTION_TOKEN` entry in `local.properties`, or a `.env` file holding either that entry or the bare
  * token), the demo document is replaced by the Notion page without any change to the reader engine.
  *
- * A Notion failure never blocks reading: the demo document stays loaded and the reason appears on the
- * reader screen, so the app is still testable with TalkBack offline or with a bad token.
+ * A Notion failure never blocks reading: the demo document stays loaded and playable while the Note
+ * screen reports what went wrong and, when the failure's category says it is worth it, offers Retry.
  */
 class MainActivity : ComponentActivity() {
 
@@ -45,6 +51,10 @@ class MainActivity : ComponentActivity() {
 
     /** Set when the device cannot speak at all, which no amount of retrying will fix. */
     private val speechMessage = MutableStateFlow<String?>(null)
+
+    private val destination = MutableStateFlow(ReaderDestination.Note)
+
+    private var loadJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,22 +74,45 @@ class MainActivity : ComponentActivity() {
                     val document by readerEngine.document.collectAsState()
                     val load by loadState.collectAsState()
                     val speech by speechMessage.collectAsState()
+                    val current by destination.collectAsState()
 
-                    ReaderScreen(
-                        state = state,
-                        documentTitle = document.title,
-                        onPlayPause = {
-                            if (state.isPlaying) readerEngine.pause() else readerEngine.play()
-                        },
-                        onNext = readerEngine::nextParagraph,
-                        onPrevious = readerEngine::previousParagraph,
-                        statusMessage = joinMessages(load.statusMessage, speech)
-                    )
+                    // Only the Player can be left. Its Back contract is "returns to the previous visual
+                    // context when possible" and "playback continues", so this deliberately does not
+                    // touch the reader engine: moving between screens must never change what is read.
+                    if (current == ReaderDestination.Player) {
+                        BackHandler { destination.value = ReaderDestination.Note }
+                    }
+
+                    when (current) {
+                        ReaderDestination.Note -> NoteScreen(
+                            document = document,
+                            loadState = load,
+                            onPlay = {
+                                // The contract's Play means "starts from the beginning" and "opens
+                                // Player"; historical per-note progress is not resumed.
+                                readerEngine.playFromStart()
+                                destination.value = ReaderDestination.Player
+                            },
+                            onRetry = ::loadNotionDocument,
+                            statusMessage = speech
+                        )
+
+                        ReaderDestination.Player -> PlayerScreen(
+                            state = state,
+                            documentTitle = document.title,
+                            onPlayPause = {
+                                if (state.isPlaying) readerEngine.pause() else readerEngine.play()
+                            },
+                            onNextSection = readerEngine::nextSection,
+                            onPreviousSection = readerEngine::previousSection,
+                            statusMessage = speech
+                        )
+                    }
                 }
             }
         }
 
-        loadNotionDocumentIfConfigured()
+        if (BuildConfig.NOTION_TOKEN.isNotBlank()) loadNotionDocument()
     }
 
     override fun onDestroy() {
@@ -87,50 +120,59 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun loadNotionDocumentIfConfigured() {
-        val token = BuildConfig.NOTION_TOKEN
-
-        // No token configured: keep reading the hard-coded demo document and say nothing.
-        if (token.isBlank()) return
-
-        val pageReference = BuildConfig.NOTION_PAGE_ID
-        val repository = NotionRepository(KtorNotionApi(token))
-
-        lifecycleScope.launch {
-            loadState.value = DocumentLoadState.Loading
-
+    /**
+     * Loads the configured Notion page, or the most recently edited page when none is configured.
+     *
+     * This is also the Retry action, so it has to be safe to call again: any previous attempt is
+     * cancelled first, and each attempt builds and closes its own client. Building a client per attempt
+     * is deliberately wasteful rather than sharing one — a retry that reuses a closed client is a bug
+     * that only appears on the failure path, which is the path this milestone exists to make correct.
+     */
+    private fun loadNotionDocument() {
+        val loader: LoadReaderDocument = DefaultLoadReaderDocument { reference ->
+            val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
             try {
-                // A blank reference makes the repository read the most recently edited page the
-                // integration can see, so a token-only configuration still loads real content.
-                val document = repository.getDocument(pageReference)
-                readerEngine.setDocument(document)
-                loadState.value = DocumentLoadState.Loaded(document)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // The demo document remains loaded and playable; only the message changes.
-                loadState.value = DocumentLoadState.Error(
-                    e.message ?: "The document could not be loaded."
-                )
+                repository.getDocument(reference)
             } finally {
                 repository.close()
             }
+        }
+
+        loadJob?.cancel()
+        loadJob = lifecycleScope.launch {
+            loadState.value = DocumentLoadState.Loading
+
+            // Cancellation is thrown by this call rather than folded into a failure, so abandoning a
+            // load cannot leave "could not load" on screen for a page the user merely navigated away
+            // from. See DefaultLoadReaderDocument.
+            val result = loader(BuildConfig.NOTION_PAGE_ID)
+
+            result.fold(
+                onSuccess = { document ->
+                    readerEngine.setDocument(document)
+                    loadState.value = DocumentLoadState.Loaded(document)
+                },
+                onFailure = { error ->
+                    // The demo document stays loaded and playable; only the reported state changes.
+                    loadState.value = DocumentLoadState.Error(
+                        category = error.readerErrorCategory,
+                        message = error.readerErrorMessage
+                    )
+                }
+            )
         }
     }
 }
 
 /**
- * Message shown on the reader screen for a given load state, or null when nothing needs saying.
+ * The two screens this milestone has.
  *
- * The loaded case says nothing, because the document title and position already describe it.
+ * A hand-written pair rather than a navigation library: the UI contract's real graph is four
+ * top-level destinations plus ten secondary screens, and the Note and Player are reached from surfaces
+ * (Browse, Home, Queues) that do not exist yet. Introducing Navigation Compose to move between two
+ * screens would freeze the shape of a graph before the screens that determine it are written.
  */
-private val DocumentLoadState.statusMessage: String?
-    get() = when (this) {
-        DocumentLoadState.Loading -> "Loading the Notion document."
-        is DocumentLoadState.Error -> "Could not load the Notion document. $message"
-        is DocumentLoadState.Loaded -> null
-    }
-
-/** Joins the messages that need to be shown, or null when there is nothing to say. */
-private fun joinMessages(vararg messages: String?): String? =
-    messages.filterNotNull().joinToString(" ").takeIf { it.isNotEmpty() }
+private enum class ReaderDestination {
+    Note,
+    Player
+}

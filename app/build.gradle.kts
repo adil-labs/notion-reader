@@ -165,6 +165,9 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    // The spec's repository tests require a fake HTTP layer, not a fake API: only that exercises the
+    // real headers, retry and error-mapping code.
+    testImplementation("io.ktor:ktor-client-mock:3.6.0")
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

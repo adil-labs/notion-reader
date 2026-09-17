@@ -136,7 +136,16 @@ data class ChunkMetadata(
     /** Link hrefs found in the block, in source order. Never spoken. */
     val linkTargets: List<String> = emptyList(),
     /** True when the block contained inline code, so a later speech policy can treat it differently. */
-    val hasInlineCode: Boolean = false
+    val hasInlineCode: Boolean = false,
+    /**
+     * `heading_1`..`heading_3` only, as 1..3.
+     *
+     * A heading chunk is also its section's title (D3), so without this the Note screen could only
+     * render every heading at one visual level, or guess a level back out of the section — and would
+     * risk drawing the same heading twice. Carrying the level on the chunk itself makes the hierarchy
+     * a fact about the chunk rather than something the UI reconstructs.
+     */
+    val headingLevel: Int? = null
 )
 
 /** Load state of a document that has to be fetched (for example from the Notion API). */
@@ -148,7 +157,18 @@ sealed interface DocumentLoadState {
         val document: ReaderDocument
     ) : DocumentLoadState
 
+    /**
+     * A failed load, carrying the category as well as the text.
+     *
+     * The UI contract requires that "permission problems must not be collapsed into generic network
+     * errors" and that errors appear "where recovery is meaningful", so the screen needs to know
+     * whether Retry would achieve anything — which is [ReaderErrorCategory.canRetry], not something
+     * that can be recovered by pattern-matching an English sentence.
+     */
     data class Error(
+        val category: ReaderErrorCategory,
         val message: String
-    ) : DocumentLoadState
+    ) : DocumentLoadState {
+        val canRetry: Boolean get() = category.canRetry
+    }
 }

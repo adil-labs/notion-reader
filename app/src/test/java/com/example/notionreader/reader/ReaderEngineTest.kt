@@ -327,4 +327,183 @@ class ReaderEngineTest {
         assertEquals(1, speech.stopCount)
         assertEquals(1, speech.shutdownCount)
     }
+
+    // ---------------------------------------------------------------- Note-screen Play
+
+    @Test
+    fun playFromStartReturnsToTheFirstParagraphAndReads() {
+        val engine = engine()
+        engine.play()
+        engine.nextParagraph()
+        engine.nextParagraph()
+
+        engine.playFromStart()
+
+        assertEquals(0, engine.state.value.currentParagraphIndex)
+        assertTrue(engine.state.value.isPlaying)
+        assertEquals("First paragraph.", speech.utterances.last().text)
+    }
+
+    @Test
+    fun playFromStartInterruptsWhateverWasBeingRead() {
+        val engine = engine()
+        engine.play()
+        engine.nextParagraph()
+
+        engine.playFromStart()
+
+        assertTrue(speech.stopCount >= 1)
+    }
+
+    @Test
+    fun playFromStartOnAnEmptyDocumentDoesNothing() {
+        val engine = ReaderEngineImpl(
+            speechEngine = speech,
+            initialDocument = ReaderDocument.Empty
+        )
+
+        engine.playFromStart()
+
+        assertFalse(engine.state.value.isPlaying)
+        assertTrue(speech.utterances.isEmpty())
+    }
+
+    // ---------------------------------------------------------------- section navigation
+
+    private fun sectionedDocument() = ReaderDocument(
+        pageId = "sectioned",
+        title = "Sectioned",
+        sections = listOf(
+            ReaderSection("intro", null, 0, listOf(sectionChunk("Intro."))),
+            ReaderSection(
+                "h1",
+                "First heading",
+                1,
+                listOf(sectionChunk("Heading one."), sectionChunk("Body one."))
+            ),
+            ReaderSection("h2", "Second heading", 1, listOf(sectionChunk("Heading two.")))
+        )
+    )
+
+    private fun sectionChunk(text: String) = ReaderChunk(
+        id = "$text:0",
+        sourceBlockId = text,
+        kind = ReaderChunkKind.PARAGRAPH,
+        text = text
+    )
+
+    private fun sectionedEngine() = ReaderEngineImpl(
+        speechEngine = speech,
+        initialDocument = sectionedDocument()
+    )
+
+    @Test
+    fun exposesTheSectionOutlineOfTheLoadedDocument() {
+        val engine = sectionedEngine()
+
+        assertEquals(
+            listOf("intro", "h1", "h2"),
+            engine.state.value.sections.map { it.id }
+        )
+        assertEquals("Section 1 of 3", engine.state.value.sectionPositionDescription)
+    }
+
+    @Test
+    fun setDocumentRebuildsTheSectionOutline() {
+        val engine = engine()
+
+        engine.setDocument(sectionedDocument())
+
+        assertEquals(listOf("intro", "h1", "h2"), engine.state.value.sections.map { it.id })
+    }
+
+    @Test
+    fun nextSectionMovesToTheNextSectionHeading() {
+        val engine = sectionedEngine()
+
+        engine.nextSection()
+
+        assertEquals(1, engine.state.value.currentParagraphIndex)
+        assertEquals("Heading one.", engine.state.value.currentParagraph)
+        assertEquals("h1", engine.state.value.currentSection?.id)
+    }
+
+    @Test
+    fun nextSectionSkipsTheRestOfTheCurrentSection() {
+        val engine = sectionedEngine()
+        engine.nextSection()
+        engine.nextParagraph()
+
+        engine.nextSection()
+
+        assertEquals(3, engine.state.value.currentParagraphIndex)
+        assertEquals("Heading two.", engine.state.value.currentParagraph)
+    }
+
+    @Test
+    fun previousSectionReturnsToTheStartOfTheCurrentSection() {
+        val engine = sectionedEngine()
+        engine.nextSection()
+        engine.nextParagraph()
+
+        engine.previousSection()
+
+        assertEquals(1, engine.state.value.currentParagraphIndex)
+    }
+
+    @Test
+    fun previousSectionAtASectionStartStepsBackASection() {
+        val engine = sectionedEngine()
+        engine.nextSection()
+
+        engine.previousSection()
+
+        assertEquals(0, engine.state.value.currentParagraphIndex)
+    }
+
+    @Test
+    fun sectionNavigationWhilePausedStaysSilent() {
+        val engine = sectionedEngine()
+
+        engine.nextSection()
+
+        assertEquals(1, engine.state.value.currentParagraphIndex)
+        assertTrue("paused navigation must not start reading", speech.utterances.isEmpty())
+    }
+
+    @Test
+    fun sectionNavigationWhilePlayingReadsTheNewSectionFromItsHeading() {
+        val engine = sectionedEngine()
+        engine.play()
+
+        engine.nextSection()
+
+        assertEquals(listOf("Intro.", "Heading one."), speech.spoken)
+        assertTrue(engine.state.value.isPlaying)
+    }
+
+    // ---------------------------------------------------------------- end of note
+
+    @Test
+    fun finishingReportsEndOfNoteRatherThanPause() {
+        val engine = engine()
+        engine.play()
+        speech.completeUtterance()
+        speech.completeUtterance()
+        speech.completeUtterance()
+
+        assertTrue(engine.state.value.hasReachedEnd)
+        assertEquals("End of note", engine.state.value.playbackStateDescription)
+    }
+
+    @Test
+    fun anExplicitPauseIsNotReportedAsEndOfNote() {
+        val engine = engine()
+        engine.play()
+
+        engine.pause()
+
+        assertFalse(engine.state.value.hasReachedEnd)
+        assertEquals("Paused", engine.state.value.playbackStateDescription)
+    }
 }

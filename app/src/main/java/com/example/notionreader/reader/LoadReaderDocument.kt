@@ -1,0 +1,66 @@
+package com.example.notionreader.reader
+
+import kotlin.coroutines.cancellation.CancellationException
+
+/**
+ * The single high-level use case the integration spec asks the first vertical slice to expose.
+ *
+ * "Everything below this interface is replaceable implementation detail" — the UI depends on this and
+ * not on the Notion layer, so swapping the provider, or replacing HTTP with a cache, changes nothing
+ * that the screens can see.
+ *
+ * A `Result` rather than a thrown exception because failure is an ordinary outcome of loading remote
+ * content: the Note screen has to render "could not load, Retry" as a first-class state, and the
+ * category it needs is the one carried by [ReaderLoadException].
+ *
+ * Cancellation is the exception to that: it is thrown, never returned, and typed as
+ * [ReaderLoadCancelledException] so that leaving a screen is not reported as a failure.
+ */
+interface LoadReaderDocument {
+    suspend operator fun invoke(pageId: String): Result<ReaderDocument>
+}
+
+/**
+ * [LoadReaderDocument] over an arbitrary `suspend` loader.
+ *
+ * Taking a lambda keeps this class out of the `notion` package: the same use case works for the
+ * Notion API, for a fixture, or for a future cache, and it is testable with no HTTP at all.
+ */
+class DefaultLoadReaderDocument(
+    private val load: suspend (String) -> ReaderDocument
+) : LoadReaderDocument {
+
+    override suspend operator fun invoke(pageId: String): Result<ReaderDocument> = try {
+        Result.success(load(pageId))
+    } catch (e: CancellationException) {
+        // `runCatching` would have swallowed this and the UI would have shown a network failure for a
+        // screen the user simply left. Rethrowing keeps structured concurrency intact; the typed
+        // wrapper keeps the taxonomy's CANCELLED category observable at the boundary.
+        throw if (e is ReaderLoadCancelledException) e else ReaderLoadCancelledException(cause = e)
+    } catch (e: ReaderLoadException) {
+        Result.failure(e)
+    } catch (e: Exception) {
+        // A total `Result`: an unexpected exception must not be able to crash the caller. The cause is
+        // preserved for logs, and the category says what is actually true from the outside — the
+        // exchange could not be turned into a document.
+        Result.failure(
+            ReaderLoadException(
+                category = ReaderErrorCategory.MALFORMED_RESPONSE,
+                diagnostic = "unexpected ${e::class.simpleName}: ${e.message}",
+                cause = e
+            )
+        )
+    }
+}
+
+/** The category of a failed load. Anything unmapped is treated as an unreadable response. */
+val Throwable.readerErrorCategory: ReaderErrorCategory
+    get() = (this as? ReaderLoadException)?.category ?: ReaderErrorCategory.MALFORMED_RESPONSE
+
+/** Message to show and to read aloud for a failed load. */
+val Throwable.readerErrorMessage: String
+    get() = (this as? ReaderLoadException)?.message ?: readerErrorCategory.message
+
+/** Whether offering Retry for this failure is meaningful. */
+val Throwable.isReaderErrorRetryable: Boolean
+    get() = readerErrorCategory.canRetry

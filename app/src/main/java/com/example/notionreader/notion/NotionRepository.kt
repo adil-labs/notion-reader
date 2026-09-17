@@ -2,6 +2,8 @@ package com.example.notionreader.notion
 
 import com.example.notionreader.reader.ReaderDocument
 import com.example.notionreader.reader.ReaderDocumentMapper
+import com.example.notionreader.reader.ReaderErrorCategory
+import com.example.notionreader.reader.ReaderLoadException
 import java.time.Instant
 
 /**
@@ -13,6 +15,9 @@ import java.time.Instant
  * The former implementation flattened every block to a `List<String>`, which lost heading levels,
  * link targets, to-do state, code language and block identity. This pipeline preserves them, which is
  * what makes stable chunk ids and non-spoken metadata possible at all.
+ *
+ * Every failure leaves here as a [ReaderLoadException] carrying a category, so callers never have to
+ * read a message string to decide whether retrying is meaningful.
  */
 class NotionRepository(
     private val api: NotionApi,
@@ -27,14 +32,18 @@ class NotionRepository(
      * most recently edited page the integration can see is used, which is what makes a token-only setup
      * (a `.env` file holding nothing but the integration token) usable without extra configuration.
      *
-     * The referenced value is never echoed back in an error message, because a mistyped token would
-     * otherwise be shown and logged.
+     * The referenced value is never echoed back in an error message or diagnostic, because a mistyped
+     * token would otherwise be shown and logged.
      */
     suspend fun getDocument(pageReference: String = ""): ReaderDocument {
         val page = resolvePage(pageReference)
 
         if (page.isTrashed) {
-            throw NotionApiException("That Notion page is in the trash.")
+            throw ReaderLoadException(
+                category = ReaderErrorCategory.PAGE_NOT_FOUND,
+                message = "That Notion page is in the trash.",
+                diagnostic = "page is in the trash"
+            )
         }
 
         val children = BlockChildrenSource { api.retrieveBlockChildren(it) }
@@ -43,25 +52,48 @@ class NotionRepository(
             source = children
         )
 
-        return mapper.map(
+        val document = mapper.map(
             pageId = page.id.ifBlank { pageReference },
             title = page.title().ifBlank { "Untitled" },
             lastEditedAt = page.lastEditedTime.toInstantOrNull(),
             blocks = blocks
         )
+
+        // The page has content, but none of it is speakable. That is a failure worth reporting, not
+        // an empty reader: the user asked for a page and would otherwise be shown nothing at all with
+        // no explanation. A page with no blocks is simply empty, and stays a valid empty document.
+        //
+        // This is deliberately the *only* place the category is raised. The spec requires that "a
+        // single unsupported block should not invalidate an otherwise readable page", so partial
+        // losses stay silent here and are recorded as diagnostics on the normalized nodes instead.
+        if (blocks.isNotEmpty() && document.chunks.isEmpty()) {
+            throw ReaderLoadException(
+                category = ReaderErrorCategory.UNSUPPORTED_DOCUMENT_STRUCTURE,
+                diagnostic = "${blocks.size} top-level blocks produced no chunks; " +
+                    "types=${blocks.map { it.notionType }.distinct().take(20)}"
+            )
+        }
+
+        return document
     }
 
     fun close() = api.close()
 
     private suspend fun resolvePage(pageReference: String): NotionPage {
         if (pageReference.isBlank()) {
-            return api.searchMostRecentPage() ?: throw NotionApiException(
-                "The integration cannot see any Notion pages. Share a page with the integration in Notion."
+            return api.searchMostRecentPage() ?: throw ReaderLoadException(
+                category = ReaderErrorCategory.PERMISSION_DENIED,
+                message = "The integration cannot see any Notion pages. " +
+                    "Share a page with the integration in Notion.",
+                diagnostic = "POST /v1/search returned no pages"
             )
         }
 
-        val pageId = normalizeNotionPageId(pageReference) ?: throw NotionApiException(
-            "The configured Notion page reference is neither a page ID nor a page URL."
+        val pageId = normalizeNotionPageId(pageReference) ?: throw ReaderLoadException(
+            category = ReaderErrorCategory.PAGE_NOT_FOUND,
+            message = "The configured Notion page reference is neither a page ID nor a page URL.",
+            // Length only: the reference may be a mistyped token, which must never be logged.
+            diagnostic = "unparseable page reference (length ${pageReference.length})"
         )
 
         return api.retrievePage(pageId)
