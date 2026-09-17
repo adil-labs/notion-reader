@@ -2309,6 +2309,26 @@ deliberately instead of by accident.
 - **47 instrumented tests, 0 failures**, across Note (17), Player (15) and Queues (15). One attempt, after the
   device was unlocked — the unlock was the whole cause of the earlier 45-failure run.
 - **The debug APK builds**, and the refactor changed no behaviour: the same 276 tests passed before and after.
+- **On device, end to end** (`tools/probe-listening-tab.ps1`, which reads tap targets out of the
+  accessibility dump rather than hard-coding coordinates). `Browse → Play all → Player` shows
+  "Note 1 of 19", then **`am force-stop`** → relaunch → **Queues → Listening** shows:
+
+  ```
+  Continue listening
+  Notion Reader - Active Queue & Reader Session Spec
+  Paused · Note 1 of 19 · Just now
+  Continue
+  ```
+
+  That is the contract's own example shape (`Paused · Note 2 of 9 · 2 hours ago`), the session named, its
+  queue position stated, a relative time and no raw timestamp, and Continue as a named control beside the
+  entry rather than part of its announcement.
+
+  One detail in that transcript is worth keeping, because it looks like a bug and is not: **the same Note
+  appears twice**, once as "Just now" and once as "1 minute ago". Those are two *listening occurrences*,
+  which is exactly what the spec requires — "two sessions that read the same Note are two entries" — and it
+  is `session.id` rather than the page id that makes it true. Two probe runs produced two sessions, which
+  is the identity rule working, not history duplicating.
 
 ## 18.9 What this round did not do
 
