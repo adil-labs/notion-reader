@@ -23,9 +23,9 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.notionreader.app.BrowseIndexStatus
-import com.example.notionreader.browse.BrowseResults
-import com.example.notionreader.reader.ReaderIndexEntry
+import com.example.notionreader.application.BrowseIndexStatus
+import com.example.notionreader.domain.discovery.BrowseResults
+import com.example.notionreader.domain.ReaderIndexEntry
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 

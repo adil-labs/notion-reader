@@ -2,11 +2,11 @@ package com.example.notionreader.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -17,21 +17,21 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.notionreader.reader.QueueState
-import com.example.notionreader.reader.ReaderLoadException
-import com.example.notionreader.reader.ReaderState
+import com.example.notionreader.domain.queue.QueueState
+import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.player.ReaderState
 
 /**
  * The Player: the dedicated continuous spoken-reading surface.
  *
  * It receives state and callbacks only; all navigation and playback logic lives in
- * [com.example.notionreader.reader.ReaderEngine]. The UI contract's player content is honoured as far
+ * [com.example.notionreader.player.ReaderEngine]. The UI contract's player content is honoured as far
  * as the current milestone allows: current Note title, current section, progress, and Playing/Paused
  * state are all shown, and the primary controls are Previous section / Play-Pause / Next section.
  *

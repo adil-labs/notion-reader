@@ -6,11 +6,12 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.SemanticsNodeInteractionCollection
-import com.example.notionreader.reader.ChunkMetadata
-import com.example.notionreader.reader.ReaderChunk
-import com.example.notionreader.reader.ReaderChunkKind
-import com.example.notionreader.reader.ReaderDocument
-import com.example.notionreader.reader.ReaderSection
+import com.example.notionreader.data.notion.title
+import com.example.notionreader.domain.ChunkMetadata
+import com.example.notionreader.domain.ReaderChunk
+import com.example.notionreader.domain.ReaderChunkKind
+import com.example.notionreader.domain.ReaderDocument
+import com.example.notionreader.domain.ReaderSection
 import org.junit.Assert.assertTrue
 
 /**

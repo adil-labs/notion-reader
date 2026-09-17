@@ -27,10 +27,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
-import com.example.notionreader.reader.DocumentLoadState
-import com.example.notionreader.reader.ReaderChunk
-import com.example.notionreader.reader.ReaderChunkKind
-import com.example.notionreader.reader.ReaderDocument
+import com.example.notionreader.application.DocumentLoadState
+import com.example.notionreader.domain.ReaderChunk
+import com.example.notionreader.domain.ReaderChunkKind
+import com.example.notionreader.domain.ReaderDocument
 
 /**
  * The Note: the manual reading and inspection surface.
@@ -60,7 +60,7 @@ import com.example.notionreader.reader.ReaderDocument
  * Accessibility:
  * - The list is ordered exactly as the document reads, so TalkBack's traversal order is reading order.
  * - Headings carry heading semantics at their real level, which is why the mapper keeps
- *   [com.example.notionreader.reader.ChunkMetadata.headingLevel].
+ *   [com.example.notionreader.domain.ChunkMetadata.headingLevel].
  * - Bullets and check glyphs are decorative: they are cleared from the semantics tree so TalkBack
  *   reads the item's text, not "bullet, item text". A to-do's state is exposed as a state description
  *   instead, so it is available on demand without interrupting.
