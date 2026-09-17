@@ -45,6 +45,10 @@ android {
         versionCode = 1
         versionName = "0.1"
 
+        // Required before the first instrumented test can run at all: the default runner cannot
+        // discover AndroidX test rules.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         // Development-only credentials, read from uncommitted files (see notionCredentials below).
         // WARNING: values in BuildConfig are compiled into the APK, so they are only acceptable for
         // local development. A shipped app must fetch the token at runtime instead.
@@ -60,6 +64,17 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testOptions {
+        // Each instrumented test runs in its own instrumentation invocation.
+        //
+        // This suite is Compose-under-instrumentation on a real phone, and a single transient,
+        // device-side process death was observed to abort the run: the runner reported
+        // "Process crashed", and the resulting XML then disagreed with the HTML report about how many
+        // tests had even run, so the results could not be trusted either way. Isolating each test
+        // means one bad invocation fails exactly one test and the rest still execute.
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 }
 
@@ -171,7 +186,14 @@ dependencies {
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    // Pinned deliberately. Compose's ui-test-junit4 pulls in Espresso 3.5.0 transitively, which cannot
+    // run on this device (Android 17 / API 37): its idle path reflects on
+    // android.hardware.input.InputManager.getInstance(), which is a hidden method there, so every test
+    // fails in Espresso.onIdle before reaching an assertion. 3.7.0 is the current release and does not.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestUtil("androidx.test:orchestrator:1.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

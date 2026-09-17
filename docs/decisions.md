@@ -579,8 +579,8 @@ generated mirror rather than trusting the edit script.
 | §7.4 conditional intro section (D2) | **applied** — "An introductory section is created only when content precedes the first heading." |
 | §7.5 domain model (§3.1, ChunkMetadata) | **applied** — `ReaderChunkKind` is down to the six reachable members, and `ChunkMetadata` is defined |
 | §7.6 supported block set (to_do/code) | **applied** — the `to_do` checked-state rule and the one-`CODE`-chunk rule are stated |
-| §7.7 `status` field, projectIds note | outstanding |
-| §7.8 TASK-by-schema, no KNOWLEDGE adapter | outstanding |
+| §7.7 `status` field, projectIds note | **applied** — `status: String? = null` added; the paragraph now records that `projectIds` may be empty and that Status is schema-scoped rather than a global facet (C2, C5) |
+| §7.8 TASK-by-schema, no KNOWLEDGE adapter | **applied** — recognition is stated as schema-based with the `Task name` title property named, and no adapter may claim `KNOWLEDGE` |
 | §7.9 Progress tests | **applied** — `### Progress` → `### Stable position handoff` |
 | §7.10 session-level interface | superseded by §7.1's handoff |
 | N1 Phase 5 contradicted the session boundary | **applied** — Phase 5 now reads "Expose stable page, source-block, section, and chunk identities, and prove that unchanged content produces unchanged identities across edits. This phase does not implement resume or persistence" |
@@ -588,14 +588,19 @@ generated mirror rather than trusting the edit script.
 | N3 boundary statement inside `## Components` | **applied** — now `### Out of scope: session persistence` |
 | N4 residual per-note framing in Goals | not actioned; intent is still correct |
 
-**One item drifted rather than being missed.** §7.5 was applied to the shape this record proposed,
-but `ChunkMetadata` has since gained `headingLevel` (D17) and the spec's copy has not been updated.
-It is a small follow-up, recorded here so it is not mistaken for a deliberate omission: the spec's
-`ChunkMetadata` block is missing one field that the Note screen depends on.
+**Nothing on this list is outstanding any more.** Round 3 applied the last three (§7.5's drift, §7.7
+and §7.8) with `tools/apply-spec-amendments.ps1`, and re-exporting the mirror confirmed the change and
+no other drift. The amendment history is complete and the four governing documents now agree with the
+code and with the verified workspace facts.
 
-**§7.7 and §7.8 remain outstanding and are the only amendments still blocking anything.** Both gate
-Phase 8 (discovery and schema-aware queues) and the Browse screen, not the reader. Nothing in
-Phases 3–5 depends on them.
+The §7.5 drift was the one item applied incompletely. §7.5 was marked applied in round 2, but the
+spec's `ChunkMetadata` was missing `headingLevel` (D17), which the Note screen depends on to render
+heading hierarchy. Adding it to the block that holds the domain model also surfaced a hazard worth
+recording: **the spec stores its entire reader domain model in a single code block**, so patching it
+means restating `ReaderDocument`, `ReaderSection`, `ReaderChunk` and `ReaderChunkKind` as well. A
+replacement containing only `ChunkMetadata` would have silently deleted the rest of the model from the
+governing document. The script therefore prints a target block's full current text under `-Inspect`,
+and that step is what caught it.
 
 **Option (b) was chosen**, and it was the better call. The amendment does not merely keep a
 page-keyed position and re-label it — it *refuses ownership explicitly*:
@@ -1032,10 +1037,95 @@ the only moment at which that conversion is possible.
 
 ### Still open
 
-- **§7.7 and §7.8** are the last two spec amendments, both gating Phase 8 and Browse, not the reader.
-- **`ChunkMetadata.headingLevel` is missing from the spec's copy** of `ChunkMetadata` (§7.5 drift).
+- **No spec amendments remain.** All of §7.1–§7.10 and N1–N4 are applied except N4, which was
+deliberately not actioned because its wording is still correct. Phase 8 and Browse are now unblocked
+on the documentation side; what they still lack is the Content Metadata & Workspace Schema Adapters
+spec the UI contract names.
+- **Accessibility validation with TalkBack** is the outstanding POC gate. See §11.
 - **The third-party parser evaluation** is deferred by product decision, not overlooked. The
   conclusion reached was that the only Android-capable JVM client replaces the smallest, best-tested
   part of the pipeline while leaving the mapping logic — the part that actually encodes D1–D12 — as
   ours, and adds a second JSON stack (Gson) and a version-drift surface of its own. It is worth
   revisiting if write operations or a much wider block-type set arrive.
+
+---
+
+## 11. Fourth round — spec closeout and accessibility validation
+
+**Date:** 2026-09-17. **Scope:** the two items §10 left as next steps: finish the spec amendments, and
+close the integration spec's accessibility-validation gate.
+
+### 11.1 Spec amendments — complete
+
+`tools/apply-spec-amendments.ps1` applied the last three (§7.5's drift, §7.7, §7.8). **No spec
+amendment remains outstanding**; §7.1–§7.10 and N1–N3 are all applied, and N4 was deliberately left
+because its wording is still correct. The script is idempotent (each amendment detects its own
+applied marker) and dry-run by default.
+
+**The `-Inspect` step earned its place immediately.** Patching a Notion block replaces its whole
+`rich_text`, and the spec stores its **entire reader domain model in a single code block**. The
+amendment's target was `ChunkMetadata`, but the block also holds `ReaderDocument`, `ReaderSection`,
+`ReaderChunk` and `ReaderChunkKind`. A replacement containing only `ChunkMetadata` — which is what the
+amendment logically "is" — would have silently deleted the rest of the domain model from the governing
+document. Nothing in the dry-run lengths would have made that obvious; printing the target's full
+current text did. The script now restates every declaration in that block and says why.
+
+This generalises: *for any in-place patch, print the whole target before writing.* A dry run that
+reports only "would change block X (748 → 1064 chars)" is not enough to catch a destructive edit.
+
+### 11.2 Accessibility validation — automated half done, listening half outstanding
+
+Two instrumented suites were added under `app/src/androidTest/` — 32 tests covering both screens:
+
+| Contract requirement | Asserted by |
+|---|---|
+| "focus at a meaningful starting point" | both screens expose a `paneTitle` |
+| "stable accessible names" | no clickable node is unlabelled |
+| "focus order must match logical reading order" | content is rendered top-to-bottom in document order |
+| "metadata should not be spoken during ordinary reading" | decorative bullets and check glyphs are absent from the semantics tree; no block id or chunk id is on screen |
+| "loading is not equivalent to empty" | three distinct states, loading stated in text |
+| "permission problems must not be collapsed into generic network errors" | the authorization message is named and Retry is absent |
+| "state changes … must have concise spoken feedback" | playback state is a polite live region; end-of-note is distinct from paused |
+| "Playback must continue without keeping visual focus on the currently spoken block" | the position line is deliberately **not** a live region |
+
+**A real defect was found and fixed.** The Note screen's error announcement was on the `Column` that
+wraps the error text and the Retry button. Semantics applied to a parent that does not merge its
+descendants creates its own node, so TalkBack would have watched an empty container while the text sat
+in a child that never changed — the announcement would have silently never fired. The live region is
+now on the message `Text` itself, with the Retry button outside it, and a test pins both facts. This is
+exactly the class of bug the automated half exists to catch, and it is invisible to unit tests.
+
+**Still open: the listening half.** The device has TalkBack installed
+(`com.google.android.marvin.talkback/.TalkBackService`) but **not enabled** — the active accessibility
+service is Bitwarden. Enabling it changes the device's touch behaviour globally, so it was not done
+without asking. Three things therefore remain unverified: whether TalkBack's own speech and the
+reader's TTS overlap in practice, where focus actually lands on entry, and whether the announcements
+sound right. The spec's phrase is "perform the complete playback/navigation flow with TalkBack
+enabled", which no instrumentation can satisfy.
+
+### 11.3 Toolchain problems found, and why each fix is structural
+
+Four separate issues had to be resolved before any of the 32 tests could run. None were app defects,
+but each would have cost someone a long debugging session, so they are recorded.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| All 32 tests failed in `Espresso.onIdle` | `ui-test-junit4` brings Espresso **3.5.0** transitively, whose idle path reflects on the hidden `InputManager.getInstance()` on Android 17 / API 37 | pin `espresso-core:3.7.0` |
+| Random single test failed with "not displayed" | the device's `screen_off_timeout` is **30 s** while a run takes ~40 s, so the screen slept mid-run | `tools/run-accessibility-tests.ps1` raises it and restores it in a `finally` |
+| A test's click was silently dropped | synthetic touches are unreliable on a real device | drive `SemanticsActions.OnClick` instead, which is what an accessibility service actually does |
+| Whole runs aborted with "Process crashed" | a transient device-side process death; the runner then retried under the orchestrator, and **the XML and HTML reports disagreed** about how many tests had run | `execution = "ANDROIDX_TEST_ORCHESTRATOR"`, one process per test |
+
+The first is worth generalising: **a transitive test dependency is still a version you are choosing.**
+The failure presented as 32 unrelated assertion failures, which looks like a broken test suite rather
+than a stale library.
+
+The last is the reason to distrust a single source of truth for test results here. During this round
+the XML reported 0 failures while Gradle reported failure, and on an earlier run the XML reported 0
+while the HTML reported 1. The HTML report proved the accurate one. The result of the final run is
+**32 tests, 0 failures, 100% successful**, per that report.
+
+**Known remaining flake, documented rather than hidden:** the `connectedDebugAndroidTest` task still
+exits non-zero even when every test passes, because AGP's exit-code bookkeeping reflects the
+instrumentation shell's status rather than the collected results. It is a false negative from the
+runner, reproducible, and not a test failure — but a CI job would fail on it, so it needs resolving
+before this suite can gate anything.

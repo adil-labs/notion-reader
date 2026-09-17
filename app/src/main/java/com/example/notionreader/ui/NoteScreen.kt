@@ -160,12 +160,20 @@ private fun LoadStateNotice(loadState: DocumentLoadState, onRetry: () -> Unit) {
         )
 
         is DocumentLoadState.Error -> Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // The live region goes on the message itself, not on this Column. Semantics applied to a
+            // parent that does not merge its descendants creates its own node, so TalkBack would
+            // watch an empty container while the text sat in a child that never changed - the
+            // announcement would silently never fire. Verified by an instrumented test that failed
+            // when this modifier was on the Column.
+            //
+            // The Retry button is deliberately outside the announcement: a control should not be read
+            // out as part of the sentence describing what went wrong.
             Text(
                 text = "Could not load this Note. ${loadState.message}",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             )
 
             // Retry only where recovery is meaningful: an expired token or a page the integration

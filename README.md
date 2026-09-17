@@ -172,12 +172,44 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest
+./gradlew.bat :app:testDebugUnitTest       # 146 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 
 Ktor must be 3.6.0 or newer: 3.2.0 contains a field name with spaces that R8 cannot dex for `minSdk 26`
 (`Space characters in SimpleName 'use streaming syntax' are not allowed prior to DEX version 040`).
+
+### Instrumented accessibility tests
+
+The 32 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
+directly:
+
+```
+pwsh -File tools/run-accessibility-tests.ps1
+```
+
+The wrapper exists because the device has to be prepared in two ways that a plain Gradle run cannot do:
+it wakes the screen and dismisses the keyguard, and it raises `screen_off_timeout` for the duration.
+A stock 30-second timeout is shorter than a run, so the screen can sleep mid-test and make
+`assertIsDisplayed` fail intermittently in a way that looks like a layout bug. The original timeout is
+restored in a `finally`.
+
+Two other things are pinned deliberately, both because the failure they prevent is misleading:
+
+- **`espresso-core:3.7.0`.** `ui-test-junit4` pulls in Espresso 3.5.0 transitively, whose idle path
+  reflects on the hidden `InputManager.getInstance()` on Android 17 / API 37. The symptom is *every*
+  test failing in `Espresso.onIdle`, which reads as a broken suite rather than a stale library.
+- **`execution = "ANDROIDX_TEST_ORCHESTRATOR"`.** One process per test. A transient device-side
+  process death previously aborted whole runs, and the XML and HTML reports then disagreed about how
+  many tests had run.
+
+Controls are driven through `SemanticsActions.OnClick` rather than synthetic taps. That is what an
+accessibility service performs, and unlike a synthesised touch it cannot be silently dropped by the
+device's window.
+
+Note: the `connectedDebugAndroidTest` task currently exits non-zero even when all 32 tests pass, so
+read the HTML report at `app/build/reports/androidTests/connected/debug/index.html` for the verdict.
 
 ## Accessibility rules
 

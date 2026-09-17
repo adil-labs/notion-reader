@@ -4,7 +4,7 @@
   Source page: Notion Reader — Notion Integration Implementation Spec
   Page id:     3dec9345-e10a-81e8-8b28-e7d04672e53e
   Notion URL:  https://app.notion.com/p/Notion-Reader-Notion-Integration-Implementation-Spec-3dec9345e10a81e88b28e7d04672e53e
-  Notion last edited: 09/17/2026 11:28:00
+  Notion last edited: 09/17/2026 13:25:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -103,11 +103,12 @@ data class ReaderLibraryEntry(
     val date: LocalDate? = null,
     val summary: String? = null,
     val projectIds: Set<String> = emptySet(),
+    val status: String? = null,
     val sourceSchema: ReaderSourceSchema = ReaderSourceSchema.GENERIC,
 )
 
 enum class ReaderEntryKind {
-    KNOWLEDGE,
+    KNOWLEDGE,   // no accessible source backs this yet; no adapter may claim it
     REFLECTION,
     PRACTICE,
     PROJECT,
@@ -116,7 +117,7 @@ enum class ReaderEntryKind {
 }
 
 enum class ReaderSourceSchema {
-    KNOWLEDGE,
+    KNOWLEDGE,   // as above
     REFLECTIONS,
     PRACTICE_AND_LEARNING,
     PROJECTS,
@@ -125,7 +126,7 @@ enum class ReaderSourceSchema {
 }
 ```
 
-ReaderLibraryEntry is for discovery and queue construction. ReaderDocument is for linear reading. Do not require every metadata field before a document can be read.
+ReaderLibraryEntry is for discovery and queue construction. ReaderDocument is for linear reading. Do not require every metadata field before a document can be read. projectIds may be empty: no accessible data source currently exposes a relation property, so an adapter must not treat an empty set as an error. status carries the source schema's own user-facing value rather than a universal enum, because the vocabularies differ per schema (six values in Projects, three in Todo List) and overlap only partially. A raw string is therefore not a cross-schema facet, so a Status filter is schema-scoped in the first implementation: it filters within a Type selection rather than across all content. A workspace-wide Status facet would be the point at which a normalized enum becomes justified.
 
 ## Metadata-to-speech boundary
 
@@ -205,7 +206,7 @@ Summary           → summary
 Page ID            → pageId
 ```
 
-Do not hard-code playback logic to a database name. The adapter recognizes a schema and produces normalized metadata; playback consumes only reader-domain models.
+Do not hard-code playback logic to a database name. The adapter recognizes a schema and produces normalized metadata; playback consumes only reader-domain models. Recognition itself must be schema-based rather than name-based: the TASKS source is the live database named "Todo List", so an adapter matching on the name would miss it. Discriminate on its schema instead - the title property is Task name, together with Status and Due date. No adapter may claim KNOWLEDGE, because no accessible source backs it; the member remains a defined future kind that nothing may assume exists. Skills and Inbox are readable but are not recognized schemas, so they fall back to GENERIC rather than acquiring a Kind or SourceSchema value merely because the databases exist.
 
 # Functional requirements
 
@@ -313,6 +314,9 @@ data class ChunkMetadata(
     val language: String? = null,
     val linkTargets: List<String> = emptyList(),
     val hasInlineCode: Boolean = false,
+    val headingLevel: Int? = null,   // heading_1..3 mapped to 1..3, so the Note screen can render
+                                     // heading hierarchy from the chunk itself rather than guessing
+                                     // it back out of the enclosing section
 )
 
 enum class ReaderChunkKind {
