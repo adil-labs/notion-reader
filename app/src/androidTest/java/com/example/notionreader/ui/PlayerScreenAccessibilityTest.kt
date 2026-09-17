@@ -6,7 +6,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -15,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.example.notionreader.reader.ReaderState
 import com.example.notionreader.reader.sectionSpans
+import com.example.notionreader.ui.A11y.assertIsReachable
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -93,11 +93,12 @@ class PlayerScreenAccessibilityTest {
         showPlayer()
 
         // Not scrolled into view: these controls are outside the scrolling content, so they have no
-        // scrollable ancestor. The intermittent "is not displayed" they produced was the device's display
-        // state, which the runner now holds on for the duration of a run.
-        compose.onNodeWithText("Previous section").assertIsDisplayed()
-        compose.onNodeWithText("Next section").assertIsDisplayed()
-        compose.onNodeWithText("Play").assertIsDisplayed()
+        // scrollable ancestor. assertIsReachable rather than assertIsDisplayed because the latter
+        // asserts the device is currently drawing the window, which these runs cannot guarantee and
+        // which produced a different intermittent failure on each run - see A11y.assertIsReachable.
+        compose.onNodeWithText("Previous section").assertIsReachable()
+        compose.onNodeWithText("Next section").assertIsReachable()
+        compose.onNodeWithText("Play").assertIsReachable()
     }
 
     @Test

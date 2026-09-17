@@ -1915,3 +1915,181 @@ playback moves to P1.**
 
 - All of §15's open items, unchanged: the flake, the TalkBack listening gate, slice A′, slices D and F,
   slice C's facets, `playFromStart`'s absent caller, and the unused DataStore dependency.
+
+---
+
+## 17. Tenth round — P0 closed, and the missing session spec written and implemented
+
+**Date:** 2026-09-17. **Scope:** §16's P0 and P1. Both decided and executed.
+
+The two decisions §16.5 asked for were taken as follows, and both were taken in the direction that keeps
+the project's own evidence standard:
+
+- **The flake:** neither of the two options offered. The hypothesis in §15.6 was wrong, and the real cause
+  turned out to be readable out of the library (§17.3).
+- **P1 vs P4:** the unblocking order was kept, so the session spec is this round's work. §17.7 records that
+  background playback is still the largest gap in the product and is still ranked last.
+
+### 17.1 P0a — the launch load is gone, not redirected
+
+`loadNotionDocument()` was deleted along with its call. It opened the Note screen and then called
+`openHome()`, and Home is a top-level destination whose entire job is to clear the secondary it sits on, so
+the page was fetched on every launch and displayed nowhere.
+
+The other half of §16.5's choice — giving Home a "most recent Note" row — was **rejected**, and the reason
+is the conflict protocol rather than taste: Home has exactly three sections, and a most-recent row is none
+of them. Explore is the closest and is generated from metadata that does not exist yet, so the row would
+have been an invented section, which means amending the UI contract in Notion *first*. Deleting a leftover
+from the two-screen architecture needs no amendment.
+
+The class comment says so, and the README was corrected: it had claimed `NOTION_PAGE_ID` "selects a
+specific page", which stopped being true. `NOTION_PAGE_ID`, `NOTION_PAGE_URL` and the reader's
+blank-reference auto-discovery path are now **resolved and reported by the build but read by nothing at
+runtime** — recorded as open rather than deleted, because pinning the app to one known page is how the
+pagination and block-coverage criteria were verified on device.
+
+### 17.2 P0b — the six `assertIsDisplayed` calls were replaced, and the reason is mechanical
+
+The flake was not the two accessibility services. Compose 1.12.0's `checkIsDisplayed` was read out of the
+AAR's bytecode rather than guessed at, and it requires, in order: the node's layout info to be placed, then
+**`androidx.test.espresso.matcher.ViewMatchers.isDisplayed()` matched against the root view**, then a
+bounds-in-window intersection, then `View.getGlobalVisibleRect()`.
+
+Those last two are claims about **the device's window state** — whether the Compose view is currently being
+drawn and has a non-empty visible rectangle on the display. They are not claims about the app. That is why
+the failure moved between runs and why it was always reported on a control that was plainly present.
+
+`A11y.assertIsReachable` replaces them: the node is placed, occupies area, overlaps the surface root, offers
+an `OnClick` action and has a non-blank accessible name. All five are deterministic, and the last two are
+*stricter* than what they replace for the thing that actually matters — a screen-reader user moves focus and
+activates, and does not look at the screen. What it gives up is stated in the code rather than left implicit.
+
+### 17.3 The residual flake is the harness losing the activity, and it is now classified
+
+With the assertions fixed, a run failed anyway — on a **different** test, one whose only assertion is
+`assertExists`. The failure text is decisive:
+
+```plaintext
+java.lang.NullPointerException: Cannot run onActivity since Activity has been destroyed already
+    at androidx.test.core.app.ActivityScenario.lambda$onActivity$2
+```
+
+Thrown before any assertion runs, so no assertion in the suite can be implicated. The earlier "is not
+displayed" failures are consistent with the same event seen at the assertion instead of at setup: an
+activity being torn down or no longer drawn fails `getGlobalVisibleRect` too.
+
+Ruled out by measurement rather than by argument: `always_finish_activities` is 0, the keyguard is not
+showing (`isKeyguardShowing=false`, `deviceLocked=0`), the device is awake, and animations are at 1.0. The
+device is connected over Wi-Fi ADB (`192.168.0.101_5555`), which is recorded as a suspicion and not a
+finding.
+
+`tools/run-accessibility-tests.ps1` now classifies every failure against a deliberately short list of
+harness signatures and repeats the run **once** if and only if every failure matches. A retry is reported
+loudly with the first attempt's outcome and whether it reproduced, and any unclassified, mixed, or
+count-mismatched failure refuses the retry — so a retry can never launder a real defect into a pass. The
+classifier was verified against its seven decision cases before being trusted.
+
+**The v2 Compose test rule was deliberately not adopted this round.** It exists in 1.12.0 and its own
+deprecation notice says it moves from `UnconfinedTestDispatcher` to `StandardTestDispatcher`, which means
+tests that assert synchronously after `setContent` need reworking. Migrating 32 passing tests while also
+changing their assertions would conflate two risks; it is recorded as the next candidate for a fix of the
+harness rather than a workaround for it.
+
+Two bugs were found in the rewritten runner itself, both worth recording:
+
+- A function that calls `Write-Output` **returns** those lines as part of its value, so the attempt object
+  came back buried in Gradle's console log. And a native command's stdout inside a function is part of that
+  function's output too, which is why the Gradle invocation now ends in `| Out-Host`.
+- The verification of the classifier "failed" for a reason that was the verification's fault: `@(0)` is a
+  one-element array, not an empty one, so an empty failure list has to be built rather than written.
+
+### 17.4 P1 — the Active Queue & Reader Session spec is written, in Notion
+
+Created as a row in **Projects**, as a sibling of the other three, so it is governed by the same process:
+`docs/notion/` is generated, and the mirror is diffed rather than trusted.
+
+**Notion page id `3dec9345-e10a-814c-a8f3-c8b3539ac8e1`** — `docs/notion/active-queue-and-reader-session-spec.md`.
+Added to `tools/export-notion-doc.ps1`'s `-All` map; re-exporting confirmed the four existing mirrors show
+**no drift** and the new one round-trips its headings, blockquotes, code fence and lists intact.
+
+One artifact was caught by looking at the mirror rather than at the page: the exporter already writes the
+page title as a heading, and the page's first block was a duplicate of it. The duplicate block was deleted
+after asserting its type and text, and the mirror went from 404 to 402 lines.
+
+The spec settles the things the other three explicitly deferred: **retention** (10 unfinished, 20 completed,
+30 days for completed, the live session never evicted), **exact process-death restoration** (state is
+restored at launch; playback never is), and **resume policy** — CHUNK silent, BLOCK and SECTION announce the
+section, NONE says the position was lost and then starts from the beginning rather than silently restarting
+or skipping the Note.
+
+### 17.5 P1 — implemented, and the implementation found its own defect
+
+Phases 1–5 of the spec's plan are in, JVM-testable with no device and no network: `StoredSession`,
+`SessionStore`, `SessionCodec`, `ListeningHistory`, `ResumePolicy`, `ReaderSession.snapshot`/`restore`/
+`replay`/`currentPosition`, `DataStoreSessionStore`, `ReaderApp`'s history, and Home's real list.
+
+**The defect the tests caught is the one worth recording.** `ReaderEngine.announceThenPlay` hard-reset the
+document to its first chunk. That was correct for the only caller it had — a Note transition, where the
+document has just been replaced and has no position — and wrong for the second: an inexact resume would
+have announced "Two" and then read the Note from the top. It now takes `startParagraphIndex`, defaulting to
+0, and the test asserts the announcement and the start index together.
+
+Three other findings, each from a test that was written to assert a property rather than a mechanism:
+
+- `completedSessions` read only the stored history, so a session that had just finished did not move to
+  Recently completed until a disk write. Both lists now read the same merged set, so a session can be in
+  neither for no window at all.
+- A stalled session *does* still know the position of the Note it is trying to load, so a snapshot during a
+  stall preserves it. The first test asserted the opposite, which would have thrown the position away on
+  every mid-queue failure.
+- `androidx.datastore:datastore-preferences` — declared in round 5 and referenced nowhere since — now earns
+  its place. §12 recorded it as waiting for exactly this.
+
+The write path has one ordering constraint that is a correctness requirement: `loadHistory()` must complete
+before the persistence collector subscribes. `persistSession` writes the retained set, which is history
+**plus** the live session, so a write that won before the load would persist an empty history and discard
+everything on disk — the listener's whole Continue listening list, erased by launching the app.
+
+### 17.6 Verified
+
+- **276 JVM tests, 0 failures** (was 215).
+- **32 instrumented accessibility tests, 0 failures**, in one attempt — no spurious retry, and the runner
+  finally exits 0 on a green suite by its own verdict rather than by Gradle's.
+- **On device, end to end.** Fresh launch: Home says "Nothing to continue yet" and fetches nothing. Browse →
+  `Play all` → Player reads the queue ("Note 1 of 19", "Paragraph 1 of 263", Playing). `Next section` ×3 →
+  "Section 6 of 64 · This specification owns", "Paragraph 30 of 263". **`adb shell am force-stop`** →
+  relaunch → Home shows "Continue listening / Notion Reader — Active Queue & Reader Session Spec / Note 1 of
+  19 / Paused · Just now". `Continue` → the Player resumes at **Section 6**, and playback advances from there.
+
+The honest gap in that last check: an exact resume and a fallback to the section start both produce audio
+near the right place, so the *audio* does not distinguish them, and playback had advanced a few chunks by the
+time the screen was read. The resume-quality record (`ReaderSession.lastResume`) is what makes that
+distinguishable, and it is asserted by unit test; on the device the evidence for an exact match is the
+*absence* of a log line plus the unit test for an unchanged document, not a positive device observation. The
+device was not edited to produce an inexact restore, because that means editing the fixture page.
+
+`tools/probe-history.ps1` was added to drive this. It reads tap targets out of the accessibility dump
+rather than hard-coding them, which is the lesson `probe-player-back.ps1` already learned.
+
+### 17.7 What this round did not do
+
+- **Background playback is still last.** It is still the largest functional gap in a listening app — the
+  Player still holds the screen awake with `keepScreenOn` — and it still blocks nothing and is blocked by
+  nothing, so the unblocking order still puts it at P4. §16.4 is unchanged.
+- **No Listening tab.** Completed sessions are readable through `ReaderApp.completedSessions` but have no
+  surface; that belongs to the Queues slice, which needs the Saved and Smart Queue specs.
+- **The TalkBack listening gate is still open**, and is still the only acceptance criterion nobody can
+  close with a test.
+- **Slice A′** (the shell's own instrumented checks) is still unwritten, and Home is now a surface that
+  deserves one.
+- **`ReaderEngine.playFromStart()`** still has no production caller.
+
+### Still open
+
+- The TalkBack listening gate (unchanged since §11).
+- The Compose test rule's v2 migration (§17.3) as the proper fix for the harness losing the activity.
+- Slice A′ (the shell's instrumented checks), slice D (Listening tab), slice E (raw Notion navigation), and
+  slice F (Saved/Smart queues + `Add to queue`), plus slice C's facets.
+- `ReaderEngine.playFromStart()`'s absent caller (§13.4).
+- `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path, both now unconsumed (§17.1).
+- An inexact restore has not been observed on a device; it is covered by unit tests only (§17.6).

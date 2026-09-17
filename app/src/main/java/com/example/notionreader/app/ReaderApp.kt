@@ -1,13 +1,22 @@
 package com.example.notionreader.app
 
 import com.example.notionreader.reader.ActiveQueue
+import com.example.notionreader.reader.ListeningHistory
 import com.example.notionreader.reader.LoadReaderDocument
 import com.example.notionreader.reader.QueuedNote
 import com.example.notionreader.reader.QueueOrigin
 import com.example.notionreader.reader.ReaderDocument
 import com.example.notionreader.reader.ReaderIndexEntry
 import com.example.notionreader.reader.ReaderSession
+import com.example.notionreader.reader.SessionStore
+import com.example.notionreader.reader.StoredSession
 import com.example.notionreader.ui.ContinueListeningCard
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/** How many sessions Home offers. The contract asks for "a small useful subset"; the rest live under Queues. */
+const val HOME_HISTORY_LIMIT: Int = 3
 
 /**
  * The application's state, and the only place the surfaces are wired together.
@@ -52,10 +61,133 @@ class ReaderApp(
     val navigator: ReaderNavigator,
     /** How any Note is fetched — the one the Note screen shows, and any Note in a queue. */
     private val loadDocument: LoadReaderDocument,
-    val browse: BrowseModel = BrowseModel()
+    val browse: BrowseModel = BrowseModel(),
+    /**
+     * Where listening history lives, or null when the app has none.
+     *
+     * Nullable rather than mandatory so that every existing test — and the JVM-only composition — keeps
+     * working with no store at all. "No store" has to mean the same thing as "an empty store", because
+     * the spec requires a history that cannot be read to be indistinguishable from one that is empty.
+     */
+    private val sessionStore: SessionStore? = null,
+    /** Injected so that retention and recency are assertable without waiting for a clock. */
+    private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
 
     private val queueLoader = QueueLoader(session, loadDocument)
+
+    private val _history = MutableStateFlow<List<StoredSession>>(emptyList())
+
+    /**
+     * Retained sessions, most recently active first.
+     *
+     * Exposed as state so a surface recomposes when history changes, and so the live session appears in
+     * it immediately: [historyIncludingLiveSession] merges the in-memory session in ahead of any write, on
+     * purpose. The spec requires that a listener who pauses and immediately looks at Home sees the session
+     * they just paused, and waiting for a disk write to say so would make that a race.
+     */
+    val history: StateFlow<List<StoredSession>> = _history.asStateFlow()
+
+    /** Reads history and holds it. A store that cannot be read yields an empty history, by design. */
+    suspend fun loadHistory() {
+        val stored = sessionStore?.read() ?: return
+        _history.value = ListeningHistory.retain(stored, clock())
+    }
+
+    /**
+     * Writes the live session's state into history.
+     *
+     * Called on every position change, which is what makes a session interrupted *while playing* resumable
+     * rather than only a session that was properly paused. A no-op with no queue, so the initial launch
+     * emission cannot write an empty record.
+     */
+    suspend fun persistSession() {
+        if (session.queueState.value.queue == null) return
+
+        val next = historyIncludingLiveSession()
+        _history.value = next
+        sessionStore?.write(next)
+    }
+
+    private fun historyIncludingLiveSession(): List<StoredSession> {
+        val live = session.snapshot(clock()) ?: return _history.value
+        return ListeningHistory.retain(_history.value + live, clock(), keepId = live.id)
+    }
+
+    /** Unfinished sessions, most recently active first. What Continue listening offers. */
+    val resumableSessions: List<StoredSession>
+        get() = ListeningHistory.unfinished(historyIncludingLiveSession())
+
+    /**
+     * Completed sessions, most recently active first. The Listening tab is a later slice; the data is here.
+     *
+     * Merged with the live session for the same reason [resumableSessions] is: a session that has just
+     * finished is completed *now*, and making it wait for a disk write before it appears under Recently
+     * completed would mean a listener who finishes a queue and looks at history sees it still listed as
+     * unfinished. Both lists read the same merged set, so a session can never be in neither.
+     */
+    val completedSessions: List<StoredSession>
+        get() = ListeningHistory.completed(historyIncludingLiveSession())
+
+    /** Home's Continue listening entries. */
+    fun continueListeningCards(limit: Int = HOME_HISTORY_LIMIT): List<ContinueListeningCard> =
+        resumableSessions.take(limit).map { it.toCard() }
+
+    /**
+     * Continue: restores the named session, or opens the Player if it is already the live one.
+     *
+     * The two arms are genuinely different operations and the difference is the point of having both
+     * verbs. If the named session is already in memory, Continue merely shows it — the session is where it
+     * was and re-adopting it would discard whatever the listener has done since. If it is a stored
+     * session, Continue adopts it, which is the only operation in the application that does.
+     */
+    suspend fun continueSession(id: String) {
+        val record = resumableSessions.firstOrNull { it.id == id } ?: return
+
+        if (record.id != session.id) session.restore(record)
+
+        navigator.open(ReaderDestination.Player)
+
+        // Restoring the *state* is offline and immediate; restoring *playback* needs the current Note, and
+        // may therefore fail like any other load - which is why it goes through the queue's own loader and
+        // stalls rather than being reported here.
+        if (session.queueState.value.awaiting) loadPendingQueueNote()
+    }
+
+    /**
+     * Activating a completed session: a new session over the same Notes, from the beginning.
+     *
+     * Not a restore, and deliberately not routed through [continueSession]. A completed session has no
+     * position to resume, and reusing its identity would overwrite the history entry the listener was
+     * looking at.
+     */
+    suspend fun replayCompleted(id: String) {
+        val record = ListeningHistory.completed(_history.value).firstOrNull { it.id == id } ?: return
+
+        session.replay(record)
+        navigator.open(ReaderDestination.Player)
+        loadPendingQueueNote()
+    }
+
+    /**
+     * A stored session as the surfaces describe it.
+     *
+     * A session that is not the live one is always "Paused": it is not playing, and no record remembers
+     * having been — `wasPlaying` is written for diagnosis and deliberately not acted on, because the spec
+     * is explicit that launch never begins playback.
+     */
+    private fun StoredSession.toCard(): ContinueListeningCard {
+        val isLive = id == session.id
+
+        return ContinueListeningCard(
+            sessionId = id,
+            title = currentNote?.title ?: notes.firstOrNull()?.title.orEmpty(),
+            queuePosition = if (notes.size > 1) "Note ${index + 1} of ${notes.size}" else null,
+            stateDescription = if (isLive) describeLive().stateDescription else "Paused",
+            isPlaying = isLive && session.isPlaying,
+            lastActivityAt = lastActivityAt
+        )
+    }
 
     fun openNote() = navigator.open(ReaderDestination.Note)
 
@@ -130,13 +262,22 @@ class ReaderApp(
         get() = session.queueState.value.let { it.queue != null && !it.completed }
 
     /** The session as Home and the mini-player describe it, or null when there is nothing to resume. */
-    fun continueListeningCard(): ContinueListeningCard? {
-        if (!isSessionResumable) return null
+    fun continueListeningCard(): ContinueListeningCard? =
+        if (isSessionResumable) describeLive() else null
 
+    /**
+     * The live session, described.
+     *
+     * One implementation for the mini-player and for the entry the live session has in Home's list, so the
+     * two cannot drift into describing the same session differently — which is the reason the mini-player
+     * and Home's card share a type in the first place.
+     */
+    private fun describeLive(): ContinueListeningCard {
         val queueState = session.queueState.value
         val state = session.state.value
 
         return ContinueListeningCard(
+            sessionId = session.id.orEmpty(),
             title = queueState.currentItem?.title ?: session.document.value.title,
             queuePosition = queueState.positionDescription,
             // The same three-part vocabulary the Player uses, for the same reason: "stopped at the end"
@@ -146,7 +287,8 @@ class ReaderApp(
                 queueState.awaiting -> "Loading…"
                 else -> state.playbackStateDescription
             },
-            isPlaying = state.isPlaying
+            isPlaying = state.isPlaying,
+            lastActivityAt = clock()
         )
     }
 

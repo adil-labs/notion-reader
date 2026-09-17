@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.notionreader.app.describeLastActivity
 
 /**
  * A resumable listening session, as Home and the mini-player both need to describe it.
@@ -24,15 +25,30 @@ import androidx.compose.ui.unit.dp
  * A small value rather than the session itself, so this screen stays display-only: it cannot pause,
  * stop, or reorder anything because it is not given the means to. `isPlaying` is a description for the
  * screen and its control, not a claim that the screen owns the state.
+ *
+ * [sessionId] exists because Home can now show more than one session. Continue has to say which one it
+ * means, and a title is not an identity — two sessions in one history can read the same Note, which the
+ * Active Queue & Reader Session spec requires to be two entries.
  */
 data class ContinueListeningCard(
+    /** Identifies the session this describes. Never used for display. */
+    val sessionId: String,
     /** The Note title. */
     val title: String,
     /** "Note 3 of 8", or null for a queue of one. */
     val queuePosition: String?,
     /** "Playing", "Paused", or "Loading…" — the same vocabulary the Player uses. */
     val stateDescription: String,
-    val isPlaying: Boolean
+    val isPlaying: Boolean,
+    /**
+     * Epoch millis of the last listening activity.
+     *
+     * The timestamp is carried rather than a formatted string, because the UI contract requires relative
+     * time and forbids a raw one, so the *formatting* belongs to [describeLastActivity] and the *fact*
+     * belongs here. Formatting it at the point the card is built would make it stale the moment it was
+     * built, which for a session paused an hour ago is the whole point of the line.
+     */
+    val lastActivityAt: Long
 )
 
 /**
@@ -56,25 +72,38 @@ data class ContinueListeningCard(
  * empty state **explains itself and offers Browse** rather than rendering as a blank list, which is what
  * distinguishes it from the "empty result set" the contract warns about.
  *
- * This is still the weaker surface until persistence exists, because Continue listening means *history*
- * ("Paused 2 hours ago") and history is what the Active Queue & Reader Session specification owns. Until
- * then this section can only show the live session, which is nearly what the mini-player shows. That
- * tension is recorded in `docs/decisions.md` §14.5 rather than papered over.
+ * ## History, not just the live session
+ *
+ * This section reads real listening history — the Active Queue & Reader Session spec's unfinished
+ * sessions, most recently active first — so it is no longer a projection of whatever happens to be
+ * playing. That is what makes it *history*: a session paused yesterday is still here after the process has
+ * died, and Continue on it restores that session's own queue and position rather than the current one's.
+ *
+ * The list is capped by the caller: the contract says Home "should show only a small useful subset" and
+ * that the full history lives under `Queues → Listening`.
  *
  * ## Accessibility
  *
- * One session is one focus stop: the card merges its descendants so TalkBack reads the title, position
- * and state as one item instead of three swipes, with Continue as an explicit control beside it. The
- * heading is a heading, so the screen can be skimmed by structure, and the screen names itself with a
+ * One session is one focus stop: each entry merges its descendants so TalkBack reads the title, position,
+ * state and recency as one item instead of four swipes, with Continue as an explicit control beside it.
+ * The heading is a heading, so the screen can be skimmed by structure, and the screen names itself with a
  * pane title so entering it says where the user is.
  */
 @Composable
 fun HomeScreen(
-    continueListening: ContinueListeningCard?,
-    onContinue: () -> Unit,
+    continueListening: List<ContinueListeningCard>,
+    onContinue: (String) -> Unit,
     onBrowse: () -> Unit,
     onPlayPause: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * The instant the relative times are relative to.
+     *
+     * A parameter rather than read inside, so the only time-dependent thing on this screen is an input.
+     * Reading the clock during composition would make the same session describe itself differently on two
+     * recompositions, and would put a clock in the middle of a display-only composable.
+     */
+    now: Long = System.currentTimeMillis()
 ) {
     Column(
         modifier = modifier
@@ -83,7 +112,7 @@ fun HomeScreen(
             .semantics { paneTitle = "Home" },
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        if (continueListening == null) {
+        if (continueListening.isEmpty()) {
             Text(
                 text = "Nothing to continue yet.",
                 style = MaterialTheme.typography.titleMedium,
@@ -107,27 +136,46 @@ fun HomeScreen(
             modifier = Modifier.semantics { heading() }
         )
 
+        continueListening.forEach { session ->
+            ContinueListeningEntry(
+                session = session,
+                now = now,
+                onContinue = { onContinue(session.sessionId) },
+                onPlayPause = onPlayPause
+            )
+        }
+    }
+}
+
+/** One history entry: the session, then Continue, then Play/Pause for the live one. */
+@Composable
+private fun ContinueListeningEntry(
+    session: ContinueListeningCard,
+    now: Long,
+    onContinue: () -> Unit,
+    onPlayPause: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 // One focus stop for the session, as with a Browse result row.
-                .semantics(mergeDescendants = true) {},
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .semantics(mergeDescendants = true) {}
         ) {
             Text(
-                text = continueListening.title,
+                text = session.title,
                 style = MaterialTheme.typography.bodyLarge
             )
 
-            if (continueListening.queuePosition != null) {
+            if (session.queuePosition != null) {
                 Text(
-                    text = continueListening.queuePosition,
+                    text = session.queuePosition,
                     style = MaterialTheme.typography.labelMedium
                 )
             }
 
             Text(
-                text = continueListening.stateDescription,
+                text = "${session.stateDescription} · ${describeLastActivity(now - session.lastActivityAt)}",
                 style = MaterialTheme.typography.labelMedium
             )
         }
@@ -142,7 +190,7 @@ fun HomeScreen(
             }
 
             TextButton(onClick = onPlayPause) {
-                Text(if (continueListening.isPlaying) "Pause" else "Play")
+                Text(if (session.isPlaying) "Pause" else "Play")
             }
         }
     }

@@ -1,5 +1,8 @@
 package com.example.notionreader.reader
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
 /**
  * One Note inside a queue.
  *
@@ -19,7 +22,12 @@ package com.example.notionreader.reader
  * several of its fields have nothing behind them yet. That type will **widen** this one when the Content
  * Metadata & Workspace Schema Adapters spec exists; it will not replace it, because "which Note" and
  * "what else is known about it" are different questions.
+ *
+ * `@Serializable` because this is the pair of fields a stored session persists per Note. The annotation
+ * is on the domain type rather than on a separate transport type deliberately: a second type would be a
+ * second definition of "which Note", and the two could drift.
  */
+@Serializable
 data class QueuedNote(
     val pageId: String,
     val title: String
@@ -40,17 +48,33 @@ data class QueuedNote(
  * That constraint is why this is a value and not a reference. A `SmartQueue` origin holds the queue's
  * *name*, not its query: a query would invite re-evaluation, and re-evaluating is what the contract
  * spends four invariants forbidding.
+ *
+ * `@Serializable`, with an explicit `@SerialName` per variant. The wire names are not the class names, so
+ * renaming a class cannot silently change what an existing stored record means; if a wire name ever has
+ * to change, that is a `SESSION_SCHEMA_VERSION` change and old records are discarded rather than
+ * reinterpreted. An origin this build does not recognise therefore fails to decode, which the store
+ * treats as an unusable record — acceptable because origin is descriptive, so nothing restorable is lost
+ * with it.
  */
+@Serializable
 sealed interface QueueOrigin {
 
     /** `Play` on one Note. A queue of one. */
+    @Serializable
+    @SerialName("single_note")
     data object SingleNote : QueueOrigin
 
     /** `Play all` on a Browse result set. */
+    @Serializable
+    @SerialName("browse_results")
     data object BrowseResults : QueueOrigin
 
+    @Serializable
+    @SerialName("saved")
     data class Saved(val name: String) : QueueOrigin
 
+    @Serializable
+    @SerialName("smart")
     data class Smart(val name: String) : QueueOrigin
 }
 

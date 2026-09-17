@@ -6,7 +6,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -14,6 +13,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import com.example.notionreader.reader.DocumentLoadState
 import com.example.notionreader.reader.ReaderDocument
 import com.example.notionreader.reader.ReaderErrorCategory
+import com.example.notionreader.ui.A11y.assertIsReachable
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -80,15 +80,14 @@ class NoteScreenAccessibilityTest {
         var played = 0
         showNote(onPlay = { played++ })
 
-        // assertIsDisplayed because reachability is part of the requirement: a primary action a
-        // listener cannot reach is not a primary action.
+        // Reachability is part of the requirement: a primary action a listener cannot reach is not a
+        // primary action. See A11y.assertIsReachable for why this is not assertIsDisplayed, which is
+        // a statement about the device's window rather than about the app and was intermittently wrong.
         //
         // **Not** performScrollTo, which was tried and is wrong here: these controls are siblings of the
         // scrolling content, not inside it, so they have no ancestor with a scroll action and
-        // performScrollTo throws "Semantic Node has no parent layout with a Scroll SemanticsAction". The
-        // intermittent "is not displayed" failure this assertion produced is the device's display state,
-        // so it is fixed in `tools/run-accessibility-tests.ps1` by keeping the screen on for the run.
-        compose.onNodeWithText("Play").assertIsDisplayed()
+        // performScrollTo throws "Semantic Node has no parent layout with a Scroll SemanticsAction".
+        compose.onNodeWithText("Play").assertIsReachable()
 
         // Invoked through the semantics action rather than a synthetic tap. That is what an
         // accessibility service actually performs, and unlike a synthesised touch it does not depend
@@ -243,7 +242,7 @@ class NoteScreenAccessibilityTest {
             onRetry = { retries++ }
         )
 
-        compose.onNodeWithText("Retry").assertIsDisplayed()
+        compose.onNodeWithText("Retry").assertIsReachable()
         compose.onNodeWithText("Retry").performSemanticsAction(SemanticsActions.OnClick)
 
         assertEquals(1, retries)

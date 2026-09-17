@@ -97,12 +97,18 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
         speakCount++
     }
 
-    override fun announceThenPlay(text: String) {
+    override fun announceThenPlay(text: String, startParagraphIndex: Int) {
         announceThenPlayCount++
         announcements += text
         if (_state.value.paragraphs.isEmpty()) return
         stopCount++
-        _state.value = _state.value.copy(currentParagraphIndex = 0, hasReachedEnd = false).play()
+        val paragraphs = _state.value.paragraphs
+        _state.value = _state.value
+            .copy(
+                currentParagraphIndex = startParagraphIndex.coerceIn(0, paragraphs.size - 1),
+                hasReachedEnd = false
+            )
+            .play()
         // The announcement is a speech utterance of its own, then the document starts.
         speakCount += 2
     }

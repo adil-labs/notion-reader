@@ -1,6 +1,7 @@
 package com.example.notionreader
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -16,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import com.example.notionreader.app.DataStoreSessionStore
 import com.example.notionreader.app.NoteViewer
 import com.example.notionreader.app.ReaderApp
 import com.example.notionreader.app.ReaderDestination
@@ -27,6 +29,7 @@ import com.example.notionreader.reader.LoadReaderDocument
 import com.example.notionreader.reader.ReaderDocument
 import com.example.notionreader.reader.ReaderEngineImpl
 import com.example.notionreader.reader.ReaderSession
+import com.example.notionreader.reader.PositionMatch
 import com.example.notionreader.speech.AndroidSpeechEngine
 import com.example.notionreader.speech.SpeechEngine
 import com.example.notionreader.ui.BrowseScreen
@@ -36,6 +39,7 @@ import com.example.notionreader.ui.NoteScreen
 import com.example.notionreader.ui.PlayerScreen
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -80,6 +84,10 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : ComponentActivity() {
 
+    private companion object {
+        const val TAG = "NotionReader"
+    }
+
     private lateinit var speechEngine: SpeechEngine
     private lateinit var app: ReaderApp
 
@@ -106,10 +114,13 @@ class MainActivity : ComponentActivity() {
             navigator = ReaderNavigator(),
             // One loader for every Note: the one the Note screen shows, and each Note in a queue, so
             // queue loading inherits the error taxonomy rather than growing a second, thinner path.
-            loadDocument = notionLoader()
+            loadDocument = notionLoader(),
+            sessionStore = DataStoreSessionStore(applicationContext)
         )
 
         observeQueue()
+        observeHistory()
+        observeResumeQuality()
         loadBrowseIndex()
 
         setContent {
@@ -123,6 +134,9 @@ class MainActivity : ComponentActivity() {
                     val browseState by app.browse.state.collectAsState()
                     val speech by speechMessage.collectAsState()
                     val navigation by app.navigator.state.collectAsState()
+                    // Not used directly: collecting it is what makes the lambda below re-run when history
+                    // changes, since `continueListeningCards()` reads values rather than being a flow.
+                    val history by app.history.collectAsState()
                     val current = navigation.current
 
                     // Back is handled whenever it has somewhere visual to go, which is now most of the
@@ -141,8 +155,11 @@ class MainActivity : ComponentActivity() {
                         Box(modifier = Modifier.weight(1f)) {
                             when (current) {
                                 ReaderDestination.Home -> HomeScreen(
-                                    continueListening = app.continueListeningCard(),
-                                    onContinue = app::continueListening,
+                                    // Reading `history` here is what makes Home recompose when the session
+                                    // moves; the cards themselves are derived from it and from the live
+                                    // session, so nothing here has to know which session is which.
+                                    continueListening = history.let { app.continueListeningCards() },
+                                    onContinue = { id -> lifecycleScope.launch { app.continueSession(id) } },
                                     onBrowse = app::openBrowse,
                                     onPlayPause = app::togglePlayPause
                                 )
@@ -225,7 +242,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
     }
 
     /**
@@ -255,6 +271,65 @@ class MainActivity : ComponentActivity() {
                 .map { it.awaiting }
                 .distinctUntilChanged()
                 .collect { awaiting -> if (awaiting) app.loadPendingQueueNote() }
+        }
+    }
+
+    /**
+     * Records the live session into history.
+     *
+     * ## The load must finish before this subscribes, and that is a correctness requirement rather than a
+     * ## nicety
+     *
+     * [ReaderApp.persistSession] writes the retained set, which is history **plus** the live session. If a
+     * write could happen first, it would persist an empty history plus the live session and silently
+     * discard every session already on disk — the listener's entire Continue listening list, erased by the
+     * launch of the app. So history is loaded in the same coroutine, before the collector starts.
+     *
+     * Collecting the position rather than a timer is what makes a session interrupted *while playing*
+     * resumable. Writing only on pause would mean the common case — the phone being taken out of the
+     * listener's hand mid-Note — loses everything since the last pause.
+     */
+    private fun observeHistory() {
+        lifecycleScope.launch {
+            app.loadHistory()
+
+            combine(
+                app.session.state.map { listOf(it.currentParagraphIndex, it.isPlaying, it.hasReachedEnd) },
+                app.session.queueState.map { listOf(it.index, it.awaiting, it.completed) }
+            ) { reading, queue -> reading + queue }
+                .distinctUntilChanged()
+                .collect { app.persistSession() }
+        }
+    }
+
+    /**
+     * Records the match quality of a restore.
+     *
+     * The Active Queue & Reader Session spec requires this to be recorded, and it is the only way to tell an
+     * exact resume from a fallback: both start playback at a plausible place, and the difference is
+     * invisible in the audio until the listener notices they have heard a paragraph before. An exact resume
+     * logs nothing, because there is nothing to say and a log line per resume would train the reader to
+     * ignore the ones that matter.
+     */
+    private fun observeResumeQuality() {
+        lifecycleScope.launch {
+            // No `distinctUntilChanged`: the source is already a StateFlow, which conflates, so applying it
+            // to the flow directly is a deprecated no-op. The filter below is what decides what is worth
+            // recording.
+            app.session.lastResume.collect { decision ->
+                val match = decision?.match ?: return@collect
+                val announcement = decision.announcement
+
+                // An exact resume says nothing: the text is the continuation, and a log line per resume
+                // would train the reader to ignore the ones that matter.
+                if (match == PositionMatch.CHUNK && announcement == null) return@collect
+
+                Log.i(
+                    TAG,
+                    "resume match=$match startIndex=${decision.startIndex} " +
+                        "announcement=${announcement ?: "none"}"
+                )
+            }
         }
     }
 

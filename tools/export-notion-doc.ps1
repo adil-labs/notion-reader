@@ -220,6 +220,7 @@ $docs = [ordered]@{
     '3dec9345-e10a-81ab-aa68-cf0b2ee17e45' = @('docs/notion/product-and-architecture-contract.md', 'product-and-architecture-contract')
     '3dec9345-e10a-81b6-9cd2-d54532ad6fcd' = @('docs/notion/ui-screens-and-navigation-contract.md', 'ui-screens-and-navigation-contract')
     '3dec9345-e10a-81e8-8b28-e7d04672e53e' = @('docs/notion/notion-integration-implementation-spec.md', 'notion-integration-implementation-spec')
+    '3dec9345-e10a-814c-a8f3-c8b3539ac8e1' = @('docs/notion/active-queue-and-reader-session-spec.md', 'active-queue-and-reader-session-spec')
     '3dec9345-e10a-812d-be61-fc24526f9fd3' = @('docs/notion/notion-note-organization.md', 'notion-note-organization')
 }
 

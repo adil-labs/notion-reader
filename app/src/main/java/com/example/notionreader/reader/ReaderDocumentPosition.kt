@@ -1,5 +1,7 @@
 package com.example.notionreader.reader
 
+import kotlinx.serialization.Serializable
+
 /**
  * A structural position in a document, expressed only in stable identities.
  *
@@ -21,7 +23,13 @@ package com.example.notionreader.reader
  * indexes alone are not stable persistence identities because document edits can shift indexes", so
  * carrying one would invite exactly the bug this type exists to prevent. A caller that has an index
  * must convert it with [ReaderDocument.positionAt] while it still holds the document.
+ *
+ * `@Serializable` because the Active Queue & Reader Session spec persists this type verbatim: "This
+ * specification persists that type verbatim. It must not add, store, or persist a numeric chunk index,
+ * even as a convenience or a cache hint." Being the handoff type and being the stored type are the same
+ * thing here, and keeping them one type is what makes that rule enforceable by inspection.
  */
+@Serializable
 data class ReaderDocumentPosition(
     val sourceBlockId: String? = null,
     val chunkId: String? = null,

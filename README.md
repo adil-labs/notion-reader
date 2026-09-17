@@ -53,15 +53,19 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Not yet implemented
 
-- Active Queue, sessions and resume. Playback state is session-owned by contract, and that
-  specification does not exist yet; closing the app restarts at paragraph 1.
-- Queue surfaces (the Player's `Queue` control, the Note's `Add to queue`, the mini-player).
-- Browse, Home and Queues: four top-level destinations plus ten secondary screens are specified, and
-  none are built. The navigation graph is deliberately not frozen until the screens that determine it
-  exist.
-- Background/lock-screen playback and media buttons (Media3 `MediaSessionService`).
+- Queue surfaces (the Player's `Queue` control, the Note's `Add to queue`, the mini-player's own
+  screen).
+- Queues: the Listening tab exists only as data (`ReaderApp.completedSessions`); there is no surface for
+  completed sessions, and Saved and Smart Queues need two specifications that do not exist.
+- Browse facets, and Home's Explore and Your queues sections, which all need the Content Metadata &
+  Workspace Schema Adapters specification. Browse itself is built (search, sort by most recently edited,
+  `Play all`).
+- Background/lock-screen playback and media buttons (Media3 `MediaSessionService`). The Player holds the
+  screen awake with `keepScreenOn` as a stated workaround, so this is the largest gap in a listening app.
 - Sentence-level resume after pause, and finer offsets inside a chunk (`characterOffset` is carried
-  but always 0).
+  but always 0). Resume is at chunk granularity.
+- A spoken announcement when a restored position is *lost* has not been observed on a device — the four
+  resolution paths are covered by unit tests, but only an unchanged-document restore is verified on-device.
 - Image and file captions. A caption is speakable text and is currently lost, which the coverage
   census measured at 8 blocks in this workspace.
 - Ordered-list numbering: one `LIST_ITEM` kind serves both list styles, so numbering is not recoverable
@@ -110,9 +114,15 @@ Never commit a token. The build reads local development credentials from, in ord
    but the bare token with no key at all. Quotes, `export ` prefixes, `#` comments, CRLF and a UTF-8 BOM
    are all tolerated. See `.env.example`.
 
-Optional `NOTION_PAGE_ID` / `NOTION_PAGE_URL` selects a specific page; it accepts a dashed UUID, an
-undashed ID, or a full `notion.so` URL. **Without it, the app reads the most recently edited page the
-integration can see** (via `POST /v1/search`), so a token-only `.env` is enough to load real content.
+`NOTION_PAGE_ID` / `NOTION_PAGE_URL` (a dashed UUID, an undashed ID, or a full `notion.so` URL) **is
+resolved and reported by the build but read by nothing at runtime.** It used to select the page loaded
+at launch. The app now starts on Home and reaches a Note through a Browse result, which names the page
+itself, so a page chosen at launch could only ever have been the wrong one — the eager load that
+consumed this value was removed (`docs/decisions.md` §17). The reader's auto-discovery path is in the
+same position: a blank page reference resolving to the most recently edited page via `POST /v1/search`
+is correct and tested, but only tests reach it. Both are recorded as open items rather than deleted,
+because pinning the app to one known page is how the pagination and block-coverage acceptance criteria
+were verified on device, and the shell will likely want a way to do that again.
 
 `NOTION_TOKEN` and `NOTION_PAGE_ID` are exposed through `BuildConfig`, which means they are compiled
 into the APK. That is fine for local development only; a shipped app must fetch the token at runtime.
@@ -153,10 +163,15 @@ Grounded in the published reference and request-limit documentation:
 ## Stable identities
 
 Chunk ids are `<sourceBlockId>:<part>` and section ids are the heading block's id, so nothing is keyed
-on a list position. `ReaderDocumentPosition` is the handoff type a future session layer persists, and
+on a list position. `ReaderDocumentPosition` is what the session layer persists, and
 `ReaderDocument.resolve` reports how much of a saved position still exists (`CHUNK` / `BLOCK` / `SECTION`
-/ `NONE`) without deciding what to do about it — resume and fallback policy belong to the Active Queue &
-Reader Session specification.
+/ `NONE`) while deciding nothing about it — what to do with each outcome is `reader/ResumePolicy.kt`, and
+belongs to the Active Queue & Reader Session specification.
+
+`ListeningHistory` (retention and ordering) and `SessionCodec` (the versioned wire form) are pure, and
+`SessionStore` is the interface with `InMemorySessionStore` in tests and `DataStoreSessionStore` on the
+device. A record whose `schemaVersion` is not the current one is discarded rather than migrated, which is
+a deliberate v1 policy: a migration that guesses wrong moves a listener to a place they were not.
 
 The claim that ids survive edits is a fact about Notion, not about our mapper, so it is verified
 against the real API rather than a hand-edited fixture:

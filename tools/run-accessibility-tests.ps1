@@ -26,7 +26,27 @@
 
     Only that one setting is touched, and only for the duration. Nothing is installed or uninstalled
     beyond what Gradle does normally.
+    HARNESS FAILURE CLASSIFICATION, AND ONE RETRY
+    A residual, non-deterministic failure remains that is the *harness losing the test activity* rather
+    than the app being wrong. Its signature is exact and comes from the device:
 
+        java.lang.NullPointerException: Cannot run onActivity since Activity has been destroyed
+        already
+            at androidx.test.core.app.ActivityScenario.lambda$onActivity$2
+
+    It is thrown before any assertion runs, so no assertion in this suite can be implicated in it. It
+    was first seen as a *different* symptom - `assertIsDisplayed` reporting "is not displayed" on a
+    control that was plainly present - because Compose's display check delegates to Espresso's
+    `ViewMatchers.isDisplayed()` against the root view and to `View.getGlobalVisibleRect()`, both of
+    which are false for an activity that is being torn down or is no longer being drawn. The display
+    assertions were replaced by a device-independent layout check (see `A11y.assertIsReachable`), and
+    this script handles what is left.
+
+    So: if **every** failure in an attempt is a harness signature, the attempt is repeated once. The
+    retry is reported loudly, with the first attempt's outcome, so a reader knows a failure occurred
+    and whether it reproduced. If any failure is not a harness signature - an assertion, an app crash,
+    a timeout, or a count the reports cannot attribute to a test - there is no retry and the suite is
+    red, because a retry must never be able to launder a real defect into a pass.
     EXIT CODE
     The exit code reported by this script is derived from the COLLECTED TEST RESULTS, not from
     Gradle's. `connectedDebugAndroidTest` exits non-zero even when every test passes - its status
@@ -65,6 +85,176 @@ function Get-HtmlReportCounter([string]$Html, [string]$ElementId) {
     return $null
 }
 
+<#
+.SYNOPSIS
+    The exact text patterns that mean "the harness lost the device", not "the app is wrong".
+
+.DESCRIPTION
+    Deliberately short. Every entry is a fact about the test infrastructure that no app change can
+    affect. Anything that does not match is reported as a real failure and is never retried, so a new
+    failure mode cannot be silently absorbed by this list - it shows up red the first time and has to be
+    classified deliberately.
+#>
+$HARNESS_FAILURE_PATTERNS = @(
+    'Cannot run onActivity since Activity has been destroyed already',
+    'Process crashed',
+    'Instrumentation run failed'
+)
+
+<#
+.SYNOPSIS
+    Runs the Gradle task once and collects what the two reports say about the outcome.
+
+.DESCRIPTION
+    Returns an object rather than printing a verdict, so the caller can decide whether the result
+    warrants a retry. `Reported` distinguishes "the reports were produced" from "the build or install
+    failed first", which is the difference between a retry being useful and being pointless.
+
+    Failures are captured by name AND by text. The name is what a human needs; the text is what the
+    classification needs, and taking the classification from the report rather than from Gradle's console
+    output means it cannot be fooled by console formatting.
+#>
+function Invoke-TestAttempt {
+    $startedAt = Get-Date
+
+    Push-Location $repoRoot
+    try {
+        # `| Out-Host` on both, and it is load-bearing rather than cosmetic: a native command's stdout
+        # becomes part of the *enclosing function's output*, so without this Gradle's entire console log
+        # is returned alongside the result object and the caller ends up holding a list of Gradle's log
+        # lines with the attempt somewhere inside it. `Out-Host` writes them to the console instead,
+        # which is where they were going when this code ran at script scope.
+        if ($Class) {
+            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=$Class" | Out-Host
+        }
+        else {
+            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain | Out-Host
+        }
+        $gradleExit = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+
+    $attempt = [pscustomobject]@{
+        GradleExit      = $gradleExit
+        Reported        = $false
+        Tests           = 0
+        Failures        = 0
+        AppFailures     = @()
+        HarnessFailures = @()
+        # Collected rather than written. `Write-Output` inside a function adds to its *output*, so a
+        # function that both reports and returns would hand the caller a stream of strings with the
+        # result object somewhere in it, and indexing that for `.Failures` reads a property off a string.
+        Report          = @()
+    }
+
+    # Guarded on the file being written by THIS attempt. After a compile failure the results directory
+    # still holds the previous run's XML, and reporting that would attribute old failures to the current
+    # attempt - misleading enough that it briefly sent me chasing a test that had passed.
+    $resultDir = Join-Path $repoRoot 'app\build\outputs\androidTest-results\connected\debug'
+    $resultFile = Get-ChildItem "$resultDir\TEST-*.xml" -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt $startedAt } |
+        Select-Object -First 1
+
+    if (-not $resultFile) { return $attempt }
+
+    $attempt.Reported = $true
+
+    [xml]$xml = Get-Content $resultFile.FullName
+    foreach ($suite in $xml.testsuites.testsuite) {
+        $attempt.Report += ("{0}: tests={1} failures={2} errors={3} skipped={4}" -f `
+                $suite.name, $suite.tests, $suite.failures, $suite.errors, $suite.skipped)
+
+        $attempt.Tests += [int]$suite.tests
+        $attempt.Failures += [int]$suite.failures + [int]$suite.errors
+
+        $suite.testcase | Where-Object { $_.failure -or $_.error } | ForEach-Object {
+            $text = $_.failure.'#text' + $_.error.'#text'
+
+            $isHarness = $false
+            foreach ($pattern in $HARNESS_FAILURE_PATTERNS) {
+                if ($text -like "*$pattern*") { $isHarness = $true; break }
+            }
+
+            if ($isHarness) {
+                $attempt.HarnessFailures += [pscustomobject]@{ Name = $_.name; Text = $text }
+                Write-Output ("  HARNESS FAILURE: {0} - the device lost the test activity, so no" -f $_.name)
+                $attempt.Report += '                   assertion was reached. This is not a verdict on the app.'
+            }
+            else {
+                $attempt.AppFailures += [pscustomobject]@{ Name = $_.name; Text = $text }
+                $attempt.Report += ("  FAILED: {0}" -f $_.name)
+
+                # Held in a local first: `$attempt.Report += $pipeline` relies on the pipeline binding
+                # tighter than the compound assignment, which is true but is not worth depending on.
+                $details = @(($text -split "`n") |
+                    Where-Object { $_ -match 'Assert|Expected|Reason|not displayed|matches' } |
+                    Select-Object -First 3 |
+                    ForEach-Object { "    $($_.Trim())" })
+                if ($details.Count -gt 0) { $attempt.Report += $details }
+            }
+        }
+    }
+
+    # The HTML report as a second opinion, guarded the same way as the XML so a stale report cannot be
+    # attributed to this attempt. A missing or unrecognised counter leaves the value null rather than
+    # zero: an unreadable report must not be able to look like a passing one.
+    $htmlPath = Join-Path $repoRoot 'app\build\reports\androidTests\connected\debug\index.html'
+    $htmlFailures = $null
+    $htmlTests = $null
+    if (Test-Path $htmlPath) {
+        $htmlFile = Get-Item $htmlPath
+        if ($htmlFile.LastWriteTime -gt $startedAt) {
+            $html = Get-Content $htmlPath -Raw
+            $htmlTests = Get-HtmlReportCounter $html 'tests'
+            $htmlFailures = Get-HtmlReportCounter $html 'failures'
+        }
+        else {
+            $attempt.Report += 'HTML report is older than this attempt; ignoring it.'
+        }
+    }
+
+    if ($null -ne $htmlTests -or $null -ne $htmlFailures) {
+        $attempt.Report += ''
+        $attempt.Report += ("HTML report: tests={0} failures={1}" -f `
+            ($(if ($null -eq $htmlTests) { '?' } else { $htmlTests })),
+            ($(if ($null -eq $htmlFailures) { '?' } else { $htmlFailures })))
+
+        if ($null -ne $htmlFailures -and $htmlFailures -ne $attempt.Failures) {
+            Write-Warning ("The two reports disagree: XML says $($attempt.Failures) failure(s), HTML " +
+                "says $htmlFailures. The worse count is used, so a green verdict needs both to be " +
+                'green. The HTML report is usually the accurate one, but not always - they have ' +
+                'disagreed in both directions on this project.')
+        }
+    }
+
+    # Reconciled verdict. Both sources are consulted and the worse one wins, because reporting success
+    # while a report says otherwise is the one outcome this script exists to prevent.
+    if ($null -ne $htmlFailures) { $attempt.Failures = [Math]::Max($attempt.Failures, $htmlFailures) }
+    if ($null -ne $htmlTests) { $attempt.Tests = [Math]::Max($attempt.Tests, $htmlTests) }
+
+    return $attempt
+}
+
+<#
+.SYNOPSIS
+    Whether an attempt's failures are all the harness losing the activity, and so worth one re-run.
+#>
+function Test-IsRetryable($result) {
+    # Nothing to retry: either it passed, the reports were never produced, or the build failed.
+    if (-not $result.Reported) { return $false }
+    if ($result.Failures -eq 0) { return $false }
+
+    # Any failure that could not be classified as the harness is treated as real. This is also the mixed
+    # case - some harness, some unknown - and a single unexplained failure is enough to stop the retry.
+    if ($result.AppFailures.Count -gt 0) { return $false }
+
+    # A failure the reports counted but that produced no per-test record cannot be classified, so the two
+    # counts must agree exactly before a retry is allowed.
+    return ($result.HarnessFailures.Count -eq $result.Failures)
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $adb = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Google.PlatformTools_*\platform-tools\adb.exe" |
     Select-Object -First 1).FullName
@@ -94,129 +284,73 @@ try {
     & $adb shell settings put system screen_off_timeout $TEST_TIMEOUT_MS | Out-Null
     & $adb shell settings put global stay_on_while_plugged_in 7 | Out-Null
 
-    Write-Output 'Running instrumented accessibility tests...'
-    Write-Output ''
+    $MAX_ATTEMPTS = 2
+    $attempts = @()
 
-    $startedAt = Get-Date
-
-    Push-Location $repoRoot
-    try {
-        if ($Class) {
-            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=$Class"
-        }
-        else {
-            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain
-        }
-        $exitCode = $LASTEXITCODE
-    }
-    finally {
-        Pop-Location
-    }
-
-    Write-Output ''
-    Write-Output "gradle exit code: $exitCode"
-
-    # Report the outcome from the machine-readable results rather than from the console, because the
-    # console only says "there were failing tests" without naming them.
-    #
-    # Guarded on the file being written by THIS run. After a compile failure the results directory
-    # still holds the previous run's XML, and reporting that would attribute old failures to the
-    # current attempt - misleading enough that it briefly sent me chasing a test that had passed.
-    $resultDir = Join-Path $repoRoot 'app\build\outputs\androidTest-results\connected\debug'
-    $resultFile = Get-ChildItem "$resultDir\TEST-*.xml" -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTime -gt $startedAt } |
-        Select-Object -First 1
-
-    if (-not $resultFile) {
-        Write-Output 'No test results were produced by this run (the build or install failed first).'
-        if ($exitCode -ne 0) { exit $exitCode }
-        return
-    }
-
-    [xml]$xml = Get-Content $resultFile.FullName
-    $xmlTests = 0
-    $xmlFailures = 0
-    foreach ($suite in $xml.testsuites.testsuite) {
-        Write-Output ("{0}: tests={1} failures={2} errors={3} skipped={4}" -f `
-                $suite.name, $suite.tests, $suite.failures, $suite.errors, $suite.skipped)
-
-        $xmlTests += [int]$suite.tests
-        $xmlFailures += [int]$suite.failures + [int]$suite.errors
-
-        $suite.testcase | Where-Object { $_.failure -or $_.error } | ForEach-Object {
-            Write-Output ("  FAILED: {0}" -f $_.name)
-            (($_.failure.'#text' + $_.error.'#text') -split "`n") |
-                Where-Object { $_ -match 'Assert|Expected|Reason|not displayed|matches' } |
-                Select-Object -First 3 |
-                ForEach-Object { Write-Output "    $($_.Trim())" }
-        }
-    }
-
-    # The HTML report as a second opinion, guarded the same way as the XML so a stale report cannot be
-    # attributed to this run. A missing or unrecognised counter leaves the value null rather than zero:
-    # an unreadable report must not be able to look like a passing one.
-    $htmlPath = Join-Path $repoRoot 'app\build\reports\androidTests\connected\debug\index.html'
-    $htmlTests = $null
-    $htmlFailures = $null
-    if (Test-Path $htmlPath) {
-        $htmlFile = Get-Item $htmlPath
-        if ($htmlFile.LastWriteTime -gt $startedAt) {
-            $html = Get-Content $htmlPath -Raw
-            $htmlTests = Get-HtmlReportCounter $html 'tests'
-            $htmlFailures = Get-HtmlReportCounter $html 'failures'
-        }
-        else {
-            Write-Output 'HTML report is older than this run; ignoring it.'
-        }
-    }
-
-    if ($null -ne $htmlTests -or $null -ne $htmlFailures) {
+    for ($attemptNumber = 1; $attemptNumber -le $MAX_ATTEMPTS; $attemptNumber++) {
         Write-Output ''
-        Write-Output ("HTML report: tests={0} failures={1}" -f `
-            ($(if ($null -eq $htmlTests) { '?' } else { $htmlTests })),
-            ($(if ($null -eq $htmlFailures) { '?' } else { $htmlFailures })))
+        Write-Output "Running instrumented accessibility tests (attempt $attemptNumber of $MAX_ATTEMPTS)..."
+        Write-Output ''
 
-        if ($null -ne $htmlFailures -and $htmlFailures -ne $xmlFailures) {
-            Write-Warning ("The two reports disagree: XML says $xmlFailures failure(s), HTML says " +
-                "$htmlFailures. The worse count is used, so a green verdict needs both to be green. " +
-                'The HTML report is usually the accurate one, but not always - they have disagreed in ' +
-                'both directions on this project.')
+        $result = Invoke-TestAttempt
+        $attempts += $result
+
+        foreach ($line in $result.Report) { Write-Output $line }
+
+        Write-Output ''
+        Write-Output "gradle exit code: $($result.GradleExit)"
+
+        if (-not $result.Reported) {
+            Write-Output 'No test results were produced by this attempt (the build or install failed first).'
+            break
         }
+
+        if (-not (Test-IsRetryable $result)) { break }
+
+        Write-Output ''
+        Write-Warning ("All $($result.Failures) failure(s) in this attempt were the harness losing the " +
+            'test activity, which no assertion in this suite can cause or detect. Retrying once to find ' +
+            'out whether the failure reproduces.')
     }
 
-    # Reconciled verdict. Both sources are consulted and the worse one wins, because reporting success
-    # while a report says otherwise is the one outcome this script exists to prevent.
-    $failureCount = $xmlFailures
-    if ($null -ne $htmlFailures) { $failureCount = [Math]::Max($failureCount, $htmlFailures) }
+    $final = $attempts[-1]
 
-    $testCount = $xmlTests
-    if ($null -ne $htmlTests) { $testCount = [Math]::Max($testCount, $htmlTests) }
+    # The replicability statement. A green second attempt after a harness failure is a different fact
+    # from a green first attempt, and a reader has to be able to tell them apart.
+    if ($attempts.Count -gt 1) {
+        $first = $attempts[0]
+        Write-Output ''
+        Write-Output ('A first attempt failed with {0} harness failure(s): {1}' -f `
+                $first.Failures, (($first.HarnessFailures | ForEach-Object { $_.Name }) -join ', '))
+        Write-Output ('On a clean re-run it {0}.' -f `
+            $(if ($final.Failures -eq 0) { 'did not reproduce' } else { 'reproduced, so it is real' }))
+    }
 
     Write-Output ''
 
-    if ($failureCount -gt 0) {
-        Write-Output "RESULT: FAILED - $failureCount failing test(s) out of $testCount."
+    if ($final.Failures -gt 0) {
+        Write-Output "RESULT: FAILED - $($final.Failures) failing test(s) out of $($final.Tests)."
         exit 1
     }
 
-    if ($testCount -eq 0) {
+    if ($final.Tests -eq 0) {
         # No counters anywhere: nothing ran, which is not success. Fall back to Gradle's status.
         Write-Output 'RESULT: INCONCLUSIVE - no test counts were readable from either report.'
-        exit $(if ($exitCode -ne 0) { $exitCode } else { 1 })
+        exit $(if ($final.GradleExit -ne 0) { $final.GradleExit } else { 1 })
     }
 
     # The known false negative, reported rather than silently swallowed: a future reader seeing a red
     # Gradle task and a green script needs to know which one to believe and why.
-    if ($exitCode -ne 0) {
+    if ($final.GradleExit -ne 0) {
         # Built as one string rather than concatenated across lines: PowerShell ends a statement at a
         # line break, so a `+` at the start of the next line is a parse error, not a continuation.
-        $explanation = "Gradle exited $exitCode even though the collected results report no failures. " +
+        $explanation = "Gradle exited $($final.GradleExit) even though the collected results report no failures. " +
         'This is the known AGP bookkeeping discrepancy, not a test failure - see docs/decisions.md ' +
         'section 11.3. The verdict below comes from the results, not from that exit code.'
         Write-Warning $explanation
     }
 
-    Write-Output "RESULT: PASSED - $testCount tests, 0 failures."
+    Write-Output "RESULT: PASSED - $($final.Tests) tests, 0 failures."
     exit 0
 }
 finally {

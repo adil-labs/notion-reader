@@ -33,7 +33,7 @@ interface ReaderEngine {
     fun playFromStart()
 
     /**
-     * Speaks [text] and then reads the loaded document from its first chunk.
+     * Speaks [text] and then reads the loaded document from [startParagraphIndex].
      *
      * This exists because a queue moving to the next Note must say *which* Note started. The document
      * carries no title chunk — the spec's decision D9 is that the title is announced rather than read
@@ -42,8 +42,15 @@ interface ReaderEngine {
      * Speech, rather than a live region, because the failure case matters: a listener with the screen off
      * has TalkBack silent and the reader's TTS as their only channel, and to them an unannounced Note
      * change is indistinguishable from the reader having stopped.
+     *
+     * **[startParagraphIndex] is not decoration.** The first version of this operation always began the
+     * document at its first chunk, which was correct for the only caller it had — a Note transition, where
+     * the document has just been replaced and has no position yet. Resuming an inexact position is the
+     * second caller, and it announces a section and then reads from that section, not from the top. Without
+     * this parameter the announcement would be followed by the document's first sentence, which is the
+     * worst of both behaviors: it tells the listener where they are and then reads from somewhere else.
      */
-    fun announceThenPlay(text: String)
+    fun announceThenPlay(text: String, startParagraphIndex: Int = 0)
 
     /** Stops the current utterance and keeps the reading position. */
     fun pause()
@@ -112,13 +119,18 @@ class ReaderEngineImpl(
         speakCurrentParagraph()
     }
 
-    override fun announceThenPlay(text: String) {
+    override fun announceThenPlay(text: String, startParagraphIndex: Int) {
         val current = _state.value
         if (current.paragraphs.isEmpty()) return
 
         invalidateUtterance()
         speechEngine.stop()
-        _state.value = current.copy(currentParagraphIndex = 0, hasReachedEnd = false).play()
+        _state.value = current
+            .copy(
+                currentParagraphIndex = startParagraphIndex.coerceIn(0, current.paragraphs.size - 1),
+                hasReachedEnd = false
+            )
+            .play()
 
         // The state says Playing while the announcement is spoken, which is accurate: the session is
         // playing, it is announcing. The announcement shares the utterance token, so moving away during

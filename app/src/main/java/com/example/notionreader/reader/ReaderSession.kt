@@ -1,5 +1,6 @@
 package com.example.notionreader.reader
 
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,11 +40,59 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * ## Deliberately thin
  *
- * No persistence. The integration spec explicitly refuses to own session persistence (see
- * `docs/decisions.md` §6, C1), so retention, resume and the listening history wait for the Active Queue
- * & Reader Session specification. This class holds a session for as long as the process lives.
+ * No persistence *inside* this class. The Active Queue & Reader Session specification owns persistence,
+ * and it puts it here in a specific way: this class exposes itself as a [StoredSession] and can adopt
+ * one, and it never reads or writes storage. Two consequences, both deliberate. Its whole state machine —
+ * including the restore path, which is the part most likely to be wrong — stays synchronous and testable
+ * with no dispatcher and no waiting. And a failed write cannot reach playback, because nothing on the
+ * playback path performs one.
  */
 class ReaderSession(val engine: ReaderEngine) {
+
+    /**
+     * This session's identity, assigned when it starts and adopted when it is restored.
+     *
+     * Sessions are identified by this, never by Note or title: the Active Queue & Reader Session spec
+     * requires that "two sessions that read the same Note are two entries, because they are two listening
+     * occurrences." A new id on every [start] is what makes that true — returning to the same Note through
+     * Play creates a second session rather than overwriting the first one's history.
+     */
+    var id: String? = null
+        private set
+
+    /**
+     * The position this session was restored to, until the current Note's document arrives.
+     *
+     * Held rather than applied because applying it needs the document, which this class does not fetch.
+     * It survives a failed load on purpose: `retryCurrentNote` re-asks for the same Note, and a retry that
+     * dropped the saved position would silently resume at the beginning of a Note the listener was
+     * halfway through.
+     */
+    private var pendingPosition: ReaderDocumentPosition? = null
+
+    /**
+     * Whether the current Note is being resumed by Continue rather than advanced into by the queue.
+     *
+     * The distinction is audible, not cosmetic. Advancing into a Note announces its title, because that
+     * is the only thing that tells the listener the Note changed. Continuing into one does not, because
+     * the listener chose it a moment ago and the resume decision has already said anything that needed
+     * saying.
+     */
+    private var restoring: Boolean = false
+
+    private val _lastResume = MutableStateFlow<ResumeDecision?>(null)
+
+    /**
+     * How precisely the last restore located its saved position, or null when nothing has been restored.
+     *
+     * Exposed because the Active Queue & Reader Session spec requires the match quality to be "recorded as
+     * a fact" on an inexact restore, and because without it an exact resume and a fallback to the start of
+     * a section are indistinguishable from outside: both produce audio, at a position near the right one,
+     * and only one of them is what the listener asked for. A field here rather than a log line, because
+     * this class has no logger and should not acquire one — recording is the caller's business, and a value
+     * can be asserted in a test.
+     */
+    val lastResume: StateFlow<ResumeDecision?> = _lastResume.asStateFlow()
 
     /** The state the Player renders for the *document*: position, section, playing/paused. */
     val state: StateFlow<ReaderState> = engine.state
@@ -80,6 +129,9 @@ class ReaderSession(val engine: ReaderEngine) {
      * loading concern.
      */
     fun start(document: ReaderDocument) {
+        id = newSessionId()
+        restoring = false
+        pendingPosition = null
         _queueState.value = QueueState(queue = ActiveQueue.of(document))
 
         // The index is given to setDocument rather than relying on its default, so "from the beginning"
@@ -103,8 +155,99 @@ class ReaderSession(val engine: ReaderEngine) {
      */
     fun start(queue: ActiveQueue) {
         if (isPlaying) engine.pause()
+        id = newSessionId()
+        restoring = false
+        pendingPosition = null
         _queueState.value = QueueState(queue = queue, index = 0, awaiting = true)
     }
+
+    /**
+     * Adopts [snapshot] as this session: its identity, its queue, its current Note and its saved position.
+     *
+     * Nothing is fetched and nothing plays until the caller supplies the current Note's document, so a
+     * restored session is `awaiting` — the same state the queue is in mid-advance, which is why restore is
+     * not a separate code path from ordinary loading.
+     *
+     * **A completed session is refused.** Completed sessions are history, not resumable state: the product
+     * contract's Continue "resumes an existing listening session", and a session whose queue has ended has
+     * no position to resume. Replaying one is [replay], which deliberately creates a *new* session. The
+     * guard is here rather than only at the call site so that the difference cannot be lost by a caller
+     * forgetting it.
+     */
+    fun restore(snapshot: StoredSession) {
+        if (!snapshot.isValid || snapshot.completed) return
+        if (isPlaying) engine.pause()
+
+        val queue = ActiveQueue.snapshotOf(snapshot.notes, snapshot.origin)
+
+        id = snapshot.id
+        restoring = true
+        pendingPosition = snapshot.position
+
+        _queueState.value = QueueState(
+            queue = queue,
+            index = snapshot.index.coerceIn(0, queue.size - 1),
+            awaiting = true
+        )
+    }
+
+    /**
+     * Replays a historical session: the same Notes in the same order, from the beginning, as a new session.
+     *
+     * This is what activating a completed session does. The historical record is left exactly as it was,
+     * which is why this is [start] rather than [restore] — the spec requires a new session with a new
+     * identity, and reusing the old one would overwrite the history entry the listener was looking at.
+     * The origin is carried over and remains descriptive: nothing is re-evaluated, so the same `Smart`
+     * origin will not produce a different set of Notes than it did the first time.
+     */
+    fun replay(snapshot: StoredSession) {
+        if (!snapshot.isValid) return
+        start(ActiveQueue.snapshotOf(snapshot.notes, snapshot.origin))
+    }
+
+    /**
+     * The current structural position, in stable identities, or null when there is nothing to record.
+     *
+     * Captured from the document the engine holds, which is the only moment the conversion from a
+     * transient chunk index to stable identities can be made. Null in two situations that are genuinely
+     * different from "position unknown": while the current Note is being fetched there is no document to
+     * capture from, and while a load has failed the engine still holds the *previous* Note's document —
+     * capturing from that would record a position in a document the session is no longer reading.
+     */
+    val currentPosition: ReaderDocumentPosition?
+        get() {
+            pendingPosition?.let { return it }
+
+            val current = _queueState.value
+            if (current.queue == null || current.awaiting || current.isStalled) return null
+
+            return engine.document.value.positionAt(state.value.currentParagraphIndex)
+        }
+
+    /**
+     * This session as a record, or null when it has no queue or no identity.
+     *
+     * A pure read of current state: it writes nothing and changes nothing, which is what lets the caller
+     * decide *when* to persist without this class knowing that persistence exists.
+     */
+    fun snapshot(now: Long): StoredSession? {
+        val current = _queueState.value
+        val queue = current.queue ?: return null
+        val sessionId = id ?: return null
+
+        return StoredSession(
+            id = sessionId,
+            notes = queue.items,
+            origin = queue.origin,
+            index = current.index,
+            position = currentPosition,
+            completed = current.completed,
+            wasPlaying = state.value.isPlaying,
+            lastActivityAt = now
+        )
+    }
+
+    private fun newSessionId(): String = UUID.randomUUID().toString()
 
     /**
      * Hands the session the document it was waiting for.
@@ -117,13 +260,32 @@ class ReaderSession(val engine: ReaderEngine) {
         val current = _queueState.value
         if (!current.awaiting) return
 
-        engine.setDocument(document, startParagraphIndex = 0)
+        val pending = pendingPosition
+        val wasRestoring = restoring
+        pendingPosition = null
+        restoring = false
 
-        // A queue of one is the Note screen's Play, where the title is already on screen and the listener
-        // chose it a moment ago; announcing it there would be repetition. At a transition it is the only
-        // thing that tells the listener the Note changed.
-        if (current.index > 0) {
-            engine.announceThenPlay(current.currentItem?.title ?: document.title)
+        // Where to start, and whether anything has to be said first. Null means this Note has no saved
+        // position, which is a fresh start rather than a lost one — see ResumePolicy.
+        val decision = ResumePolicy.decide(pending, document)
+
+        // Recorded only for a genuine restore. A Note transition also produces a decision ("start at 0"),
+        // and recording it would report the previous restore's match quality as if it were this Note's.
+        if (pending != null) _lastResume.value = decision
+
+        engine.setDocument(document, startParagraphIndex = decision.startIndex)
+
+        // One announcement at most, and the resume decision outranks the Note title: a listener who is
+        // being told "Section 4" because their paragraph moved does not also need the Note's name read to
+        // them, and two announcements back to back before content is worse than one.
+        val announcement = decision.announcement
+            ?: if (!wasRestoring && current.index > 0) current.currentItem?.title ?: document.title else null
+
+        if (announcement != null) {
+            // The start index goes with the announcement. Announcing a section and then beginning at the
+            // document's first chunk would be worse than saying nothing: it would name where the listener
+            // is and then read from somewhere else entirely.
+            engine.announceThenPlay(announcement, decision.startIndex)
         } else {
             engine.play()
         }

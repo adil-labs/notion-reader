@@ -4,6 +4,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.SemanticsNodeInteractionCollection
 import com.example.notionreader.reader.ChunkMetadata
 import com.example.notionreader.reader.ReaderChunk
@@ -172,4 +173,96 @@ internal object A11y {
 
     fun hasHeading(): SemanticsMatcher =
         SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)
+
+    // ------------------------------------------------------------------ reachability
+
+    /**
+     * Asserts a control is laid out somewhere the listener can reach, **without asking the device**.
+     *
+     * ## Why this is not `assertIsDisplayed`, which is the obvious thing to write
+     *
+     * `assertIsDisplayed` was used here and was intermittently wrong. Full-suite runs on this device
+     * reported 32/0, 32/1, 32/2 and 32/0 with a *different* test failing each time, always on a control
+     * that was plainly present, and always with the uninformative message "is not displayed". Raising
+     * `screen_off_timeout` and `stay_on_while_plugged_in` did not stop it, and neither assertion in the
+     * suite that only checks for existence ever failed.
+     *
+     * The mechanism, read out of `AndroidAssertions_androidKt.checkIsDisplayed` in Compose 1.12.0 rather
+     * than guessed: it requires the node's layout info to be placed, then it matches
+     * **`androidx.test.espresso.matcher.ViewMatchers.isDisplayed()` against the root view**, then it
+     * intersects the node's bounds in the window with `View.getGlobalVisibleRect()`. That last pair are
+     * claims about **the device's window state** — whether the Compose view is currently being drawn and
+     * has a non-empty visible rectangle on the display — and not about the app. They are exactly what the
+     * two enabled accessibility services on this device can perturb, since both draw UI of their own
+     * (Bitwarden's autofill overlay is a real floating window), and they are why the failure moves around
+     * between runs: whichever assertion happens to run while the Compose view has no visible rectangle
+     * fails, and it is not the same one twice.
+     *
+     * A test cannot fix that by asserting it harder, and keeping it means the suite fails for a reason
+     * the app cannot influence. So this checks the app-side half, which is deterministic:
+     *
+     * 1. the node is **placed** — it has been through layout, so its position is a fact rather than a
+     *    default;
+     * 2. it **occupies area** — a zero-area control cannot be tapped by anyone;
+     * 3. it **overlaps the surface root** — it is on the app's own layout rather than laid out past its
+     *    edge, which is the "you would have to scroll to reach it" case;
+     * 4. it **offers an OnClick action with a non-blank name** — so an accessibility service has
+     *    something to focus and something to say, which is what "reachable" means for TalkBack
+     *    specifically. A screen-reader user does not look at the screen; they move focus and activate.
+     *
+     * Point 3 is a genuine intersection rather than a containment test, and deliberately: this project
+     * has already had one fix rejected for reading the layout more strictly than the layout promises
+     * (`performScrollTo`, which threw because these controls are siblings of the scrolling content rather
+     * than inside it — see `docs/decisions.md` §15), and whether a composable's bounds are clipped or
+     * unclipped depends on where in the tree it sits. Intersection is the part that is true either way.
+     *
+     * What this gives up, stated so the gap is visible: it does not prove the device was displaying the
+     * window at that instant. `tools/run-accessibility-tests.ps1` keeps the screen on so that the
+     * question does not arise, and the requirement the original assertion was standing in for — "a
+     * primary action a listener cannot reach is not a primary action" — is met by 1-4.
+     */
+    fun SemanticsNodeInteraction.assertIsReachable(): SemanticsNodeInteraction {
+        val node = fetchSemanticsNode()
+        val label = node.text() ?: node.contentDescription() ?: "node ${node.id}"
+        val bounds = node.boundsInRoot
+
+        // The topmost node's bounds in root are the surface itself, so this needs no knowledge of the
+        // window, the screen, or the device.
+        val surface = generateSequence(node) { it.parent }.last().boundsInRoot
+
+        assertTrue(
+            "'$label' exists in the tree but has never been laid out (isPlaced=false); bounds=$bounds",
+            node.layoutInfo.isPlaced
+        )
+
+        assertTrue(
+            "'$label' is laid out but occupies no area, so nothing can be tapped: bounds=$bounds",
+            bounds.width > 0f && bounds.height > 0f
+        )
+
+        val overlapsSurface = bounds.left < surface.right && bounds.right > surface.left &&
+            bounds.top < surface.bottom && bounds.bottom > surface.top
+
+        assertTrue(
+            "'$label' lies outside the app surface at $bounds (surface is $surface), so a listener " +
+                "would have to scroll to reach it",
+            overlapsSurface
+        )
+
+        val clickable = node.config.contains(SemanticsActions.OnClick)
+        val name = "${node.text().orEmpty()} ${node.contentDescription().orEmpty()}".trim()
+
+        assertTrue(
+            "'$label' has no OnClick action, so an accessibility service cannot activate it",
+            clickable
+        )
+
+        assertTrue(
+            "'$label' offers OnClick but has no accessible name, so it would be announced as a " +
+                "bare button",
+            name.isNotBlank()
+        )
+
+        return this
+    }
 }
