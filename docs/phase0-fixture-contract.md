@@ -57,6 +57,12 @@ Order is the order the API returns, which is the order the reader must preserve.
 | 22 | `paragraph` | | `3dec9345-e10a-815d-a804-ce592e7b7181` | 6 sentences, ~380 chars |
 | 23 | `toggle` | **yes** | `3dec9345-e10a-8123-a2bb-f87323ee38e8` | Toggle summary |
 | 23.1 | `paragraph` | | `3dec9345-e10a-812a-860d-e1f49d4f72c0` | Inside the toggle. |
+| 24 | `paragraph` | | `3dec9345-e10a-817c-999b-d31318d4cbee` | 422 chars, **one sentence** (single full stop, at the end) |
+| 25 | `paragraph` | | `3dec9345-e10a-8136-9c8d-edb3b8a6ee8a` | 382 chars, **no full stop anywhere** |
+
+Blocks 24 and 25 were appended later by `tools/extend-reader-fixture.ps1` to give D11's fallback chain
+something to exercise. Because this Notion API version cannot insert at a position, they land at the
+**end** of the document, inside section 3.
 
 ### What each block is for
 
@@ -77,6 +83,8 @@ Order is the order the API returns, which is the order the reader must preserve.
 | Empty heading → no unusable navigation target | 19 |
 | Unsupported block degrades locally | 21 — preserved in the normalized tree, emits no chunk (D6) |
 | Long paragraph splits at sentence boundaries | 22 — exact count threshold-dependent (D11) |
+| Fall-through to the word-boundary rule | 24 — one sentence, no internal boundary to split on |
+| Fall-through past the sentence rule entirely | 25 — no sentence-ending punctuation at all |
 | Container (toggle) children read in order | 23, 23.1 |
 | Pagination (`page_size` default is 100) | *not covered — see §6* |
 
@@ -123,22 +131,18 @@ ReaderDocument(
 )
 ```
 
-**4 sections, 24 chunks.**
+**4 sections; ≥28 chunks** — 22 threshold-independent, plus at least 2 each for the three overlong
+blocks (22, 24, 25).
 
 | Sec | id | title | level | # chunks |
 |---|---|---|---|---|
 | 0 | `3dec9345-e10a-8180-867d-fa96b49bd30b:intro` | `null` | 0 | 4 |
 | 1 | `3dec9345-e10a-81b2-8de5-d4a070b01d1e` | Primary Heading | 1 | 2 |
 | 2 | `3dec9345-e10a-81ad-afda-e576ba917ae4` | Secondary Heading | 2 | 11 |
-| 3 | `3dec9345-e10a-818d-9595-c7dac1c3c555` | Tertiary Heading | 3 | 7 † |
+| 3 | `3dec9345-e10a-818d-9595-c7dac1c3c555` | Tertiary Heading | 3 | ≥11 † |
 
-Section 0 exists because block 1 is a paragraph. Per revised D2 it would be **absent** on a page
-that opens with a heading — in that case the document would have 3 sections and the first would be
-the first heading's section. That variant is worth its own fixture.
-
-The chunk total is 24 **assuming** a split threshold that yields 2 parts for block 22. Because
-revised D11 did not freeze the threshold, §3's section-3 table is the only place where a count is
-threshold-dependent — see the † note below.
+† Section 3's count depends on the split threshold. Its 5 non-splitting chunks are fixed; blocks
+22, 24 and 25 contribute at least 2 each.
 ### Section 0 — intro
 
 | # | chunk id | kind | text | metadata |
@@ -200,6 +204,8 @@ spoken, `ChunkMetadata` must grow a field and this contract must change.
 | 4 | `…ce592e7b7181:1` | `PARAGRAPH` | Long paragraph sentence five pushes it further still. Long paragraph sentence six ends the block. | |
 | 5 | `…f87323ee38e8:0` | `PARAGRAPH` | Toggle summary | |
 | 6 | `…e1f49d4f72c0:0` | `PARAGRAPH` | Inside the toggle. | |
+| 7–n | `…d31318d4cbee:<i>` | `PARAGRAPH` | block 24, split by the **word-boundary** rule | |
+| … | `…edb3b8a6ee8a:<i>` | `PARAGRAPH` | block 25, split with **no sentence boundary to use** | |
 
 Block 19 (empty heading) produces no section and no chunk (D4), so block 20 lands here rather
 than opening a section of its own.
@@ -207,17 +213,22 @@ than opening a section of its own.
 Block 21 (the `image`) produces **no chunk at all** under revised D6, so it occupies no position
 in this list. It is present only in the normalized block tree, with diagnostics.
 
-**† Threshold dependency.** Chunks 3 and 4 are the two parts of block 22. Its exact split point,
-and therefore this section's total count, depends on the split threshold, which revised D11 left
-unfrozen. The *threshold-independent* assertions a test can still make are:
+**† Threshold dependency.** Chunks 3 and 4 are the two parts of block 22; chunks 7–n and beyond
+are blocks 24 and 25. Their exact split points, and therefore this section's total count, depend on
+the split threshold, which revised D11 left unfrozen. The *threshold-independent* assertions a test
+can still make are:
 
-1. block 22 yields **at least 2** chunks under any threshold below its ~380-character length;
-2. every part ends at a sentence boundary (never mid-sentence);
-3. the parts concatenate back to the original block text with no loss or duplication;
-4. each part's id is `…ce592e7b7181:<index>`, contiguous from `:0`.
+1. each of blocks 22, 24 and 25 yields **at least 2** chunks under any threshold below its length;
+2. for block 22 every part ends at a sentence boundary;
+3. for block 24, which has only one sentence, at least one part must end **mid-sentence**, at a word
+   boundary — this is the assertion that proves the word-boundary rule exists at all;
+4. for block 25, which has no sentence-ending punctuation, every part must end at a word boundary,
+   since the sentence rule has nothing to work with;
+5. the parts of each block concatenate back to the original block text with no loss or duplication;
+6. each part's id is `<blockId>:<index>`, contiguous from `:0`.
 
-Those four properties are the contract. The specific counts in the table above are illustrative of
-one reasonable threshold.
+Those six properties are the contract. The specific counts are illustrative of one reasonable
+threshold.
 
 ---
 
@@ -267,13 +278,13 @@ Blocking prerequisites, none of which exist yet:
   nesting depth to permit; the fixture cannot answer it. Q5 settled the *behaviour* at the limit —
   exceeding it must emit a diagnostic rather than silently dropping content, which the current
   `NotionRepository` violates — but the fixture has no chain deep enough to test that.
-- **The split fallback chain is untested, and its threshold is deliberately unfrozen.** Revised
-  D11 settles that splitting must happen at sentence boundaries but not the character threshold.
-  The fixture's long paragraph splits cleanly by the first rule alone, so it proves nothing about
-  the cases that matter: (a) a single sentence longer than the threshold, which must fall through
-  to a word-boundary split, and (b) a ~350-character run with no sentence-ending punctuation at
-  all, which must fall through again. Two further fixture blocks are needed before the threshold
-  can be chosen from evidence rather than taste.
+- **The split fallback chain is now exercised, but the threshold is still unfrozen.** Revised D11
+  settles that splitting must happen at sentence boundaries but not the character threshold. Blocks
+  24 and 25 were added to reach the rules block 22 cannot: 24 is a single 422-character sentence, so
+  a correct splitter *must* break it mid-sentence at a word boundary, and 25 is 382 characters with
+  no full stop at all, so the sentence rule has nothing to match. Together with block 22 these cover
+  all three rules. The threshold constant still has to be chosen, but it can now be chosen from
+  observed behaviour rather than taste.
 
 ---
 

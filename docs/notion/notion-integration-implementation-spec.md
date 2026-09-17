@@ -4,7 +4,7 @@
   Source page: Notion Reader — Notion Integration Implementation Spec
   Page id:     3dec9345-e10a-81e8-8b28-e7d04672e53e
   Notion URL:  https://app.notion.com/p/Notion-Reader-Notion-Integration-Implementation-Spec-3dec9345e10a81e88b28e7d04672e53e
-  Notion last edited: 09/17/2026 11:16:00
+  Notion last edited: 09/17/2026 11:28:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -247,7 +247,7 @@ Useful next set:
 - table
 - synced block
 
-Unsupported blocks must never crash the document. Represent them as skipped/unsupported nodes with enough metadata for diagnostics. Do not read raw opaque JSON aloud.
+Unsupported blocks must never crash the document. Represent them as skipped/unsupported nodes with enough metadata for diagnostics. Do not read raw opaque JSON aloud. To-do items preserve their checked state in chunk metadata and never bake it into spoken chunk text; code blocks emit one CODE chunk containing the verbatim source with the language preserved as metadata; divider and unsupported blocks follow the no-chunk rules under Speakable chunk construction.
 
 ## Rich text normalization
 
@@ -263,7 +263,7 @@ For readable rich text:
 ## Section construction
 - The page title represents the document title, not an ordinary content block.
 - Headings define sections.
-- Content before the first heading belongs to an implicit introductory section.
+- An introductory section is created only when content precedes the first heading. A page that opens with a heading has no leading section.
 - Lower-level headings should remain navigable without flattening away hierarchy.
 - Empty headings must not produce unusable navigation targets.
 
@@ -277,9 +277,9 @@ Default behavior:
 - one list item = one chunk;
 - quote text = one chunk unless unusually long;
 - code = one chunk initially, with a later code-reading policy;
-- divider produces navigation structure but no spoken chunk by default.
+- divider and unsupported blocks are preserved as structural nodes in the normalized block tree but emit no spoken chunk; nothing in ReaderChunkKind represents a divider, and an unsupported block must not emit an empty chunk because empty blocks would generate useless navigation targets.
 
-Very long text blocks should be split at sentence boundaries where possible. Chunking must be deterministic so the same unchanged Notion page produces the same logical chunk ordering.
+Very long text blocks must be split at sentence boundaries where possible. Chunking must be deterministic so the same unchanged Notion page produces the same logical chunk ordering. The character threshold used for splitting is an implementation constant rather than a specification value, so block-to-chunk counts are not contractual for long blocks; tests assert the threshold-independent properties instead.
 
 # Reader domain model
 
@@ -308,19 +308,24 @@ data class ReaderChunk(
     val metadata: ChunkMetadata = ChunkMetadata(),
 )
 
+data class ChunkMetadata(
+    val checked: Boolean? = null,
+    val language: String? = null,
+    val linkTargets: List<String> = emptyList(),
+    val hasInlineCode: Boolean = false,
+)
+
 enum class ReaderChunkKind {
-    TITLE,
     HEADING,
     PARAGRAPH,
     LIST_ITEM,
     TODO,
     QUOTE,
     CODE,
-    UNSUPPORTED,
 }
 ```
 
-IDs used for persistence must derive from stable Notion identities where possible rather than list indexes alone.
+IDs used for persistence must derive from stable Notion identities where possible rather than list indexes alone. The page title is carried by ReaderDocument.title and announced by the Player on session start and note transitions; it is not represented as a chunk.
 
 # Raw integration model
 
@@ -374,7 +379,7 @@ Converts API block variants into a smaller internal normalized block model.
 
 Converts the normalized block tree into ReaderDocument, sections, and chunks.
 
-### Session persistence boundary
+### Out of scope: session persistence
 
 Listening-session persistence is owned by the future Active Queue & Reader Session specification, not by the Notion integration layer.
 
@@ -566,7 +571,7 @@ Implement sections and speakable chunks. At the end of this phase the app can pr
 
 ## Phase 5 — Local progress persistence
 
-Add stable resume state and edit-tolerant restoration.
+Expose stable page, source-block, section, and chunk identities, and prove that unchanged content produces unchanged identities across edits. This phase does not implement resume or persistence: listening-session persistence is owned by the future Active Queue & Reader Session specification, per Session persistence boundary above.
 
 ## Phase 6 — TTS integration
 
@@ -618,7 +623,6 @@ The first milestone is complete when all of the following are true:
 - How should code blocks be spoken: verbatim, summarized structurally, or skipped by default?
 - Should child-page references automatically enter the child page during sequential playback or remain explicit navigation actions?
 - What maximum nesting depth should the first recursive traversal permit before treating the structure as suspicious?
-- Should resume track sentence/character offsets inside a chunk in v1, or initially resume only at chunk boundaries?
 
 # Next implementation step
 

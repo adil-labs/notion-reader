@@ -1,13 +1,24 @@
 package com.example.notionreader.notion
 
 import com.example.notionreader.reader.ReaderDocument
+import com.example.notionreader.reader.ReaderDocumentMapper
+import java.time.Instant
 
 /**
  * Turns Notion content into the provider-agnostic [ReaderDocument].
  *
- * This is the only place that knows about Notion block types; the reader engine never sees them.
+ * Wiring only: fetching, then [NotionBlockNormalizer], then [ReaderDocumentMapper]. All mapping
+ * policy lives in those two collaborators so it can be tested without HTTP.
+ *
+ * The former implementation flattened every block to a `List<String>`, which lost heading levels,
+ * link targets, to-do state, code language and block identity. This pipeline preserves them, which is
+ * what makes stable chunk ids and non-spoken metadata possible at all.
  */
-class NotionRepository(private val api: NotionApi) {
+class NotionRepository(
+    private val api: NotionApi,
+    private val normalizer: NotionBlockNormalizer = NotionBlockNormalizer(),
+    private val mapper: ReaderDocumentMapper = ReaderDocumentMapper()
+) {
 
     /**
      * Loads a page as a readable document.
@@ -26,12 +37,17 @@ class NotionRepository(private val api: NotionApi) {
             throw NotionApiException("That Notion page is in the trash.")
         }
 
-        val paragraphs = collectParagraphs(page.id)
+        val children = BlockChildrenSource { api.retrieveBlockChildren(it) }
+        val blocks = normalizer.normalizeAll(
+            blocks = api.retrieveBlockChildren(page.id),
+            source = children
+        )
 
-        return ReaderDocument(
-            id = page.id.ifBlank { pageReference },
+        return mapper.map(
+            pageId = page.id.ifBlank { pageReference },
             title = page.title().ifBlank { "Untitled" },
-            paragraphs = paragraphs
+            lastEditedAt = page.lastEditedTime.toInstantOrNull(),
+            blocks = blocks
         )
     }
 
@@ -50,52 +66,7 @@ class NotionRepository(private val api: NotionApi) {
 
         return api.retrievePage(pageId)
     }
-
-    /**
-     * Reads blocks in document order, descending into child blocks where a block has them.
-     *
-     * Nested content is the norm in real Notion pages (nested list items, toggles, columns), and its
-     * children must be read where they sit in the document rather than skipped or appended at the end.
-     * Recursion is bounded by [MAX_BLOCK_DEPTH] so a pathological page cannot spin through requests.
-     */
-    private suspend fun collectParagraphs(blockId: String, depth: Int = 0): List<String> {
-        val blocks = api.retrieveBlockChildren(blockId)
-        val paragraphs = mutableListOf<String>()
-
-        for (block in blocks) {
-            block.toParagraphText()?.let(paragraphs::add)
-
-            // `child_page`/`child_database` are separate documents, and a synced block repeats content
-            // that already exists elsewhere on the page, so none of them are descended into.
-            val descend = block.hasChildren &&
-                block.type !in NON_RECURSIVE_BLOCK_TYPES &&
-                depth < MAX_BLOCK_DEPTH
-
-            if (descend) paragraphs += collectParagraphs(block.id, depth + 1)
-        }
-
-        return paragraphs
-    }
 }
-
-/** Deepest level of nested blocks that is read, counting the page itself as level 0. */
-private const val MAX_BLOCK_DEPTH = 5
-
-/** Block types whose children do not belong to the current document's reading order. */
-private val NON_RECURSIVE_BLOCK_TYPES = setOf("child_page", "child_database", "synced_block")
-
-/** Block types whose `rich_text` is turned into a paragraph. Everything else is skipped safely. */
-private val SUPPORTED_TEXT_BLOCKS = setOf(
-    "paragraph",
-    "heading_1",
-    "heading_2",
-    "heading_3",
-    "bulleted_list_item",
-    "numbered_list_item",
-    "quote",
-    "callout",
-    "toggle"
-)
 
 /** The 32 hex characters of a Notion UUID, with or without dashes. */
 private val NOTION_ID_PATTERN = Regex(
@@ -139,31 +110,8 @@ fun NotionPage.title(): String =
         .trim()
 
 /**
- * Converts blocks into plain paragraph strings, in document order.
- *
- * Unsupported blocks (images, tables, embeds, ...) and empty blocks are skipped so a page with some
- * unsupported content still reads from top to bottom instead of failing.
+ * Notion reports ISO-8601 instants. A page whose timestamp is missing or unparseable is still
+ * readable, so this degrades to null rather than failing the load.
  */
-fun List<NotionBlock>.toReaderParagraphs(): List<String> = mapNotNull { it.toParagraphText() }
-
-internal fun NotionBlock.toParagraphText(): String? {
-    if (type !in SUPPORTED_TEXT_BLOCKS) return null
-
-    val richText = when (type) {
-        "paragraph" -> paragraph
-        "heading_1" -> heading1
-        "heading_2" -> heading2
-        "heading_3" -> heading3
-        "bulleted_list_item" -> bulletedListItem
-        "numbered_list_item" -> numberedListItem
-        "quote" -> quote
-        "callout" -> callout
-        "toggle" -> toggle
-        else -> null
-    } ?: return null
-
-    return richText.richText
-        .joinToString(separator = "") { it.plainText }
-        .trim()
-        .takeIf { it.isNotEmpty() }
-}
+internal fun String?.toInstantOrNull(): Instant? =
+    this?.let { runCatching { Instant.parse(it) }.getOrNull() }

@@ -8,10 +8,10 @@ import org.junit.Test
 
 class ReaderEngineTest {
 
-    private val document = ReaderDocument(
-        id = "test",
+    private val document = ReaderDocument.fromChunkTexts(
+        pageId = "test",
         title = "Test document",
-        paragraphs = listOf(
+        texts = listOf(
             "First paragraph.",
             "Second paragraph.",
             "Third paragraph."
@@ -162,10 +162,10 @@ class ReaderEngineTest {
         val engine = engine()
         engine.play()
 
-        val replacement = ReaderDocument(
-            id = "other",
+        val replacement = ReaderDocument.fromChunkTexts(
+            pageId = "other",
             title = "Other document",
-            paragraphs = listOf("Only paragraph.")
+            texts = listOf("Only paragraph.")
         )
         engine.setDocument(replacement)
 
@@ -226,10 +226,10 @@ class ReaderEngineTest {
     fun completingTheOnlyParagraphOfAOneParagraphDocumentStopsPlayback() {
         val engine = ReaderEngineImpl(
             speechEngine = speech,
-            initialDocument = ReaderDocument(
-                id = "single",
+            initialDocument = ReaderDocument.fromChunkTexts(
+                pageId = "single",
                 title = "Single",
-                paragraphs = listOf("Only paragraph.")
+                texts = listOf("Only paragraph.")
             )
         )
 
@@ -276,7 +276,11 @@ class ReaderEngineTest {
         val engine = engine()
         engine.play()
         engine.setDocument(
-            ReaderDocument(id = "other", title = "Other", paragraphs = listOf("Only paragraph."))
+            ReaderDocument.fromChunkTexts(
+                pageId = "other",
+                title = "Other",
+                texts = listOf("Only paragraph.")
+            )
         )
 
         speech.deliverCompletionOf(0)

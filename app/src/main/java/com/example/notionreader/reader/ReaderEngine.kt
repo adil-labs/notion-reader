@@ -55,8 +55,8 @@ class ReaderEngineImpl(
 
     private val _state = MutableStateFlow(
         ReaderState(
-            paragraphs = initialDocument.paragraphs,
-            currentParagraphIndex = initialParagraphIndex.coerceInIndex(initialDocument.paragraphs)
+            paragraphs = initialDocument.chunkTexts,
+            currentParagraphIndex = initialParagraphIndex.coerceInIndex(initialDocument.chunkTexts)
         )
     )
     override val state: StateFlow<ReaderState> = _state.asStateFlow()
@@ -96,8 +96,8 @@ class ReaderEngineImpl(
         speechEngine.stop()
         _document.value = document
         _state.value = ReaderState(
-            paragraphs = document.paragraphs,
-            currentParagraphIndex = startParagraphIndex.coerceInIndex(document.paragraphs)
+            paragraphs = document.chunkTexts,
+            currentParagraphIndex = startParagraphIndex.coerceInIndex(document.chunkTexts)
         )
     }
 

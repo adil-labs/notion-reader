@@ -40,12 +40,38 @@ data class NotionProperty(
 data class NotionRichText(
     @SerialName("plain_text") val plainText: String = "",
     val type: String? = null,
-    val href: String? = null
+    val href: String? = null,
+    /** Styling. Only `code` matters to the reader, as a content-type hint. */
+    val annotations: NotionAnnotations? = null
+)
+
+/** Rich-text styling. The reader ignores purely visual styling but keeps inline code as a hint. */
+@Serializable
+data class NotionAnnotations(
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val strikethrough: Boolean = false,
+    val underline: Boolean = false,
+    val code: Boolean = false
 )
 
 @Serializable
 data class NotionTextBlock(
     @SerialName("rich_text") val richText: List<NotionRichText> = emptyList()
+)
+
+/** `to_do` carries its state, which the reader keeps as metadata rather than spoken text. */
+@Serializable
+data class NotionTodoBlock(
+    @SerialName("rich_text") val richText: List<NotionRichText> = emptyList(),
+    val checked: Boolean = false
+)
+
+/** `code` carries the language, which the reader keeps as metadata. */
+@Serializable
+data class NotionCodeBlock(
+    @SerialName("rich_text") val richText: List<NotionRichText> = emptyList(),
+    val language: String? = null
 )
 
 @Serializable
@@ -62,7 +88,9 @@ data class NotionBlock(
     @SerialName("heading_3") val heading3: NotionTextBlock? = null,
     @SerialName("bulleted_list_item") val bulletedListItem: NotionTextBlock? = null,
     @SerialName("numbered_list_item") val numberedListItem: NotionTextBlock? = null,
+    @SerialName("to_do") val toDo: NotionTodoBlock? = null,
     val quote: NotionTextBlock? = null,
+    val code: NotionCodeBlock? = null,
     val callout: NotionTextBlock? = null,
     val toggle: NotionTextBlock? = null
 )

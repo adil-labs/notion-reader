@@ -122,7 +122,7 @@ class NotionRepositoryTest {
         val document = repository().getDocument(pageId)
 
         assertEquals("Architecture", document.title)
-        assertEquals(pageId, document.id)
+        assertEquals(pageId, document.pageId)
     }
 
     @Test
@@ -149,7 +149,7 @@ class NotionRepositoryTest {
                 "Keep the reader independent.",
                 "TalkBack must remain usable."
             ),
-            document.paragraphs
+            document.chunkTexts
         )
     }
 
@@ -167,7 +167,7 @@ class NotionRepositoryTest {
             block("11", "paragraph", "Second.")
         ).getDocument(pageId)
 
-        assertEquals(listOf("First.", "Second."), document.paragraphs)
+        assertEquals(listOf("First.", "Second."), document.chunkTexts)
     }
 
     @Test
@@ -188,14 +188,14 @@ class NotionRepositoryTest {
 
         val document = repository(multiRun).getDocument(pageId)
 
-        assertEquals(listOf("Hello world."), document.paragraphs)
+        assertEquals(listOf("Hello world."), document.chunkTexts)
     }
 
     @Test
     fun toleratesPagesWithNoReadableBlocks() = runTest {
         val document = repository().getDocument(pageId)
 
-        assertEquals(emptyList<String>(), document.paragraphs)
+        assertEquals(emptyList<String>(), document.chunkTexts)
     }
 
     @Test
@@ -270,7 +270,7 @@ class NotionRepositoryTest {
 
         assertEquals(
             listOf("Before.", "Parent item", "Nested item", "Nested paragraph", "After."),
-            document.paragraphs
+            document.chunkTexts
         )
     }
 
@@ -287,7 +287,7 @@ class NotionRepositoryTest {
             nested = blockListJson(block("9a", "paragraph", "Sub page content"))
         ).getDocument(pageId)
 
-        assertEquals(listOf("Body"), document.paragraphs)
+        assertEquals(listOf("Body"), document.chunkTexts)
     }
 
     @Test
