@@ -1,0 +1,19 @@
+# Gradle / build output
+.gradle/
+build/
+app/build/
+.kotlin/
+
+# Secrets and machine-specific configuration
+local.properties
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.iml
+
+# Misc
+*.hprof
+.DS_Store
