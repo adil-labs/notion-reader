@@ -8,6 +8,7 @@ import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.domain.ReaderIndexEntry
+import com.example.notionreader.domain.queue.QueueEffect
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -196,6 +197,36 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     /** Activating a completed session: a new session over the same Notes, from the beginning. */
     fun replayCompleted(id: String) {
         viewModelScope.launch { app.replayCompleted(id) }
+    }
+
+    /**
+     * `Create saved queue`, and then leave the Create screen if there is now a queue.
+     *
+     * ## Why the navigation is here and not in the screen
+     *
+     * Because the decision needs the outcome, and the outcome is produced by the write. There are two
+     * answers and they are not symmetric: a queue was created, so the listener has nothing left to do on
+     * that screen; or a name was refused, so the screen must stay exactly as it is with the typing intact.
+     * A screen told only "something happened" would have to guess which, and guessing wrong in the second
+     * case makes the listener's typing disappear while guessing wrong in the first leaves them on a screen
+     * that appears to have done nothing.
+     *
+     * Navigating from here is the same shape as [continueSession], which opens the Player once the session
+     * has been restored. Neither is a screen deciding where to go; both are an operation reporting where its
+     * own result leaves the listener.
+     *
+     * ## Why a storage failure is not a third answer
+     *
+     * The specification requires that no operation here reports a storage failure to the listener as a
+     * failure of what they did. An unreadable store answers `StoreUnavailable` — nothing happened — so the
+     * listener stays on the screen, which is indistinguishable from the screen simply not having finished
+     * yet, and no error is shown. That is the intended behaviour and not a gap in it.
+     */
+    fun createSavedQueue(name: String) {
+        viewModelScope.launch {
+            val outcome = app.createSavedQueue(name)
+            if (outcome.effect is QueueEffect.Created) app.back()
+        }
     }
 
     /**

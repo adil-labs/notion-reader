@@ -101,6 +101,27 @@ class ReaderHost(
         feedTheQueue()
         recordHistory()
         recordResumeQuality()
+        readSavedQueues()
+    }
+
+    /**
+     * Reads the Saved Queues once, so that any surface can list them.
+     *
+     * ## Why this is here and not in a screen
+     *
+     * The Queue Creation & Queue Management spec's invariant is "a task-scoped surface owns no store, and the
+     * store is reached from the application layer". A screen that read the store itself would do that work
+     * again on every visit, and would do it inside composition; this is one read per process, exactly like
+     * [recordHistory]'s, and the surfaces observe the published list.
+     *
+     * ## Why it is not paired with a `distinctUntilChanged` collector like the loops above
+     *
+     * Because there is nothing to collect. A queue write is performed by this application at a known moment
+     * and publishes its own result ([ReaderApp]'s `transact`), so a listener on the store would be a second
+     * notification path for a change the writer already announced — and the one that could race it.
+     */
+    private fun readSavedQueues() {
+        scope.launch { app.loadSavedQueues() }
     }
 
     /**

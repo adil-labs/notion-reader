@@ -2,13 +2,22 @@ package com.example.notionreader.application
 
 import com.example.notionreader.domain.queue.ActiveQueue
 import com.example.notionreader.domain.queue.QueuedNote
+import com.example.notionreader.domain.queue.QueueEdit
+import com.example.notionreader.domain.queue.QueueEditOutcome
+import com.example.notionreader.domain.queue.QueueEffect
 import com.example.notionreader.domain.queue.QueueOrigin
+import com.example.notionreader.domain.queue.SavedQueue
+import com.example.notionreader.domain.queue.SavedQueueDraft
+import com.example.notionreader.domain.queue.SavedQueueStore
+import com.example.notionreader.domain.queue.SavedQueues
+import com.example.notionreader.domain.queue.applyTo
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.session.ListeningHistory
 import com.example.notionreader.domain.session.SessionStore
 import com.example.notionreader.domain.session.StoredSession
 import com.example.notionreader.player.PlayerCommand
 import com.example.notionreader.player.playerCommandAvailability
+import java.util.UUID
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,11 +77,39 @@ class ReaderApp(
      * the spec requires a history that cannot be read to be indistinguishable from one that is empty.
      */
     private val sessionStore: SessionStore? = null,
+    /**
+     * Where Saved Queues live, or null when the app has none.
+     *
+     * Nullable and defaulted for the same reason [sessionStore] is: every existing test, and the JVM-only
+     * composition, keeps working with no store at all. A missing store and an unreadable one have to mean
+     * the same thing to a surface — nothing could be read and nothing was written, and neither is an error
+     * the listener sees — so both answer [QueueEditOutcome.unavailable].
+     */
+    private val savedQueueStore: SavedQueueStore? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
 
     private val queueLoader = QueueLoader(session, loadDocument)
+
+    /**
+     * The queue operations, over the store — or null when there is no store.
+     *
+     * Nullable rather than given a no-op store, because a no-op store would be an implementation of an
+     * interface this project already has two of, existing only to say "nothing", and the next person to
+     * read it would have to work out whether it was real. A null here says the same thing in one word.
+     */
+    private val queues: SavedQueues? = savedQueueStore?.let { SavedQueues(it, clock) }
+
+    private val _savedQueues = MutableStateFlow<List<SavedQueue>>(emptyList())
+
+    /**
+     * The stored Saved Queues, in no particular order — [savedQueueCards] is what orders them.
+     *
+     * Exposed as state for the same reason [history] is: a surface has to recompose when a queue is created
+     * or edited, and the list is the one thing every Saved-Queue surface reads.
+     */
+    val savedQueues: StateFlow<List<SavedQueue>> = _savedQueues.asStateFlow()
 
     private val _history = MutableStateFlow<List<StoredSession>>(emptyList())
 
@@ -508,6 +545,104 @@ class ReaderApp(
 
     /** Loads a Note for inspection. Never affects what is being read aloud. See [NoteViewer]. */
     suspend fun loadNote(pageId: String, loader: LoadReaderDocument) = noteViewer.load(pageId, loader)
+
+    // --- Saved Queues -------------------------------------------------------------------------------
+
+    /**
+     * Reads the stored queues and publishes them.
+     *
+     * The only operation here that *reads* the store. Everything that changes it goes through
+     * [transact], because `QueueEditOutcome.queues` is authoritative: an operation that changed something
+     * already hands back the whole list it produced, so a second read would be a second source of truth
+     * for the same fact — and would be the read that races the write.
+     */
+    suspend fun loadSavedQueues() {
+        _savedQueues.value = queues?.all() ?: return
+    }
+
+    /**
+     * `Create saved queue`: a new, empty queue named [name].
+     *
+     * Returns the outcome rather than a Boolean, because the surface has to tell two answers apart that a
+     * Boolean cannot: a queue was created (so leave the screen), and a name was rejected as blank (so stay,
+     * and the listener's typing is still there). Navigating back on a rejection would make the screen look
+     * like it had simply done nothing.
+     *
+     * The identity is generated here rather than inside the model, following the same rule
+     * [SavedQueueDraft.toQueue] states: a value that embedded an identity source could not be tested. A
+     * random UUID cannot collide, so the model's "the id must be fresh" assumption holds at the only place
+     * it is made.
+     */
+    suspend fun createSavedQueue(name: String): QueueEditOutcome {
+        val draft = SavedQueueDraft(name)
+        val edit = QueueEdit.Create(draft, id = UUID.randomUUID().toString())
+        return transact(edit)
+    }
+
+    /**
+     * `Play` on a Saved Queue: snapshot its current membership and order into a new session.
+     *
+     * The contract's steps, and this is where the second source of a live list would be — a Saved Queue is
+     * mutable storage, so handing its own `notes` list to the session would let a later edit reach a
+     * playing queue. [ActiveQueue.snapshotOf] copies, which is what makes that impossible rather than
+     * merely avoided.
+     *
+     * `Play` does not mean resume: the queue is played from the beginning and any existing session is
+     * replaced. Returns false when there is nothing to play — no such queue, or an empty one, which is the
+     * rule `Play` is *disabled* on rather than being offered and doing nothing.
+     */
+    fun playSavedQueue(queueId: String): Boolean {
+        val queue = _savedQueues.value.firstOrNull { it.id == queueId } ?: return false
+        if (queue.notes.isEmpty()) return false
+
+        session.start(
+            ActiveQueue.snapshotOf(
+                queue.notes,
+                // The identity, not the name — which is the whole reason Phase 3 changed this type. A
+                // session stored now still names this queue after the listener renames it.
+                QueueOrigin.Saved(queueId = queue.id, name = queue.name)
+            )
+        )
+        navigator.open(ReaderDestination.Player, fromFocusId = ReaderFocus.SavedQueuePlay)
+        return true
+    }
+
+    /**
+     * Opens one Saved Queue's details.
+     *
+     * The queue's identity goes in [ReaderStop.subjectId] rather than in `fromFocusId`: the screen is about
+     * the queue, while focus returns to whichever row the listener came from — which is the queue's row on
+     * the Saved tab, and will be a different row entirely from Home's *Your queues*.
+     */
+    fun openSavedQueueDetails(queueId: String, fromFocusId: String? = null) {
+        navigator.open(ReaderDestination.SavedQueueDetails, fromFocusId = fromFocusId, subjectId = queueId)
+    }
+
+    /** The Saved tab's `Create saved queue`. Named by the control, because the screen is about nothing yet. */
+    fun openCreateSavedQueue() {
+        navigator.open(ReaderDestination.CreateSavedQueue, fromFocusId = ReaderFocus.SavedQueueCreate)
+    }
+
+    /** Every queue as a surface describes it, most recently edited first. */
+    fun savedQueueCards(): List<SavedQueueCard> = _savedQueues.value.toCards()
+
+    /** The queue with [id] as a surface describes it, or null when it is gone. */
+    fun savedQueueCard(id: String): SavedQueueCard? = _savedQueues.value.firstOrNull { it.id == id }?.toCard()
+
+    /**
+     * Runs one queue operation, publishing the result.
+     *
+     * **The one publishing rule.** A list is published only when the operation changed something, which is
+     * also what makes an unreadable store safe: [QueueEditOutcome.unavailable] is `changed == false` with an
+     * *empty* `queues`, and that empty list carries no information — it is what a store that could not be
+     * read looks like. Publishing it would blank a list the listener can see, so the rule that handles a
+     * no-op handles this too, and there is no second condition to remember.
+     */
+    private suspend fun transact(edit: QueueEdit): QueueEditOutcome {
+        val outcome = queues?.apply(edit) ?: QueueEditOutcome.unavailable()
+        if (outcome.changed) _savedQueues.value = outcome.queues
+        return outcome
+    }
 
     fun shutdown() = session.shutdown()
 }

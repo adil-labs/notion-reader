@@ -14,7 +14,6 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
-
 /**
  * The application shell: the destination the application is on, the mini-player, and the tab bar.
  *
@@ -58,6 +57,15 @@ fun ReaderShell(
     onRetryBrowseIndex: () -> Unit,
     onContinueSession: (String) -> Unit,
     onReplayCompleted: (String) -> Unit,
+    /**
+     * `Create saved queue`, which performs I/O and so needs a scope.
+     *
+     * The callback is responsible for **both** halves — writing the queue and, when one was created, leaving
+     * the Create screen — because only it can see the outcome. A rejected name has to leave the listener on
+     * the screen with their typing intact, and a Boolean handed to this composable would make the screen
+     * decide that from a value that cannot distinguish "created" from "refused".
+     */
+    onCreateSavedQueue: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val sessionState by app.session.state.collectAsState()
@@ -70,6 +78,9 @@ fun ReaderShell(
     // Not used directly: collecting it is what makes the lambda below re-run when history changes, since
     // `continueListeningCards()` reads values rather than being a flow.
     val history by app.history.collectAsState()
+    // Collected for the same reason `history` is: the Saved tab's cards are a projection of the queue
+    // records, and reading the flow here is what makes the tab recompose when one is created or edited.
+    val savedQueueRecords by app.savedQueues.collectAsState()
     val current = navigation.current
 
     // Back is handled whenever it has somewhere visual to go, which is now most of the app rather than
@@ -138,7 +149,27 @@ fun ReaderShell(
                         onContinue = onContinueSession,
                         onReplay = onReplayCompleted,
                         focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled,
+                        // The ordering is applied by the application layer, so the tab renders the list it
+                        // is given and cannot disagree with Home's *Your queues* about which is newest.
+                        savedQueues = savedQueueRecords.let { app.savedQueueCards() },
+                        onOpenSavedQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
+                        onCreateSavedQueue = app::openCreateSavedQueue
+                    )
+
+                    ReaderDestination.SavedQueueDetails -> SavedQueueDetailsScreen(
+                        // Read from the navigation state rather than held here: the queue the screen is
+                        // about is the pushed stop's subject, and a second copy in the shell would be a
+                        // second source of truth for it.
+                        queue = navigation.currentSubjectId?.let { app.savedQueueCard(it) },
+                        onOpenNote = { pageId -> onOpenNote(pageId) },
+                        onPlay = { queueId -> app.playSavedQueue(queueId) },
+                        focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.CreateSavedQueue -> CreateSavedQueueScreen(
+                        onCreate = onCreateSavedQueue
                     )
 
                     ReaderDestination.Note -> NoteScreen(

@@ -98,7 +98,8 @@ class MainActivity : ComponentActivity() {
                         onRetryNoteLoad = model::retryNoteLoad,
                         onRetryBrowseIndex = model::retryBrowseIndex,
                         onContinueSession = model::continueSession,
-                        onReplayCompleted = model::replayCompleted
+                        onReplayCompleted = model::replayCompleted,
+                        onCreateSavedQueue = model::createSavedQueue
                     )
                 }
             }

@@ -196,7 +196,26 @@ data class QueueEditOutcome(
     val queues: List<SavedQueue>,
     val changed: Boolean,
     val effect: QueueEffect
-)
+) {
+
+    companion object {
+
+        /**
+         * The answer for a store that could not be read, or that does not exist: nothing happened.
+         *
+         * A factory rather than a value each caller constructs, because the three fields only mean
+         * something together — an unchanged outcome paired with this effect, and an empty list that must not
+         * be mistaken for the queues. Two storage backends and the application object all have to answer
+         * this the same way, and a second definition is how one of them ends up answering it with a list
+         * that gets written.
+         */
+        fun unavailable(): QueueEditOutcome = QueueEditOutcome(
+            queues = emptyList(),
+            changed = false,
+            effect = QueueEffect.StoreUnavailable
+        )
+    }
+}
 
 /**
  * The queues an edit produces from [to], at time [now].

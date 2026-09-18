@@ -21,7 +21,25 @@ import kotlinx.coroutines.flow.asStateFlow
 data class ReaderStop(
     val destination: ReaderDestination,
     /** The element that was activated to open [destination], or null when nothing identifiable was. */
-    val fromFocusId: String? = null
+    val fromFocusId: String? = null,
+    /**
+     * What this screen is *about*, when the destination has to be told.
+     *
+     * ## Why this is separate from [fromFocusId]
+     *
+     * The two coincide on the route that exists today — a Saved Queue row is identified by its queue, so
+     * activating one pushes Details about that same queue and would return focus to it — and they must not
+     * therefore be one field, because the routes that separate them are already named by the contract.
+     * Home's *Your queues* opens Details **about a queue** while the element to return focus to is the
+     * *Home row*; and the Queue Destination's `Create new queue` pushes a screen about nothing at all with
+     * focus returning to the control that was pressed. So one is "what is this screen about" and the other
+     * is "where does focus go when this is popped", and a single field would have to mean both badly.
+     *
+     * It is an identity and not a value: a stop naming a queue by name would be stale the moment the queue
+     * was renamed, which is the same distinction `QueueOrigin` and `SavedQueue` both draw between an
+     * identity and a label.
+     */
+    val subjectId: String? = null
 )
 
 /**
@@ -69,6 +87,19 @@ data class ReaderNavigation(
     /** The destination on screen. */
     val current: ReaderDestination get() = secondary.lastOrNull()?.destination ?: top
 
+    /**
+     * What the screen on screen is about, when it needed telling — the queue Saved Queue Details shows.
+     *
+     * Read from the stop rather than kept in a field of its own, so there is exactly one place that knows
+     * which queue is open. A parallel field would be a second source of truth for the same fact, and the
+     * two would disagree the first time one was written and the other was not — which is what the whole of
+     * this class exists to avoid.
+     *
+     * Null for every destination that needs nothing told to it, which is all of them but Saved Queue
+     * Details.
+     */
+    val currentSubjectId: String? get() = secondary.lastOrNull()?.subjectId
+
     /** True when Back has somewhere visual to go. */
     val canGoBack: Boolean get() = secondary.isNotEmpty() || top != ReaderDestination.Home
 }
@@ -103,14 +134,14 @@ class ReaderNavigator(initial: ReaderNavigation = ReaderNavigation()) {
      * route has one — a destination reached by a tab, or by a set-level action, has nothing to return
      * focus to — and passing null is the honest answer rather than a placeholder id.
      */
-    fun open(destination: ReaderDestination, fromFocusId: String? = null) {
+    fun open(destination: ReaderDestination, fromFocusId: String? = null, subjectId: String? = null) {
         if (destination.isTopLevel) {
             openTopLevel(destination)
             return
         }
 
         _state.value = _state.value.copy(
-            secondary = _state.value.secondary + ReaderStop(destination, fromFocusId),
+            secondary = _state.value.secondary + ReaderStop(destination, fromFocusId, subjectId),
             // Navigating forward invalidates any target recorded for the screen being left. Without
             // this, a target that was never consumed would fire on the *next* return to that screen.
             focusTarget = null

@@ -47,7 +47,8 @@ class ReaderShellQueueBackTest {
                 onRetryNoteLoad = { },
                 onRetryBrowseIndex = { },
                 onContinueSession = { },
-                onReplayCompleted = { }
+                onReplayCompleted = { },
+                onCreateSavedQueue = { }
             )
         }
 
@@ -78,7 +79,8 @@ class ReaderShellQueueBackTest {
                 onRetryNoteLoad = { },
                 onRetryBrowseIndex = { },
                 onContinueSession = { },
-                onReplayCompleted = { }
+                onReplayCompleted = { },
+                onCreateSavedQueue = { }
             )
         }
 

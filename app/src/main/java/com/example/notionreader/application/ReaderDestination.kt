@@ -48,6 +48,28 @@ enum class ReaderDestination {
     /** Listening history, and later manually curated and query-based queues. */
     Queues,
 
+    /**
+     * One Saved Queue: its members, `Play`, and later the controls that edit it.
+     *
+     * Secondary rather than top-level, because the contract puts it under Queues' Saved tab and under
+     * Home's *Your queues* — it is opened *from* a list rather than being a destination in its own right.
+     *
+     * It is the **first destination that needs to be told which one it is about**. Every other screen here
+     * either reads what is being played (the Player), is a list (Browse, Queues), or is addressed by a
+     * page id it was opened for (Note). A queue's details need a queue, and the navigation model had no
+     * place to put one; see [ReaderStop.subjectId].
+     */
+    SavedQueueDetails,
+
+    /**
+     * Name a new Saved Queue. Reached from the Saved tab's `Create saved queue`.
+     *
+     * A screen rather than a dialog, because the contract describes it as one and because the state it
+     * needs — a name being typed that is not yet valid — has to live somewhere, which is what
+     * [com.example.notionreader.domain.queue.SavedQueueDraft] is for.
+     */
+    CreateSavedQueue,
+
     /** Manual reading and inspection. Reached from a Browse result, and later from a queue row. */
     Note,
 

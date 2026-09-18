@@ -4924,6 +4924,161 @@ yet — that is Phase 4's `Play`. So this phase is a type and persistence change
 what the spec's phase split intends: the part that reaches into working persistence lands on its own, verified
 by a wire-format test rather than by a screen.
 
+### 23.29 The emulator unblocks the device round, and the focus failures were ours all along
+
+**Date:** 2026-09-19. Two things that had each cost several rounds: the instrumented suite no longer depends on a phone being unlocked, and the seven focus-restore assertions that had been red since §23.12 are **green because the cause was in this project's own code**. **490 JVM tests, 0 failures; 153 instrumented tests, 0 failures.**
+
+#### The device was the bottleneck, and it is now off the critical path
+
+§23.12–§23.17 left every instrumented round dependent on a phone whose screen lock needs a credential typed by hand. That is a real constraint and not a solvable one:
+
+```plain text
+$ adb shell locksettings set-disabled true
+Lock screen disabled set to true          <- reports success
+$ adb shell settings get secure lockscreen.disabled
+0                                         <- and writes nothing
+```
+
+On a production build (`ro.build.type=user`, `ro.debuggable=0`) with a credential set, that command is a **false success**, and `cmd lock_settings --help` misleads the other way, answering "User has a lock credential, but old credential was not provided", which reads as though the credential gates every operation. Neither is trustworthy; there is no scripted route past a credential, which is what a lock is for.
+
+So `tools/setup-emulator.ps1` was written: it installs the emulator and an API 36 image, creates a `medium_phone` AVD and boots it, and prints what the suite will read from it. `-Check` reports without changing anything and `-Stop` shuts it down. A **green run went from ~15 minutes plus a possible reboot into the PIN to 11 minutes unattended**, and a single class — which is what a diagnosis actually needs — now takes **32 seconds** instead of a device round.
+
+Four tooling traps had to be found first, and all four report the wrong thing:
+
+| Trap | Symptom |
+|---|---|
+| `sdkmanager` is deprecated **and crashes** on Windows | `--list` prints installed packages, then aborts with `0xC0000409`, so it never shows what is *available* and its exit code is meaningless. `--install` **installed the 4.4 GB image successfully and then returned the same abort code** |
+| a package name containing `;` is split by the `.bat` wrapper | "Package android-36 not found" — reads as a bad package name, not as an argument-passing bug. The native `android` CLI takes it whole |
+| `Join-Path` double-nests a value that already contains the root segment | a fully-installed image reported as `MISSING`, which would have triggered a pointless 4 GB re-download. **This was a bug in the new script, found by running it** |
+| a PowerShell pipeline passed to `adb shell` runs on the *device* | `/system/bin/sh: Select-String: inaccessible or not found` — a message about a missing command rather than about the quoting mistake |
+
+The wrapper also stopped conflating two states that have opposite fixes: `isKeyguardShowing=true` with `inputRestricted=true` is **a credential** (nothing here can help), while the same with `inputRestricted=false` is **the wake/dismiss race** (re-run). One message used to cover both, pointing at retrying when the real state was a secure lock. And its run lock is now taken immediately before the `try` whose `finally` releases it, because taking it earlier meant every preflight refusal **leaked the lock**, so the next run either warned about a stale lock or refused outright claiming another run was in progress — about a run that had already ended.
+
+#### The finding: three rounds of device explanations, and the cause was one missing modifier
+
+All ten failures of the first full run were diagnosed. Three were defects in the new tests (a name never set, a second `setContent` in one test, a no-op `onOpenNote`). **The other seven were the focus failures, and they were ours.**
+
+The chain of explanations, each of which blamed the environment:
+
+| Round | Explanation | Status |
+|---|---|---|
+| §23.12 | TalkBack holds accessibility focus | superseded |
+| §23.17 | Touch exploration | **refuted by experiment** (same failures with it off) |
+| §23.17 | A Compose-versus-API-37 interaction | **refuted** |
+| §23.24–§23.28 | "A device reason, recorded rather than fixed" | **refuted — the device was never the variable** |
+
+The cause, measured on a clean emulator with `enabled_accessibility_services=null` and `touch_exploration_enabled=0`: **`Modifier.clickable` does not give a `FocusRequester` a target the request can be granted against.**
+
+| chain | granted | reports `Focused` | semantics nodes |
+|---|---|---|---|
+| `focusRequester + clickable` | **no** | no | 1 |
+| `clickable + focusRequester` (order swapped) | **no** | no | 1 |
+| `focusRequester + focusTarget + clickable` | yes | **no** | 1 |
+| `focusRequester + focusable + clickable` | yes | **yes** | 1 |
+| `focusRequester + clickable + focusable` | yes | no | 1 |
+
+`restoreFocusOn` now returns `focusRequester(requester).focusable()`, placed before `clickable`. `focusable()` **before** `clickable` on both counts: `focusTarget()` is granted and takes focus but the node does not *report* being focused, so nothing can observe where focus went, and `focusable()` after `clickable` behaves the same way.
+
+Two things this measurement changed about what was about to be written down:
+
+- **`focusTarget()` was nearly justified on a false premise.** The reason it looked safer was that `focusable()` "would add a second focus stop to an already-clickable row", which the last column refutes — one semantics node either way.
+- **`FOCUS_ATTEMPT_FRAMES = 8` was a fix for the wrong problem.** It was added because a refusal that neither threw nor was granted was read as a *timing* failure, and the response was to retry across frames. Setting it to `1` passes all 16 shell tests, including the `LazyColumn` case, so the retry is a bound rather than a requirement. It is kept and documented as such, because it cannot mask a failure — it returns as soon as a request succeeds, and a request that never succeeds leaves focus unrestored either way.
+
+The lesson, and it is the third time this class has cost a round here: **`requestFocus()` returning `false` is a definite answer, not an ambiguous one.** The right question was "what is this request being granted *against*", not "when should it be retried". An emulator turns that question into a 32-second experiment, which is why the setup script is as much a part of this finding as the fix is.
+
+#### One claim in the record was also wrong
+
+`connectedDebugAndroidTest` "may exit non-zero when every test passed" has been repeated since §17 and is in `AGENTS.md`. On this run it **exited 0 with 153 tests passing**. That note is now qualified to the device it was observed on rather than stated as a general property, because a future reader would otherwise distrust a correct signal.
+
+#### Verification
+
+- **490 JVM tests, 0 failures**; **153 instrumented tests, 0 failures**, including all seven focus assertions that had been red since §23.12.
+- The instrumentation is reproducible: the failure reproduces in 32 seconds scoped to one class, which is how the modifier matrix was obtained rather than reasoned about.
+- **Not verified on the phone**: it was unplugged after the first full run, so the fix is confirmed on the emulator only. The three test bugs and the focus fix are both device-independent, but that is an argument rather than a measurement, and it is recorded as one.
+
+#### Files
+
+`tools/setup-emulator.ps1` (new), `tools/run-accessibility-tests.ps1` (lock placement, the two refusals, stale explanations), `FocusRestore.kt` (the fix), `FocusRestoreTest.kt` (was an investigation, now the regression guard for the fix), `AGENTS.md`, `README.md`.
+
+### 23.28 Slice 1 — the Saved tab, Saved Queue Details, `Play` and `Create saved queue`
+
+**Date:** 2026-09-19. The first surface for Saved Queues, and the first navigation destination that has to be told *which* one. **490 JVM tests, 0 failures** (was 461; 29 additions) and **151 instrumented tests** (was 108; 43 additions).
+
+#### The ordering the specification's phases imply, and why it was changed
+
+Before starting Phase 4, reading the six operations against the eight phases produced a fact visible from neither alone, and it changed the order this work is taken in.
+
+**Membership enters a Saved Queue by exactly one operation: `Add`.** `Create` produces an empty queue by design; `Rename` changes a label; `Remove`, `Move` and `Delete` only modify membership that already exists. And `Add` is reachable only through Queue Destination, which is Phase 7. So **until Phase 7 lands, every Saved Queue that can exist is empty** — which means Phases 4, 5 and 6 produce surfaces that cannot be populated by hand at all:
+
+- Details in Viewing always lists nothing;
+- `Play` is always disabled, because the specification says it is not offered on an empty queue;
+- Edit mode's four moves and `Remove` have nothing to move;
+- and the specification's own device validation — "a saved queue survives a process death … with its identity, name, **membership** and order intact" — cannot be performed, because no queue can have membership.
+
+That is not an argument against those phases; they are prerequisites, and they are verifiable against a seeded store. It is an argument that the specification's order optimises for **technical** dependency (read before write) rather than for a usable increment. Every phase from 4 to 8 adds surface, and only 7 makes the feature usable.
+
+So two things were changed, by explicit decision rather than by drift:
+
+| Change | Reason |
+|---|---|
+| **`Create` moves from Phase 6 into Phase 4** | The Saved tab's own contract line is `Create saved queue`, and the empty state's only route out is that control. Shipping the tab without it is a screen whose one documented action is missing — the empty-destination objection §12.5 already resolved twice. It is also the smallest operation (no confirmation, nothing destructive), and it lets the tab's instrumented tests build state through the UI rather than only by seeding a store. |
+| **Phase 7 moves ahead of Phases 5 and 6** | Otherwise three consecutive slices have seeded-store tests as their only verification. With Add second, slices 1 and 2 together make the feature usable and device-validatable, and 3–5 become refinements on something real. |
+
+The phases' **contents** are unchanged; only the order is. `README.md` now states the one visible consequence — *a Saved Queue can be created but not filled* — rather than leaving a reader to infer it from an absent control.
+
+#### What shipped
+
+| Piece | Where |
+|---|---|
+| the store seam, the coordinator, the published list, `createSavedQueue`, `playSavedQueue` | `ReaderApp` |
+| `SavedQueueCard` and its projections — the ordering, and how a count is spoken | `application` |
+| `SavedQueueDetails` and `CreateSavedQueue`, the first two secondary destinations added since the shell | `ReaderDestination` |
+| `ReaderStop.subjectId` — "what this screen is about", as distinct from "what to focus on return" | `ReaderNavigator` |
+| the tab host, and the Listening body split out of it | `QueuesScreen`, `ListeningTab`, `SavedTab` |
+| the two new screens, and one read of the store per process | `SavedQueueDetailsScreen`, `CreateSavedQueueScreen`, `ReaderHost.readSavedQueues` |
+
+`QueueOrigin.Saved(queueId, name)` now has a constructor, which closes the gap §23.27 left open by adding the identity and recording that nothing read it.
+
+#### Three design points worth recording
+
+**One publishing rule, and it is the same rule as the no-op rule.** An operation publishes `QueueEditOutcome.queues` **only when it changed something**:
+
+```kotlin
+if (outcome.changed) _savedQueues.value = outcome.queues
+```
+
+The non-obvious half is that this also makes an unreadable store safe. `QueueEditOutcome.unavailable()` is `changed == false` with an **empty** `queues` — that empty list is what a store that could not be read looks like, and publishing it would blank a list the listener can see rather than a file they cannot. So the condition that handles a no-op handles the failure too, and there is no second condition to remember. §23.26 documented the caveat; this is the file where it would have been violated.
+
+**The first destination that has to be told which one it is.** Every destination before this was addressed by nothing (Home, Browse, Queues), by what is being played (Player), or by a page id it was opened for (Note). Saved Queue Details needs a *queue*, and the navigation model had no place to put one. `ReaderStop` gained `subjectId`, kept separate from `fromFocusId` — and they must not be one field even though they coincide on the one route that exists today, because the routes the contract already names separate them: Home's *Your queues* opens Details **about a queue** while returning focus to a *Home row*, and Queue Destination's `Create new queue` pushes a screen about nothing at all. This is the change `ReaderNavigator`'s own documentation flagged as due when a two-deep flow arrived.
+
+**Queues becomes two tabs, and the ordinal changes.** TalkBack now announces "1 of 2" where it announced "1 of 1", and where the contract's example says "1 of 3". The ordinal counts the tabs that exist, and the third arrives with the tab it counts. `Smart` remains the recorded deferral rather than a shipped-but-disabled tab, because a permanently unusable control one tap from two populated surfaces is the objection §18.4 already resolved. The selected tab is `rememberSaveable`, which is what satisfies the contract's "Queues should retain: selected top tab" across both destination switches and process restart — and what is saved is the tab's **name** rather than its ordinal, so a third tab added in the middle cannot silently select a different one on restore.
+
+#### A defect found in the verification tooling, while trying to verify
+
+The instrumented suite could not run: the device was locked, and the wrapper refused — correctly, because a secure lock needs its owner's PIN and the script deliberately never handles a credential. But the refusal **left the run lock behind**, because the lock was acquired next to the device preflight while the `finally` that releases it belongs to a `try` that begins *after* it. Every preflight refusal therefore leaked a lock file, and the next run found a pid that either no longer existed or had been reused by an unrelated process — giving either a stale-lock warning or a flat refusal claiming another run was in progress, about a run that had already ended. That is this project's recurring failure shape: a wrong answer, reported with full confidence.
+
+The fix is placement rather than a guard: the lock is now taken immediately before the `try`, which is also its honest scope, since the resources it protects — the test-results directory and the device settings raised on the next line — are touched only inside that block. Proved by running the wrapper with no lock present and confirming that a refusal creates none and leaves `screen_off_timeout` untouched.
+
+#### Failing-first proofs
+
+Four guards, each removed alone, each noticed by **exactly one** named test, and each restored from a file backup rather than re-edited. 490 tests throughout, so no removal changed the count.
+
+| Guard removed | Test that noticed |
+|---|---|
+| publishing checked against `changed` | `anUnreadableStorePublishesNoQueuesAndLeavesThePublishedListAlone` |
+| `isPlayable = members.isNotEmpty()` | `anEmptyQueueIsNotPlayableAndAPopulatedOneIs` |
+| the singular member count | `oneNoteIsSpokenInTheSingular` |
+| `sortedByDescending { it.lastEditedAt }` | `theListsMostRecentlyEditedQueueFirst` |
+
+The first is the one that matters: it is the only test in the suite that can see the list-blanking defect, because it is the only one where a read fails while a list is already published.
+
+#### What is deliberately not here, and what that costs
+
+- **No Edit mode**, so no `Move`, `Remove`, `Done` or `Edit queue` — and the instrumented tests assert their *absence* rather than their being disabled, because the contract's objection is to a screen a screen-reader listener cannot traverse, and a disabled control is still traversed.
+- **No `Rename` or `Delete`**, so Details renders with one control rather than the three the contract's Viewing state eventually lists. The screen is built so that their arrival is a branch rather than a flag.
+- **A queue that is gone renders its own state**, offering nothing to repair — per the specification's rule for a session whose source queue was deleted. It is reachable, because the list underneath is not frozen and a store that could not be read reports no queues.
+- **`ReaderViewModel.createSavedQueue`'s "leave only when a queue was created" branch has no test of the ViewModel**, which is an `AndroidViewModel` and has no JVM test in this project. It is covered by construction — the instrumented shell test wires a callback of the same shape — and the *refusal* path is unreachable through the UI at all, because the screen disables `Create` on a blank name. That makes the branch defence in depth rather than a behaviour a test can reach, which is worth stating rather than implying it is verified.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:
@@ -5007,11 +5162,13 @@ announced is not a restore.
   Creation & Queue Management — in **§23.24** as `docs/queue-creation-and-queue-management-spec.md`. Nothing is
   now blocked on a document except Smart Queues, which need the still-unwritten Content Metadata & Workspace
   Schema Adapters spec as well (D30), and Browse's facets and Home's Explore, which need the same one.
-- **Saved Queue implementation is unblocked and is the next queue work**: Phase 1 (the record and the store,
-  reusing `SessionCodec`/`DataStoreSessionStore`) and Phase 2 (the model and its invariants with failing-first
-  proofs for the no-op and duplicate rules), both JVM-verifiable. Phase 3 — the identity-carrying
-  `QueueOrigin` and its `SESSION_SCHEMA_VERSION` bump — is the one to do deliberately, because it is the only
-  part that changes persistence that already works.
+- **Saved Queue implementation is under way and is the current queue work.** Phases 1–3 are done
+  (§23.25–§23.27): the record, codec and store; the six operations as one pure model; and the
+  identity-carrying `QueueOrigin` with its `SESSION_SCHEMA_VERSION` bump. §23.28 adds the first surface —
+  the Saved tab, Details in Viewing, `Play` and `Create saved queue` — and records the slice order the
+  remaining phases are taken in, which is **Add next** (spec Phase 7), then Edit mode, then Rename/Delete,
+  then Home's *Your queues*. The reason is in §23.28: membership enters a queue only through `Add`, so until
+  that lands every Saved Queue is empty and `Play` is always unavailable.
 - **Stage 2 (background playback) is stopped on a diagnosis, not a decision**: §23.22–§23.23 could not
   establish whether the service start is attempted, because our log output does not reach `logcat -d` on this
   device — most likely a saturated ring buffer. The next attempt needs a **live capture**, with `logcat`

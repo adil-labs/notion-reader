@@ -82,7 +82,7 @@ class DataStoreSavedQueueStore(private val context: Context) : SavedQueueStore {
             // Either the file could not be read, so the transaction never ran, or the commit failed. Neither
             // wrote anything, and neither is a failure of the operation the listener performed.
         }
-        return decided ?: UNAVAILABLE
+        return decided ?: QueueEditOutcome.unavailable()
     }
 
     private companion object {
@@ -91,16 +91,5 @@ class DataStoreSavedQueueStore(private val context: Context) : SavedQueueStore {
          * second key in the same file would be a queue kind this specification deliberately does not define.
          */
         val QUEUES = stringPreferencesKey("queues")
-
-        /**
-         * The answer for a store that could not be read: nothing happened, so there is nothing to report and
-         * no list that can be claimed. Built once here rather than at each site so the three fields cannot
-         * drift apart, since the pairing of an unchanged outcome with this effect is the whole statement.
-         */
-        val UNAVAILABLE = QueueEditOutcome(
-            queues = emptyList(),
-            changed = false,
-            effect = QueueEffect.StoreUnavailable
-        )
     }
 }

@@ -71,10 +71,11 @@ edit.
 ## Build and test
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest              # 327 JVM tests, no device, this is the default check
+.\gradlew.bat :app:testDebugUnitTest              # 490 JVM tests, no device, this is the default check
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:compileDebugAndroidTestKotlin  # REQUIRED after touching androidTest
-pwsh -File tools\run-accessibility-tests.ps1      # instrumented a11y suite; needs a device
+pwsh -File tools\run-accessibility-tests.ps1      # instrumented a11y suite; needs a device or emulator
+pwsh -File tools\setup-emulator.ps1              # installs/boots one, so a PIN is not on the path
 ```
 
 - `:app:testDebugUnitTest` and `:app:assembleDebug` **do not compile `androidTest`**, so a broken
@@ -164,14 +165,25 @@ pwsh -File tools\run-accessibility-tests.ps1 -Class com.example.notionreader.ui.
 - Assert reading order through the semantics tree, not by sorting geometry.
 - The wrapper's HTML report is the accurate result: `app/build/reports/androidTests/connected/debug/index.html`.
 
-**The focus-restore assertions are red on this device, and that is recorded rather than fixed**
-(`docs/decisions.md` §23.12–§23.14). TalkBack running with *touch exploration* makes
-`FocusRequester.requestFocus()` refuse on a `clickable` node while granting it on a `focusable()` one, so
-seven focus assertions fail for a device reason. The mechanism is deliberately **not** being redesigned
-around TalkBack: the app speaks through its own TTS and implements no screen-reader-conditional behaviour
-(D34/D35). Do not delete, relax or `@Ignore` those seven tests to get a green run — this project treats that
-as a defect, and the assertions name a real contract requirement. Check
-`adb shell settings get secure touch_exploration_enabled` before diagnosing a focus failure.
+**The focus-restore assertions are green, and the reason they were red was ours** (`docs/decisions.md` §23.29).
+They failed for three rounds under a chain of explanations that were each wrong — TalkBack holding
+accessibility focus, then touch exploration (§23.17 refuted that), then a Compose-versus-API-37 interaction.
+Every one of them blamed the environment.
+
+The measured cause: **`clickable` does not give a `FocusRequester` a target the request can be granted
+against.** `Modifier.clickable` alone is refused on every attempt and every frame, while an explicit
+`focusable()` in the same chain is granted — and `focusTarget()` is granted but does not *report* being
+focused, so nothing can observe where focus went. `restoreFocusOn` now returns
+`focusRequester(requester).focusable()`, which its callers place before `clickable`.
+
+The lesson worth keeping, because this is the third time it has cost a round here: a refusal that neither
+threw nor was granted was read as a *timing* failure, and the response was to retry across frames rather than
+to ask what the request was being granted *against*. `requestFocus()` returning `false` is a definite answer,
+not an ambiguous one. When a mechanism fails, and an emulator is available, measure the primitive rather than
+reasoning about it — `tools/setup-emulator.ps1` makes that a half-minute experiment instead of a device round.
+
+Do not delete, relax or `@Ignore` these assertions to get a green run; they name a real contract requirement,
+and they now pass on their own merits.
 
 ## Pitfalls
 
@@ -180,6 +192,29 @@ as a defect, and the assertions name a real contract requirement. Check
 - **A locked device fails the whole instrumented suite** with "No compose hierarchies found in the
   app" — 45-odd uniform failures that read as a catastrophic regression. The wrapper wakes, dismisses
   and *verifies* the keyguard and refuses to run otherwise. Do not diagnose this as a broken app.
+- **There is no scripted way past a lock that needs a credential**, and the command that looks like one is
+  a trap. On this phone (`ro.build.type=user`, `ro.debuggable=0`):
+
+  ```
+  adb shell locksettings set-disabled true
+  → Lock screen disabled set to true      # reports success
+  adb shell settings get secure lockscreen.disabled
+  → 0                                     # and writes nothing
+  ```
+
+  (`cmd lock_settings --help` misleads the other way, answering "User has a lock credential, but old
+  credential was not provided", which reads as though the credential gates everything.) The wrapper now
+  separates a **credential** (`inputRestricted=true` — nothing can help) from the **wake/dismiss race**
+  (`inputRestricted=false` — re-run), because those have opposite fixes and used to share one message.
+- **`tools/setup-emulator.ps1` is the way to avoid the lock entirely** (see `docs/decisions.md` §23.29).
+  An emulator has no credential to clear, so instrumented rounds stop depending on the owner's PIN. Read
+  its header first: the SDK tools it drives have three traps of their own, including exit codes that
+  report failure *after* a successful install.
+- **A green run on the emulator is not a green run on the phone.** The same seven focus-restore assertions
+  used to fail on both, and they now pass on both for the same reason — the fix is in the app, not in the
+  environment (§23.29). What an emulator still cannot tell you: API 37 background-audio hardening does not
+  exist on API 36, and TalkBack's *speech* focus following a programmatic request is not observable by a test
+  at all. Use `tools/setup-emulator.ps1` so a phone's screen lock is not on the critical path.
 - `connectedDebugAndroidTest` may exit non-zero when every test passed. The wrapper derives its own
   exit code from the collected results.
 - A retry is only permitted when **every** failure matches a known harness signature; a mixed or
@@ -188,6 +223,14 @@ as a defect, and the assertions name a real contract requirement. Check
 **PowerShell** (this project's tooling is almost all `.ps1`; these traps have each cost a session)
 
 - Quote Gradle `-P` flags (`'-Pandroid.foo=false'`) or the parser turns them into task names.
+- **Everything after `adb shell` is argv for the *device's* shell**, which shares no vocabulary with
+  PowerShell. `adb shell "dumpsys window | Select-String isKeyguardShowing"` returns
+  "`/system/bin/sh: Select-String: inaccessible or not found`" — a message about a missing command rather
+  than about the quoting mistake. Capture the output and filter it here.
+- **A package name containing `;` is split by the `.bat` wrappers.** `sdkmanager.bat` turned
+  `system-images;android-36;google_apis;x86_64` into four arguments and answered "Package android-36 not
+  found", which reads as a bad package name rather than as an argument-passing bug. Use the native
+  `android` CLI and quote it.
 - `@{}`, `-match`, `-replace` and `Sort-Object -Unique` are all **case-insensitive**. Use
   `Dictionary`/`HashSet` with `StringComparer.Ordinal` and `[regex]::IsMatch` for identifier work.
 - A function's output *is* its return value — `Write-Output` and a native command's stdout both end up
@@ -218,6 +261,7 @@ as a defect, and the assertions name a real contract requirement. Check
 | Script | Purpose |
 |---|---|
 | `run-accessibility-tests.ps1` | The instrumented suite, with the device prepared. Use this, not Gradle. |
+| `setup-emulator.ps1` | Installs the emulator + an API 36 image and creates/boots an AVD, so the suite can run without a phone and therefore without a PIN. Idempotent; `-Check` reports only, `-Stop` shuts it down. |
 | `probe-player-back.ps1`, `probe-player-navigation.ps1`, `probe-history.ps1`, `probe-listening-tab.ps1`, `probe-config-change.ps1` | Drive the real UI over `adb` and read the accessibility dump back. They read tap targets from the dump rather than hard-coding coordinates — keep it that way, because a probe that misses reports a wrong answer with full confidence. |
 | `notion-tool.ps1` | Read-only `-Action list\|page\|children` inspector against the live Notion API. |
 | `capture-reader-fixture.ps1`, `seed-reader-fixture.ps1`, `extend-reader-fixture.ps1`, `verify-identity-stability.ps1` | Fixture capture/seeding, and the API-level proof that block ids survive edits (edits, captures, restores and *verifies* the restore). |

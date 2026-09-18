@@ -48,7 +48,7 @@ class InMemorySavedQueueStore(
     override suspend fun transact(decide: (List<SavedQueue>) -> QueueEditOutcome): QueueEditOutcome {
         // A store that cannot be read performs nothing at all, which is the whole point of the transaction:
         // the caller's decision is never taken, so a failed read can never be written back.
-        if (failReads) return UNAVAILABLE
+        if (failReads) return QueueEditOutcome.unavailable()
 
         val next = decide(stored)
         if (next.changed) {
@@ -63,12 +63,4 @@ class InMemorySavedQueueStore(
 
     /** The queue with [id], or null. A convenience for assertions, not a lookup the production code uses. */
     fun queue(id: String): SavedQueue? = stored.firstOrNull { it.id == id }
-
-    private companion object {
-        val UNAVAILABLE = QueueEditOutcome(
-            queues = emptyList(),
-            changed = false,
-            effect = QueueEffect.StoreUnavailable
-        )
-    }
 }

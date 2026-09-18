@@ -80,7 +80,8 @@ class ReaderShellAccessibilityTest {
                 onRetryNoteLoad = { },
                 onRetryBrowseIndex = { },
                 onContinueSession = { },
-                onReplayCompleted = { }
+                onReplayCompleted = { },
+                onCreateSavedQueue = { }
             )
         }
     }
@@ -96,20 +97,25 @@ class ReaderShellAccessibilityTest {
      * ## Why this is not `assertIsFocused` after a `waitForIdle`
      *
      * Because restoring focus is a *frame-based* operation. `restoreFocusOn` requests focus from a
-     * `LaunchedEffect` that waits for a frame first, since a request issued before the target is attached
-     * and placed is silently dropped — and `ComposeTestRule` installs a **test frame clock**, so those
-     * frames only flow when the test asks for them. `waitForIdle` settles recomposition; it does not
-     * guarantee a pending frame callback has run. Asserting straight afterwards therefore asks about a
-     * request that has not been made yet, which is what made all four of these fail on the device while
-     * the node dump showed the right node with the right bounds.
+     * `LaunchedEffect` that waits for a frame first — and `ComposeTestRule` installs a **test frame clock**,
+     * so those frames only flow when the test asks for them. `waitForIdle` settles recomposition; it does not
+     * guarantee a pending frame callback has run, so asserting straight afterwards asks about a request that
+     * has not been made yet.
      *
-     * `waitUntil` advances the clock (with the default `autoAdvance`), so this is the documented way to let
-     * a frame-driven mechanism run. It is a fix on the test side and is worth being explicit about: the
-     * production behaviour is correct on a device, where frames flow continuously, and the earlier
-     * "verified by construction" claim for this code is what made that fact invisible for a round.
+     * `waitUntil` advances the clock (with the default `autoAdvance`), which is the documented way to let a
+     * frame-driven mechanism run.
      *
-     * A failure here is still a failure — the timeout elapses and the assertion reports what it found — it
-     * just no longer races the mechanism it is testing.
+     * ## Why the assertion is by `isFocused()` **and** the label, rather than by the label alone
+     *
+     * Because a label is not unique on every screen, and this helper's last line used to assume it was: after
+     * `waitUntil` had correctly found a focused node, it re-queried with `onNodeWithText(label)` and threw
+     * "Expected exactly '1' node but found '2'". On the Player-to-Note path both the Note screen's `Play` and
+     * another control read "Play", and the assertion failed while the *first* of the two — the one that had
+     * been asked for — reported `Focused = 'true'`. A selector problem, reported as a focus problem.
+     *
+     * Asserting on the focused node that carries the label is the property the contract states — "restore the
+     * previous meaningful focus target" — and it is unambiguous whether or not the label is. The count of
+     * exactly one is asserted rather than implied, so two focused nodes would still fail.
      */
     private fun awaitFocusOn(label: String) {
         compose.waitUntil(timeoutMillis = 5_000) {
@@ -117,7 +123,7 @@ class ReaderShellAccessibilityTest {
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
-        compose.onNodeWithText(label, substring = true).assertIsFocused()
+        compose.onAllNodes(isFocused() and hasText(label, substring = true)).assertCountEquals(1)
     }
 
     private fun isATab(): SemanticsMatcher = SemanticsMatcher("is a tab") { node ->

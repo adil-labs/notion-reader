@@ -7,7 +7,10 @@ import com.example.notionreader.application.ReaderNavigator
 import com.example.notionreader.application.ReaderSession
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderIndexEntry
+import com.example.notionreader.domain.queue.QueueEditOutcome
 import com.example.notionreader.domain.queue.QueuedNote
+import com.example.notionreader.domain.queue.SavedQueue
+import com.example.notionreader.domain.queue.SavedQueueStore
 import com.example.notionreader.player.ReaderEngineImpl
 import com.example.notionreader.player.SpeechEngine
 import java.time.Instant
@@ -59,7 +62,8 @@ internal class ShellHarness {
      */
     fun app(
         entries: List<ReaderIndexEntry> = emptyList(),
-        withSession: Boolean = false
+        withSession: Boolean = false,
+        savedQueues: List<SavedQueue> = emptyList()
     ): ReaderApp {
         val app = ReaderApp(
             session = ReaderSession(
@@ -70,12 +74,20 @@ internal class ShellHarness {
             ),
             noteViewer = NoteViewer(document("demo", "Demo document")),
             navigator = ReaderNavigator(),
-            loadDocument = DefaultLoadReaderDocument { pageId -> document(pageId, "Note $pageId") }
+            loadDocument = DefaultLoadReaderDocument { pageId -> document(pageId, "Note $pageId") },
+            // A device's own store would write to the app's real preferences file, which would make one test
+            // see the previous test's queues and would leave data behind on the device. This is the same
+            // trade [SilentSpeechEngine] makes and for the same reason.
+            savedQueueStore = RecordingSavedQueueStore(savedQueues)
         )
 
         if (entries.isNotEmpty()) runBlocking { app.loadBrowseIndex { entries } }
 
         if (withSession) app.playAll(listOf(QueuedNote("page-1", "Alpha"), QueuedNote("page-2", "Beta")))
+
+        // Read at construction so a screen rendered immediately has the queues, which is what the real
+        // process does in `ReaderHost.readSavedQueues`.
+        if (savedQueues.isNotEmpty()) runBlocking { app.loadSavedQueues() }
 
         return app
     }
@@ -93,4 +105,33 @@ private object SilentSpeechEngine : SpeechEngine {
     override fun speak(text: String, onComplete: (() -> Unit)?) = Unit
     override fun stop() = Unit
     override fun shutdown() = Unit
+}
+
+/**
+ * Saved Queues in memory, for the shell tests.
+ *
+ * ## Why this exists here rather than being reused
+ *
+ * `InMemorySavedQueueStore` is the JVM suite's double and lives in `app/src/test`, which the instrumented
+ * source set cannot see. Its *behaviour* is deliberately the same — including the part that matters for the
+ * one rule the shell can exercise: a decision is only persisted when it reports that something changed.
+ *
+ * A device's real store is not an option here. `DataStoreSavedQueueStore` writes to the application's actual
+ * preferences file, so a test using it would read whatever a previous test had created and would leave
+ * queues behind on the device — the same reason [SilentSpeechEngine] is used instead of a real TTS engine.
+ *
+ * It is deliberately not a second implementation of the *rules*: those belong to `QueueEdit.applyTo` and are
+ * tested with no device. This only holds a list.
+ */
+private class RecordingSavedQueueStore(initial: List<SavedQueue>) : SavedQueueStore {
+
+    private var stored: List<SavedQueue> = initial
+
+    override suspend fun read(): List<SavedQueue> = stored
+
+    override suspend fun transact(decide: (List<SavedQueue>) -> QueueEditOutcome): QueueEditOutcome {
+        val next = decide(stored)
+        if (next.changed) stored = next.queues
+        return next
+    }
 }

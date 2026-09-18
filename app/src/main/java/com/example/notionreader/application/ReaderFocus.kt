@@ -31,4 +31,21 @@ object ReaderFocus {
      * and `Play all` is how they got there.
      */
     const val BrowsePlayAll: String = "browse:playAll"
-}
+    /**
+     * Saved Queue Details' `Play`.
+     *
+     * A set-level action again — it plays the whole queue, not a member — so it has no content identity.
+     * It is distinct from [NotePlay] and [BrowsePlayAll] because the three are controls on three different
+     * screens: one id for all three would put focus back on the wrong screen's button whenever a listener
+     * returned from the Player by a route other than the one they went in by.
+     */
+    const val SavedQueuePlay: String = "savedQueue:play"
+
+    /**
+     * The Saved tab's `Create saved queue`.
+     *
+     * The destination it opens is about nothing — there is no queue yet — so this is the only identity the
+     * push has, and it is what Back returns focus to. That is the case [ReaderStop.subjectId] documents as
+     * the reason a stop needs two ids rather than one.
+     */
+    const val SavedQueueCreate: String = "savedQueue:create"}

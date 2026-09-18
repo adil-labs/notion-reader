@@ -8,8 +8,10 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.SemanticsMatcher
 import com.example.notionreader.application.HistoryEntry
+import com.example.notionreader.application.SavedQueueCard
 import com.example.notionreader.ui.A11y.assertIsReadable
 import com.example.notionreader.ui.A11y.assertIsReachable
 import org.junit.Assert.assertEquals
@@ -77,7 +79,10 @@ class QueuesScreenAccessibilityTest {
         continueListening: List<HistoryEntry> = emptyList(),
         recentlyCompleted: List<HistoryEntry> = emptyList(),
         onContinue: (String) -> Unit = { },
-        onReplay: (String) -> Unit = { }
+        onReplay: (String) -> Unit = { },
+        savedQueues: List<SavedQueueCard> = emptyList(),
+        onOpenSavedQueue: (String) -> Unit = { },
+        onCreateSavedQueue: () -> Unit = { }
     ) {
         compose.setContent {
             QueuesScreen(
@@ -85,7 +90,10 @@ class QueuesScreenAccessibilityTest {
                 recentlyCompleted = recentlyCompleted,
                 onContinue = onContinue,
                 onReplay = onReplay,
-                now = now
+                now = now,
+                savedQueues = savedQueues,
+                onOpenSavedQueue = onOpenSavedQueue,
+                onCreateSavedQueue = onCreateSavedQueue
             )
         }
     }
@@ -235,6 +243,77 @@ class QueuesScreenAccessibilityTest {
 
         compose.onNodeWithText("8 notes", substring = true).assertExists()
         compose.onNodeWithText("Completed yesterday", substring = true).assertExists()
+    }
+
+    // ------------------------------------------------------------------------------------ the tab row
+
+    @Test
+    fun theTabRowOffersListeningAndSavedAndNothingElse() {
+        // The contract's Queues screen is `Listening | Saved | Smart`. Two of the three exist, and the third's
+        // absence is the scoped deferral recorded in `docs/decisions.md` §18 rather than a redefinition: a
+        // Smart tab would be a permanently unusable control one tap from two populated surfaces.
+        show(continueListening = listOf(unfinished()))
+
+        compose.onNodeWithText("Listening").assertExists()
+        compose.onNodeWithText("Saved").assertExists()
+        compose.onAllNodesWithText("Smart").assertCountEquals(0)
+    }
+
+    @Test
+    fun bothTabsAreSelectableWithoutAnyGesture() {
+        // "Nothing in history may be reachable only by a gesture" is the Listening half of this, and the
+        // general rule the specification states for every queue operation is the same: each is an ordinary
+        // named control. A tab reached by a swipe would be the one exception.
+        show(continueListening = listOf(unfinished()))
+
+        compose.onNodeWithText("Listening").assertIsReachable()
+        compose.onNodeWithText("Saved").assertIsReachable()
+    }
+
+    @Test
+    fun selectingTheSavedTabShowsTheSavedTabAndNotTheListeningOne() {
+        // The two bodies are separate surfaces, so the failure this guards is one tab's content appearing
+        // under the other's label — most likely the Listening tab's empty state rendering inside Saved.
+        show(
+            continueListening = listOf(unfinished()),
+            savedQueues = listOf(
+                SavedQueueCard(
+                    queueId = "q1",
+                    name = "Chess calculation review",
+                    members = emptyList(),
+                    lastEditedAt = now
+                )
+            )
+        )
+
+        compose.onNodeWithText("Saved").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("Chess calculation review").assertExists()
+        compose.onAllNodesWithText("Continue listening").assertCountEquals(0)
+    }
+
+    @Test
+    fun selectingTheListeningTabAgainBringsTheHistoryBack() {
+        // The round trip, because the selected tab is retained state: a switch that only worked in one
+        // direction would leave the listener stuck on whichever tab they reached last.
+        show(continueListening = listOf(unfinished()))
+
+        compose.onNodeWithText("Saved").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Listening").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("Continue listening").assertExists()
+    }
+
+    @Test
+    fun theSavedTabReportsItsOwnEmptyStateRatherThanTheListingsOne() {
+        // The two empty states say different things about different absences, and a listener who has history
+        // but no queues must not be told they have never listened to anything.
+        show(continueListening = listOf(unfinished()))
+
+        compose.onNodeWithText("Saved").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("No saved queues yet.").assertExists()
+        compose.onAllNodesWithText("Nothing here yet.").assertCountEquals(0)
     }
 
     @Test

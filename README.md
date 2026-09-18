@@ -61,16 +61,23 @@ interchangeable:
   session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
   played" (`docs/decisions.md` §22).
 
-Queues ships **one of its three tabs**. The **Listening** tab is built; **Saved** waits on the Queue
-Creation & Queue Management specification (§23.5, stage 0c), and **Smart** waits on that plus the
-Content Metadata & Workspace Schema Adapters specification — so Smart is deliberately out of scope for
-the coming work by decision (`docs/decisions.md` §23, D30). The tab row is in place so each deferred tab
-is one tab and one screen, and two permanently unusable controls one tap from a populated surface would
+Queues ships **two of its three tabs**. **Listening** and **Saved** are built; **Smart** waits on the
+Queue Creation & Queue Management specification plus the Content Metadata & Workspace Schema Adapters
+specification — so Smart is deliberately out of scope for the coming work by decision
+(`docs/decisions.md` §23, D30). Two permanently unusable controls one tap from a populated surface would
 be the same problem as an empty screen, only better hidden (`docs/decisions.md` §18.4). Settings is
 absent for the same reason it always was — it has no content by definition.
 
-The Note's `Add to queue` action is still deliberately absent: it needs Saved Queues to add to, and a
-visible control that does nothing is worse for a TalkBack user than an absent one.
+The **Saved** tab lists the queues the listener built, most recently edited first, each named with its
+member count, and offers `Create saved queue`. Activating a queue opens **Saved Queue Details**, which
+shows its members in order and offers `Play` — which snapshots the queue's current membership and order
+into a new session, and is unavailable on an empty queue with the reason stated. A member row opens its
+Note and does not play it. Editing a queue's membership and order is the next slice.
+
+The Note's `Add to queue` action is still deliberately absent: it needs a Saved Queue to add to, and a
+visible control that does nothing is worse for a TalkBack user than an absent one. A queue can therefore
+be created but not yet filled — membership is added through Queue Destination, which is the next slice
+after Edit mode.
 
 ## Install on a device
 
@@ -85,14 +92,14 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 ## Not yet implemented
 
 - The Note's `Add to queue`, `Add all to queue` on Browse, Queue Destination, and the mini-player's own
-  screen. Each needs a Saved Queue to act on.
-- Queue **management** of Saved Queues — create, rename, reorder, remove, delete. This is stage 0c, the
-  Queue Creation & Queue Management specification, which is not written yet; the UI contract defers the
-  persistence schema to it and the integration spec explicitly delegates it away from itself. The pieces
-  that *are* implemented are the ones that need nothing new: the Active Queue's snapshot and the
-  navigation within it.
-- Queues' **Saved** and **Smart** tabs. The **Listening** tab is built. **Saved** waits on stage 0c, and
-  **Smart** waits on stage 0c plus the Content Metadata & Workspace Schema Adapters specification, so Smart
+  screen. Each needs a Saved Queue to add to, and the destination screen that would do it is the next slice.
+  **Until it lands, a Saved Queue can be created but not filled**, so `Play` on one is always unavailable —
+  the one visible consequence of the ordering, and the reason the Add path is being taken before Edit mode.
+- Queue **management** of Saved Queues — rename, reorder, remove, delete. Create ships; the four moves,
+  `Remove`, `Rename` and their confirmations are the slices after the Add path. The model underneath them
+  is done and tested (`docs/decisions.md` §23.26), so each is a surface rather than a rule.
+- Queues' **Smart** tab. **Listening** and **Saved** are built. **Smart** waits on the Queue Creation &
+  Queue Management specification plus the Content Metadata & Workspace Schema Adapters specification, so it
   is deliberately out of scope by decision (`docs/decisions.md` §23, D30) rather than left as an
   open-ended gap.
 - Browse facets, and Home's Explore and Your queues sections, which all need the Content Metadata &
@@ -257,7 +264,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 461 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 490 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 
@@ -270,7 +277,7 @@ be silent.
 
 ### Instrumented accessibility tests
 
-The 108 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+The 153 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
 consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
 directly:
 
@@ -310,23 +317,24 @@ A real failure is retried only when **every** failing test matches a short list 
 the harness losing the activity, or the locked-device signature above. Any unclassified or mixed result
 is red immediately, because a retry must never be able to launder a real defect into a pass.
 
-**The focus-restore assertions cannot be made on this device as it is currently configured**
-(`docs/decisions.md` §23.12–§23.14). With TalkBack running *and touch exploration enabled*, a programmatic
-focus request is refused on a `clickable` element — the kind the app's rows are — while it is granted on an
-explicitly `focusable()` one, so seven focus assertions fail for a reason that is the device's rather than
-the app's. The messages say which: `requestFocus() returned false and hasWindowFocus() returned true`.
+**The focus-restore assertions pass, and the reason they once did not was in the app**
+(`docs/decisions.md` §23.29). They failed for three rounds under explanations that each blamed the device —
+TalkBack holding accessibility focus, then touch exploration, then an API-37 interaction. The measured cause
+was that `clickable` gives a `FocusRequester` no target to be granted against: a request on a
+`clickable`-only node is refused, while the same chain with an explicit `focusable()` before it is granted.
+`restoreFocusOn` now adds that `focusable()`, and all seven pass — on the emulator and on the phone.
 
-The mechanism is **not** being redesigned around TalkBack (D34/D35): the app speaks through its own TTS and
-does not implement screen-reader-conditional behaviour, so read a focus failure as *unassertable in this
-configuration* rather than as a regression — and check the configuration with `adb shell settings get
-secure enabled_accessibility_services` and `... touch_exploration_enabled` before believing it. The seven
-assertions stay red rather than being deleted: they name a real contract requirement, and a red suite that
-asks a question is worth more than a green one that stopped.
+The measurement that settled it came from a clean emulator (`tools/setup-emulator.ps1`) rather than from
+reasoning, which is why a screen lock is no longer on the path of an instrumented round. What remains
+unobservable by any test is whether TalkBack's *speech* focus follows a programmatic request — that is the
+integration spec's listening gate, and it needs ears.
 
-Note: the `connectedDebugAndroidTest` task currently exits non-zero even when every test passes. The
-wrapper derives its own exit code from the collected results, reading both the XML and the HTML report
-and using the worse count, because the two have disagreed in both directions on this project. The HTML
-report is at `app/build/reports/androidTests/connected/debug/index.html`.
+Note: the `connectedDebugAndroidTest` task has been seen to exit non-zero when every test passed — but on
+an emulator it **exited 0 with 153 tests green**, so treat that as a device-specific observation rather
+than a rule. The wrapper does not rely on it either way: it derives its own exit code from the collected
+results, reading both the XML and the HTML report and using the worse count, because the two have
+disagreed in both directions on this project. The HTML report is at
+`app/build/reports/androidTests/connected/debug/index.html`.
 
 ## Accessibility rules
 

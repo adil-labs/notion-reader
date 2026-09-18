@@ -27,17 +27,17 @@
 
     Only those settings are touched, and only for the duration. Nothing is installed or uninstalled
     beyond what Gradle does normally.
-    THE ACCESSIBILITY CONFIGURATION, AND WHY IT IS REPORTED
-    Seven focus-restore assertions fail on this device for a reason that is the device's rather than the
-    app's, and the measurement is in `docs/decisions.md` 23.12: with TalkBack running *and touch
-    exploration enabled*, `FocusRequester.requestFocus()` is refused on a `clickable` node - the kind the
-    app's rows are - while it is granted on an explicitly `focusable()` one. The failure messages say so:
-    `requestFocus() returned false and hasWindowFocus() returned true`, so the window is focused and the
-    refusal is about the node's kind of focus.
+    THE ACCESSIBILITY CONFIGURATION, AND WHY IT IS STILL REPORTED
+    The seven focus-restore assertions were red for three rounds and are now green; the cause was in the
+    app's own modifier chain, not in the device (see `docs/decisions.md` 23.29 and `FocusRestore.kt`).
+    `Modifier.clickable` alone gives a `FocusRequester` no target to be granted against, so the request was
+    refused on every frame and every attempt - which was misread for three rounds as a timing failure, and
+    then as a TalkBack/touch-exploration limitation, both of which are refuted.
 
-    So the configuration is read and printed on every run, because a focus failure is otherwise
-    unattributable - the same seven tests fail with touch exploration on and pass with it off, and the
-    assertion says nothing about which configuration produced it.
+    The configuration is still read and printed on every run, for a different reason that survives the fix:
+    it is the cheapest way to tell a *focus* failure from a device that is not in the state the suite
+    expects. The measurement that settled the question needs `enabled_accessibility_services=null` and
+    `touch_exploration_enabled=0` to be trustworthy, and printing both is what makes a run self-describing.
 
     `-DisableTouchExploration` turns it off for the duration and restores it afterwards, which is how the
     focus mechanism gets verified on a device that is not configured the unusual way. It is off by default
@@ -346,28 +346,17 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
     The lock is a file holding the owning process id, so a run that was killed leaves a lock that can be
     identified as stale (its process is gone) and taken over, rather than blocking every later run forever.
+
+    It is taken *immediately before the try below* rather than here, and that placement is the correction of a
+    real defect. Acquired earlier — next to the device preflight — a refusal at that preflight (no device, more
+    than one device, a locked keyguard) exited before the `finally` that releases it, so the lock file stayed
+    behind. The next run then found a pid that either no longer existed or had been reused by an unrelated
+    process, and either warned about a stale lock or refused outright claiming another run was in progress,
+    which is a wrong answer reported with full confidence about a run that had already ended.
+
+    Acquiring it there is also the honest scope: the resources the lock protects are the test-results directory
+    and the device settings raised on the line after it, and both are touched only inside that try.
 #>
-$lockPath = Join-Path $repoRoot 'app\build\.a11y-runner.lock'
-if (Test-Path $lockPath) {
-    $lockContents = (Get-Content $lockPath -Raw).Trim()
-    $lockPid = ($lockContents -split '\s+')[0]
-    $ownerAlive = $false
-    if ($lockPid -match '^\d+$') {
-        $ownerAlive = $null -ne (Get-Process -Id ([int]$lockPid) -ErrorAction SilentlyContinue)
-    }
-
-    if ($ownerAlive) {
-        throw ("Another instrumented run is in progress (pid $lockPid, started $lockContents). Two runs " +
-            'share the test-results directory and the second fails with a file-lock error that names a file ' +
-            'rather than the cause. Wait for it, or stop it, then re-run.')
-    }
-
-    Write-Warning ("Found a stale lock from pid $lockPid ($lockContents) - that run was killed before its " +
-        'finally, so it may also have left the device''s screen timeout raised. Taking the lock over.')
-}
-
-Set-Content -Path $lockPath -Value "$PID $(Get-Date -Format o)"
-
 $adb = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Google.PlatformTools_*\platform-tools\adb.exe" |
     Select-Object -First 1).FullName
 
@@ -443,11 +432,12 @@ Write-Output "Device screen_off_timeout was $originalTimeout ms; raising to $TES
 Write-Output "Device stay_on_while_plugged_in was $originalStayOn; setting to 7 (always on) for this run."
 
 <#
-    The device's accessibility configuration, which the seven focus-restore assertions depend on.
+    The device's accessibility configuration, printed so a run is self-describing.
 
-    Read for every run and reported, because a focus failure is otherwise unattributable: the same seven
-    tests fail with touch exploration on and pass with it off, and nothing in the failure message says
-    which configuration produced it. `docs/decisions.md` §23.12 measured the cause; this makes it visible.
+    Reported for every run because it is the cheapest way to tell a *focus* failure from a device that is
+    not in the state the suite expects. The seven focus-restore assertions used to be attributed to this
+    configuration and are now known to have been the app's own fault (23.29), so this is no longer an
+    explanation of a red suite - it is context for whichever failure the next round has to explain.
 
     `-DisableTouchExploration` turns it off for the duration and restores it in the `finally` below,
     exactly as `screen_off_timeout` is handled. It exists so that the focus mechanism can be verified on a
@@ -488,25 +478,72 @@ if ($originalTouchExploration -eq '1' -and -not $DisableTouchExploration) {
     keyguard is still showing, the script refuses to run rather than producing a result that looks like
     an app failure. Unlocking a secure device needs the owner's PIN and is deliberately not attempted -
     a script that typed credentials would be a worse problem than the one it solved.
+
+    WHICH problem it is now matters, because the two have opposite fixes, so the refusal separates them on
+    `inputRestricted` (published by the same `dumpsys window`):
+
+        isKeyguardShowing=true  inputRestricted=true   -> a CREDENTIAL is required. Nothing here can help.
+        isKeyguardShowing=true  inputRestricted=false  -> the wake/dismiss race. Re-running often works.
+
+    It used to report one message for both, saying the device "could not be woken and dismissed", which
+    points at the race -- and so at retrying -- when the real state was a secure lock that no number of
+    retries will pass. That is the same wrong-answer-stated-confidently shape as the rest of this file.
+
+    There is no scripted way past a credential on a production build, and the command that looks like one
+    is a trap worth recording. On this device (`ro.build.type=user`, `ro.debuggable=0`, a PIN set):
+
+        $ adb shell locksettings set-disabled true
+        Lock screen disabled set to true          <- reports success
+        $ adb shell settings get secure lockscreen.disabled
+        0                                         <- and writes nothing
+
+    So it fails silently and its success message is false. (`adb shell cmd lock_settings --help` is
+    misleading in the other direction -- it answers "User has a lock credential, but old credential was
+    not provided", which reads as though the credential is needed for every operation.) Neither should be
+    trusted. The two honest routes are the owner typing the PIN, or an emulator, which has no lock:
+
+        pwsh -NoProfile -File tools\setup-emulator.ps1
+
+    That route was added because the device became the bottleneck for every instrumented round. See
+    `docs/decisions.md` 23.29, which also records that a green run on an emulator is NOT evidence about
+    this device's focus assertions -- see the note where the suite is reported.
 #>
 $keyguardDismissed = $false
+$credentialRequired = $false
 for ($attempt = 1; $attempt -le 3; $attempt++) {
     & $adb shell input keyevent KEYCODE_WAKEUP | Out-Null
     & $adb shell wm dismiss-keyguard | Out-Null
 
     # `dumpsys window` is the only place this is published; the lock settings do not report it.
-    $keyguardState = (& $adb shell dumpsys window | Select-String -Pattern 'isKeyguardShowing=\w+' |
+    $window = & $adb shell dumpsys window
+    $keyguardState = ($window | Select-String -Pattern 'isKeyguardShowing=\w+' |
         Select-Object -First 1).Matches.Value
+    $credentialRequired = ($window | Select-String -Pattern 'inputRestricted=true' | Measure-Object).Count -gt 0
 
     if ($keyguardState -eq 'isKeyguardShowing=false') { $keyguardDismissed = $true; break }
 }
 
 if (-not $keyguardDismissed) {
-    throw "The device is locked ($keyguardState) and could not be woken and dismissed into an unlocked " +
-        "state. Refusing to run: with the keyguard up every test fails with 'No compose hierarchies " +
-        "found in the app', which is indistinguishable from a total regression and is not one. " +
-        "Unlock the device and re-run. (A secure lock needs its PIN typed by hand; this script will " +
-        "never handle a credential.)"
+    $becauseItIsLocked = ('Refusing rather than running: with the keyguard up every test fails with ' +
+        "'No compose hierarchies found in the app', which is indistinguishable from a total regression " +
+        'and is not one.')
+
+    if ($credentialRequired) {
+        throw ("The device is locked and its lock requires a credential " +
+            "(isKeyguardShowing=$keyguardState, inputRestricted=true). No command can pass this: " +
+            '`wm dismiss-keyguard` only dismisses a lock with no credential, and `locksettings ' +
+            'set-disabled true` reports success on a production build while writing nothing. Two ways ' +
+            "forward: unlock the device by hand (type the PIN on the phone), or run the suite on an " +
+            'emulator, which has no lock at all: pwsh -NoProfile -File tools\setup-emulator.ps1. ' +
+            $becauseItIsLocked)
+    }
+
+    throw ("The device is awake but the keyguard is still showing " +
+        "(isKeyguardShowing=$keyguardState, inputRestricted=false) after three wake-and-dismiss " +
+        'attempts. That is the wake/dismiss race rather than a credential - a dismiss issued in the same ' +
+        'breath as the wake can arrive before there is a window to dismiss - so re-running is worth one ' +
+        'try. If it persists, check by hand: adb shell dumpsys window | Select-String ' +
+        'isKeyguardShowing. ' + $becauseItIsLocked)
 }
 
 Write-Output 'Device is awake and unlocked.'
@@ -521,6 +558,27 @@ if (-not $isCharging) {
     Write-Output ('Device is on battery, so stay_on_while_plugged_in has no effect; the raised ' +
         'screen_off_timeout is what keeps the display on for this run.')
 }
+
+$lockPath = Join-Path $repoRoot 'app\build\.a11y-runner.lock'
+if (Test-Path $lockPath) {
+    $lockContents = (Get-Content $lockPath -Raw).Trim()
+    $lockPid = ($lockContents -split '\s+')[0]
+    $ownerAlive = $false
+    if ($lockPid -match '^\d+$') {
+        $ownerAlive = $null -ne (Get-Process -Id ([int]$lockPid) -ErrorAction SilentlyContinue)
+    }
+
+    if ($ownerAlive) {
+        throw ("Another instrumented run is in progress (pid $lockPid, started $lockContents). Two runs " +
+            'share the test-results directory and the second fails with a file-lock error that names a file ' +
+            'rather than the cause. Wait for it, or stop it, then re-run.')
+    }
+
+    Write-Warning ("Found a stale lock from pid $lockPid ($lockContents) - that run was killed before its " +
+        'finally, so it may also have left the device''s screen timeout raised. Taking the lock over.')
+}
+
+Set-Content -Path $lockPath -Value "$PID $(Get-Date -Format o)"
 
 try {
     & $adb shell settings put system screen_off_timeout $TEST_TIMEOUT_MS | Out-Null
