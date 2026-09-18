@@ -176,6 +176,19 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
 
+    // Background playback. Media3's `MediaSessionService` is the platform's documented answer to Android
+    // 17's background-audio hardening, which applies to every app on API 37+ whether or not it targets 37:
+    // audio interacted with while the app has no visible activity must come from a foreground service of a
+    // media type, and every failure in that area is SILENT (playback suppressed with no exception, focus
+    // returning a failure code rather than throwing). The library manages that lifecycle, which is why it is
+    // used rather than a hand-written foreground service.
+    //
+    // `media3-session` pulls `media3-common`, which is where `Player`, `Commands`, `MediaItem` and
+    // `SimpleBasePlayer` come from — the last of these being the documented base for "a custom player that
+    // you want to connect to a MediaSession", which is exactly this app: the playback engine is TTS, not a
+    // media decoder, so there is nothing for ExoPlayer to do.
+    implementation("androidx.media3:media3-session:1.11.1")
+
     // Ktor 3.6.0 or newer: 3.2.0 ships an identifier containing spaces that R8 cannot dex for minSdk 26.
     implementation("io.ktor:ktor-client-core:3.6.0")
     implementation("io.ktor:ktor-client-okhttp:3.6.0")
