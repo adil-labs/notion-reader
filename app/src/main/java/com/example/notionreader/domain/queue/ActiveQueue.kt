@@ -49,8 +49,21 @@ data class QueuedNote(
  * synchronize with its source while playback is active or resumable."
  *
  * That constraint is why this is a value and not a reference. A `SmartQueue` origin holds the queue's
- * *name*, not its query: a query would invite re-evaluation, and re-evaluating is what the contract
- * spends four invariants forbidding.
+ * **identity and its label**, not its query: a query would invite re-evaluation, and re-evaluating is what the
+ * contract spends four invariants forbidding.
+ *
+ * ## Why [Saved] and [Smart] carry an identity rather than only a name
+ *
+ * A name satisfies "descriptive, never re-evaluated" — it is enough to *explain* where a session came from.
+ * It is not enough to *find* where it came from, and a name is not an identifier: two Saved Queues may share
+ * one, and renaming a queue leaves every stored session naming something that no longer exists under that
+ * name. So origin carries the queue's stable identity for navigation and the name as a label for
+ * description, which is exactly the split `SavedQueue` already makes between `id` and `name`.
+ *
+ * **This was a breaking wire change**, which is why [SESSION_SCHEMA_VERSION] was bumped rather than extended:
+ * the *meaning* of the field changed from "which queue, approximately" to "which queue, exactly", and a
+ * decoder that accepted both shapes would produce a session whose origin identifies nothing. That is worse
+ * than losing the session, because the session still works and only its explanation is wrong.
  *
  * `@Serializable`, with an explicit `@SerialName` per variant. The wire names are not the class names, so
  * renaming a class cannot silently change what an existing stored record means; if a wire name ever has
@@ -72,13 +85,29 @@ sealed interface QueueOrigin {
     @SerialName("browse_results")
     data object BrowseResults : QueueOrigin
 
+    /**
+     * A Saved Queue, named by [queueId] and described by [name].
+     *
+     * [queueId] is what makes a renamed queue still findable: a stored session names the queue, not the label
+     * it had at the time, so a surface can open "the queue this came from" after a rename. [name] is kept
+     * because it is what a listener reads, and a session must be explicable without a lookup — which is also
+     * why it can go stale, and why it is explicitly a label rather than an identifier.
+     */
     @Serializable
     @SerialName("saved")
-    data class Saved(val name: String) : QueueOrigin
+    data class Saved(val queueId: String, val name: String) : QueueOrigin
 
+    /**
+     * A Smart Queue, carrying the same identity-and-label pair as [Saved].
+     *
+     * Smart Queues are deliberately out of scope for the Queue Creation & Queue Management spec, so nothing
+     * constructs one yet — and the identity is here for the same reason it is on [Saved]: whatever eventually
+     * defines a Smart Queue will need a session it produced to name it exactly, and adding the field later
+     * would be a second breaking wire change for no benefit now.
+     */
     @Serializable
     @SerialName("smart")
-    data class Smart(val name: String) : QueueOrigin
+    data class Smart(val queueId: String, val name: String) : QueueOrigin
 }
 
 /**

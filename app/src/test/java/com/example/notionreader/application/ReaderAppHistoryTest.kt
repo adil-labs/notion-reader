@@ -210,7 +210,7 @@ class ReaderAppHistoryTest {
                 storedSession(
                     id = "done",
                     notes = listOf(queuedNote("p1"), queuedNote("p2")),
-                    origin = QueueOrigin.Smart("Weekly review"),
+                    origin = QueueOrigin.Smart(queueId = "smart-1", name = "Weekly review"),
                     index = 1,
                     completed = true,
                     lastActivityAt = 10L

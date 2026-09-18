@@ -4850,6 +4850,80 @@ Note that is not a member is a success because the postcondition the caller want
 its availability rule), and nothing consumes `nameWarning` yet — the Create and Rename screens (Phase 6) do.
 Phase 3 remains the next step that changes persistence that already works.
 
+### 23.27 Saved Queue Phase 3 — the identity-carrying origin, and a version bump that turned out to be the whole guard
+
+**Date:** 2026-09-19. `QueueOrigin.Saved` and `QueueOrigin.Smart` now carry a **queue identity** with the name as
+a label, and `SESSION_SCHEMA_VERSION` is `2`. **461 JVM tests, 0 failures** (was 459; 2 additions).
+
+#### The change
+
+| | Before | After |
+|---|---|---|
+| `Saved` | `Saved(name)` | `Saved(queueId, name)` |
+| `Smart` | `Smart(name)` | `Smart(queueId, name)` |
+| `SessionNote` / `BrowseResults` | unchanged | unchanged |
+| `SESSION_SCHEMA_VERSION` | `1` | `2` |
+
+The name is kept rather than replaced, and that is a decision rather than inertia: a session must be explicable
+without a lookup, so the label travels with the record. It is *allowed* to go stale — a queue renamed after the
+session was stored leaves a label that is old — and that is precisely why it is a label and not an identifier.
+
+The identity is what makes a rename findable, which is R4's whole reason. `Smart` gained one too even though
+Smart Queues are deliberately out of scope here, because adding the field later would be a second breaking wire
+change for no benefit now.
+
+#### The finding: the shape change was not the guard
+
+This is the part worth keeping. Two different mechanisms refuse an old record, and it is easy to credit the
+wrong one:
+
+| A version 1 record… | …decodes? | …is restorable? | What refuses it |
+|---|---|---|---|
+| with a `saved` or `smart` origin | **no** | no | the **wire shape** — the variant now requires a field the old record does not carry |
+| with a `browse_results` or `single_note` origin | **yes**, perfectly | no | **only the version check** |
+
+So the second row is the one the bump exists for. Those records decode into a `StoredSession` this build is
+perfectly happy to construct, and under a schema whose meaning of "origin" has changed — the field went from
+"which queue, approximately" to "which queue, exactly". Had the version not been bumped, they would have been
+restored. `SessionCodec.decode` deliberately does not filter by `isValid` (the caller does), which is what makes
+this visible: the test asserts the record **decodes** and is then **refused**, rather than asserting one outcome
+and leaving the mechanism unstated.
+
+#### No Notion amendment was needed, and that is worth recording
+
+The project rule is that a hand-authored document cannot amend a mirrored one, and the origin's shape is
+arguably the session spec's. It turned out not to be: the mirrored Active Queue & Reader Session spec describes
+origin **semantically** — "origin is descriptive, persisted for explanation, never for reconstruction" — and
+never fixes its fields, and `SESSION_SCHEMA_VERSION` is this repository's own constant rather than a spec term.
+Adding an identity *strengthens* the property the spec states. So the check was made rather than assumed, and it
+came back clean, which is the good outcome and not a reason to skip it next time.
+
+#### The frozen wire format was kept, not replaced
+
+`SessionWireFormatTest`'s frozen constant lost its job when the sample's shape stopped changing with it: it used
+to pin the encoder, and now it pins **what is already on a device**. Deleting it would have made "old records are
+discarded" untestable, which is the one property the bump exists to provide, so it is retained as decode-only
+input and joined by a second, hand-written constant for the old `saved` origin shape — describing what a real
+device holds rather than deriving it from the current encoder. Bumping the version *without* keeping the old
+bytes would have made the bump look tested when the test could no longer see it.
+
+#### Failing-first proof
+
+| Guard removed | Tests that noticed |
+|---|---|
+| the version bump (`SESSION_SCHEMA_VERSION` reverted to `1`) | **4** — `theEncodingOfAKnownRecordIsUnchanged`, `aFrozenRecordStillDecodes`, `aRecordWrittenByALaterVersionStillDecodesAndIsThenRefused`, `aRecordWrittenBeforeTheOriginChangeIsRefused` |
+
+The first three fail because the sample's version no longer matches the frozen bytes; the fourth is the new one
+and fails for the reason that matters. Restored from a backup rather than re-edited; 461 tests, 0 failures.
+
+#### Session-side consumption, and what is still missing
+
+Grepping production for `.origin` finds three sites and all three only **carry** it: the queue into the stored
+snapshot, and back out on restore. Nothing reads its fields yet, because nothing constructs a `Saved` origin
+yet — that is Phase 4's `Play`. So this phase is a type and persistence change with no consumer, which is exactly
+what the spec's phase split intends: the part that reaches into working persistence lands on its own, verified
+by a wire-format test rather than by a screen.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

@@ -14,8 +14,21 @@ import kotlinx.serialization.Serializable
  * place they were not, which is worse than an empty history the listener can rebuild by playing
  * something. That is a deliberate v1 choice and not an accident, which is why it is stated where the
  * version is declared rather than where the read happens.
+ *
+ * ## Why this is `2`
+ *
+ * `QueueOrigin.Saved` and `QueueOrigin.Smart` gained a **queue identity** and kept the name as a label, so the
+ * stored origin now names a queue exactly rather than approximately. That is a change of *meaning*, not an
+ * addition, and it is the case the policy above exists for.
+ *
+ * The bump is load-bearing rather than an artefact of the shape change, and that distinction matters. A v1
+ * record whose origin is `{"type":"saved","name":"Reading"}` will not decode any more, so it is dropped whether
+ * or not the version changed. But a v1 record whose origin is `{"type":"browse_results"}` or
+ * `{"type":"single_note"}` decodes **perfectly** — those variants did not change — and would be restored under a
+ * version this build no longer means anything different about. So the version check, not the wire shape, is what
+ * refuses those, and `SessionWireFormatTest` asserts exactly that split.
  */
-const val SESSION_SCHEMA_VERSION: Int = 1
+const val SESSION_SCHEMA_VERSION: Int = 2
 
 /**
  * One listening session, as persisted.

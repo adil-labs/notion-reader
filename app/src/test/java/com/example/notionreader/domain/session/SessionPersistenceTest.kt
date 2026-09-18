@@ -47,7 +47,7 @@ class SessionPersistenceTest {
         val record = storedSession(
             id = "s-1",
             notes = listOf(noteA, noteB),
-            origin = QueueOrigin.Smart("Weekly review"),
+            origin = QueueOrigin.Smart(queueId = "smart-1", name = "Weekly review"),
             index = 1,
             position = ReaderDocumentPosition(
                 sourceBlockId = "e",
@@ -468,7 +468,7 @@ class SessionPersistenceTest {
         val record = storedSession(
             id = "s-3",
             notes = listOf(noteB, noteA),
-            origin = QueueOrigin.Smart("Weekly review"),
+            origin = QueueOrigin.Smart(queueId = "smart-1", name = "Weekly review"),
             index = 0
         )
 
@@ -476,7 +476,12 @@ class SessionPersistenceTest {
 
         // The order is the stored order, not re-sorted, and not the order any source would produce now.
         assertEquals(listOf(noteB, noteA), session.queueState.value.queue?.items)
-        assertEquals(QueueOrigin.Smart("Weekly review"), session.queueState.value.queue?.origin)
+        // Including the origin's *identity*, which is the part a name could not carry: whatever names this queue
+        // later, the session still points at the same one.
+        assertEquals(
+            QueueOrigin.Smart(queueId = "smart-1", name = "Weekly review"),
+            session.queueState.value.queue?.origin
+        )
     }
 
     // ---------------------------------------------------------------- the store

@@ -6,6 +6,7 @@ import com.example.notionreader.domain.queue.QueueOrigin
 import com.example.notionreader.domain.session.SESSION_SCHEMA_VERSION
 import com.example.notionreader.domain.session.StoredSession
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,10 +67,10 @@ class SessionWireFormatTest {
     )
 
     /**
-     * The wire form as of schema version 1. Written out rather than generated, because a generated
-     * constant would move with the encoder and pin nothing.
+     * The wire form as of schema version 2 — the current one. Written out rather than generated, because a
+     * generated constant would move with the encoder and pin nothing.
      */
-    private val frozenV1 = FROZEN_WIRE_FORMAT
+    private val frozen = FROZEN_V2_WIRE_FORMAT
 
     @Test
     fun theEncodingOfAKnownRecordIsUnchanged() {
@@ -78,7 +79,7 @@ class SessionWireFormatTest {
                 "renamed field does not fail to compile, it fails to decode - and a record that will not " +
                 "decode is dropped silently and then overwritten, which erases history rather than " +
                 "breaking a screen.",
-            frozenV1,
+            frozen,
             SessionCodec.encode(listOf(sample))
         )
     }
@@ -87,7 +88,7 @@ class SessionWireFormatTest {
     fun aFrozenRecordStillDecodes() {
         // The decoder direction, which the encoder pin cannot see: a field that became non-nullable, or a
         // key dropped from the type, still encodes without complaint and refuses to read what is on disk.
-        assertEquals(listOf(sample), SessionCodec.decode(frozenV1))
+        assertEquals(listOf(sample), SessionCodec.decode(frozen))
     }
 
     @Test
@@ -96,7 +97,7 @@ class SessionWireFormatTest {
         // record unreadable - `ignoreUnknownKeys` is what lets a later version add a field without
         // breaking this one - and the version check is what then declines to use it, because the spec's
         // policy is to discard an unrecognised version rather than to migrate it.
-        val fromTheFuture = frozenV1.replace("\"id\"", "\"addedLater\":123,\"id\"")
+        val fromTheFuture = frozen.replace("\"id\"", "\"addedLater\":123,\"id\"")
 
         assertEquals(listOf(sample), SessionCodec.decode(fromTheFuture))
 
@@ -119,10 +120,57 @@ class SessionWireFormatTest {
 
         assertEquals(1, SessionCodec.decode(damaged).size)
     }
+
+    // --- The origin change, and why the version bump is load-bearing ---------------------------------
+
+    @Test
+    fun aRecordWrittenBeforeTheOriginChangeIsRefused() {
+        // ## The two halves, because only one of them is a consequence of changing a field
+        //
+        // **The shape refuses the records it can.** A version 1 record whose origin named a Saved Queue has no
+        // queue identity in it, and the variant now requires one, so the record will not decode at all. This
+        // half would work whether or not the version changed.
+        assertEquals(emptyList<StoredSession>(), SessionCodec.decode(FROZEN_V1_SAVED_ORIGIN))
+
+        // **The version refuses the rest.** A version 1 record whose origin is a Browse result set or a single
+        // Note decodes perfectly, because those variants did not change - so nothing in the wire shape stops
+        // it, and if the version had not been bumped it would be restored under a schema whose meaning of
+        // "origin" this build has changed. That is the case the bump exists for, and the reason it is not
+        // merely an artefact of adding a field.
+        val restoredFromVersion1 = SessionCodec.decode(FROZEN_V1_WIRE_FORMAT)
+
+        assertEquals(1, restoredFromVersion1.size)
+        assertFalse(
+            "A version 1 record must not be restorable under version 2",
+            restoredFromVersion1.single().isValid
+        )
+    }
+
+    @Test
+    fun aSavedOriginCarriesItsIdentityThroughTheWireFormSoARenameCannotInvalidateIt() {
+        // The point of the change. A stored name would go stale the moment the queue was renamed, and origin
+        // must never be re-evaluated against its source - so the queue has to be named by something a rename
+        // cannot touch. The label is kept because a session must be explicable without a lookup, and it is
+        // allowed to go stale precisely because it is a label and not an identifier.
+        val beforeRename = sample.copy(origin = QueueOrigin.Saved(queueId = "q-1", name = "Reading"))
+        val afterRename = sample.copy(origin = QueueOrigin.Saved(queueId = "q-1", name = "Reading, 2026"))
+
+        val decoded = listOf(beforeRename, afterRename).map {
+            (SessionCodec.decode(SessionCodec.encode(listOf(it))).single().origin as QueueOrigin.Saved)
+        }
+
+        assertEquals("Reading", decoded.first().name)
+        assertEquals("Reading, 2026", decoded.last().name)
+        assertEquals(
+            "both records must still name one queue",
+            listOf("q-1", "q-1"),
+            decoded.map { it.queueId }
+        )
+    }
 }
 
 /**
- * The exact bytes schema version 1 produces.
+ * The exact bytes schema version 1 produced.
  *
  * Captured once from a deliberately failing assertion, not from whatever the encoder happened to emit on
  * the day it was pasted, because a constant regenerated from the current encoder pins the encoder to
@@ -132,6 +180,31 @@ class SessionWireFormatTest {
  * is a **class discriminator plus a serial name**, and either half changing breaks every stored record
  * while leaving a same-build round trip perfectly green. That is exactly the failure this constant exists
  * to make loud.
+ *
+ * **Kept after the version 2 bump, deliberately.** Its job changed from pinning the encoder to pinning what
+ * is already on listeners' devices, and it is now only meaningful as input to a decode: the record it holds
+ * must be refused. Deleting it would make "old records are discarded" untestable, which is the one property
+ * the bump exists to provide.
  */
-private const val FROZEN_WIRE_FORMAT =
+private const val FROZEN_V1_WIRE_FORMAT =
     """[{"id":"3f8a1c2e-0000-4000-8000-abcdefabcdef","notes":[{"pageId":"11111111-1111-1111-1111-111111111111","title":"First Note"},{"pageId":"22222222-2222-2222-2222-222222222222","title":"Second Note"}],"origin":{"type":"browse_results"},"index":1,"position":{"sourceBlockId":"block-1","chunkId":"block-1:0","sectionId":"section-1","characterOffset":42},"completed":false,"wasPlaying":true,"lastActivityAt":1700000000000,"schemaVersion":1}]"""
+
+/**
+ * A version 1 record whose origin named a Saved Queue — the shape version 2 replaced.
+ *
+ * Hand-written rather than derived, because it describes what a real device already holds: an origin with a
+ * name and no queue identity. Version 2's `saved` variant requires the identity, so this is the half of the
+ * old records that the wire shape refuses on its own.
+ */
+private const val FROZEN_V1_SAVED_ORIGIN =
+    """[{"id":"old-saved","notes":[{"pageId":"11111111-1111-1111-1111-111111111111","title":"First Note"}],"origin":{"type":"saved","name":"Reading"},"index":0,"completed":false,"wasPlaying":false,"lastActivityAt":1700000000000,"schemaVersion":1}]"""
+
+/**
+ * The exact bytes schema version 2 produces.
+ *
+ * Identical to version 1's except for the version, because the sample's origin is a Browse result set — which
+ * is exactly why the bump has to be asserted rather than inferred from this string: a variant that did not
+ * change leaves the wire form saying nothing about the change.
+ */
+private const val FROZEN_V2_WIRE_FORMAT =
+    """[{"id":"3f8a1c2e-0000-4000-8000-abcdefabcdef","notes":[{"pageId":"11111111-1111-1111-1111-111111111111","title":"First Note"},{"pageId":"22222222-2222-2222-2222-222222222222","title":"Second Note"}],"origin":{"type":"browse_results"},"index":1,"position":{"sourceBlockId":"block-1","chunkId":"block-1:0","sectionId":"section-1","characterOffset":42},"completed":false,"wasPlaying":true,"lastActivityAt":1700000000000,"schemaVersion":2}]"""
