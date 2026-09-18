@@ -316,8 +316,17 @@ accessibility service performs, and unlike a synthesised touch it cannot be sile
 device's window.
 
 A real failure is retried only when **every** failing test matches a short list of harness signatures —
-the harness losing the activity, or the locked-device signature above. Any unclassified or mixed result
-is red immediately, because a retry must never be able to launder a real defect into a pass.
+the harness losing the activity, the test rule failing to tear its own Activity down, or the locked-device
+signature above. Any unclassified or mixed result is red immediately, because a retry must never be able to
+launder a real defect into a pass.
+
+**A partial run is never reported as a pass** (`docs/decisions.md` §23.30), and once it could have been.
+The pass condition was "no failures" with nothing comparing how many tests ran against how many exist — so
+a run whose device died mid-suite reported `tests=125` against a suite of 168, four classes simply absent,
+and only came out red because one of the classes that *did* run happened to fail. It now reports
+**INCOMPLETE** below the bar, and the bar is counted from the `@Test` annotations in the sources rather than
+remembered, so it cannot go stale. `app/build/check-wrapper-completeness.ps1` proves a truncated run cannot
+pass.
 
 **The focus-restore assertions pass, and the reason they once did not was in the app**
 (`docs/decisions.md` §23.29). They failed for three rounds under explanations that each blamed the device —
@@ -331,10 +340,10 @@ reasoning, which is why a screen lock is no longer on the path of an instrumente
 unobservable by any test is whether TalkBack's *speech* focus follows a programmatic request — that is the
 integration spec's listening gate, and it needs ears.
 
-Note: the `connectedDebugAndroidTest` task has been seen to exit non-zero when every test passed — but on
-an emulator it **exited 0 with 153 tests green**, so treat that as a device-specific observation rather
-than a rule. The wrapper does not rely on it either way: it derives its own exit code from the collected
-results, reading both the XML and the HTML report and using the worse count, because the two have
+Note: the `connectedDebugAndroidTest` task has been seen to exit non-zero when every test passed, and also
+to exit 0 with **168 tests green** on an emulator — so treat the exit code as a device-specific observation
+rather than a rule. The wrapper does not rely on it either way: it derives its own exit code from the
+collected results, reading both the XML and the HTML report and using the worse count, because the two have
 disagreed in both directions on this project. The HTML report is at
 `app/build/reports/androidTests/connected/debug/index.html`.
 
