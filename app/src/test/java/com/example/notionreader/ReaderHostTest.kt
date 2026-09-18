@@ -236,6 +236,19 @@ class ReaderHostTest {
         host.app.session.restore(exact)
         host.app.session.supplyDocument(alpha)
 
-        assertEquals(emptyList<String>(), lines)
+        // Asserted against the **resume** records, not against the whole sink, and that distinction is a
+        // correction rather than a convenience. This test originally asserted the sink was empty, which was
+        // true only while the resume decision was the only thing that ever logged. It is not: the host also
+        // records diagnostics for its own lifecycle, so an unrelated line — added to make an unattributable
+        // failure attributable — failed this test even though nothing about resume behaviour had changed.
+        //
+        // The over-broad assertion was the defect, not the extra logging: an assertion should be about the
+        // property it names. Filtering by the prefix also means a second *kind* of diagnostic can be added
+        // without silently weakening what this checks.
+        assertEquals(
+            "an exact resume must record no resume diagnostic",
+            emptyList<String>(),
+            lines.filter { it.startsWith("resume ") }
+        )
     }
 }

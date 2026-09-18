@@ -1,6 +1,7 @@
 package com.example.notionreader
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.notionreader.application.ReaderApp
@@ -57,6 +58,10 @@ import kotlinx.coroutines.launch
  * the live session and erases everything the listener had.
  */
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
+
+    private companion object {
+        const val TAG = "NotionReader"
+    }
 
     /**
      * The process-scoped host, obtained rather than built.
@@ -122,7 +127,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             app.session.state
                 .map { it.isPlaying }
                 .distinctUntilChanged()
-                .collect { playing -> if (playing) PlaybackService.start(getApplication()) }
+                .collect { playing ->
+                    if (!playing) return@collect
+
+                    // Logged because "the service is not running" has two causes that look identical from
+                    // outside: this never ran, or it ran and the platform refused the start. The previous
+                    // round could not tell them apart and had to record the question rather than an answer
+                    // (`docs/decisions.md` 23.22). One line makes them distinguishable, which is the same
+                    // discipline the background-playback spec applies to every failure in this area: the
+                    // platform's default is silence, so anything we can make audible, we should.
+                    Log.i(TAG, "reading began: requesting the playback service")
+                    runCatching { PlaybackService.start(getApplication()) }
+                        .onFailure { Log.w(TAG, "could not start the playback service", it) }
+                }
         }
     }
 

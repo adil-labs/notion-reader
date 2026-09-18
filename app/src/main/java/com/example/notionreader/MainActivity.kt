@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,6 +51,10 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : ComponentActivity() {
 
+    private companion object {
+        const val TAG = "NotionReader"
+    }
+
     /**
      * The retained owner of everything that must outlive this Activity.
      *
@@ -73,6 +78,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Logged because it distinguishes a fresh process from a resumed Activity, and the previous round
+        // needed exactly that distinction to tell an apparent spec violation from a misreading.
+        Log.i(TAG, "MainActivity.onCreate savedInstanceState=${if (savedInstanceState == null) "null" else "present"}")
 
         val app = model.app
         requestNotificationPermissionOnFirstPlayback(app)

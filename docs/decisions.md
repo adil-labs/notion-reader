@@ -4516,6 +4516,99 @@ than inferred from a screen dump.
 - The permission is declared in the manifest and `granted=true` on the device, which is the part of this round
   that is unambiguous.
 
+### 23.23 The diagnosis is blocked by a measurement problem, not by a code problem
+
+**Date:** 2026-09-19. I set out to resolve §23.22's open question — is the service start even attempted? — by
+logging at the call site. **The question is still open**, and the reason is worth more than the answer would
+have been: *our log output does not appear on this device at all*, so no diagnosis in this area can currently
+be made through logging.
+
+#### What was added, and it is still right
+
+Three diagnostic lines, each chosen to make a specific silent failure attributable:
+
+| Where | What it distinguishes |
+|---|---|
+| `MainActivity.onCreate`, with `savedInstanceState == null` or not | a fresh process from a resumed Activity |
+| `ReaderHost.start()` | that a fresh process really built a fresh host |
+| `ReaderViewModel`, at the `PlaybackService.start` call site | **attempted and refused** from **never attempted** — §23.22's exact blocker |
+
+The third also wraps the call in `runCatching { … }.onFailure { Log.w(…) }`, because `startForegroundService`
+throwing would otherwise leave no trace at all. The reasoning is the background-playback spec's own: the
+platform's default in this area is silence, so anything we can make audible we should.
+
+#### Why the logs did not appear, and it is a measurement problem
+
+Established by elimination, each step checked rather than assumed:
+
+- **The code is installed.** The APK on disk contains the new string (`FOUND in classes7.dex`), was built at
+  00:06:24, and `dumpsys package` reports `lastUpdateTime=2026-09-19 00:07:03` with the process starting at
+  00:07:46 — so the running code is the new code.
+- **The app is running and on screen.** `pidof` gives a pid; `topResumedActivity` is `MainActivity`;
+  `mCurrentFocus` is our window.
+- **Nothing is suppressing the tag.** `getprop` shows no `log.tag.NotionReader`.
+- **The buffer is saturated.** `logcat -g` reports `main: ring buffer is 256 KiB (255 KiB consumed)`.
+
+**So the most likely explanation is eviction.** A 256 KiB main buffer on a device this busy churns in seconds,
+and a handful of startup lines from ten seconds ago is exactly what gets pushed out first. That is consistent
+with every observation: reading the *whole* buffer finds nothing from our package, and a `-t 3000` window
+covers a fraction of a second of this device's output.
+
+**It is not proved.** It is the explanation that fits all the evidence and requires no new defect, and the
+test that would confirm it is a **live capture** — `logcat` running *before* the launch, not `logcat -d`
+afterwards — which is what the next attempt must do. Recording the reasoning rather than the conclusion,
+because "likely" is not "measured".
+
+The generalisable lesson is the same one this project keeps meeting in other shapes: **a tool that reports
+nothing is not evidence that nothing happened.** `logcat -d` finding no line reads as "this code did not
+run", and the actual cause was that the question was asked of a buffer that had already forgotten.
+
+#### A correction: `am force-stop` needs longer than three seconds
+
+An earlier reading in this round said the process **survived** `am force-stop` — pid 4833 still alive — which
+looked like a significant finding. It was a race: with a 3-second sleep the process was still being torn down,
+and with a 4–5 second wait `pidof` returns empty. Recorded because the false reading was nearly written up as
+"force-stop does not work here", which would have sent the next round looking for a cause in the wrong place.
+
+#### The launch-playing observation still stands, and is still unexplained
+
+Reproduced again on a **fresh** process (`pidof` empty after a verified stop, then a new pid): the app shows
+the Player, reports `Playing`, `Section 8 of 64`, `Paragraph 44 of 263`. It is not a stale dump — the process
+is new and the Activity is `topResumed`.
+
+It remains recorded as an **observation and not a defect**, for the reason §23.22 gave: a search of `src/main`
+finds nothing that starts playback at launch, so either something outside my view is resuming it or I am
+misreading the screen — and those need opposite responses. **The next attempt must use a live log capture**,
+which is now the only route to the two answers this round was supposed to produce.
+
+#### Verified
+
+- **389 JVM tests, 0 failures**, after one test was corrected — see below.
+- Diagnostics compile and are in the installed APK, which is all that can be said for them so far.
+
+#### And a test-quality correction the diagnostics forced
+
+`anExactResumeRecordsNothing` failed the moment a second, unrelated diagnostic was added, because it asserted
+the **whole log sink** was empty:
+
+```kotlin
+assertEquals(emptyList<String>(), lines)
+```
+
+Its intent was "an *exact resume* records no resume diagnostic", and "nothing at all was logged" only
+happened to be equivalent while the resume decision was the only thing that logged. It now filters for the
+records it is about:
+
+```kotlin
+assertTrue(lines.filter { it.startsWith("resume ") }.isEmpty())
+```
+
+**The assertion was the defect, not the extra logging** — an assertion should be about the property it names,
+and this one was about a coincidence. It is the same family as §22.9's node dump and §23.19's duplicate-uid
+fixture: the test was not seeing the mechanism, it was seeing a side effect of the mechanism's absence.
+Filtering by prefix also means a second *kind* of diagnostic can be added later without silently weakening
+what this checks.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

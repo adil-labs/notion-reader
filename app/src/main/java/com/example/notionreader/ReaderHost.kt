@@ -92,6 +92,11 @@ class ReaderHost(
      * begins, rather than having a collector start during construction.
      */
     fun start() {
+        // Logged so that "a fresh process built a fresh host" is observable rather than assumed. A session
+        // that appears to survive a force-stop is either a real defect or a misreading, and the two need
+        // opposite responses — so the fact that this line appears tells us which process we are looking at.
+        log("host: starting the session's loops")
+
         advanceTheQueue()
         feedTheQueue()
         recordHistory()
