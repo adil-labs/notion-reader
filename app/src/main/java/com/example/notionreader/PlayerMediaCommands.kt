@@ -116,23 +116,37 @@ fun mediaCommandSetFor(availability: PlayerCommandAvailability): Set<Int> =
 /**
  * [mediaCommandSetFor] as the Media3 `Commands` a `MediaSession` is given.
  *
- * ## Why this is a separate, Android-only function
+ * ## Why the read-only commands are added on top of the transport set
  *
- * **`Player.Commands.Builder` cannot be constructed in a JVM unit test.** It uses
- * `android.util.SparseBooleanArray`, and the stubbed `android.jar` that unit tests compile against throws
- * `RuntimeException: Method append in android.util.SparseBooleanArray not mocked` from the builder's static
- * initializer — so the class fails to initialize and every call after that reports
- * `NoClassDefFoundError: Could not initialize class ...Player$Commands$Builder`.
+ * **This was found on a device, and it is the kind of defect only a device could show.** The first version
+ * of this function advertised *only* the transport commands, on the reasoning that `Commands` is what a
+ * transport may invoke — and a device reported a live session as:
  *
- * That was found by writing the test rather than assumed, and it corrected a claim this file previously
- * made: that Media3's types are pure JVM types throughout. They are not — the *constants* are, the
- * *container* is not. The response is not to stop testing it but to put the boundary in the right place:
- * the set of commands is pure and fully tested, and this function is the mechanical translation of it, so
- * there is nothing here left to get wrong.
+ * ```plain text
+ * state=PlaybackState {state=PLAYING(3), position=-1, buffered position=-1, speed=0.0, actions=4770}
+ * metadata: null
+ * queueTitle=null, size=0
+ * ```
  *
- * The alternative — `testOptions.unitTests.isReturnDefaultValues = true` — was rejected: it would make the
- * builder silently succeed while doing nothing, which turns a loud failure into a quiet one. That is the
- * exact failure shape this project has spent several rounds learning to distrust.
+ * A playing session with **no metadata and an empty queue**. The lock screen would have shown a play button
+ * and nothing else: no Note title, no position, no queue — which is the whole feature failing while looking
+ * like it worked.
+ *
+ * The cause is that `Commands` is not only a list of *actions*. Media3 gates its ability to **describe** the
+ * session on the read commands being present: the legacy `PlaybackState.metadata`, the position, and the
+ * queue are all built from `COMMAND_GET_METADATA`, `COMMAND_GET_TIMELINE`, `COMMAND_GET_CURRENT_MEDIA_ITEM`
+ * and their siblings. Without them the platform has a player it can command and cannot read, so `position`
+ * and `speed` come back as unknown and the metadata is null.
+ *
+ * `addAllReadOnlyCommands()` is the library's own definition of that set, used rather than enumerated here so
+ * it cannot drift from Media3's. They are safe by construction — read-only, and they grant no ability to
+ * change what is being played — which is why they need no filtering by availability: our availability governs
+ * *actions*, and none of these is one.
+ *
+ * The distinction is worth keeping: **`mediaCommandSetFor` is the transport command set the specification
+ * defines and the tests assert; this function is the platform's advertised capability set, which is that plus
+ * the read-only commands the platform needs to render it.** Keeping them separate is what let the defect be
+ * fixed without loosening the property the tests check.
  *
  * ## There is no second level to get wrong here
  *
@@ -142,10 +156,25 @@ fun mediaCommandSetFor(availability: PlayerCommandAvailability): Set<Int> =
  * `PlaybackState`, and `SimpleBasePlayer` itself rejects `play()` when `COMMAND_PLAY_PAUSE` is absent.
  * `TogglePlayback` handles both directions, so advertising `COMMAND_PLAY_PAUSE` is the whole of what this
  * app can say about play and pause.
+ *
+ * ## Why this function is not unit-tested, and what is
+ *
+ * `Player.Commands.Builder` cannot be constructed in a JVM unit test — it uses
+ * `android.util.SparseBooleanArray`, which the stubbed `android.jar` refuses, so the class fails to
+ * initialize with `NoClassDefFoundError`. So the tested part is [mediaCommandSetFor], which is the whole of
+ * the *logic*, and this function is the mechanical construction of the container. That the read-only
+ * commands are present is verified on a device, by reading the session back out of `dumpsys media_session` —
+ * which is exactly how their absence was found.
  */
 fun mediaCommandsFor(availability: PlayerCommandAvailability): Player.Commands {
     val builder = Player.Commands.Builder()
+
+    // What the platform needs in order to describe the session at all: metadata, position, the queue. Not
+    // actions, and not subject to availability.
+    builder.addAllReadOnlyCommands()
+
     mediaCommandSetFor(availability).forEach(builder::add)
+
     return builder.build()
 }
 

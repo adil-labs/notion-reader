@@ -4228,6 +4228,135 @@ unauthorised device appeared in the list at one point. `tools/run-accessibility-
 with more than one device for exactly that reason, and that guard was written before this round rather than
 because of it.
 
+### 23.20 Starting the service, and the defect only a device could show
+
+**Date:** 2026-09-18. Phase 2 completed: `PlaybackService.start(...)` and a trigger in `ReaderViewModel`, then
+the session read back off a device. **389 JVM tests, 0 failures.**
+
+#### The device changed, which every later result has to be read against
+
+The Pixel 8 Pro (API 37) that every previous result in this project refers to **is no longer attached**. The
+device now connected is a **Galaxy S24 (SM-S931B) on Android 16 / SDK 36**. That is not a trivial swap:
+
+- **Android 17's background-audio hardening does not exist on Android 16.** So the whole failure mode §23.9
+  investigated — audio suppressed with no exception for an app without a foreground service — **cannot be
+  reproduced on this device at all**, and neither can the `set-enable-hardening` diagnostic.
+- The seven focus-test failures were characterised on the Pixel and are not re-checked here.
+- Every result below is *for this device*. It is recorded rather than glossed, because "verified on a device"
+  and "verified on the device this project's findings were derived from" are different claims.
+
+#### How the service is started, and why the trigger is what it is
+
+`PlaybackService.start(context)` uses `ContextCompat.startForegroundService`, and the trigger is
+**`session.state.isPlaying` becoming true** — not a button press. Two reasons, both load-bearing:
+
+- The platform requires a `mediaPlayback` foreground service to be started **in response to a user-initiated
+  operation while the application is visible**, because that is what grants while-in-use capability. Playback
+  beginning is the tightest expression of "the listener asked for this": nothing in this application starts
+  speaking on its own, so it cannot be anything else.
+- A trigger on the *intent* would start the service for `Play all` before its first Note had been fetched, and
+  would then owe the platform a foreground notification for a session that was only loading.
+
+It lives in the ViewModel rather than the host because starting an Android service needs a `Context`, and
+`ReaderHost` is deliberately Android-free. It is also correctly task-scoped: it responds to what a listener
+did on a screen, and the service it starts outlives the ViewModel — so a cleared ViewModel leaves the service
+running, which is the point.
+
+#### Verified on the device: the media session is real and complete
+
+The probe walked `HOME → BROWSE → PLAYER` ("Section 1 of 64 · Playing"), Back to Browse with the mini-player
+showing "Note 1 of 20 · Playing", and then `dumpsys media_session` reported:
+
+```plain text
+package=com.example.notionreader   active=true   controllers: 3
+state=PlaybackState {state=PLAYING(3), position=777, buffered position=777, speed=1.0,
+                     actions=4770, active item id=0, error=null}
+metadata: size=4, description=Notion Reader — Active Queue & Reader Session Spec, null, null
+queueTitle=null, size=20
+```
+
+**A media session exists, reports playing with a real position, names the Note, and carries the whole
+20-item queue** — which matches the mini-player's "Note 1 of 20" exactly. That is background playback's
+foundation working.
+
+#### The defect: a session the platform could command and not read
+
+The **first** device run of the same probe reported this instead:
+
+```plain text
+state=PlaybackState {state=PLAYING(3), position=-1, buffered position=-1, speed=0.0,
+                     actions=4770, active item id=-1, error=null}
+metadata: null
+queueTitle=null, size=0
+```
+
+A session that is *playing* with **no metadata, no position, no queue, and speed 0.0**. The lock screen would
+have shown a play button and nothing else: no Note title, no position, and an empty queue — the feature
+failing while looking like it worked.
+
+**The cause was a misunderstanding in `PlayerMediaCommands`, and it is a good one to have found.** The first
+version advertised *only* the transport commands, on the reasoning that `Commands` is what a transport may
+invoke. That is wrong: `Commands` is also what gates Media3's ability to **describe** the session. The legacy
+metadata, the position and the queue are all built from `COMMAND_GET_METADATA`, `COMMAND_GET_TIMELINE`,
+`COMMAND_GET_CURRENT_MEDIA_ITEM` and their siblings — so without them the platform holds a player it can
+command and cannot read, and reports position and speed as unknown with null metadata.
+
+The fix is `Player.Commands.Builder.addAllReadOnlyCommands()`, Media3's own definition of that set rather
+than an enumeration of ours, added **in `mediaCommandsFor` and not in `mediaCommandSetFor`**. That separation
+is deliberate and is what let the defect be fixed without loosening anything the tests check:
+
+| | What it is | Tested |
+|---|---|---|
+| `mediaCommandSetFor` | the **transport command set** the Core Player spec defines and availability governs | JVM, ten tests |
+| `mediaCommandsFor` | the platform's **advertised capability set** — that, plus the read-only commands the platform needs to render it | by device, via `dumpsys media_session` |
+
+The read-only commands are safe by construction and need no availability filtering: our availability governs
+*actions*, and none of these is one.
+
+**And this is the case for the specification-first process, stated as evidence rather than principle.** §23.9
+argued that every failure in this area is silent and that the verification must therefore make the failure
+loud. This one was silent in the strongest sense: no exception, no log line, a session that reported
+`PLAYING` and an app that read its Note aloud perfectly — the *only* symptom was that the system had nothing
+to display. Nothing in the JVM suite could see it, and no amount of reading the mapping would have, because
+the mapping was internally consistent and wrong about what `Commands` means.
+
+#### Read honestly: what was verified, and what was misread
+
+**Verified:** the session exists and is complete (above), and the app launches, plays and does not crash.
+
+**Misread, and corrected here.** I first reported that the service was *not* running, on two pieces of
+evidence that do not support it:
+
+1. `dumpsys activity services com.example.notionreader` returned "(nothing)" — **and that check ran after the
+   probe, which ends with `am force-stop`** (`tools/probe-player-back.ps1` line 70). The app was already dead
+   by design. The result says nothing about the foreground claim.
+2. Samsung's own `SGM:FgCheckThread: pkgName: com.example.notionreader is not in foreground` lines look
+   damning and are **not trustworthy for this**: the same log shows the same check naming our package as the
+   foreground app on the preceding line, while the Player was on screen and reading aloud.
+
+**So the foreground-service claim is unverified.** The specific reason it matters: Media3's `MediaSessionService`
+goes foreground by posting a media notification, and **the notification is Phase 4's work**. Until it exists a
+strong prediction should be recorded rather than discovered later — *on Android 16 playback continues because
+16 has no hardening; on Android 17 the same build would have its audio suppressed, because there is no
+foreground claim.* That is the next thing to test, on a device that can show it.
+
+One incidental observation worth keeping, because it caused a confusing failure: the probe classified the
+first screen as `OTHER`, and the log explains it — `isNotificationPanelExpanded=true`. **The notification
+shade was stuck open**, covering the app, so every UI dump was of the shade. `adb shell input keyevent 3`
+(Home) cleared it after `keyevent 4` and `cmd statusbar collapse` had both failed. A stuck shade is the same
+class of trap as the keyguard and the locked device: a UI probe reporting a wrong answer with full
+confidence, and the fix is to check what has focus before believing a dump.
+
+#### Verified
+
+- **389 JVM tests, 0 failures.** No test changes were needed for the fix — which is itself the point of having
+  kept the pure set and the container separate.
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` both succeed.
+- **On device, twice**: the first run produced the defect above, the second produced the complete session.
+  Both `dumpsys media_session` outputs are quoted in this section because the *before* is the evidence that
+  the fix was necessary, and quoting only the after would hide that this was found by looking rather than
+  built correctly by luck.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

@@ -9,6 +9,8 @@ import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.domain.ReaderIndexEntry
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -85,6 +87,43 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         // What remains below is the I/O a *screen's* action starts, which is correctly task-scoped: closing
         // a Note or leaving Browse should cancel the fetch nobody is waiting for any more.
         loadBrowseIndex()
+        startPlaybackServiceWhenReadingBegins()
+    }
+
+    /**
+     * Starts the foreground service when reading actually begins — and only then.
+     *
+     * ## Why "playback began" is the trigger rather than "a play button was pressed"
+     *
+     * The platform's requirement is that a `mediaPlayback` foreground service is started in response to a
+     * **user-initiated** operation while the application is visible, because that is what grants it
+     * while-in-use capability. Android 17 blocks the audio APIs of a service started from the background, and
+     * it does so silently: playback is suppressed with no exception and no failure message from any API.
+     *
+     * `isPlaying` becoming true is the tightest available expression of that. It cannot happen except from a
+     * listener's action — nothing in this application starts speaking on its own, which is the Active Queue &
+     * Reader Session spec's "launch never begins playback" — and it happens while the screen is necessarily
+     * on, because the listener has just touched something. A trigger on the *intent* instead would start the
+     * service for `Play all` before its first Note had even been fetched, and would then owe the platform a
+     * foreground notification for a session that was only loading.
+     *
+     * ## Why this lives here rather than in [ReaderHost]
+     *
+     * Because starting an Android service needs a `Context`, and `ReaderHost` is deliberately Android-free so
+     * that it can be tested on the JVM. It is also correctly *task*-scoped for a second reason: it is a
+     * response to what a listener did on a screen, and the service it starts has its own lifetime that
+     * outlives this class entirely — so a cleared ViewModel leaves the service running, which is the point.
+     *
+     * `distinctUntilChanged` matters: the engine re-emits state as it moves through a Note, and without it
+     * every position change would ask the platform to start the service again.
+     */
+    private fun startPlaybackServiceWhenReadingBegins() {
+        viewModelScope.launch {
+            app.session.state
+                .map { it.isPlaying }
+                .distinctUntilChanged()
+                .collect { playing -> if (playing) PlaybackService.start(getApplication()) }
+        }
     }
 
     /**

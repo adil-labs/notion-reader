@@ -1,6 +1,8 @@
 package com.example.notionreader
 
+import android.content.Context
 import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -41,6 +43,29 @@ import androidx.media3.session.MediaSessionService
  * reading itself aloud is not a convenience.
  */
 class PlaybackService : MediaSessionService() {
+
+    companion object {
+        /**
+         * Starts the foreground service, which is what allows playback to continue once the screen is off.
+         *
+         * `startForegroundService` rather than `startService`, because the service must call
+         * `startForeground` promptly — the platform kills a service that fails to within about five seconds.
+         * `MediaSessionService` does that itself once it has a session with something to play, which it has
+         * by the time this is called: the trigger is playback actually having begun.
+         *
+         * **This is called only while the application is visible**, and that is a requirement rather than an
+         * incidental detail. Android 17 grants while-in-use capability to a foreground service started in
+         * response to a user-initiated operation or while the app is visible; a service of this type started
+         * from the background would be refused the audio APIs, silently. The listener pressed Play in front of
+         * the app, which is exactly the interaction the platform is asking about.
+         *
+         * Starting an already-running service is a no-op rather than an error, so the pause-then-play cycle
+         * calls this safely every time.
+         */
+        fun start(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, PlaybackService::class.java))
+        }
+    }
 
     private var session: MediaSession? = null
     private var player: ReaderSessionPlayer? = null
