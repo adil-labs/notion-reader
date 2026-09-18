@@ -38,54 +38,63 @@ import com.example.notionreader.player.PlayerCommandAvailability
  */
 
 /**
- * Media3's command for a Player command, or null when there is no honest equivalent.
+ * Media3's command for a Player command, or null when this transport cannot express it.
  *
- * The nulls matter as much as the mappings. `OpenQueue` and `OpenMorePlaybackControls` are **surface
- * actions** rather than transport commands — their effect is to change what the phone is displaying — and
- * returning null for them is what keeps the queue view off a lock screen. That is enforced twice: here, and
- * by `ReaderApp.invoke` refusing them.
+ * ## Two kinds of null, and the difference matters
  *
- * ## Two mappings are compromises, and both are recorded rather than hidden
+ * **Surface actions** — `OpenQueue`, `OpenMorePlaybackControls` — have no media command because their
+ * effect is to change what the phone is displaying. They are not transport commands at all, and returning
+ * null here is what keeps the queue view off a lock screen. That is enforced three times now: the enum's
+ * `isTransport`, `ReaderApp.invoke`'s refusal, and this.
  *
- * Media3's model is a playlist of media items with a position inside one, and a Note is the media item. That
- * makes Note-level navigation exact and part/section-level navigation approximate, because the platform has
- * one "next" and one "previous" and this product has two of each:
+ * **The four granularity commands** — `NextSection`, `PreviousSection`, `NextPart`, `PreviousPart` — have no
+ * media command because **Media3 cannot express them**, and this was found by reading the library's
+ * bytecode rather than by reasoning about its documentation. Two distinct problems:
  *
- * | Player command | Media3 | Exact? |
+ * - `seekForward()` and `seekBack()` compile to `seekToOffset(getSeekForwardIncrement(), …)`. They are
+ *   **millisecond offsets**, and the distance is `setSeekForwardIncrementMs` — the *transport's* choice, not
+ *   ours. Our content has no millisecond timeline, so a "forward" would advance by an amount the lock screen
+ *   picked, which is not "the next part".
+ * - `seekToNext()` and `seekToPrevious()` are implemented against the *timeline* and fall back to a
+ *   media-item move. With one media item per Note, "next" and "next Note" are then the same operation, so
+ *   mapping `NextSection` to `SEEK_TO_NEXT` would silently make the lock screen's next button skip a whole
+ *   Note — a wrong answer delivered with full confidence, and one a device test would show only as "the
+ *   next button skipped a Note".
+ *
+ * So the honest mapping is that **Media3 can express play/pause, Note-level navigation and restart exactly,
+ * and nothing finer**, because a media session's model is a playlist of items. The four granularity commands
+ * therefore map to null: they remain real transport commands (a future voice command could say "next
+ * section"), a transport simply cannot offer them unless it can express them. Advertising a command whose
+ * effect would be different from its label is worse than not advertising it.
+ *
+ * The on-screen Player is unaffected: all four remain separate, separately-labelled controls there.
+ *
+ * ## The exact mappings
+ *
+ * | Player command | Media3 | Why it is exact |
  * |---|---|---|
- * | `NextNote` / `PreviousNote` | `SEEK_TO_NEXT_MEDIA_ITEM` / `SEEK_TO_PREVIOUS_MEDIA_ITEM` | yes — a Note *is* the item |
- * | `JumpToNote` | `SEEK_TO_MEDIA_ITEM` | yes |
- * | `RestartNote` | `SEEK_TO_DEFAULT_POSITION` | yes — "start the current item again" is exactly this |
- * | `NextSection` / `PreviousSection` | `SEEK_TO_NEXT` / `SEEK_TO_PREVIOUS` | approximate |
- * | `NextPart` / `PreviousPart` | `SEEK_FORWARD` / `SEEK_BACK` | approximate |
+ * | `Play` / `Pause` / `TogglePlayback` | `COMMAND_PLAY_PAUSE` | one platform action; `TogglePlayback` is defined as exactly the other two |
+ * | `NextNote` / `PreviousNote` | `SEEK_TO_NEXT_MEDIA_ITEM` / `SEEK_TO_PREVIOUS_MEDIA_ITEM` | a Note **is** the media item |
+ * | `JumpToNote` | `SEEK_TO_MEDIA_ITEM` | a playlist position, which is what a queue index is |
+ * | `RestartNote` | `SEEK_TO_DEFAULT_POSITION` | "start the current item again", exactly |
  *
- * The approximation is that Media3's transport has no idea what a "section" is, so the four granularity
- * commands share two platform commands. **Only transports are conflated**: the on-screen Player keeps all
- * four as separate, separately-labelled controls, and a transport that invokes `SEEK_FORWARD` gets
- * `NextPart`, which is the finer of the two. A listener who wants sections uses the Player, where the
- * control is named.
- *
- * This is a revision of the mapping the specification first proposed, which had `RestartNote` expressed as
- * a media-item change. `SEEK_TO_DEFAULT_POSITION` is precisely "return to the start of the current item",
- * so it expresses restart without any risk of a transport turning it into a track skip — which was the
- * concern that produced the original, clumsier mapping.
+ * This supersedes the mapping the Background Playback specification first proposed, which paired the four
+ * granularity commands with platform seeks. That table was written before the library's seek path was read;
+ * the correction is recorded there and in `docs/decisions.md` §23.18.
  */
 fun mediaCommandFor(command: PlayerCommand): Int? = when (command) {
     PlayerCommand.Play, PlayerCommand.Pause, PlayerCommand.TogglePlayback -> Player.COMMAND_PLAY_PAUSE
 
-    PlayerCommand.NextSection -> Player.COMMAND_SEEK_TO_NEXT
-    PlayerCommand.PreviousSection -> Player.COMMAND_SEEK_TO_PREVIOUS
-
-    PlayerCommand.NextPart -> Player.COMMAND_SEEK_FORWARD
-    PlayerCommand.PreviousPart -> Player.COMMAND_SEEK_BACK
-
-    PlayerCommand.RestartNote -> Player.COMMAND_SEEK_TO_DEFAULT_POSITION
-
     PlayerCommand.NextNote -> Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
     PlayerCommand.PreviousNote -> Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
     PlayerCommand.JumpToNote -> Player.COMMAND_SEEK_TO_MEDIA_ITEM
+    PlayerCommand.RestartNote -> Player.COMMAND_SEEK_TO_DEFAULT_POSITION
 
-    // Surface actions. Not transportable, by classification and by refusal.
+    // Not expressible by this transport; see the table above.
+    PlayerCommand.NextSection, PlayerCommand.PreviousSection,
+    PlayerCommand.NextPart, PlayerCommand.PreviousPart -> null
+
+    // Surface actions, by classification and by refusal.
     PlayerCommand.OpenQueue, PlayerCommand.OpenMorePlaybackControls -> null
 }
 
@@ -144,25 +153,22 @@ fun mediaCommandsFor(availability: PlayerCommandAvailability): Player.Commands {
  * The Player command a Media3 command means, or null when the platform asked for something this app does
  * not do.
  *
- * The null is the interesting case and it is deliberate: Media3 can deliver commands this product has no
- * equivalent for — a `COMMAND_SET_SPEED` from a client that decided to offer one, a `COMMAND_SEEK_TO_ITEM`
- * for a playlist position that does not exist — and the honest response is to do nothing. A `when` with an
- * `else` that picked a plausible command would be a transport silently meaning something other than what
- * was asked.
+ * The nulls are the interesting case and they are deliberate. Media3 can deliver commands this product has
+ * no equivalent for, and since the four granularity commands are never advertised, the platform's
+ * section and part seeks are in that set too — if one arrived, treating it as "next section" would be
+ * inventing a meaning for a command whose label says something else. The honest response is to do nothing.
+ * A `when` with an `else` that picked a plausible command would be a transport silently meaning something
+ * other than what was asked.
  */
 fun commandForMediaCommand(mediaCommand: Int): PlayerCommand? = when (mediaCommand) {
     Player.COMMAND_PLAY_PAUSE -> PlayerCommand.TogglePlayback
 
-    Player.COMMAND_SEEK_TO_NEXT -> PlayerCommand.NextSection
-    Player.COMMAND_SEEK_TO_PREVIOUS -> PlayerCommand.PreviousSection
-
-    Player.COMMAND_SEEK_FORWARD -> PlayerCommand.NextPart
-    Player.COMMAND_SEEK_BACK -> PlayerCommand.PreviousPart
-
-    Player.COMMAND_SEEK_TO_DEFAULT_POSITION -> PlayerCommand.RestartNote
-
     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> PlayerCommand.NextNote
     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> PlayerCommand.PreviousNote
+    Player.COMMAND_SEEK_TO_DEFAULT_POSITION -> PlayerCommand.RestartNote
 
+    // Not advertised, so not accepted. `SEEK_TO_NEXT`/`SEEK_TO_PREVIOUS` and `SEEK_FORWARD`/`SEEK_BACK`
+    // would land here if some other client sent them, and the correct answer is that this app does not
+    // offer that granularity through a transport at all.
     else -> null
 }

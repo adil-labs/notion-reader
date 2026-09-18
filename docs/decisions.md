@@ -4007,6 +4007,101 @@ classified focus failures plus one unclassified — so it refused to retry. A re
 the unclassified failure to be treated as a harness signature, which is the thing the classifier exists to
 prevent. The one-entry addition above is the deliberate classification that follows.
 
+### 23.18 The command mapping is corrected, and Media3 cannot express four of the eleven commands
+
+**Date:** 2026-09-18. Stage 2 Phase 2's first piece: the Player's command set expressed in Media3's
+vocabulary, so that the availability value the Player's buttons read produces the command set a
+`MediaSession` advertises. `PlayerMediaCommands.kt` plus ten JVM tests. **379 JVM tests, 0 failures.**
+
+#### The finding: the specification's own mapping table was wrong, and only reading the library showed it
+
+The Background Playback spec paired the four granularity commands with platform seeks — `NextSection` with
+`COMMAND_SEEK_TO_NEXT`, `NextPart` with `COMMAND_SEEK_FORWARD`, and so on — as a stated compromise ("the
+platform has one next and one previous and this product has two of each"). Reading `BasePlayer`'s bytecode
+showed the compromise is not a compromise; it is two wrong answers:
+
+| Command | What it would have compiled to | What it would have done |
+|---|---|---|
+| `NextPart` | `seekToOffset(getSeekForwardIncrement(), …)` | moved by a **millisecond offset the transport chooses** — our content has no ms timeline |
+| `NextSection` | `seekToNext()` → timeline check → media-item move | **skipped a whole Note** while claiming to move one section |
+
+Neither is a granularity approximation. The first is a distance someone else picked; the second is a
+different operation with the same label. And the failure mode is the one this project distrusts most: the
+lock screen's next button would look right and do the wrong thing, and a device test would have shown only
+"the next button skipped a Note" with no indication that the mapping was at fault.
+
+So the four **map to nothing**, and the spec's table is corrected rather than left as an aspiration. The
+distinction that resolves it is worth keeping, because it is what stops the correction from looking like an
+omission: **`isTransport` asks whether a command needs a screen; the mapping asks whether *this* transport
+can express it.** `NextSection` is a real transport command — a voice transport could say "next section" —
+and Media3 simply has no way to carry it. Advertising a command whose effect would differ from its label is
+worse than not advertising it.
+
+**What that costs, stated rather than glossed:** a listener using only the lock screen gets Note-level
+navigation and play/pause. Section and part navigation are available on the Player's own controls, which
+remain four separately-labelled controls. That is a real reduction in what a transport can do, and it is
+better than a control that lies about what it does.
+
+**This is what a specification-first process is supposed to catch, and it is worth recording that it did.**
+The table was written in Phase 0b, before the library was read; the correction came from the implementation,
+and it landed in the spec (which is hand-authored, so D33's rule lets it be edited directly) with the reason
+in both places.
+
+#### `RestartNote` became exact, which simplified it
+
+The original table had restart expressed as a media-item change *plus* a seek, to stop a transport turning it
+into a track skip. `COMMAND_SEEK_TO_DEFAULT_POSITION` exists and means precisely "start the current item
+again", so the concern that produced the clumsy mapping does not apply. One command, no ambiguity.
+
+#### The other finding: Media3's constants are usable in a JVM test and its containers are not
+
+`Player.COMMAND_*` are compile-time ints, so reading them needs no Android and the whole command mapping runs
+as an ordinary unit test. `Player.Commands.Builder` is not usable there at all: it uses
+`android.util.SparseBooleanArray`, which the stubbed `android.jar` refuses, so the class fails to initialize
+and every subsequent call reports `NoClassDefFoundError: Could not initialize class ...$Commands$Builder`.
+
+That corrected a claim the mapping file had made in its own documentation — that Media3's types are pure JVM
+types throughout. They are not. The response was to put the boundary in the right place rather than to stop
+testing: `mediaCommandSetFor` is the pure set and is fully tested, and `mediaCommandsFor` is the mechanical
+construction of the container from it, so there is nothing left in it to get wrong.
+
+`testOptions.unitTests.isReturnDefaultValues = true` was **rejected**: it would make the builder silently
+succeed while doing nothing, turning a loud failure into a quiet one. That is the failure shape this project
+has spent several rounds learning to distrust, and it is exactly what §23.9's Android 17 investigation was
+about.
+
+Two further API assumptions were wrong and the compiler named both: there is no `PLAYER_COMMAND_PLAY` or
+`PLAYER_COMMAND_PAUSE` in this version, and no `addAllPlayerCommands` — so the two-level command model the
+mapping was first written against does not exist, and the constants were then read out of the AAR with
+`javap` rather than recalled. **Adding the dependency before the code that used it is what made those three
+mistakes cheap.**
+
+#### Verified
+
+- **379 JVM tests, 0 failures** (was 375). Ten additions in `PlayerMediaCommandsTest`.
+- The tests cover the negative space as much as the mapping: that a surface action has no media command, that
+  an unavailable command contributes no command *even though it has a mapping* (the filtering is what keeps
+  it off a lock screen), that the four granularity commands have no mapping **and remain `isTransport`**, and
+  that a platform seek this app does not offer is refused rather than given a plausible meaning.
+- The mapping round-trips for every command that can survive the trip, and the test **names** the three that
+  cannot rather than excluding them silently: `Play` and `Pause` both map to `COMMAND_PLAY_PAUSE` because
+  that is the one action the platform has, and `JumpToNote` carries an index a bare command int cannot
+  supply.
+- **Four of my own assertions were wrong before they were right**, and three were the same species —
+  assuming a shape rather than checking it: a one-to-one mapping when eleven commands collapse onto four
+  platform commands; a default fixture at the first part of a document, which correctly disables the two
+  previous commands; and an assumption that a one-Note queue has nothing to jump to, when the queue view
+  legitimately has one row and selecting the current Note is defined as a no-op. The fourth was arithmetic.
+  All four are recorded because "an assertion about a case that was never produced" is this project's most
+  repeated lesson, and this round produced it three times in ten tests.
+
+#### Not yet done
+
+The `SimpleBasePlayer` subclass that exposes the session through Media3, and the `MediaSessionService` itself.
+Neither can be verified on the JVM, and the seek-path finding above is the argument for reading each API from
+the AAR before writing against it rather than from memory — the next two classes touch far more of the library
+than the mapping did.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

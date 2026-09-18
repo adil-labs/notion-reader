@@ -73,16 +73,30 @@ class PlayerMediaCommandsTest {
 
     @Test
     fun aCommandThatBecomesUnavailableIsNotAdvertised() {
-        // At the last part there is no next part and no next Note.
-        val atTheEnd = availabilityOf(state = state(index = 3), queue = queue(size = 1, index = 0))
-        val advertised = mediaCommandSetFor(atTheEnd)
+        // A queue of one: there is no next Note and no previous Note, so a transport is offered neither.
+        val oneNote = availabilityOf(state = state(index = 3), queue = queue(size = 1, index = 0))
+        assertFalse(oneNote.canMoveToNextNote)
+        assertFalse(oneNote.canMoveToPreviousNote)
 
-        assertFalse("no next part to seek to", advertised.contains(Player.COMMAND_SEEK_FORWARD))
-        assertFalse("no next Note to skip to", advertised.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
+        val advertised = mediaCommandSetFor(oneNote)
 
-        // And the way back is still offered, so the session is not simply inert.
-        assertTrue(advertised.contains(Player.COMMAND_SEEK_BACK))
-        assertTrue(advertised.contains(Player.COMMAND_SEEK_TO_DEFAULT_POSITION))
+        assertFalse("no next Note to move to", advertised.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
+        assertFalse("no previous Note", advertised.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
+
+        // And the ways back to this Note are still offered, so the session is not inert.
+        assertTrue("restart is available", advertised.contains(Player.COMMAND_SEEK_TO_DEFAULT_POSITION))
+        assertTrue("play/pause is available", advertised.contains(Player.COMMAND_PLAY_PAUSE))
+    }
+
+    @Test
+    fun jumpingToTheOnlyNoteInAQueueIsStillOfferedBecauseTheRowExists() {
+        // Worth pinning, because it looks like it should be unavailable. The queue view has one row, and
+        // selecting the Note already current is defined as a no-op rather than as an error - so the command
+        // is genuinely available, and hiding it would leave a row a transport could not act on.
+        val oneNote = availabilityOf(queue = queue(size = 1, index = 0))
+        assertTrue(oneNote.canJumpToNote)
+
+        assertTrue(mediaCommandSetFor(oneNote).contains(Player.COMMAND_SEEK_TO_MEDIA_ITEM))
     }
 
     @Test
@@ -90,12 +104,40 @@ class PlayerMediaCommandsTest {
         val fetching = playerCommandAvailability(state(), QueueState(queue = queue().queue, awaiting = true))
         val advertised = mediaCommandSetFor(fetching)
 
-        assertFalse("nothing may act on the document while a Note is loading", advertised.contains(Player.COMMAND_SEEK_FORWARD))
-        assertFalse(advertised.contains(Player.COMMAND_SEEK_BACK))
+        assertFalse("nothing may act on the document while a Note is loading", advertised.contains(Player.COMMAND_SEEK_TO_MEDIA_ITEM))
+        assertFalse(advertised.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
         assertFalse(advertised.contains(Player.COMMAND_PLAY_PAUSE))
     }
 
     // --- The two the mapping must refuse ------------------------------------------------------------
+
+    @Test
+    fun theGranularityCommandsHaveNoMediaCommandBecauseThePlatformCannotExpressThem() {
+        // The finding this mapping is built on, asserted so it cannot be undone by a later edit that looks
+        // like an omission. See mediaCommandFor: `seekForward()` compiles to a millisecond offset whose
+        // distance the *transport* chooses, and `seekToNext()` degrades to a media-item move - so a lock
+        // screen's next button would either advance by an arbitrary amount or skip a whole Note.
+        assertNull(mediaCommandFor(PlayerCommand.NextSection))
+        assertNull(mediaCommandFor(PlayerCommand.PreviousSection))
+        assertNull(mediaCommandFor(PlayerCommand.NextPart))
+        assertNull(mediaCommandFor(PlayerCommand.PreviousPart))
+
+        // They are still real transport commands - a future voice transport could say "next section".
+        // `isTransport` is about whether the command needs a screen, not about what Media3 supports.
+        assertTrue(PlayerCommand.NextSection.isTransport)
+        assertTrue(PlayerCommand.NextPart.isTransport)
+    }
+
+    @Test
+    fun aPlatformSeekThisAppDoesNotOfferIsNotAcceptedEvenThoughItExists() {
+        // Because the granularity commands are never advertised, these arrive only if another client sends
+        // them anyway. Treating one as "next section" would invent a meaning for a command whose label says
+        // something else.
+        assertNull(commandForMediaCommand(Player.COMMAND_SEEK_TO_NEXT))
+        assertNull(commandForMediaCommand(Player.COMMAND_SEEK_TO_PREVIOUS))
+        assertNull(commandForMediaCommand(Player.COMMAND_SEEK_FORWARD))
+        assertNull(commandForMediaCommand(Player.COMMAND_SEEK_BACK))
+    }
 
     @Test
     fun theSurfaceActionsHaveNoMediaCommandAtAll() {
@@ -127,15 +169,15 @@ class PlayerMediaCommandsTest {
 
     @Test
     fun severalPlayerCommandsCanShareOnePlatformCommandAndThatIsNotALoss() {
-        // The platform has one play-pause action and this product has three commands that use it, so the
-        // eleven transport commands map onto nine platform commands. Recorded as a number rather than left
+        // The platform has one play-pause action and this product has three commands that use it, so six
+        // transport commands map onto five platform commands. Recorded as a number rather than left
         // implicit, because "fewer platform commands than Player commands" reads like a bug otherwise - and
         // the reason it is not one is that `TogglePlayback` is defined as exactly `Play` or `Pause`, so the
         // three are one behaviour with three names.
         assertEquals(11, PlayerCommand.transports.size)
 
         val availability = availabilityOf(state = state(index = 2, isPlaying = true))
-        assertEquals(9, mediaCommandSetFor(availability).size)
+        assertEquals(5, mediaCommandSetFor(availability).size)
 
         assertEquals(mediaCommandFor(PlayerCommand.Play), mediaCommandFor(PlayerCommand.Pause))
         assertEquals(mediaCommandFor(PlayerCommand.Play), mediaCommandFor(PlayerCommand.TogglePlayback))
@@ -143,18 +185,33 @@ class PlayerMediaCommandsTest {
 
     @Test
     fun aCommandUnavailableAtThisPositionContributesNoCommandEvenThoughItHasAMapping() {
-        // The mapping is total for transport commands, so the *filtering* is what keeps an unavailable
-        // command off a lock screen. At the first part there is nothing before it, so the two previous part
-        // and section commands map to ints that must not be advertised.
-        val atTheStart = availabilityOf(state = state(index = 0, isPlaying = true))
-        assertFalse(atTheStart.canMoveToPreviousPart)
+        // The mapping is total for the commands Media3 can express, so the *filtering* is what keeps an
+        // unavailable command off a lock screen. At the first Note of a queue there is nothing before it.
+        val atTheStart = availabilityOf(queue = queue(size = 3, index = 0))
+        assertFalse(atTheStart.canMoveToPreviousNote)
 
         val advertised = mediaCommandSetFor(atTheStart)
 
-        assertTrue("the mapping exists", mediaCommandFor(PlayerCommand.PreviousPart) != null)
-        assertFalse("but it is not advertised", advertised.contains(Player.COMMAND_SEEK_BACK))
-        assertFalse(advertised.contains(Player.COMMAND_SEEK_TO_PREVIOUS))
-        assertEquals("nine mapped minus the two unavailable", 7, advertised.size)
+        assertTrue("the mapping exists", mediaCommandFor(PlayerCommand.PreviousNote) != null)
+        assertFalse("but it is not advertised", advertised.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
+    }
+
+    @Test
+    fun theAdvertisedSetShrinksWithPositionRatherThanBeingFixed() {
+        val midQueue = mediaCommandSetFor(availabilityOf(queue = queue(size = 3, index = 1)))
+        val atTheFirstNote = mediaCommandSetFor(availabilityOf(queue = queue(size = 3, index = 0)))
+        val atTheLastNote = mediaCommandSetFor(availabilityOf(queue = queue(size = 3, index = 2)))
+
+        // In the middle, both directions are offered.
+        assertTrue(midQueue.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
+        assertTrue(midQueue.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
+
+        // At the edges, only the direction that exists.
+        assertFalse("nothing before the first Note", atTheFirstNote.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
+        assertTrue(atTheFirstNote.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
+
+        assertTrue(atTheLastNote.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
+        assertFalse("nothing after the last Note", atTheLastNote.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
     }
 
     // --- The platform's commands, translated back --------------------------------------------------
@@ -166,10 +223,6 @@ class PlayerMediaCommandsTest {
         // deliberate act rather than a side effect.
         val understood = mapOf(
             Player.COMMAND_PLAY_PAUSE to PlayerCommand.TogglePlayback,
-            Player.COMMAND_SEEK_TO_NEXT to PlayerCommand.NextSection,
-            Player.COMMAND_SEEK_TO_PREVIOUS to PlayerCommand.PreviousSection,
-            Player.COMMAND_SEEK_FORWARD to PlayerCommand.NextPart,
-            Player.COMMAND_SEEK_BACK to PlayerCommand.PreviousPart,
             Player.COMMAND_SEEK_TO_DEFAULT_POSITION to PlayerCommand.RestartNote,
             Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM to PlayerCommand.NextNote,
             Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM to PlayerCommand.PreviousNote
@@ -202,12 +255,11 @@ class PlayerMediaCommandsTest {
      * - **`JumpToNote`** carries an index, and a bare platform command int cannot supply one. Mapping it back
      *   would have to invent a destination, so it deliberately maps to nothing.
      *
-     * Everything else must round-trip: a transport that invokes what was advertised has to get the command
-     * that was advertised.
+     * The other four have no media command at all, so they are not candidates for a round trip.
      */
     @Test
     fun theMappingIsConsistentInBothDirectionsForEveryCommandThatCanSurviveTheTrip() {
-        val collapseToOneAction = setOf(
+        val collapseToOneActionOrCarryAnArgument = setOf(
             PlayerCommand.Play,
             PlayerCommand.Pause,
             PlayerCommand.TogglePlayback,
@@ -215,13 +267,13 @@ class PlayerMediaCommandsTest {
         )
 
         for (command in PlayerCommand.transports) {
-            if (command in collapseToOneAction) continue
+            if (command in collapseToOneActionOrCarryAnArgument) continue
 
-            val media = mediaCommandFor(command)
+            val media = mediaCommandFor(command) ?: continue
             assertEquals(
                 "round trip for $command",
                 command,
-                commandForMediaCommand(media!!)
+                commandForMediaCommand(media)
             )
         }
 

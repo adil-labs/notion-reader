@@ -392,32 +392,59 @@ Core Player spec:  PlayerCommandAvailability   ← one evaluation
 
 ## The command set as platform actions
 
-| Command (Core Player spec) | Media3 / platform expression |
-|---|---|
-| `Play` | `COMMAND_PLAY_PAUSE` + `PLAYER_COMMAND_PLAY`, `play()` |
-| `Pause` | `COMMAND_PLAY_PAUSE` + `PLAYER_COMMAND_PAUSE`, `pause()` |
-| `TogglePlayback` | `COMMAND_PLAY_PAUSE`, `play()`/`pause()` per state |
-| `NextSection` / `PreviousSection` | `COMMAND_SEEK_TO_NEXT` / `COMMAND_SEEK_TO_PREVIOUS` |
-| `NextPart` / `PreviousPart` | `COMMAND_SEEK_FORWARD` / `COMMAND_SEEK_BACK` |
-| `RestartNote` | `COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM` on the current item, plus a restart seek |
-| `NextNote` / `PreviousNote` | `COMMAND_SEEK_TO_NEXT_MEDIA_ITEM` / `COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM` |
-| `JumpToNote` | `COMMAND_SEEK_TO_MEDIA_ITEM` |
-| `OpenQueue`, `OpenMorePlaybackControls` | **not mapped** — surface actions, absent from `Commands` |
+**Revised after reading the library, not after reasoning about it.** The first version of this table paired
+the four granularity commands with platform seeks. Reading `BasePlayer`'s bytecode showed that Media3 cannot
+express either of them, so they are no longer mapped. `docs/decisions.md` §23.18 records what was found and
+how.
 
-Two of these deserve their reasoning stated, because the mapping is where a transport could quietly
-change a command's meaning:
+| Command (Core Player spec) | Media3 / platform expression | Exact? |
+|---|---|---|
+| `Play` | `COMMAND_PLAY_PAUSE`, `play()` | yes |
+| `Pause` | `COMMAND_PLAY_PAUSE`, `pause()` | yes |
+| `TogglePlayback` | `COMMAND_PLAY_PAUSE` | yes — it is defined as exactly `Play` or `Pause` |
+| `RestartNote` | `COMMAND_SEEK_TO_DEFAULT_POSITION` | yes — "start the current item again" |
+| `NextNote` / `PreviousNote` | `COMMAND_SEEK_TO_NEXT_MEDIA_ITEM` / `COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM` | yes — a Note **is** the media item |
+| `JumpToNote` | `COMMAND_SEEK_TO_MEDIA_ITEM` | yes — a playlist position is a queue index |
+| `NextSection` / `PreviousSection` | **not mapped** — see below | — |
+| `NextPart` / `PreviousPart` | **not mapped** — see below | — |
+| `OpenQueue`, `OpenMorePlaybackControls` | **not mapped** — surface actions, absent from `Commands` | — |
 
-- **Sections and parts reuse the seek commands, and that is a compromise.** Media3's model is a playlist
-  of media items with a position inside one; "next section" and "next part" are both *within* the current
-  item. Two distinct commands share one platform command because the platform has one. The **on-screen
-  Player keeps both controls distinct** — the mapping is only for transports, and a transport that
-  conflates them can only ever invoke the one it was mapped to. This is recorded as a limitation rather
-  than papered over: a media session's "seek forward" means `NextPart`, and section navigation is a
-  Player control.
-- **`RestartNote` is expressed as a seek to the beginning**, not as a media-item change, so no transport
-  can turn it into "previous track". The Core Player spec makes it unavailable once a queue has
-  completed, and the mapped command is removed from `Commands` in that state, so the platform's
-  skip-previous control is greyed rather than doing something else.
+There is no `PLAYER_COMMAND_PLAY` or `PLAYER_COMMAND_PAUSE` to pair with `COMMAND_PLAY_PAUSE` in this Media3
+version, and no two-level command model: `Player.Commands` is a flat set of ints, and which half of
+play-pause to offer is decided by the state the player reports.
+
+### Why the four granularity commands are not transportable
+
+They are **refused rather than approximated**, because an approximation here is a wrong answer delivered with
+full confidence:
+
+- **`NextPart` / `PreviousPart`** would become `COMMAND_SEEK_FORWARD` / `COMMAND_SEEK_BACK`, and those compile
+  to `seekToOffset(getSeekForwardIncrement(), …)` — a **millisecond offset whose distance the transport
+  chooses** via `setSeekForwardIncrementMs`. A Note has no millisecond timeline, so a lock screen's "forward"
+  would advance by an amount the lock screen picked. That is not "the next part".
+- **`NextSection` / `PreviousSection`** would become `COMMAND_SEEK_TO_NEXT` / `COMMAND_SEEK_TO_PREVIOUS`,
+  which are implemented against the *timeline* and degrade to a **media-item move** when there is no timeline
+  within an item. With one media item per Note, "next" and "next Note" are then the same operation — so the
+  lock screen's next button would **skip a whole Note** while claiming to move one section.
+
+The distinction that resolves this, and that is worth keeping: `isTransport` on a command asks whether the
+command *needs a screen*, while this table asks whether **this transport can express it**. `NextSection` is a
+real transport command — a future voice transport could say "next section" — and Media3 simply has no way to
+carry it. Advertising a command whose effect would differ from its label is worse than not advertising it,
+so a transport that cannot express a command does not offer it.
+
+The **on-screen Player is unaffected**: all four remain separate, separately-labelled controls there, and
+they are the only route to section and part navigation. That is a real consequence of this revision and is
+recorded rather than glossed — a listener using only the lock screen gets Note-level navigation, which is
+exactly what a media session's transport model means by previous and next.
+
+The rest of the mapping is exact, and the reason it can be is that a media session's model — a playlist of
+items with a position inside one — matches the queue exactly when a Note is the item.
+
+**`RestartNote` is a seek to the beginning of the current item, not a media-item change**, so no transport
+can turn it into "previous track". The Core Player spec makes it unavailable once a queue has completed, and
+the mapped command is removed from `Commands` in that state, so the platform's skip-previous control is
+greyed rather than doing something else.
 
 ## Media keys and headset buttons
 
