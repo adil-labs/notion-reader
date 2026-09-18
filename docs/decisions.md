@@ -4357,6 +4357,91 @@ confidence, and the fix is to check what has focus before believing a dump.
   the fix was necessary, and quoting only the after would hide that this was found by looking rather than
   built correctly by luck.
 
+### 23.21 The foreground claim does not exist, and it cannot until the notification does
+
+**Date:** 2026-09-18. §23.20 recorded a prediction rather than a finding, because the device it was made on
+could not test it. The Pixel 8 Pro (API 37) reappeared, so it has now been tested. **The prediction was
+correct, and the mechanism is now identified precisely enough to change the phase order.**
+
+#### The measurement
+
+With the app **on the Player and reading aloud in the foreground**:
+
+```plain text
+PlaybackService running: False
+  ...and foreground:      False
+```
+
+The service my `ReaderViewModel` trigger starts **is not running at all**, and there is no crash, no log line
+naming our package in the service/foreground/notification categories, and no change in the app's behaviour —
+it reads aloud perfectly. A missing foreground claim with no symptom is exactly the silent-failure shape
+§23.9 investigated.
+
+#### The mechanism, which is the part that matters
+
+`POST_NOTIFICATIONS` is **not declared in the manifest** and therefore not present in the installed package:
+
+```plain text
+POST_NOTIFICATIONS declared in the manifest: 0 occurrences
+```
+
+A Media3 `MediaSessionService` becomes foreground **by posting a media notification** — that notification *is*
+the foreground notification; there is no second one. So an app that cannot post a notification cannot hold a
+foreground claim, and on API 37 the platform then refuses its background audio APIs:
+`AudioHardening background playback muted for <pkg>, level: partial` — "no foreground service at all" — with
+no exception and no failure message, which is the documented behaviour and precisely what §23.9 was about.
+
+#### What this changes: the phases are not independently orderable
+
+The Background Playback specification lists the notification as **Phase 4**, after the service and after
+audio focus, in a section that reads as four additive steps. **That ordering is wrong, and this is the
+evidence.** The notification is not a surface added on top of working background playback — it *is* the
+foreground claim, and without it:
+
+- the service does not persist,
+- the app holds no foreground claim,
+- and on API 37 background audio is silently suppressed.
+
+So **Phase 2 cannot work until the notification exists.** Whichever order the work is done in, the notification
+has to land with or before the service for the service to do anything, and the specification's phase list
+should be read as "the notification completes Phase 2" rather than "Phase 4 adds a notification".
+
+This is recorded as a specification correction rather than an implementation detail, and it is the second time
+in this area that reading the platform has overruled a plan: §23.18's mapping table was the first.
+
+#### What is still not established, stated precisely
+
+- **Whether the service start is even attempted** is not confirmed. The trigger is `isPlaying` becoming true,
+  and the app was showing a **restored** session rather than one started by a tap — so it is possible the
+  collector fired correctly and the service was refused, or that something about the restore path means it
+  did not fire. Both produce the same observation, and telling them apart needs a log line that does not
+  exist yet. Recorded rather than assumed.
+- **Audio suppression itself was not observed.** The `AudioHardening` entries in this device's dump all name
+  TalkBack; none name this app. That is consistent with the app never holding a foreground claim, but the
+  decisive experiment — start playback, let the screen go off, and watch for a suppression entry naming our
+  package — needs the app to first *attempt* background audio with a service that stays up.
+
+#### Added: `tools/probe-background-audio.ps1`
+
+Written to make this measurable rather than inferred, since the evidence for every claim above is the
+platform's own audit log — the only thing that reports a *silent* suppression. It reads the device identity
+first, navigates by tapping the accessibility dump, reports whether `PlaybackService` is running and
+foreground, reports the notification permission's declared/present/granted state, then puts the screen to
+sleep and reports whether reading continued and whether any `AudioHardening` entry names the app.
+
+Its own first run failed on an assumption worth recording: it expected Home and tapped `Browse Notes`, but the
+app was **on the Player, already playing a restored session**, because Home shows Continue listening when
+there is something to resume. It now taps the bottom `Browse` tab, which exists on every top-level destination.
+That is the third time in this script's short life that a probe reported — or nearly reported — a wrong answer
+because it assumed a screen instead of reading one, after hard-coded coordinates and a title-based classifier.
+
+#### Verified
+
+- **389 JVM tests, 0 failures.** No product code changed in this section, so nothing else is implicated.
+- The device identity is printed and was API 37 — the API level at which the claim under test exists at all.
+- The service-not-running measurement was taken **while the app was reading aloud in the foreground**, from
+  `dumpsys activity services`, before anything was allowed to exit.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:
