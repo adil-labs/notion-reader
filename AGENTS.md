@@ -10,8 +10,8 @@ behaviour, and keep it current. The sections below are what is *not* inferable f
 
 ## This repository is specification-driven — do not invent semantics
 
-Work is governed by six documents. **Five are Notion pages, mirrored (generated) into `docs/notion/`; one
-is hand-authored in `docs/` and has no Notion counterpart.**
+Work is governed by **seven** documents. **Five are Notion pages, mirrored (generated) into `docs/notion/`;
+two are hand-authored in `docs/` and have no Notion counterpart.**
 
 | Rank | Document | Location |
 |---|---|---|
@@ -21,11 +21,12 @@ is hand-authored in `docs/` and has no Notion counterpart.**
 | 3 | Active Queue & Reader Session Spec | `docs/notion/active-queue-and-reader-session-spec.md` |
 | 3 | Core Player & TTS Playback Spec | `docs/notion/core-player-and-tts-playback-spec.md` |
 | 3 | Background Playback, Media Controls & Hands-Free Commands | `docs/background-playback-and-media-controls-spec.md` **(hand-authored, not a mirror)** |
+| 3 | Queue Creation & Queue Management | `docs/queue-creation-and-queue-management-spec.md` **(hand-authored, not a mirror)** |
 | — | Notion Note Organization (note-authoring skill, not an app spec) | `docs/notion/notion-note-organization.md` |
 
 **The location tells you how to edit it.** Everything under `docs/notion/` is generated: regenerate with
 `tools/export-notion-doc.ps1`, never hand-edit, and put a semantic change in Notion instead. Everything in
-`docs/` directly (`decisions.md`, `phase0-fixture-contract.md`, and the background playback spec) is
+`docs/` directly (`decisions.md`, `phase0-fixture-contract.md`, and the two hand-authored specs) is
 hand-authored and **is authoritative as it stands** — Notion is not the source for those, and the exporter
 does not know about them.
 
@@ -40,8 +41,9 @@ affected specs → *only then* implement), are recorded in [docs/decisions.md §
 The Active Queue & Reader Session Spec is a third-rank dependency of the integration spec. The Core
 Player & TTS Playback Spec owns the Player's **closed command set**; the Background Playback, Media
 Controls & Hands-Free Commands spec *consumes* those commands and may not add, rename or redefine one;
-and the still-unwritten Queue Creation & Queue Management spec owns Saved Queue persistence, Queue
-Destination and both `Add` actions.
+and the Queue Creation & Queue Management spec owns Saved Queue persistence, Queue Destination and both
+`Add` actions — **with Smart Queues deliberately out of scope** (`docs/decisions.md` §23.3, D30), because
+they need this document *and* the still-unwritten Content Metadata & Workspace Schema Adapters spec.
 
 One writing constraint worth knowing before authoring here: the exporter has **no `table` case**, so a
 markdown table in a *Notion* page never reaches its mirror. The five mirrored specs therefore contain no

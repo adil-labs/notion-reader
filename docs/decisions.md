@@ -4609,6 +4609,67 @@ fixture: the test was not seeing the mechanism, it was seeing a side effect of t
 Filtering by prefix also means a second *kind* of diagnostic can be added later without silently weakening
 what this checks.
 
+### 23.24 Stage 0c is written — the Queue Creation & Queue Management Specification
+
+**Written:** 2026-09-19. `docs/queue-creation-and-queue-management-spec.md`, **hand-authored** per D33. The
+last of the three documents Stage 0 owed, and the one that gates every Saved Queue surface: the Saved tab,
+Saved Queue Details, Create, Edit, Queue Destination, the Note's `Add to queue` and Browse's
+`Add all to queue`, and Home's *Your queues*.
+
+#### The finding that shaped it: the blocker was one field wide
+
+§20.4 recorded the whole of Saved and Smart Queues as "blocked on the Queue Creation & Queue Management spec,
+which does not exist", and §23.2 found that this was true of the **persistence schema** and of **Smart
+Queues**, and false of almost everything else. Writing the document confirmed it, and the confirmation is the
+useful part:
+
+- The **Product & Architecture Contract already settles** the operations (create, name, add, add a result
+  set, remove, reorder, rename, delete, play), the identity rule (dedupe by stable page identity, never by
+  title), that adding must not start or interrupt playback, and the stored fields — "a stable queue identity;
+  a user-visible name; ordered Note identities; persistence metadata".
+- The **UI contract already settles** the surfaces and the interaction: the Saved tab, Details, an explicit
+  **Edit** mode with `Move up` / `Move down` / `Move to top` / `Move to bottom` / `Remove` that "must never
+  require drag-and-drop", and the Queue Destination rules including what it must *not* show.
+- **What had no owner was the persistence schema**, which the UI contract defers, the integration spec
+  delegates away from itself, and the session spec scopes out twice.
+
+So most of the document is derived rather than decided, and it says so explicitly — including that "where
+this document restates one, it is restating rather than deciding, and the contract wins". A specification
+that quietly re-decides contract-level semantics is the failure mode the conflict protocol exists to prevent,
+and a Saved Queue is the feature where that would be easiest to do.
+
+#### What is genuinely new, and why each one needed deciding
+
+| Decision | Why it could not be inferred |
+|---|---|
+| **The store is reused, not invented** | §20.4 ranked this work partly on "a session store exists, so Saved Queues must reuse it"; a second codec with its own version policy is a second thing to drift on what an unknown version means and how malformed input is reported |
+| **The record decodes per-record, not as one array** | `SessionCodec` already does this and its comment records why; the same mistake is available here, so the requirement is stated rather than left to be re-derived |
+| **`QueueOrigin.Saved`/`Smart` carry an identity, not just a name** | the contract says origin must never re-evaluate its source — which a name satisfies — but a name is not an identifier: two queues may share one, and a rename makes a stored name stale. This is R4 and a deliberate `SESSION_SCHEMA_VERSION` bump |
+| **Add reports counts, including "none"** | the contract requires dedupe and says nothing about telling the listener. The common case is `Add all to queue` over an overlapping result set, and a silent dedupe is indistinguishable from a failure |
+| **A no-op writes nothing** | for a move at a boundary or a rename to the same name. Not derivable, and invisible from a screen, which is why it gets a failing-first proof against a recording store |
+| **Edits are applied as they are made, not at `Done`** | the opposite is defensible. Stating it matters because Back leaves Edit mode, and the alternative would lose a reorder through the platform's most reflexive gesture |
+| **Back leaves Edit mode rather than the screen** | the UI contract defers this to "queue-management spec" — this is that definition, and it is the one place Back does something other than reverse navigation |
+| **A stalled Note offers Retry and move-on, and nothing else** | §19.9 recorded the dead end and §23.7 attributed the policy here. Ratified rather than invented: §22.6 already gave the listener `Next note`, and this states that removing or marking the Note would edit a frozen queue or record a transient fact permanently |
+| **Saved Queues are never pruned** | sessions are (10/20/30 days). Discarding something a listener built is not the same as discarding a record of something they did, and a limit would need a decision about what happens when it is reached |
+
+#### Recorded as open rather than guessed
+
+Retention for Saved Queues; whether a queue's identity is ever displayed; import and export; and whether a
+member's stored title should ever be refreshed. Each is listed with the reason it is open rather than
+decided, on the same principle as everywhere else in this project: a specification that guesses is worse than
+one that says what it has not settled.
+
+#### Verified
+
+- **Documentation only. No Kotlin changed**, confirmed by `git status` — so the JVM suite and the instrumented
+  suite are unaffected. The 389-test JVM run from §23.23 stands.
+- The document **uses tables**, which are permitted here and forbidden in `docs/notion/`: the exporter has no
+  `table` case, so a table in a mirrored page never reaches its mirror. That is now recorded in `AGENTS.md`.
+- `AGENTS.md`'s governing-document table is updated to **seven documents, five mirrored and two
+  hand-authored**, with the Queue Creation spec added and its scope boundary stated: it owns Saved Queue
+  persistence, Queue Destination and both `Add` actions, **with Smart Queues deliberately out of scope**
+  (D30) because they need this document *and* the still-unwritten Content Metadata spec.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:
@@ -4688,11 +4749,22 @@ announced is not a restore.
   navigation flow with TalkBack enabled, and the risk it carries is unique — whether TalkBack's speech and
   the reader's TTS overlap in practice. It needs ears, not code, and enabling it changes the device's touch
   behaviour globally, so it is the user's call.
-- **One specification is still owed before its code: 0c**, Queue Creation & Queue Management — Saved
-  Queues, Queue Destination, both `Add` actions, dedupe by stable identity, Edit mode, origin identity and
-  the store shape, with Smart Queues out of scope by D30. **0a (§23.8) and 0b (§23.9) are written.** 0a is a
-  Notion mirror at `docs/notion/core-player-and-tts-playback-spec.md`; 0b is hand-authored at
-  `docs/background-playback-and-media-controls-spec.md`.
+- **All three Stage 0 documents are written** (§23.5): **0a** and **0b** in §23.8–§23.9, and **0c** — Queue
+  Creation & Queue Management — in **§23.24** as `docs/queue-creation-and-queue-management-spec.md`. Nothing is
+  now blocked on a document except Smart Queues, which need the still-unwritten Content Metadata & Workspace
+  Schema Adapters spec as well (D30), and Browse's facets and Home's Explore, which need the same one.
+- **Saved Queue implementation is unblocked and is the next queue work**: Phase 1 (the record and the store,
+  reusing `SessionCodec`/`DataStoreSessionStore`) and Phase 2 (the model and its invariants with failing-first
+  proofs for the no-op and duplicate rules), both JVM-verifiable. Phase 3 — the identity-carrying
+  `QueueOrigin` and its `SESSION_SCHEMA_VERSION` bump — is the one to do deliberately, because it is the only
+  part that changes persistence that already works.
+- **Stage 2 (background playback) is stopped on a diagnosis, not a decision**: §23.22–§23.23 could not
+  establish whether the service start is attempted, because our log output does not reach `logcat -d` on this
+  device — most likely a saturated ring buffer. The next attempt needs a **live capture**, with `logcat`
+  running before the launch. The launch-playing observation from §23.22 is likewise still unexplained and
+  still recorded as an observation rather than a defect.
+- **The `probe-background-audio.ps1` tap sequence is order-fragile**: it taps `Browse` then `Play all`, but
+  Browse's results load over the network, so `Play all` may not exist yet. Fix before relying on it.
 - **The session spec's live-region wording cannot be amended from this repository** (D33). It is a Notion
   mirror, so the amendment §23.8 raised and §23.9 depends on still has to be made in Notion and
   re-exported. 0b records that it relies on the adopted reading rather than assuming the wording is settled.
