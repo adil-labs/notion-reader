@@ -4670,6 +4670,93 @@ one that says what it has not settled.
   persistence, Queue Destination and both `Add` actions, **with Smart Queues deliberately out of scope**
   (D30) because they need this document *and* the still-unwritten Content Metadata spec.
 
+### 23.25 Saved Queue Phase 1 — the record, the codec and the store
+
+**Date:** 2026-09-19. The first implementation of the Queue Creation & Queue Management spec, and it is the
+phase that changes nothing: a record, a codec, a store interface, an in-memory double and a DataStore
+implementation, with no surface reading any of it. **417 JVM tests, 0 failures** (was 389; 28 additions).
+
+#### What was built, and what "reuse the store" actually meant
+
+The spec requires that a Saved Queue **reuse the session store's technology and policy** rather than introduce
+a second one, and the phase shows what that requirement is worth in practice — it is a constraint on *three
+separate things*, and keeping them separate is the design:
+
+| Reused | Not reused |
+|---|---|
+| the pattern: an Android-free interface in `domain`, a pure codec beside it, a device-backed implementation in `data.local` | **the record** — `SavedQueue` is not `StoredSession` |
+| the version policy: unknown version → discard, never migrate | **the version constant** — `SAVED_QUEUE_SCHEMA_VERSION` is its own |
+| the failure posture: no `Result`, no error type, a failed read is "none" and a failed write is a lost edit | **the file** — separate from listening history |
+
+The version constant being separate is the one that looks like duplication and is not. The two records are
+versioned independently, so a change to a session record never forces a re-read decision about queues; sharing
+a constant would make a session bump a queue migration question by accident. A test asserts the *policy* is the
+same while the *constant* is separate, which is the only way to hold both halves of that.
+
+A **separate preferences file** for the same class of reason: the two codecs are already independent, so
+sharing a file would not force a shared version — but it would mean a Saved Queue edit rewrites the listening
+history's bytes for no benefit.
+
+#### One deliberate difference from `SessionCodec`, and why it is not a drift
+
+`SavedQueueCodec.encode` **sorts by identity**; `SessionCodec.encode` does not. That is a real difference, and
+it exists because the two lists mean different things:
+
+- sessions are stored in recency order because **retention reads that order** — the oldest is dropped to make
+  room;
+- queues are a **set with no meaningful order between them**, and the whole list is rewritten on every edit.
+  Without a canonical order, editing one queue would reorder the bytes of every other, and the store would
+  churn for nothing.
+
+Sorting by **identity** rather than by name is the same argument one level down: a rename is the one edit that
+changes a label and nothing else, so it must not change where a record sits in the file. A test asserts
+exactly that — the bytes differ after a rename, and the identity order does not.
+
+#### Two decisions worth recording, because both make a rule testable
+
+**The duplicate rule is a diagnostic, not a validity gate.** `SavedQueue.hasUniqueMembers` reports the rule the
+*operations* must maintain, and `isValid` deliberately ignores it. A stored record comes from disk rather than
+from a value this application just built, so a duplicate is only reachable through a bug in an add path — and
+discarding a listener's whole queue over it would be a disproportionate response to something that can still
+be listed and played.
+
+**An empty queue is valid, and that is the point of the validity rule.** "Create saved queue" deliberately
+produces one, so a predicate that rejected emptiness would make the feature's own first step produce an
+unusable record. It is asserted as a *property* — validity does not depend on the member list, for empty,
+one-member and fifty-member cases — rather than as two separate cases, because "these two happen to be true" is
+weaker than the members being irrelevant.
+
+**The recording double exists for Phase 2, not for these tests.** `InMemorySavedQueueStore` counts writes and
+keeps every list passed to `write()`, because Phase 2's rule that "a move at a boundary performs no write" is
+**invisible in the resulting list** — the assertion has to be about the store's activity. Building that capability
+now is what stops the model tests later being tempted to infer it from a value that cannot show it.
+
+#### Verified
+
+- **417 JVM tests, 0 failures** (was 389). 28 additions: 15 in `SavedQueueCodecTest`, 13 in `SavedQueueTest`.
+- **Failing-first proofs**, both guards removed together and each noticed by its own tests:
+
+  | Guard removed | Tests that noticed |
+  |---|---|
+  | the per-record `isValid` filter | `aRecordFromAnUnknownVersionIsDiscarded`, `aRecordWithABlankNameIsDiscardedByTheRecordsOwnValidityRule`, `oneUnusableRecordDoesNotMakeTheOthersUnreadable`, `anUnrecognisedRecordIsDiscardedEvenWhenItSitsBesideAValidOneOfTheSameName` |
+  | the canonical `sortedBy { it.id }` | `theStoredBytesDoNotDependOnTheOrderTheCallerDecidedToHandThemOver` |
+
+  Five failures, all named, and the split is the right answer: the validity filter has four tests because it is
+  the version policy and the blankness rule together, and the sort has one because canonical order is one
+  property. Both were restored from a file backup rather than by re-typing, so the restore is exact.
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` both succeed.
+
+#### What this phase deliberately does not do
+
+No surface reads any of it, and no operation exists yet — `Create`, `Add`, `Remove`, the four moves and
+`Delete` are Phase 2's, as a pure model over this store. The phase split is the spec's, and it is the same
+reasoning this project uses elsewhere: land the thing that cannot be wrong, then the thing whose mistakes are
+invisible from a screen.
+
+Phase 3 remains the one to do deliberately — the identity-carrying `QueueOrigin` and its
+`SESSION_SCHEMA_VERSION` bump — because it is the only part of this work that changes persistence that already
+works, and its mistake would be silent.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:
