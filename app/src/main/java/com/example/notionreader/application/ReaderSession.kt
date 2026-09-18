@@ -447,9 +447,25 @@ class ReaderSession(val engine: ReaderEngine) {
                 requestToken = current.requestToken + 1
             )
         } else {
-            // "At the final Note: announce that the queue has ended; stop automatic progression; mark
-            // the session completed". Marked here as a fact. What a completed session is *retained* for
-            // belongs to the Reader Session specification, which does not exist, so nothing is invented.
+            // "At the final Note: announce that the queue has ended; stop automatic progression; mark the
+            // session completed."
+            //
+            // **Announced here, at the event, rather than by a surface that renders the completed state.**
+            // A surface would re-speak it every time the Player was opened, and the Core Player & TTS
+            // Playback spec requires it to be said once per completion. This is also the only place that
+            // knows the queue has *ended* rather than that a Note has: a one-Note queue ends here too, and
+            // it gets one announcement rather than an "end of note" followed by an "end of queue".
+            //
+            // Spoken rather than left to the Player's "End of queue" text, which is a live region: a live
+            // region is read to nobody when no screen reader is running, and with the screen off the
+            // reader's own voice is the listener's only channel. A queue that simply stops is
+            // indistinguishable, by ear, from a reader that has failed.
+            //
+            // Marked completed as a fact after the announcement, because the guard at the top of this
+            // method reads it and a re-entrant call must not announce twice. What a completed session is
+            // *retained* for belongs to the Active Queue & Reader Session spec, which owns persistence and
+            // history; nothing about it is invented here.
+            engine.announce(END_OF_QUEUE_ANNOUNCEMENT)
             current.copy(completed = true)
         }
     }
@@ -593,6 +609,17 @@ class ReaderSession(val engine: ReaderEngine) {
 
     /** Releases speech resources. The session must not be used afterwards. */
     fun shutdown() = engine.shutdown()
+
+    private companion object {
+        /**
+         * What the reader says when the last Note of a queue has been read.
+         *
+         * The words are the ones the Player's playback line shows at that moment, deliberately: the spoken
+         * and the displayed vocabulary should be one vocabulary, so a listener who can both hear and see
+         * the Player is not told two different things about one event.
+         */
+        const val END_OF_QUEUE_ANNOUNCEMENT = "End of queue"
+    }
 }
 
 /**

@@ -10,19 +10,42 @@ behaviour, and keep it current. The sections below are what is *not* inferable f
 
 ## This repository is specification-driven — do not invent semantics
 
-Work is governed by four Notion documents, mirrored (generated) into `docs/notion/`:
+Work is governed by six documents. **Five are Notion pages, mirrored (generated) into `docs/notion/`; one
+is hand-authored in `docs/` and has no Notion counterpart.**
 
-| Rank | Document | Mirror |
+| Rank | Document | Location |
 |---|---|---|
 | 1 | Product & Architecture Contract | `docs/notion/product-and-architecture-contract.md` |
 | 2 | UI Screens & Navigation Contract | `docs/notion/ui-screens-and-navigation-contract.md` |
 | 2 | Notion Integration Implementation Spec | `docs/notion/notion-integration-implementation-spec.md` |
+| 3 | Active Queue & Reader Session Spec | `docs/notion/active-queue-and-reader-session-spec.md` |
+| 3 | Core Player & TTS Playback Spec | `docs/notion/core-player-and-tts-playback-spec.md` |
+| 3 | Background Playback, Media Controls & Hands-Free Commands | `docs/background-playback-and-media-controls-spec.md` **(hand-authored, not a mirror)** |
 | — | Notion Note Organization (note-authoring skill, not an app spec) | `docs/notion/notion-note-organization.md` |
+
+**The location tells you how to edit it.** Everything under `docs/notion/` is generated: regenerate with
+`tools/export-notion-doc.ps1`, never hand-edit, and put a semantic change in Notion instead. Everything in
+`docs/` directly (`decisions.md`, `phase0-fixture-contract.md`, and the background playback spec) is
+hand-authored and **is authoritative as it stands** — Notion is not the source for those, and the exporter
+does not know about them.
+
+The consequence of having both, which is easy to trip over: **a hand-authored document cannot amend a
+mirrored one.** An amendment to a mirrored spec still has to be made in Notion and re-exported. One is
+outstanding for exactly this reason — the background playback spec depends on reading the session spec's
+"live-region announcements" as "also exposed as a live region", and records that alternative as an
+amendment candidate in Notion (see [docs/decisions.md §23.9](docs/decisions.md)).
 
 Precedence, and the conflict protocol (amend the contract in Notion → review dependents → update
 affected specs → *only then* implement), are recorded in [docs/decisions.md §1](docs/decisions.md).
-[Active Queue & Reader Session Spec](docs/notion/active-queue-and-reader-session-spec.md) is a
-third-rank dependency of the integration spec.
+The Active Queue & Reader Session Spec is a third-rank dependency of the integration spec. The Core
+Player & TTS Playback Spec owns the Player's **closed command set**; the Background Playback, Media
+Controls & Hands-Free Commands spec *consumes* those commands and may not add, rename or redefine one;
+and the still-unwritten Queue Creation & Queue Management spec owns Saved Queue persistence, Queue
+Destination and both `Add` actions.
+
+One writing constraint worth knowing before authoring here: the exporter has **no `table` case**, so a
+markdown table in a *Notion* page never reaches its mirror. The five mirrored specs therefore contain no
+tables. Hand-authored documents are unaffected and do use them.
 
 Three consequences that are violated more often than anything else:
 
@@ -134,6 +157,15 @@ pwsh -File tools\run-accessibility-tests.ps1 -Class com.example.notionreader.ui.
   actually performs.
 - Assert reading order through the semantics tree, not by sorting geometry.
 - The wrapper's HTML report is the accurate result: `app/build/reports/androidTests/connected/debug/index.html`.
+
+**The focus-restore assertions are red on this device, and that is recorded rather than fixed**
+(`docs/decisions.md` §23.12–§23.14). TalkBack running with *touch exploration* makes
+`FocusRequester.requestFocus()` refuse on a `clickable` node while granting it on a `focusable()` one, so
+seven focus assertions fail for a device reason. The mechanism is deliberately **not** being redesigned
+around TalkBack: the app speaks through its own TTS and implements no screen-reader-conditional behaviour
+(D34/D35). Do not delete, relax or `@Ignore` those seven tests to get a green run — this project treats that
+as a defect, and the assertions name a real contract requirement. Check
+`adb shell settings get secure touch_exploration_enabled` before diagnosing a focus failure.
 
 ## Pitfalls
 

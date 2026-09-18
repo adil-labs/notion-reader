@@ -3,10 +3,10 @@ package com.example.notionreader.player
 import com.example.notionreader.domain.ReaderDocument
 
 /**
- * Where one [ReaderSection] sits in the flat, spoken paragraph list.
+ * Where one [ReaderSection] sits in the flat, spoken part list.
  *
  * [ReaderDocument] is modelled as sections of chunks because that is how a Notion page is written,
- * but playback and progress are flat: "paragraph 12 of 28". Section-aware navigation and the Player's
+ * but playback and progress are flat: "part 12 of 28". Section-aware navigation and the Player's
  * "current section" line both need the translation between the two views, and doing it in exactly one
  * place is what stops that arithmetic being reinvented (and subtly mis-computed) in the UI.
  *
@@ -81,12 +81,29 @@ data class ReaderState(
     val paragraphCount: Int
         get() = paragraphs.size
 
-    /** Human readable position, e.g. "Paragraph 2 of 8". Empty documents report "No paragraphs". */
+    /**
+     * Human readable position, e.g. "Part 2 of 8". An empty document reports "Nothing to read".
+     *
+     * **The unit is the part, not the paragraph, and the field name [paragraphs] is a historical one.**
+     * Each entry is a speakable chunk, and a chunk is produced for headings, list items, to-do items,
+     * quotes and code blocks as well as for paragraphs — and a long paragraph is split into several
+     * chunks. So the count was always a count of parts, and calling them "Paragraphs" made the number
+     * right and the noun false for every heading, list item and split paragraph before the listener's
+     * position.
+     *
+     * That is a label the state cannot support, which is the same class of defect as a queue row that
+     * called a Note "Completed" when the session knew only that it was current (`docs/decisions.md`
+     * §22.4). The Core Player & TTS Playback spec's Phase 3 settles the wording as "Part N of M"; an
+     * empty document names no unit at all, because it has none.
+     *
+     * The count is flat over chunks rather than over sections, and that is right rather than incidental:
+     * a heading is spoken, so it is a position a listener can be at.
+     */
     val positionDescription: String
         get() = if (paragraphs.isEmpty()) {
-            "No paragraphs"
+            "Nothing to read"
         } else {
-            "Paragraph ${currentParagraphIndex + 1} of ${paragraphs.size}"
+            "Part ${currentParagraphIndex + 1} of ${paragraphs.size}"
         }
 
     /** The section the reading position currently falls in, or null when there is no outline. */

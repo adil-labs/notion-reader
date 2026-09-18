@@ -135,9 +135,9 @@ data class ActiveQueue private constructor(
  * Where a queue session is, and whether it can proceed.
  *
  * Kept separate from [ReaderState], which describes the *document* being read. A Player needs both:
- * "Paragraph 2 of 349" comes from the document, "Note 3 of 8" comes from here, and neither can be
+ * "Part 2 of 349" comes from the document, "Note 3 of 8" comes from here, and neither can be
  * derived from the other — a document does not know it is the third of eight, and a queue does not know
- * which paragraph is being spoken.
+ * which part is being spoken.
  *
  * ## The states, and why `awaiting` is a state rather than a flag
  *

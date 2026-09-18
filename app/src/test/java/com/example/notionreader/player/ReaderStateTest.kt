@@ -159,6 +159,40 @@ class ReaderStateTest {
     }
 
     @Test
+    fun thePositionLineCountsPartsAndSaysSo() {
+        val five = ReaderState(paragraphs = List(5) { "part $it" })
+
+        // The unit is the part, not the paragraph: the list is the document's projection of speakable
+        // chunks, so it contains headings, list items and the several parts a long paragraph splits into.
+        // "Paragraph N of M" was a label the state could not support (docs/decisions.md §23.8, P2).
+        assertEquals("Part 1 of 5", five.positionDescription)
+        assertEquals("Part 3 of 5", five.nextParagraph().nextParagraph().positionDescription)
+    }
+
+    @Test
+    fun thePositionLineNamesNoUnitForAnEmptyDocument() {
+        // An empty document has no parts, so naming one — which "No paragraphs" did — is the same class of
+        // false claim as the unit above, in the state where there is least to be wrong about.
+        assertEquals("Nothing to read", ReaderState(paragraphs = emptyList()).positionDescription)
+    }
+
+    @Test
+    fun thePositionLineAgreesWithTheNumberOfThingsItCounts() {
+        // A property rather than a literal, so a future change to the wording cannot make the count and the
+        // corpus disagree without a test noticing: asserted over a document of mixed origins, which is what
+        // a real Note is.
+        val mixed = ReaderState(
+            paragraphs = listOf("A heading", "A paragraph.", "A list item", "a long paragraph, part 1", "a long paragraph, part 2")
+        )
+
+        assertEquals(listOf("1", "5"), Regex("\\d+").findAll(mixed.let { it.copy(currentParagraphIndex = 0) }.positionDescription).map { it.value }.toList())
+        assertEquals(
+            listOf("5", "5"),
+            Regex("\\d+").findAll(mixed.let { it.copy(currentParagraphIndex = 4) }.positionDescription).map { it.value }.toList()
+        )
+    }
+
+    @Test
     fun nextSectionJumpsToTheStartOfTheFollowingSection() {
         val state = sectionedState().nextSection()
 

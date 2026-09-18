@@ -4,7 +4,7 @@
   Source page: Notion Reader — Active Queue & Reader Session Spec
   Page id:     3dec9345-e10a-814c-a8f3-c8b3539ac8e1
   Notion URL:  https://app.notion.com/p/Notion-Reader-Active-Queue-Reader-Session-Spec-3dec9345e10a814ca8f3c8b3539ac8e1
-  Notion last edited: 09/17/2026 15:38:00
+  Notion last edited: 09/18/2026 15:30:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -304,7 +304,7 @@ Already defined above: a failed write affects history only. It must not surface 
 # Accessibility
 - A history entry is one focus stop. Its title, its queue position, and its state are read as one item, and Continue is an explicit named control beside it, not part of the entry's announcement.
 - Relative times are spoken as relative time. A history entry must not announce a raw timestamp.
-- The announcements required by inexact restore are live-region announcements, added to the spoken sequence, and must be brief. They must not replace or delay the Note's content beyond the announcement itself.
+- The announcements required by inexact restore are spoken by the reader's own TTS engine, and are also exposed as live regions, so that they are heard when no screen reader is running. They must be brief, and they must not replace or delay the Note's content beyond the announcement itself.
 - A section title announced by an inexact restore must be announced once. It must not be announced again when the Player renders, because a duplicate announcement immediately after a resume is indistinguishable from a stutter.
 - Nothing in history may be reachable only by a gesture. Continue, and Play for a completed session, are ordinary accessible controls.
 

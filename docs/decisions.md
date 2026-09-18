@@ -3130,6 +3130,653 @@ is the thing §17.3 built the classifier to prevent.
 
 ---
 
+## 23. Fourteenth round — the Player and the queues as a work list, and an order that turned over
+
+**Date:** 2026-09-18. **Scope:** read the Product & Architecture Contract, the UI Screens & Navigation
+Contract and the Active Queue & Reader Session spec as a work list for *Player and queue features*,
+enumerate what exists and what does not, and plan the implementation. **No product code was written.**
+Five decisions were put to the product owner and all five were answered; two of them overturn the order
+§16 and §20 had settled, so this section is a plan and a reversal rather than a plan alone.
+
+### 23.1 The census
+
+**Player.** Everything the UI contract names as primary exists: title, current section, queue position,
+progress, Playing/Paused; `Previous section / Play-Pause / Next section / Queue`; the read-only Active
+Queue view (§22); Back that does not touch playback (§21); the mini-player; the between-Notes transition
+and the announced end of queue. Three things do not exist:
+
+| Requirement | Source | Class |
+|---|---|---|
+| "Core Player commands must be representable independently of individual UI widgets so Android media controls, accessibility actions, hardware controls, and future voice control can invoke the same behavior" | Product contract, accessibility contract | **absent** — there is no `PlayerCommand`, no `customActions`, and no `MediaSession` anywhere in the tree |
+| Player secondary controls — fine-grained chunk navigation, restart behaviour | UI contract explicitly defers these to the Core Player & TTS Playback specification, which does not exist | blocked on a document |
+| Playback with the screen off, lock-screen controls, headset buttons | Product contract ("must eventually support"); UI contract | blocked on its own specification |
+
+**Queues.** The Active Queue, the Listening tab, session persistence, retention and the four resume
+paths all ship. Everything else the contract names for queues does not: the Saved tab, Saved Queue
+Details, Create Saved Queue, Edit Saved Queue, Queue Destination, the Note's `Add to queue`, Browse's
+`Add all to queue`, dedupe by identity, and Home's *Your queues*. The Smart tab, Smart Queue Details and
+Edit Smart Queue do not exist either.
+
+### 23.2 The finding: queue work waits on two documents, and only one of them is really missing
+
+§20.4 recorded the whole of Saved and Smart Queues as "blocked on the Queue Creation & Queue Management
+spec, which does not exist". Reading the three contracts against each other, that is true of the
+**persistence schema** and of **Smart Queues**, and false of almost everything else:
+
+- **Saved Queues are otherwise fully specified.** The Product contract settles the operations (create,
+  name, add, add a result set, remove, reorder, rename, delete, play), the identity rule ("deduplicate by
+  stable Note identity", never by title), that adding must not start or interrupt playback, and the stored
+  fields ("a stable queue identity; a user-visible name; ordered Note identities; persistence metadata").
+  The UI contract settles the screens and the interaction: Saved tab, Details, an **explicit Edit mode**
+  with `Move up / Move down / Move to top / Move to bottom / Remove`, reordering that "must never require
+drag-and-drop", Queue Destination showing Saved Queues and Create-new and explicitly **not** Smart,
+  Active or a "Current Queue". Only the wire format is unowned — the UI contract defers "exact Saved
+  Queue persistence schema", the integration spec delegates Saved and Smart persistence away from itself,
+  and the session spec scopes both out twice.
+- **Smart Queues are blocked twice.** They need the queue document *and* the Content Metadata & Workspace
+  Schema Adapters document, because a Smart Queue is a stored filter set over Type / Area / Topics / Date /
+  Project / Status — and §5 already measured that this workspace can supply no `relation` property at all
+  and that Area is a per-database union rather than a vocabulary.
+
+So the honest split is **Saved now, Smart later**, as a scoped deferral of exactly the kind §12.5 used for
+the Settings destination and §18.4 used for the two absent tabs. That converts "blocked on a document"
+from a wall into one small document plus real, shippable work.
+
+### 23.3 The product owner's five decisions
+
+| # | Decision | Consequence |
+|---|---|---|
+| **D28** | **Background playback is ranked first among this work, by product value rather than by unblocking order.** This supersedes the unresolved state §16.4 recorded and §20.5 restated: the principle that ranked it last ("blocked by nothing, blocks nothing, so it loses every critical-path comparison") is now explicitly overruled by the owner. | Slice O leads. §16.1's ordering principle is not repealed — it still orders everything else — but it no longer decides this item. |
+| **D29** | **The specifications are written before the code they govern, and the next round is a document round.** | Three documents, in the dependency order §23.5 gives, before any of Stage 1. This is the project's existing rule ("the specification is what decides, and the screen follows", §22.5) applied to a plan that now spans three specifications at once. |
+| **D30** | **Smart Queues are scoped out of the queue work; the Saved tab ships as two of three tabs.** | The Queues tab row goes from "1 of 3" to "2 of 3". Smart stays deferred on both the queue document and the metadata document, and the reason is recorded in the UI rather than only here. |
+| **D31** | **Jetpack Navigation 3 is adopted for the shell**, replacing the hand-written destination model. This supersedes D26, which proposed Adopting Navigation Compose and was then weakened by §12.6 and deferred. | A shell-wide migration, its own slice, **before** the queue screens exist. §20.4's "spike before relying on it" is satisfied by the migration itself rather than a throwaway spike. |
+| **D32** | **The Core Player & TTS Playback specification is written now, and Player secondary controls (restart, fine-grained chunk navigation) are exposed rather than left deliberately absent.** | Closes the gap §13.4 recorded for `ReaderEngine.playFromStart()`'s absent caller and §20.1's row for secondary controls. Also settles in a document the between-Notes transition behaviour §22.3 currently decides in code. |
+
+### 23.4 The refactors, and the bug class each one removes
+
+Every item below is proposed *because* it removes a failure this repository has already shipped once.
+**R** here means refactor; the decision series is **D**.
+
+| # | Refactor | Bug class it removes | Evidence in this repository |
+|---|---|---|---|
+| **R1** | **Destinations become routes that carry arguments, over a real back stack** (delivered by D31) | Screen state written at push time and read at pop time disagreeing about *which* item — a route with an argument cannot hold two answers | §19.3: `NoteViewer` wrote `pageId` at load start and `document` at finish, so a superseded load left the screen naming two different pages |
+| **R2** | **One versioned local store, two collections.** Extract the schema-version, discard-on-unknown pattern `SessionCodec` + `DataStoreSessionStore` already implement, and let Saved Queues reuse it | Two codecs drifting on version policy, so a stored record is silently reinterpreted | §20.4's P1 reasoning: "a session store exists, so Saved Queues must reuse it rather than invent a second". `SessionWireFormatTest` exists because a same-build round trip stays green while stored records rot |
+| **R3** | **`BrowseQuery` *is* the Smart Queue query**, and slice L (Browse's sort control) is done first to settle it | A stored query and a live query disagreeing, so "12 current matches" and what Play produces are different sets | §19 and §22 each found this once — "two components, one fact, two questions" (the loader vs the observer; `awaiting` vs `pendingRequest`) |
+| **R4** | **`QueueOrigin.Saved(name)` / `Smart(name)` must carry an identity, with the name as a label** — a deliberate `SESSION_SCHEMA_VERSION` bump | Opening "the source queue" from a history entry landing on the wrong one, because two queues can share a name and a rename makes the stored origin a lie | Product contract: a Saved Queue stores "a stable queue identity"; origin is "descriptive … never re-evaluated", which makes a name safe for reconstruction and wrong for navigation |
+| **R5** | **A `PlayerCommand` surface, exposed as `customActions`** | A control implemented twice with different enablement rules | §22.3: `Next note` started speaking while paused while `Next section` correctly did not — one rule for sections, another for Notes, never decided |
+| **R6** | **A `SavedQueue` write model and a separate read model**, with Play snapshotting through the existing `ActiveQueue.snapshotOf` | A list rendering a mutable collection, so a snapshot is a live view of the thing it was taken from | §15: `ActiveQueue` stored the caller's list, so a queue built from Browse results re-sorted itself when the results were re-sorted |
+| **R7** | **`ReaderViewModel` stays a scope-holder.** Queue I/O goes into an `application` use case, and the ViewModel only launches and cancels | Business rules accumulating in the root package, which `LayerRulesTest` cannot police because the root is allowed to name every layer — so they are untested by construction | §19.5 already moved the three collectors and two loaders out of the Activity for this reason |
+| **R8** | **Edit mode is state, not a boolean** — `SavedQueueDetailsState { Viewing \| Editing }` | A destructive control reachable in view mode, and "a boolean guards the wrong question" | §19: `if (state.awaiting) accept(result)` asks *a* result is wanted, not *this* one; §22.2: the same shape again in `QueueLoader` |
+| **R9** | **Instrumented coverage ships with each new screen, not after it** | A second untested shell | §21.1: the shell had no test for four rounds and the first one it got found a defect in code "verified by construction" the round before |
+| **R10** | **The session's owner must stop being the task.** Today `ReaderViewModel` (an `AndroidViewModel`) owns `ReaderApp` → `ReaderSession` → `ReaderEngineImpl` → `AndroidSpeechEngine`, so playback dies with the task. A `MediaSessionService` has its own lifecycle, so the session either moves into the service or becomes reachable from it | A session the Player, the mini-player and the service each drive a copy of — two views of one session, and a second playback model appearing behind the mini-player | §19.4's rule —"nothing that must outlive a screen lives in a screen" — extends to *nothing that must outlive the task lives in the task*. This is the direct consequence of D28 and the largest single unknown in the plan |
+
+### 23.5 The order
+
+The documents decide, so they come first, and they come in dependency order rather than priority order:
+
+| Stage | Work | Blocked by | Verified by |
+|---|---|---|---|
+| **0a** | **Core Player & TTS Playback spec.** Owns the command vocabulary, secondary controls and their enablement and announcement rules, and the transition behaviour §22.3 currently decides in code | nothing | the mirror diff; D32 |
+| **0b** | **Background Playback, Media Controls & Hands-Free Commands spec.** *Consumes* 0a's command set; adds `MediaSessionService`, audio focus, the foreground-service lifecycle, lock-screen metadata and headset buttons, and what a killed service does to a session | 0a — otherwise two documents define one command set, which the conflict protocol forbids | the mirror diff; D28 |
+| **0c** | **Queue Creation & Queue Management spec.** Saved Queues, Queue Destination, both `Add` actions, dedupe by identity, Edit mode, origin identity, store shape. Smart Queues explicitly out of scope with the reason recorded | nothing | the mirror diff; D30 |
+| **1** | **The Player command surface**, from 0a: `PlayerCommand` + `customActions`, replacing the lambdas threaded through `PlayerScreen` | 0a | JVM, plus the existing Player suite |
+| **2** | **Background playback**, from 0b: R10, then `MediaSessionService`, screen-off playback, media buttons | 0b, 1 | **device only**, with the screen off — the one slice whose acceptance cannot be JVM |
+| **3** | **The enabling refactors for queues:** D31 (Navigation 3, R1), L (sort, R3), R2, R4, R7, R8 | 0c, and D31's migration | JVM, plus the existing shell and focus suites re-pointed at the new destination model |
+| **4** | **Saved Queues end to end** (M2a–M2e): model + store → Saved tab, Details, create/rename/delete → Edit mode with accessible reordering → Queue Destination + Note `Add to queue` + Browse `Add all to queue` → Home *Your queues* | 0c, 3 | JVM, instrumented, and new device probes |
+
+Stage 1 is a prerequisite of Stage 2 rather than a competitor to it: the contract requires media controls to invoke *the same* behaviour the on-screen controls do, and building that boundary first is what keeps the unverifiable service work from growing a second one.
+
+### 23.6 Verification
+
+Unchanged from the project's own order, per the `verify-notion-reader` skill: JVM suite →
+`:app:assembleDebug :app:compileDebugAndroidTestKotlin` (the JVM tasks and `assembleDebug` do **not**
+compile `androidTest`) → `tools\run-accessibility-tests.ps1` → a device probe for anything
+user-visible → a `docs/decisions.md` round and a README correction. Every regression guard gets a
+failing-first proof recorded as a `Guard removed | Tests that noticed` table.
+
+Two consequences specific to this plan:
+
+- **Stage 2's acceptance is device-only**, and its probe must check the screen state as well as the UI.
+  `android layout` never says which app it dumped, so every probe checks
+  `adb shell dumpsys window | Select-String mCurrentFocus` first — with the screen off, the failure this
+  guards against is reporting the lockscreen as the app.
+- **Stage 3 changes every focus-restore test**, because D31 replaces the destination model those tests
+  assert against. That is the cost of adopting Navigation 3 *before* the four new screens rather than after
+  them, and it is accepted deliberately.
+
+### 23.7 What this round refused, and what it did not settle
+
+- **No Saved or Smart Queue semantics were invented.** The parts of Saved Queues that no document settles
+  — the persistence schema — are 0c's to settle, and the parts Smart Queues need are explicitly out of
+  scope by D30 rather than guessed.
+- **No Active Queue editing.** §22.5's refusal stands and is not revisited: "Saved Queues are edited.
+  Smart Queues are configured. Active Queues are played" is a product contract statement, and the
+  exemption it leaves ("Player-specific behavior … explicitly scoped to the Active Queue/Player") has not
+  been asked for.
+- **§19.9's unreadable-Note dead end is narrowed but still open.** §22.6 gave the listener `Next note` as
+  a way past; whether a stalled Note should offer anything more is a queue-management rule and belongs to
+  0c.
+- **Settings remains absent**, on the unchanged condition that no specification requires a setting.
+- **The TalkBack listening gate remains the oldest open item**, and Stage 2 makes it harder rather than
+  easier: a service that speaks while TalkBack is speaking is exactly the overlap §14.6 said needed ears.
+
+### 23.8 Stage 0a is written — the Core Player & TTS Playback Specification
+
+**Written 2026-09-18.** Notion page `3dfc9345-e10a-814e-b9c7-e5e8b4268669`, a row in the same Projects
+data source (`ae046fd9-25cc-49c2-b926-7e6323af069c`) as the other specs, Status `Planning`. Mirror:
+`docs/notion/core-player-and-tts-playback-spec.md` (451 lines), registered in
+`tools/export-notion-doc.ps1`'s `$docs` map. No product code was written.
+
+It settles what D32 asked it to: a **closed set of eleven transport commands**, each with a stated
+precondition and effect; the distinction between a transport command and a surface action; a single
+published availability value that every surface reads, so a disabled control and an unadvertised media
+action cannot disagree; the speech contract (one utterance per part, Pause is a stop, a failed utterance
+is reported and never skipped, a late completion is discarded); the announcement budget; the secondary
+controls; and the progress line's unit.
+
+#### Four findings, two of them defects in shipped behaviour
+
+- **P1 — the end of a queue is not spoken.** It is reported only in a live region. With the screen off —
+  the mode §23.5's Stage 2 exists to create, and the mode a listener actually listens in — nothing is
+  announced, so the reader's silence is **indistinguishable from the reader having failed**. The reader's
+  own TTS is the only channel that survives the screen going dark. Phase 2; **defect**.
+- **P2 — the progress line's unit is a claim the state cannot support.** `Paragraph N of M` counts
+  *parts*: the engine builds `ReaderState(paragraphs = chunkTexts)`, and a chunk is produced for headings,
+  list items, to-dos, quotes and code as well as paragraphs, with long paragraphs split. The noun is
+  therefore false for every such part before the listener's position — the same class as §22.4's queue row
+  that reported "Completed" for Notes the listener had not heard. Phase 3; **defect**. The spec settles the
+  line as `Part N of M`, and `Nothing to read` for an empty document.
+- **P3 — at the end of a one-Note session the Player is inert and does not say why.** Every control
+  except `Queue` is disabled and nothing explains it. The route back exists
+  (`Queues → Listening → Recently completed`), so this is not §19.9's dead end. `Restart note` is
+  deliberately **unavailable** once a queue has completed, because completion is a fact the session spec
+  owns and a restart would produce a session that is completed and playing at once; whether a completed
+  queue may be replayed from the Player is a queue-level action belonging to 0c. **Boundary**.
+- **P4 — `Queue` is not a command.** The UI contract names it among the four primary Player controls and
+  the product contract requires core commands to be invocable without a widget; resolving the two, the new
+  spec classifies it as a *surface action*, because its effect is to change what the phone is displaying.
+  Without that, 0b could put it on a lock screen. The same section settles that `Stop` does not exist (a
+  transport's stop maps to `Pause`), that a headset's track-skip maps to `NextNote` rather than to a second
+  command with the same effect, and that the secondary controls sit behind **one labelled entry control**
+  rather than adding four buttons — the product contract's "the main interface must not become a control
+  panel for every Player capability". **Clarification**.
+
+Two further things the spec states rather than assumes, because a later reader would otherwise have to
+guess. The Player's transport **`Play` is not the product contract's session-level `Play`** — that is what
+"Play must not mean resume" is about — so a transport must never map its play control onto the session
+verb. And the Active Queue & Reader Session spec's description of inexact-restore announcements as
+**"live-region announcements"** is adopted here as "also exposed as a live region", not "a live region is
+the mechanism", because otherwise P1's gap applies to resume as well. That reading is **raised as an
+amendment candidate for that document and not applied to it**, which is the conflict protocol's order.
+
+#### Verified
+
+- `tools/export-notion-doc.ps1 -All` mirrors six documents, and `git diff -- docs/notion` shows **zero
+  content drift in the five existing mirrors** — so this round changed no governing document except by
+  adding one.
+- The new mirror **round-tripped exactly**, and the check was a count rather than a glance: 37 numbered
+  list items came back as `1. ` lines, which is precisely the 11 transport commands plus 2 surface actions
+  plus 15 acceptance criteria plus 9 architectural invariants in the source, so nothing was silently
+  dropped. The `plain text` fence survived, no line came back as the bare `. ` that the exporter's old
+  `$indent1.` bug produced, and the page title was not duplicated as block 1.
+- **The spec deliberately contains no tables.** The exporter has no `table` case, so a table would be
+  dropped from the mirror without an error — which is why the other five mirrors contain none either.
+
+#### What this section does not claim
+
+- **P1 and P2 are documented, not fixed.** They are Phases 2 and 3 of the new spec, and both change
+  user-visible behaviour, so the README's `Paragraph N of M` phrasing and its "Not yet implemented" list
+  are corrected with them rather than now.
+- **No other specification was amended.** The session spec's live-region sentence is an amendment
+  candidate recorded above, to be applied through the Notion-first process when 0b is written.
+- **0b and 0c remain unwritten**, and 0b must not be written before reading this one: it consumes the
+  command set and may not add, rename or redefine a command.
+
+### 23.9 Stage 0b is written — Background Playback, Media Controls & Hands-Free Commands
+
+**Written 2026-09-18.** `docs/background-playback-and-media-controls-spec.md`, **hand-authored**: it has no
+Notion page and no mirror. §23.8's closing note that 0b and 0c are both unwritten now holds only for 0c.
+
+**D33 — the product owner's decision on where a specification is authored.** Documents may be authored
+directly in `docs/` instead of Notion. The rule this creates is stated in `AGENTS.md` so the two kinds are
+distinguishable by location: everything under `docs/notion/` is **generated** (regenerate, never
+hand-edit, semantic changes go to Notion first) and everything directly in `docs/` is **hand-authored and
+authoritative as it stands**. Two consequences are recorded rather than hidden. The exporter does not know
+about a hand-authored document, so it can never be regenerated and `git` is its only history. And **a
+hand-authored document cannot amend a mirrored one** — §23.8's amendment candidate, the session spec's
+"live-region announcements" wording, therefore stays pending in Notion, and 0b records that it *depends*
+on the adopted reading rather than pretending the wording is settled.
+
+#### The finding that shaped the document: Android 17 is already enforcing this
+
+The gap was known — the Player holds the display awake as "a stated workaround" — but the *platform
+requirement* was not, and it is not inferable from the code. Read from
+`kb://android/about/versions/17/changes/bg-audio` rather than recalled:
+
+| Fact | Consequence |
+|---|---|
+| Background audio hardening applies to **all** apps on Android 17, "whether or not the app targets API level 37" | The device is API 37 and the app's `targetSdk` is 36, so **this is live today**, not a future migration |
+| An app interacting with audio without a visible activity must run a foreground service that is not `SHORT_SERVICE` | A `mediaPlayback` FGS, with `FOREGROUND_SERVICE_MEDIA_PLAYBACK` (required from API 34) |
+| Targeting API 37 additionally requires **while-in-use** capability | Not enforced at `targetSdk 36`, but the design is still to start the service while the app is visible, because that is what earns WIU and it costs nothing |
+| **Every failure is silent**: playback is "silenced, with no exception and no failure message from any API", focus returns `AUDIOFOCUS_REQUEST_FAILED`, volume calls are ignored | The spec's central verification is `adb shell cmd audio set-enable-hardening throw`, which converts silent failure into `IllegalStateException`, plus `dumpsys audio`'s `AudioHardening` entry (`level: full` = FGS without WIU, `level: partial` = no FGS) |
+| Media3's `MediaSessionService` is the documented mitigation; apps using it are "not likely to be impacted" | Adopting Media3 rather than a hand-managed FGS, and `SimpleBasePlayer` — confirmed in `kb://android/media/media3/session/player` as "helpful when using a custom player that you want to connect to a `MediaSession`" — rather than implementing `Player` by hand |
+
+This is the third appearance of one failure shape on this project, and the specification says so:
+`§22.9`'s `assertIsDisplayed` was a claim about the window rather than the control, `§19` and `§22.2` were
+two components answering one question from different state, and here is a platform **reporting success
+while doing nothing**. The verification is therefore written to make the failure loud before it is
+trusted to be absent.
+
+#### R10 resolved: the session holder
+
+The refactor §23.4 listed as the plan's largest unknown now has an answer, and it is deliberately *not*
+"the session moves into the service". A session that lives in the service is unreachable to the UI when
+the service is stopped, and the service stops on pause. Instead the session moves to a **process-scoped
+session holder** — created once, owned by neither the Activity nor the ViewModel, reached by both — and the
+service holds only the foreground claim and the `MediaSession`.
+
+Two rules are stated as invariants rather than left to the implementer. **`ReaderViewModel.onCleared` must
+not end playback**, because it is destroyed on every configuration change and on task dismissal; it keeps
+its scope, its three collectors and its two loaders, which is what §19.4 gave it. And **the UI observes the
+session directly rather than through `MediaController`**, because the Player renders facts the `Player`
+interface does not model — section spans, the queue as identities and titles, the resume decision, the
+announcement text — and routing them through Media3 would create a lossy second model of the session. One
+session object, two front ends.
+
+#### The lifecycle and focus decisions, and the two that go against convention
+
+- **A dismissed task keeps playing.** Media3's own documentation template calls
+  `pauseAllPlayersAndStopSelf()` from `onTaskRemoved`; the spec diverges deliberately and says why, because
+  clearing recents is a habitual gesture and for a listening app it would silently stop the reading. The
+  UI contract's "Back changes visual navigation, not playback" is the same rule at its largest scale.
+- **No playback resumption, ever.** Media3 offers it; the session spec's "launch never begins playback"
+  forbids it, and a book that starts reading itself aloud after a reboot is not a convenience.
+- **Ducking is refused in favour of stopping**, on `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`. Attenuated speech
+  is a murmur the listener cannot follow, and stopping plus resuming on regain is the honest reading.
+- **Becoming noisy stops the reader silently**, and this is the one place the spec accepts silence. The
+  alternative is speaking `Paused` through the phone's loudspeaker because the headphones were unplugged,
+  which broadcasts the listener's reading to the room. Privacy outranks the announcement rule here, and the
+  exception is bounded to that one cause.
+- **`QUEUE` is explicitly excluded from the notification**, following 0a's P4 classification: its effect is
+  to change what the phone is displaying, so it is not a transport command and must not appear on a lock
+  screen.
+
+#### The command mapping landed on the seat that was already shaped for it
+
+`SimpleBasePlayer.setAvailableCommands(Commands…)` **is** 0a's single published availability value, in the
+platform's vocabulary — so the same evaluation that disables a Player button also decides which commands
+the media session advertises. That is not a translation layer, and it is the second time in two rounds that
+an existing abstraction turned out to be exactly the seam a new feature needed.
+
+One compromise is recorded rather than smoothed: the platform has one "seek forward" and one "seek back",
+so **`NextPart` and `NextSection` share a platform command**. The on-screen Player keeps both distinct
+controls; only transports are conflated, and the limitation is stated in the mapping table so a transport
+author cannot mistake it for a decision.
+
+#### Two items this round could not settle, and did not pretend to
+
+- **The TalkBack interaction is a measurement, not a design.** TalkBack speaks through the same platform
+  TTS service, so three overlaps exist and none is answerable from documentation — two TTS clients
+  interrupting each other, TalkBack's own speech arriving at this app **as an audio focus change** (which
+  under this spec's own rules would pause the reader every time the screen reader speaks), and the media
+  notification being read aloud as a new spoken surface. The spec lists the measurement first in the device
+  sequence, and leaves the resolution to the evidence. This **narrows §11's oldest open item rather than
+  duplicating it**: that gate is now about two actively interfering speech sources instead of one passive
+  one.
+- **An instrumented assertion must be inverted, not deleted.** The suite asserts the Player holds the
+  display awake while playing. Removing `keepScreenOn` is part of Phase 5 — it is what makes the feature's
+  own acceptance observable, since the screen must be allowed to sleep — and the assertion guarded a real
+  property, so its replacement guards the opposite one.
+
+#### Verified
+
+**Documentation only; no product code changed.** `git status` shows `AGENTS.md`, `docs/decisions.md`, the
+new spec, `tools/export-notion-doc.ps1` (§23.8) and the §23.8 mirror — no Kotlin, so neither test suite is
+implicated by this round. `AGENTS.md` now states the hand-authored-versus-generated rule and the exporter's
+missing `table` case, which is the constraint that explains why the five mirrored specs contain no tables
+and this one does.
+
+### 23.10 What is specified versus what is implemented, and the README correction
+
+**Date:** 2026-09-18. §23.8 and §23.9 are **specifications**, and it is worth stating plainly what that
+does and does not mean, because the two are easy to conflate when a round produces documents rather than
+code.
+
+**No product code changed in §23.8 or §23.9.** Both findings they record — P1 and P2 — are defects in
+shipped behaviour, and both are still present in the application. They are written as Phases 2 and 3 of the
+Core Player & TTS Playback spec, and nothing in this repository has been changed to fix them yet.
+
+| Item | Specified where | Implemented | Correcting document |
+|---|---|---|---|
+| **P1** — the end of a queue is not spoken | Core Player spec, Phase 2 | **no** | README's accessibility rules, with Phase 2 |
+| **P2** — `Paragraph N of M` counts parts | Core Player spec, Phase 3 | **no** | README's accessibility rules, with Phase 3 |
+| **P3** — an un-explained inert Player at the end | Core Player spec, decision | n/a (a boundary decision, not a gap) | — |
+| **P4** — `Queue` is a surface action, not a command | Core Player spec, command set | n/a (classification) | — |
+| **The command surface** (R5) | Core Player spec, Phase 1 | **no** | — |
+| **Background playback** (R10 + the service) | Background Playback spec, Phases 1–5 | **no** | README's workaround note, with Phase 5 |
+| **The session spec's live-region wording** | §23.8, as an amendment candidate | **no — blocked** | the Notion page itself; see below |
+
+**The README is corrected only where it is wrong today, and deliberately not where it describes shipped
+behaviour that is about to change.** That distinction is the reason this round's README edit is small:
+
+- **Corrected**, because the claim was already false: the JVM count (303 → **327**) and the instrumented
+  count (47 → **108**), both measured rather than copied; the "45 failures out of 47" figure that repeated
+  the stale total; and the assertion that a background `MediaSessionService` is "still the correct long-term
+  answer", which described an intention rather than a decision and now has a document to point at.
+- **Not corrected**, because it still describes what the application does: `keepScreenOn` is still set while
+  playing, and the reading position still says "Paragraph N of M". Changing those now would make the README
+  describe behaviour that does not exist, which is a worse failure than being out of date — a reader would
+  believe the progress line had been fixed. Each is corrected **with the phase that changes it**, and the
+  README's accessibility rules now carry a parenthetical naming P2 and its phase so the discrepancy is
+  recorded rather than discovered later.
+
+**One item genuinely cannot be closed from this repository.** §23.8's amendment candidate — the Active
+Queue & Reader Session spec's description of inexact-restore announcements as "live-region announcements" —
+is in a **Notion mirror**, and D33's rule is that a hand-authored document cannot amend a mirrored one. The
+Background Playback spec therefore **depends on the adopted reading** ("also exposed as a live region")
+rather than treating the wording as settled, and the amendment remains pending until it is made in Notion
+and re-exported. That is the conflict protocol working as designed, not an omission.
+
+#### Verified
+
+- **Documentation only again; no Kotlin.** `git status` lists `AGENTS.md`, `docs/decisions.md`, `README.md`,
+  `tools/export-notion-doc.ps1` and the two new documents — no file under `app/src`, so no test suite is
+  implicated and the architecture rules cannot have been affected.
+- Every stale number was checked **gone** by search rather than by reading the diff: zero occurrences of
+  `303 JVM`, `47 tests` and `45 failures`, and the corrected `327` and `108` each present once.
+- The instrumented figure is the count of **`@Test` methods** in `app/src/androidTest` (108), which is not
+  the same as the number of tests a run *collects* — §22.8 recorded a run of 103. The README now states the
+  source-set count and no longer attaches a number to the exit-code caveat, so it does not assert a run
+  count this round did not measure.
+
+### 23.11 The two Player defects are fixed — 0a's Phases 2 and 3, and the amendment applied
+
+**Date:** 2026-09-18. The first product code of this round of work. Two things happened: §23.8's **P1** and
+**P2** were implemented, and §23.10's blocked item — the session spec's live-region wording — was amended
+in Notion and re-mirrored.
+
+**Phases were done out of order, deliberately.** The Core Player spec numbers them Phase 1 (the command
+surface), 2 (announcements) and 3 (the progress line), and Phases 2–3 were done first. They do not depend
+on Phase 1: that phase is a boundary drawn around behaviour that already exists, and drawing it first would
+have been churn in the same files for no verification benefit. Phase 1 remains the next step and nothing
+here presumes its shape.
+
+#### P1 — the end of a queue is now spoken
+
+A new engine operation, `ReaderEngine.announce(text)`, speaks one utterance and reads nothing after it —
+which `announceThenPlay` structurally cannot express, because its announcement is the *introduction* to
+something. `ReaderSession.onCurrentNoteFinished` calls it when the last Note finishes, at the event rather
+than from a surface: a surface that spoke it while rendering the completed state would re-speak it every
+time the Player was reopened, and the requirement is once per completion. The guard that makes
+`onCurrentNoteFinished` idempotent is the same guard that makes the announcement once-only.
+
+Two judgments recorded because they were choices rather than facts:
+
+- **The words are "End of queue"**, the same ones the Player's playback line shows, so the spoken and the
+  displayed vocabulary are one vocabulary and a listener who can both hear and see is not told two things
+  about one event. That also settles the single-Note case the spec names: a one-Note queue *ends*, so it
+  gets one announcement rather than an "end of note" followed by an "end of queue".
+- **`announce` is counted as speech, not as an engine invocation**, in the test double, so the existing
+  `callCount` assertion — "navigation does not touch playback" — keeps meaning what it says.
+
+#### P2 — the progress line names the unit it counts
+
+`ReaderState.positionDescription` now reads `Part N of M`, and `Nothing to read` for an empty document. The
+`ReaderState.paragraphs` field keeps its inherited name and is documented as historical: each entry is a
+chunk, so the count was always a count of parts. Renaming the field would touch roughly forty sites across
+the engine, the doubles and the tests, and the specification's Phase 3 asks for the user-visible wording,
+not for an internal rename — stated here so the surviving inconsistency reads as a decision.
+
+The README's **prose was fixed too**, which the phase did not explicitly ask for and which is worth
+explaining: after the rule changed, the document said "the unit is the part — one speakable chunk" three
+lines below a bullet that said "reads the current paragraph". Leaving that would have been the same defect
+one level up, in the document that describes the behaviour. `paragraph` now appears in the README only as
+the Notion block type it also is.
+
+#### The Notion amendment, applied
+
+`tools/amend-session-live-region.ps1` patches the session spec's sentence from "are live-region
+announcements, added to the spoken sequence" to "are spoken by the reader's own TTS engine, and are also
+exposed as live regions". It is dry-run by default, idempotent, and it **refuses** rather than guesses if
+more than one block matches — because an amendment applied to the wrong block is indistinguishable from a
+clean run afterwards.
+
+Verified rather than assumed: `-Inspect` printed the block id, its type and its **full current text** before
+anything was written, and the diff after re-exporting shows **one file, one sentence, plus the page's
+last-edited timestamp** — no other mirror moved and no other block on the page changed. The dependency 0b
+recorded is therefore closed, and a Notion-first amendment is now demonstrated to be a workable process
+from this repository.
+
+#### Verified
+
+- **334 JVM tests, 0 failures** (was 327). Seven additions: 3 in `ReaderStateTest`, 3 in
+  `ReaderSessionQueueTest`, 1 in `ReaderEngineTest`.
+- **Failing-first proofs**, each verified by removing exactly its own guard and restoring it:
+
+  | Guard removed | Tests that noticed |
+  |---|---|
+  | the `engine.announce(END_OF_QUEUE_ANNOUNCEMENT)` call | `theEndOfAQueueIsSpokenRatherThanOnlyShown`, `theEndOfAQueueIsSpokenOnceHoweverOftenTheCompletionSignalArrives` |
+  | the `Part N of M` / `Nothing to read` wording | `thePositionLineCountsPartsAndSaysSo`, `thePositionLineNamesNoUnitForAnEmptyDocument` |
+
+  Both runs failed **exactly** their named tests and nothing else, out of 334.
+- **The third new P2 test passes either way, and that is recorded rather than smoothed**:
+  `thePositionLineAgreesWithTheNumberOfThingsItCounts` asserts the count against the corpus, not the noun,
+  so reverting the wording does not move it. It guards numeric coherence and the other two guard the unit —
+  the same shape as §21.6, where three navigator tests guarded clearing rather than recording.
+- `:app:assembleDebug :app:compileDebugAndroidTestKotlin` both succeed. The instrumented source set was
+  compiled explicitly, because the JVM task does not compile it.
+
+#### One test was written wrong, and the suite said so
+
+`theEndOfAQueueIsSpokenRatherThanOnlyShown` first asserted `assertFalse(session.isPlaying)`. It failed —
+because the test drives `onCurrentNoteFinished` directly, so the engine is still in whatever state
+`supplyDocument` left it, and `isPlaying` was never going to be false there. The production code was right
+and the assertion was about the *fixture*. It now asserts the engine's call counts (`playCount`,
+`pauseCount`) instead, which is the property actually meant: announcing must not start a reading pass and
+must not stop one. This is §22.9's lesson in miniature — an assertion has to be about the thing it claims.
+
+### 23.12 The focus assertions fail, and the device says why
+
+**Date:** 2026-09-18. The full instrumented run: **108 tests, 7 failures — and every one is a focus-restore
+assertion**, in the two classes that own that mechanism.
+
+| Class | Result |
+|---|---|
+| `FocusRestoreTest` | 4 tests, **3 failed** |
+| `ReaderShellAccessibilityTest` | 16 tests, **4 failed** |
+| `PlayerQueueViewAccessibilityTest` | 17/17 |
+| `NoteScreenAccessibilityTest` | 17/17 |
+| `PlayerScreenAccessibilityTest` | 15/15 — including this round's two changed assertions |
+| `QueuesScreenAccessibilityTest` | 15/15 |
+| `BrowseScreenAccessibilityTest` | 13/13 |
+| `HomeScreenAccessibilityTest` | 9/9 |
+| `ReaderShellQueueBackTest` | 2/2 |
+
+#### Not caused by this round, and that was shown rather than assumed
+
+`git stash push -- app/src`, re-run `FocusRestoreTest` against the unmodified tree, identical three
+failures at HEAD, `git stash pop`. `FocusRestoreTest` has no dependency on anything this round changed —
+it composes its own `Text("Row b")` with its own `FocusRequester` — so the experiment was cheap and its
+answer is unambiguous. **The failures pre-date this round**, and `PlayerScreenAccessibilityTest`'s 15/15 is
+the device evidence that P2's change is visible in the semantics tree.
+
+#### The failure messages refute the hypothesis the test was written to test
+
+`FocusRestoreTest` was written in §22.9's aftermath to print the two values rather than an inference. It
+printed:
+
+```plain text
+requestFocus() returned false and hasWindowFocus() returned true
+```
+
+Its own class comment predicted the cause: "the window holding the composition is not focused … an
+accessibility overlay or autofill window holding input focus". **The window is focused.** And the class's
+fourth test *passes*: `requestFocus()` on a `.focusable()` node is granted while on a `.clickable()` node it
+is refused, and the semantics `RequestFocus` action on a clickable node leaves it unfocused. So the refusal
+is about the node's **kind of focus**, not about the device's window state.
+
+#### What the device is actually configured as, measured
+
+```plain text
+enabled_accessibility_services = com.x8bit.bitwarden/.Accessibility.AccessibilityService:com.google.android.marvin.talkback/.TalkBackService
+accessibility_enabled         = 1
+touch_exploration_enabled     = 1
+default_input_method          = com.google.android.marvin.talkback/...BrailleIme
+autofill_service              = com.x8bit.bitwarden/...AutofillService
+```
+
+TalkBack is running **with touch exploration on**, and its braille keyboard is the active input method.
+Under touch exploration, accessibility focus belongs to TalkBack, and an input-focus request against a node
+that is not focusable in the Android sense is declined. `Modifier.clickable` is exactly such a node.
+
+#### Why this matters beyond the test suite
+
+`FocusRestore.kt` documents its own usage as
+
+```kotlin
+Modifier
+    .restoreFocusOn(target = focusTarget, id = entry.pageId, onHandled = onFocusHandled)
+    .clickable(onClick = onClick)
+```
+
+so the mechanism §21.3 chose restores **input focus** on a **clickable** node. A TalkBack user navigates by
+**accessibility focus**. §21.5 stated the limit of that mechanism as "whether TalkBack's *speech* focus
+follows a programmatic focus request is not in the semantics tree" — it assumed the input-focus half was
+assertable. **The device says the input-focus half is not granted at all while TalkBack is running with
+touch exploration.** So the contract's "restore the previous meaningful focus target when it still exists"
+may require accessibility focus rather than input focus. That is a question about the *mechanism*, not about
+its wiring, and it is the first time §11's oldest open gate has produced a concrete measurement instead of a
+restatement.
+
+#### The suite's verdict depends on a configuration the wrapper does not pin
+
+`tools/run-accessibility-tests.ps1` pins the keyguard and `screen_off_timeout`, because a device in the wrong
+state produces *misleading* failures — 45 uniform "No compose hierarchies" failures from a locked phone, and
+intermittent "occupies no area" from a sleeping display. The accessibility configuration produces the
+identical class of misleading result and is neither pinned nor recorded. That this round could not tell
+"focus restoration is broken" from "focus restoration cannot be asserted in this configuration" until it had
+measured the configuration is the argument for recording it.
+
+The wrapper **refused to retry**, and that is right: its signatures are the harness losing the activity and
+the locked-device signature, and these are real assertion failures.
+
+#### What this round did not verify
+
+**P1's audibility is not verified on a device.** Reaching the end of a queue needs a full read — the fixture
+Note is hundreds of parts — and no existing probe does that. What *is* verified is that the session invokes
+`engine.announce(...)` (JVM, with a failing-first proof) and that the utterance travels the same path
+`announceThenPlay` already uses on device. The gap is stated rather than implied by a green JVM run.
+
+### 23.13 The accessibility mechanism is deferred, and the app stays inclusive
+
+**Date:** 2026-09-18. **D34 — the product owner's decision.** The focus mechanism §23.12 measured is left as
+it is for now: the application keeps its current focus behaviour, and a redesign in terms of accessibility
+focus is deferred until it is needed. The instruction is *keep the app inclusive*, which is a constraint on
+the deferral rather than a licence to reduce accessibility, and it is recorded as one:
+
+- **Nothing is removed or weakened.** No control, name, label, live region or announcement is dropped, and
+  the assertions that found the mechanism's limit all stay in the suite. The deferral is about *which focus
+  mechanism* is asserted, not about whether the product is accessible.
+- **The seven failures stay red rather than being deleted or relaxed.** This project treats deleting an
+  assertion or widening a timeout in response to a defect as itself a defect (§22.9, and `verify-notion-reader`
+  §1). A red suite that names a real contract requirement — "returning with Back restores the previous
+  meaningful focus target" — is more useful than a green one that no longer asks.
+- **The finding is not lost.** §23.12 has the measurement, the configuration, and the reason the mechanism
+  may need to change. When accessibility work is designed, this is the first item and it is already diagnosed
+  rather than needing rediscovery.
+
+**What the deferral costs, stated plainly.** The instrumented suite cannot gate on a red result, so until this
+is settled the suite's verdict is only meaningful for the classes that exclude focus. That is recorded in the
+README rather than left for whoever next reads a failure list.
+
+**What would close it, and it is not a mystery.** The mechanism should restore **accessibility focus** rather
+than input focus, because a TalkBack user navigates by accessibility focus and the contract's requirement is
+about what the *listener* is on rather than about which node holds input focus. The current modifier targets
+`clickable` rows with `FocusRequester`, which is the input-focus mechanism. That is a designed change, not a
+debugging session, which is exactly why deferring it is reasonable.
+
+### 23.14 The speech channel is the app's own TTS, and no screen-reader-conditional behaviour is built
+
+**Date:** 2026-09-18. **D35 — the product owner's decision.** The app speaks through its own text-to-speech
+engine, and it does not implement behaviour aimed at TalkBack. §23.13's deferral is therefore settled in
+direction rather than left open: the accessibility work that *was* contemplated — redesigning focus
+restoration in terms of accessible focus — is **not** planned.
+
+**This is not a departure from the contract; it is one half of it.** The Product & Architecture Contract
+splits the two responsibilities explicitly:
+
+```plain text
+TalkBack  → interface controls, labels, focus, manual content exploration, UI state announcements
+Reader TTS → continuous Note content playback
+```
+
+D35 says to build the second half well and not to extend into the first. It also agrees with the rule the
+Core Player spec already states normatively — "a required announcement is spoken by the reader's TTS engine;
+a live region may accompany it and may never be the only mechanism" — which is why §23.11's P1 fix (the
+spoken end of a queue) turns out to have been the first implementation of this decision rather than an
+unrelated bug fix.
+
+#### What changes
+
+| Document | Change |
+|---|---|
+| Background Playback spec | "The TalkBack interaction, which must be measured rather than reasoned about" becomes **"The reader's speech channel, and what it does not coordinate with"** — the measurement item is gone, and the rejected alternative is recorded |
+| Background Playback spec | Device-validation item 2 was "Does the TalkBack overlap pause the reader? Enable TalkBack…"; it is now **"Does audio focus behave as the table says?"**, tested with a call or a second media app rather than with a screen reader |
+| Background Playback spec | Acceptance criterion 15 was "The TalkBack interaction is measured and recorded"; it is now that audio focus is handled uniformly and **no behaviour anywhere is conditional on a screen reader** |
+| Background Playback spec | The open question is replaced by the decision, and the **now-stale live-region question is closed** — §23.11 amended that sentence in Notion, so the spec's dependency is on the text rather than on a reading |
+| `README.md` | The accessibility rules open with the speech-channel stance, and the focus note says the mechanism is not being redesigned around TalkBack |
+| `AGENTS.md` | The instrumented-test section records why the seven focus assertions are red and forbids deleting, relaxing or `@Ignore`-ing them to get a green run |
+
+**The Core Player & TTS Playback spec needs no amendment, and that is worth stating rather than leaving to be
+re-checked.** It already requires that "an announcement that is required for the listener to understand what
+happened must be spoken by the reader's own TTS engine", that a live region "must never be the only
+mechanism", and that nothing moves a screen reader's focus. D35 is that rule applied to the whole
+application. So this is the one decision in this round that costs no Notion round-trip — and it is a reminder
+that the announcement rule was written the way it was for a reason, namely the screen-off listener it names
+in its own rationale.
+
+#### What deliberately does not change, which is the part that matters
+
+The decision is about **what the application coordinates with**, not about how usable it is. Nothing is
+removed:
+
+- **Every semantics rule stands** — self-explanatory control names, pane titles, headings, disabled rather
+  than inert, decorative glyphs cleared, loading/empty/error distinguishable, nothing force-focused. These
+  exist so the interface is usable *with* a screen reader, which is a different requirement from
+  coordinating with one, and they are UI contract requirements.
+- **The seven focus assertions stay in the suite and stay red.** Deleting or relaxing an assertion because
+  it fails is treated as a defect here (§22.9 and `verify-notion-reader` §1). A red suite that names a real
+  contract requirement is worth more than a green one that stopped asking.
+- **The live regions stay.** Playback state remains a polite live region; what D35 changes is that a
+  required announcement must never depend on one alone, which P1 already fixed for the end of a queue.
+
+#### Two honest consequences, recorded rather than smoothed
+
+1. **Two speech sources can still overlap**, because the platform has one TTS service and this application
+   owns no queue in it. A screen reader reading the interface while the reader reads a Note is audible, and
+   the listener resolves it by pausing one of them. A coordination protocol invented here would be a second
+   mechanism pretending to be a platform one, and unverifiable.
+2. **A screen reader's speech may arrive as an audio focus change**, in which case the focus rules will pause
+   or resume the reader exactly as they would for any other application. The alternative — ignore transient
+   losses while a screen reader is enabled — is **rejected**, because it special-cases one other client out
+   of a platform rule. §11's listening gate exists precisely because that interaction is better *heard* than
+   encoded, and this decision leaves that gate exactly where it was rather than closing it by fiat.
+
+**One cost is stated plainly:** the instrumented suite cannot gate while those seven assertions are red.
+Before this round that looked like an unfinished piece of the focus work; under D35 it is a durable property
+of running those assertions on a device whose screen reader intercepts focus, and it is recorded in the
+README so the next reader of a failure list knows which of the two they are looking at.
+
+#### Verified
+
+**Documentation only. No Kotlin changed**, so the JVM suite and the instrumented suite are unaffected by this
+section — confirmed by `git status`, which lists only `README.md`, `AGENTS.md`, `docs/decisions.md` and the
+background-playback spec against the code already verified in §23.11 and §23.12. The 334 JVM tests were
+re-run on the externally-edited tree before this section was written and were green, which is what
+established that the edits made outside this session did not disturb the P1/P2 work.
+
+---
+
 ## Still open
 
 - **The TalkBack listening gate** (§11, §14.6). The oldest outstanding item on the project, and the only
@@ -3137,18 +3784,50 @@ is the thing §17.3 built the classifier to prevent.
   navigation flow with TalkBack enabled, and the risk it carries is unique — whether TalkBack's speech and
   the reader's TTS overlap in practice. It needs ears, not code, and enabling it changes the device's touch
   behaviour globally, so it is the user's call.
-  unblocking order; it needs a specification before it needs code. §20.5 makes its rank an explicit
-  product decision rather than a consequence of the ordering principle.
-- **Slices G through O**, in the order §20.4 gives: G (the shell's instrumented checks), H (restoring focus
-  on Back), I (the Player's `Queue` view), J (the caption and child-database losses measured in round 4),
-  K (roadmap slice E, raw Notion navigation), L (Browse's sort control), M (roadmap slice F, Saved and
-  Smart Queues, Queue Destination and `Add to queue`, blocked on its own specification), N (the Compose v2
-  test rule, §17.3) and O (background playback).
+- **One specification is still owed before its code: 0c**, Queue Creation & Queue Management — Saved
+  Queues, Queue Destination, both `Add` actions, dedupe by stable identity, Edit mode, origin identity and
+  the store shape, with Smart Queues out of scope by D30. **0a (§23.8) and 0b (§23.9) are written.** 0a is a
+  Notion mirror at `docs/notion/core-player-and-tts-playback-spec.md`; 0b is hand-authored at
+  `docs/background-playback-and-media-controls-spec.md`.
+- **The session spec's live-region wording cannot be amended from this repository** (D33). It is a Notion
+  mirror, so the amendment §23.8 raised and §23.9 depends on still has to be made in Notion and
+  re-exported. 0b records that it relies on the adopted reading rather than assuming the wording is settled.
+- **The TalkBack overlap is now a measurement that can change a rule.** §23.9 lists three interactions — two
+  TTS clients, TalkBack's speech possibly arriving as an audio focus change that would pause the reader on
+  every utterance, and the read-aloud media notification — and deliberately leaves the resolution to device
+  evidence. It is the first concrete narrowing of §11's gate in several rounds.
+- **The keepScreenOn assertion must be inverted, not deleted**, when §23.9's Phase 5 removes the Player's
+  display wake-lock. It guards a real property, so its replacement guards the opposite one.
+- **The focus-restore assertions cannot currently be made on this device** (§23.12). Seven instrumented
+  failures, all focus, all pre-dating §23.11 and proven so against a clean tree. The measured cause is the
+  device's configuration — TalkBack running with touch exploration and its braille IME active — under which
+  `FocusRequester.requestFocus()` is refused on a `clickable` node and granted on a `focusable()` one.
+  **D34/D35 (§23.13–§23.14) settle this: the app speaks through its own TTS, no screen-reader-conditional
+  behaviour is built, and the mechanism is not being redesigned around TalkBack.** The seven assertions stay
+  in the suite and stay red rather than being deleted or relaxed.
+- **The suite cannot gate while those seven are red**, so its verdict is only meaningful for the classes that
+  exclude focus. Under D35 that is a durable property of running those assertions against a device whose
+  screen reader intercepts focus, rather than an unfinished task — recorded in the README as well as here.
+- **P1's audibility is unverified on a device** (§23.12). Reaching the end of a queue needs a full read, and
+  no probe does that. JVM-proven that the session announces; the utterance path is the one `announceThenPlay`
+  already uses on device.
+- **The instrumented suite's verdict is configuration-dependent and the configuration is not recorded**, so
+  "the suite is green" is not yet a stable property of this repository.
+- **The two Player defects §23.8 found are now fixed** (§23.11): the end of a queue is spoken, and the
+  progress line counts parts. Phases 2 and 3 of the Core Player & TTS Playback spec are done; **Phase 1, the
+  command surface, is the next step**.
+- **The session spec's live-region wording was amended in Notion and re-mirrored** (§23.11), closing the
+  dependency §23.9 recorded. `tools/amend-session-live-region.ps1` is the first demonstrated Notion-first
+  amendment from this repository.
+- **The plan's stages 1–4** (§23.5): the Player command surface; background playback with R10; the
+  enabling refactors — D31 Navigation 3, R2, R3 with slice L, R4, R7, R8; and Saved Queues end to end.
+- **D28 moved background playback to the front**, so §16.4's disagreement is closed by decision rather
+  than left restated. Its acceptance is the one thing this project cannot verify on the JVM.
+- **Slices J (captions and the child-database loss) and K (raw Notion navigation) are not in the plan** —
+  neither is a Player or queue feature, and both were already unblocked and unstarted.
 - **Slice C's facets and Home's Explore**, blocked on the Content Metadata & Workspace Schema Adapters
-  spec, which §5 records this workspace can only partly supply.
-- **Slice A′'s gap now has a name** — it is G — and **§19.9's two stated gaps** are closed by it: Browse's
-  result position, verified by construction only, becomes testable through the shell harness, and the
-  unreadable-Note dead end is M's to settle.
-- `ReaderEngine.playFromStart()`'s absent caller (§13.4).
+  spec, which §5 records this workspace can only partly supply. It now also gates Smart Queues (D30).
+- **Slice N (the Compose v2 test rule, §17.3)** is unchanged and still worth its own risk-free round; D31's
+  migration will re-point the affected tests anyway.
 - `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path (§17.1).
 - An inexact restore has not been observed on a device; it is covered by unit tests only (§17.6).

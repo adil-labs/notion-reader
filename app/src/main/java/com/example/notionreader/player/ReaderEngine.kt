@@ -53,6 +53,24 @@ interface ReaderEngine {
      */
     fun announceThenPlay(text: String, startParagraphIndex: Int = 0)
 
+    /**
+     * Speaks [text] on its own, and reads nothing after it.
+     *
+     * This exists for a transition that has no following content, of which there is exactly one: the end of
+     * a queue. [announceThenPlay] cannot express it, because that operation's whole purpose is to announce
+     * and then read on — its announcement is the introduction to something.
+     *
+     * Speech rather than a live region, for the reason [announceThenPlay] documents: a live region is read
+     * to nobody when no screen reader is running, and with the screen off the reader's own voice is the
+     * listener's only channel. An unannounced end of a queue is indistinguishable from the reader having
+     * failed, which is the worst thing a reading application can sound like.
+     *
+     * The reading position and the playing state are untouched: this is an utterance about the session, not
+     * a move within it. Any operation that moves the reader or replaces the document stops it, because
+     * those operations already stop speech.
+     */
+    fun announce(text: String)
+
     /** Stops the current utterance and keeps the reading position. */
     fun pause()
 
@@ -141,6 +159,16 @@ class ReaderEngineImpl(
             if (token != utteranceToken) return@speak
             speakCurrentParagraph()
         }
+    }
+
+    override fun announce(text: String) {
+        // No state change and no position change: this is an utterance about the session, not a move within
+        // it, so `move()`'s "only re-speak when the position moved" rule does not apply. The token is
+        // nevertheless invalidated and speech stopped first, so an announcement can never be layered on top
+        // of an utterance that has already been cancelled.
+        invalidateUtterance()
+        speechEngine.stop()
+        speechEngine.speak(text)
     }
 
     override fun pause() {

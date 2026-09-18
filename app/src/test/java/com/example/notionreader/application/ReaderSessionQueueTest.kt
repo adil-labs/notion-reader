@@ -258,6 +258,67 @@ class ReaderSessionQueueTest {
     }
 
     @Test
+    fun theEndOfAQueueIsSpokenRatherThanOnlyShown() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+
+        session.start(queue(alpha))
+        session.supplyDocument(alpha)
+
+        session.onCurrentNoteFinished()
+
+        // Phase 2 of the Core Player & TTS Playback spec. The Player's "End of queue" line is a live
+        // region, and a live region is read to nobody when no screen reader is running. With the screen off
+        // the reader's own voice is the listener's only channel, so a queue that merely stopped would be
+        // indistinguishable by ear from a reader that had failed.
+        assertEquals(listOf("End of queue"), engine.standaloneAnnouncements)
+
+        // And announcing is an utterance, not a move: it must not start a reading pass and must not stop
+        // one. Asserted against the engine's call counts rather than against `session.isPlaying`, because
+        // this test drives the completion signal directly and so the engine is still in whatever state
+        // `supplyDocument` left it — the same mistake as asserting about a node that was never drawn.
+        assertEquals(1, engine.playCount)
+        assertEquals(0, engine.pauseCount)
+        assertTrue(session.queueState.value.completed)
+    }
+
+    @Test
+    fun theEndOfAQueueIsSpokenOnceHoweverOftenTheCompletionSignalArrives() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+
+        session.start(queue(alpha))
+        session.supplyDocument(alpha)
+
+        // The signal arrives from an observer of engine state, and the engine keeps reporting the end of a
+        // document until a new one is set — so a repeated signal is the normal case, not a hypothetical
+        // one. "Announce that the queue has ended" means once, not once per emission.
+        session.onCurrentNoteFinished()
+        session.onCurrentNoteFinished()
+        session.onCurrentNoteFinished()
+
+        assertEquals(1, engine.standaloneAnnouncements.size)
+    }
+
+    @Test
+    fun advancingMidQueueSaysNothingAboutTheEndOfTheQueue() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+
+        session.onCurrentNoteFinished()
+
+        // A Note transition announces the *next Note's title*, and it does so when that document arrives
+        // rather than as the queue moves. So nothing is uttered at the moment of the transition — and in
+        // particular the queue that has not ended must not say that it has.
+        assertTrue(engine.standaloneAnnouncements.isEmpty())
+        assertEquals(1, session.queueState.value.index)
+        assertFalse(session.queueState.value.completed)
+    }
+
+    @Test
     fun finishingIsIgnoredWhileWaitingForADocument() {
         val engine = FakeReaderEngine()
         val session = ReaderSession(engine)

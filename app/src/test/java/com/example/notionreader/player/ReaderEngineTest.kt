@@ -74,6 +74,20 @@ class ReaderEngineTest {
     }
 
     @Test
+    fun announceSpeaksWithoutMovingTheReaderOrStartingPlayback() {
+        val engine = engine()
+
+        engine.announce("End of queue")
+
+        // The one standalone utterance in the application: the end of a queue has no content to introduce,
+        // so it is neither a move nor the beginning of a reading pass. Getting this wrong in the other
+        // direction — speaking and then reading on — would replay a document the listener had just finished.
+        assertEquals(listOf("End of queue"), speech.spoken)
+        assertFalse(engine.state.value.isPlaying)
+        assertEquals(0, engine.state.value.currentParagraphIndex)
+    }
+
+    @Test
     fun nextWhilePlayingStopsCurrentSpeechAndReadsNext() {
         val engine = engine()
         engine.play()

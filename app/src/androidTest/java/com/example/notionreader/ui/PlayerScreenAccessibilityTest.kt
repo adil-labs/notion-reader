@@ -83,7 +83,7 @@ class PlayerScreenAccessibilityTest {
 
         compose.onNodeWithText("Accessibility Fixture").assertExists()
         compose.onNodeWithText("Section 2 of 3 · Primary Heading").assertExists()
-        compose.onNodeWithText("Paragraph 5 of 8").assertExists()
+        compose.onNodeWithText("Part 5 of 8").assertExists()
     }
 
     // ------------------------------------------------------------------ controls
@@ -180,10 +180,10 @@ class PlayerScreenAccessibilityTest {
 
     @Test
     fun thePositionLineIsNotALiveRegion() {
-        // It changes on every paragraph. Announcing it would talk over the document continuously.
+        // It changes on every part. Announcing it would talk over the document continuously.
         showPlayer()
 
-        compose.onNodeWithText("Paragraph 1 of 8").assert(A11y.hasNoLiveRegion())
+        compose.onNodeWithText("Part 1 of 8").assert(A11y.hasNoLiveRegion())
     }
 
     @Test

@@ -59,6 +59,15 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
     /** The texts passed to [announceThenPlay], so a queue transition's announcement is assertable. */
     val announcements = mutableListOf<String>()
 
+    /**
+     * The texts passed to [announce] — standalone utterances with nothing read after them.
+     *
+     * A separate list from [announcements] rather than a shared one, because the two operations mean
+     * different things and a test that asserted "something was announced" would pass for either. The one
+     * caller today is the end of a queue, which must be distinguishable from a Note transition.
+     */
+    val standaloneAnnouncements = mutableListOf<String>()
+
     /** Speech stopped — by [setDocument], or by a pause or position change while playing. */
     var stopCount = 0
         private set
@@ -119,6 +128,17 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
         if (!_state.value.isPlaying) return
         _state.value = _state.value.pause()
         stopCount++
+    }
+
+    /**
+     * Mirrors [ReaderEngineImpl.announce]: an utterance, with no state and no position change.
+     *
+     * Counted as speech rather than as an engine invocation, so the [callCount] assertion — "navigation
+     * does not touch playback" — keeps meaning what it says. An announcement is not navigation.
+     */
+    override fun announce(text: String) {
+        standaloneAnnouncements += text
+        speakCount++
     }
 
     override fun nextParagraph() {

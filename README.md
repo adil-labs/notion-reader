@@ -9,16 +9,21 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
 
 ## Reading behaviour
 
-- **Play** reads the current paragraph and then continues automatically: each finished paragraph
-  advances to the next, and playback stops on its own after the last paragraph (it does not wrap).
+- **Play** reads the current part and then continues automatically: each finished part advances to the
+  next, and playback stops on its own after the last part (it does not wrap). A part is one speakable
+  chunk, which is a paragraph, a heading, a list item or one of the pieces a long paragraph splits into.
   Reaching the end is reported as "End of note", which is distinct from a user pause: collapsing the
   two would tell a listener the wrong thing about why the reading stopped.
-- **Pause** stops the utterance and keeps the position; **Play** starts that paragraph again from the
+- **Pause** stops the utterance and keeps the position; **Play** starts that part again from the
   beginning, because Android TTS has no reliable pause/resume.
+- Reaching the end of the last Note **speaks** "End of queue". It is spoken by the reader's own voice and
+  not merely shown, because a listener with the screen off has no screen reader reading the state line to
+  them: a queue that simply stopped would be indistinguishable, by ear, from a reader that had failed. It
+  is said once per completion, and re-opening the Player does not say it again.
 - **Previous section** / **Next section** while playing interrupt the current utterance and read the
   new section from its heading; while paused they only move the position, and they are disabled at the
   document boundaries rather than silently doing nothing.
-- **Next section** goes to the start of the following section (the last paragraph when already in the
+- **Next section** goes to the start of the following section (the last part when already in the
   final one). **Previous section** returns to the start of the current section, or steps back a section
   when already there — so one press re-reads the section and two presses go back one.
 - Late completion callbacks from a cancelled utterance are discarded, so pause/next/previous can never
@@ -33,8 +38,9 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
   the system switching to dark mode at dusk. Speech is not interrupted, and the queue, its position and
   its history entry are the same afterwards (`docs/decisions.md` §19.4).
 - The display is held awake while playing so a hands-free session is not interrupted by the screen
-timing out. A background `MediaSessionService` is still the correct long-term answer for playback with
-the app closed (see Later Architecture in the spec).
+  timing out. That is a stated workaround rather than a design: removing it is part of the specified
+  background-playback work (`docs/background-playback-and-media-controls-spec.md`), which is not yet
+  implemented.
 
 ## Screens
 
@@ -55,11 +61,13 @@ interchangeable:
   session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
   played" (`docs/decisions.md` §22).
 
-Queues ships **one of its three tabs**. Saved and Smart Queues need two specifications that do not
-exist, and two permanently unusable controls one tap from a populated surface is the same problem as
-an empty screen, only better hidden (see `docs/decisions.md` §18.4). The tab row is in place so each
-deferred tab is one tab and one screen. Settings is absent for the same reason it always was — it has
-no content by definition.
+Queues ships **one of its three tabs**. The **Listening** tab is built; **Saved** waits on the Queue
+Creation & Queue Management specification (§23.5, stage 0c), and **Smart** waits on that plus the
+Content Metadata & Workspace Schema Adapters specification — so Smart is deliberately out of scope for
+the coming work by decision (`docs/decisions.md` §23, D30). The tab row is in place so each deferred tab
+is one tab and one screen, and two permanently unusable controls one tap from a populated surface would
+be the same problem as an empty screen, only better hidden (`docs/decisions.md` §18.4). Settings is
+absent for the same reason it always was — it has no content by definition.
 
 The Note's `Add to queue` action is still deliberately absent: it needs Saved Queues to add to, and a
 visible control that does nothing is worse for a TalkBack user than an absent one.
@@ -78,19 +86,24 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 - The Note's `Add to queue`, `Add all to queue` on Browse, Queue Destination, and the mini-player's own
   screen. Each needs a Saved Queue to act on.
-- Queue **management** of Saved and Smart Queues — create, rename, reorder, remove, delete. This is
-  slice M and it is blocked on the Queue Creation & Queue Management specification, which does not exist;
-  the UI contract defers the persistence schema to it and the integration spec explicitly delegates it
-  away from itself. The pieces that *are* implemented are the ones that need nothing new: the Active
-  Queue's snapshot and the navigation within it.
-- Queues' **Saved** and **Smart** tabs. The **Listening** tab is built; the other two need two
-  specifications that do not exist, and the integration spec explicitly delegates their persistence
-  away from itself.
+- Queue **management** of Saved Queues — create, rename, reorder, remove, delete. This is stage 0c, the
+  Queue Creation & Queue Management specification, which is not written yet; the UI contract defers the
+  persistence schema to it and the integration spec explicitly delegates it away from itself. The pieces
+  that *are* implemented are the ones that need nothing new: the Active Queue's snapshot and the
+  navigation within it.
+- Queues' **Saved** and **Smart** tabs. The **Listening** tab is built. **Saved** waits on stage 0c, and
+  **Smart** waits on stage 0c plus the Content Metadata & Workspace Schema Adapters specification, so Smart
+  is deliberately out of scope by decision (`docs/decisions.md` §23, D30) rather than left as an
+  open-ended gap.
 - Browse facets, and Home's Explore and Your queues sections, which all need the Content Metadata &
   Workspace Schema Adapters specification. Browse itself is built (search, sort by most recently edited,
   `Play all`).
 - Background/lock-screen playback and media buttons (Media3 `MediaSessionService`). The Player holds the
   screen awake with `keepScreenOn` as a stated workaround, so this is the largest gap in a listening app.
+  It now has a **governing specification** (`docs/background-playback-and-media-controls-spec.md`) and is
+  **ranked first** among the outstanding work (`docs/decisions.md` §23, D28) — but no code has been written
+  for it, and the specification's own Phase 1 is a refactor of the session's lifetime rather than the
+  service itself.
 - Sentence-level resume after pause, and finer offsets inside a chunk (`characterOffset` is carried
   but always 0). Resume is at chunk granularity.
 - A spoken announcement when a restored position is *lost* has not been observed on a device — the four
@@ -244,7 +257,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 303 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 327 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 
@@ -257,7 +270,7 @@ be silent.
 
 ### Instrumented accessibility tests
 
-The 47 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+The 108 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
 consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
 directly:
 
@@ -269,9 +282,9 @@ The wrapper exists because the device has to be prepared in ways a plain Gradle 
 
 - **It requires the device to be unlocked, and refuses to run otherwise.** With the keyguard up the test
   activity never reaches the foreground, so no Compose hierarchy is drawn and *every* test fails with
-  "No compose hierarchies found in the app". That is 45 failures out of 47, in exactly the shape of a
-  catastrophic regression, while the only thing wrong is that a phone on a desk locked itself. The
-  wrapper wakes the display, dismisses the keyguard and verifies that it went, retrying because a
+  "No compose hierarchies found in the app". That is very nearly the whole suite failing, in exactly the
+  shape of a catastrophic regression, while the only thing wrong is that a phone on a desk locked itself.
+  The wrapper wakes the display, dismisses the keyguard and verifies that it went, retrying because a
   dismiss issued in the same breath as the wake can race. It will not attempt a secure unlock: that needs
   the owner's PIN.
 - **It raises `screen_off_timeout` for the duration**, because a stock 30-second timeout is shorter than
@@ -297,7 +310,20 @@ A real failure is retried only when **every** failing test matches a short list 
 the harness losing the activity, or the locked-device signature above. Any unclassified or mixed result
 is red immediately, because a retry must never be able to launder a real defect into a pass.
 
-Note: the `connectedDebugAndroidTest` task currently exits non-zero even when all 47 tests pass. The
+**The focus-restore assertions cannot be made on this device as it is currently configured**
+(`docs/decisions.md` §23.12–§23.14). With TalkBack running *and touch exploration enabled*, a programmatic
+focus request is refused on a `clickable` element — the kind the app's rows are — while it is granted on an
+explicitly `focusable()` one, so seven focus assertions fail for a reason that is the device's rather than
+the app's. The messages say which: `requestFocus() returned false and hasWindowFocus() returned true`.
+
+The mechanism is **not** being redesigned around TalkBack (D34/D35): the app speaks through its own TTS and
+does not implement screen-reader-conditional behaviour, so read a focus failure as *unassertable in this
+configuration* rather than as a regression — and check the configuration with `adb shell settings get
+secure enabled_accessibility_services` and `... touch_exploration_enabled` before believing it. The seven
+assertions stay red rather than being deleted: they name a real contract requirement, and a red suite that
+asks a question is worth more than a green one that stopped.
+
+Note: the `connectedDebugAndroidTest` task currently exits non-zero even when every test passes. The
 wrapper derives its own exit code from the collected results, reading both the XML and the HTML report
 and using the worse count, because the two have disagreed in both directions on this project. The HTML
 report is at `app/build/reports/androidTests/connected/debug/index.html`.
@@ -306,11 +332,19 @@ report is at `app/build/reports/androidTests/connected/debug/index.html`.
 
 Every rule below is a requirement of the UI contract, not a preference.
 
+**The app speaks through its own TTS engine.** It does not implement behaviour aimed at a screen reader
+and does not depend on one being present: every fact a listener must hear is spoken by the reader itself,
+so it is heard with the screen off and with no screen reader running. The semantics below exist so the
+interface is *usable* with one, which is a different thing from coordinating with one
+(`docs/decisions.md` §23.14).
+
 - Every control has a self-explanatory accessible name: "Previous section", "Play", "Pause",
   "Next section". Nothing is called "back", "forward" or "button".
 - Each screen names itself with a pane title, so entering it announces where the user is.
-- The reading position is focusable text ("Paragraph 4 of 12", "Section 2 of 4 · Primary Heading").
-  An empty document reads "No paragraphs".
+- The reading position is focusable text ("Part 4 of 12", "Section 2 of 4 · Primary Heading").
+  The unit is the **part** — one speakable chunk — because that is what the number counts: a heading, a
+  list item and each of the pieces a long paragraph is split into are all parts. An empty document reads
+  "Nothing to read".
 - Playback state is a **polite live region**, because paused, resumed and end-of-note are required
   announcements. The position line deliberately is **not** live, so it cannot talk over the document as
   every paragraph advances it.
@@ -322,6 +356,6 @@ Every rule below is a requirement of the UI contract, not a preference.
 - Nothing is force-focused, so TalkBack and the document TTS engine do not talk over each other.
 - Loading, empty and error are three distinct textual states — loading is never conveyed by animation
   alone — and an error offers Retry only when its category says a retry could help.
-- Pause stops the current utterance and keeps the position; Play restarts that paragraph from the
+- Pause stops the current utterance and keeps the position; Play restarts that part from the
   beginning, since Android TTS has no reliable pause/resume.
 - Moving between screens never touches playback, and opening a Note never starts TTS.
