@@ -161,15 +161,12 @@ fun ReaderShell(
                         // The session's title, not the Note screen's: the Player shows what is being read,
                         // which is the document Play was pressed on.
                         documentTitle = sessionDocument.title,
-                        onPlayPause = app::togglePlayPause,
-                        onNextSection = app.session::nextSection,
-                        onPreviousSection = app.session::previousSection,
+                        // One entry point for every Player action, so the media session the Background
+                        // Playback spec adds becomes a transport rather than a second implementation.
+                        onCommand = { command, index -> app.invoke(command, index) },
                         statusMessage = speechMessage,
                         queueState = queueState,
-                        onRetryQueueNote = app::retryQueueNote,
-                        onNextNote = app::nextNote,
-                        onPreviousNote = app::previousNote,
-                        onSelectQueueNote = app::jumpToNote
+                        onRetryQueueNote = app::retryQueueNote
                     )
                 }
             }

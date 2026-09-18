@@ -185,6 +185,15 @@ data class ReaderState(
     /** Playback reached the end of the document: stopped, and stopped *because* it reached the end. */
     fun finish(): ReaderState = copy(isPlaying = false, hasReachedEnd = true)
 
+    /**
+     * Moves to the first part, clearing the end-of-note state. The transport's `RestartNote`.
+     *
+     * Preserves [isPlaying], like every other move here — so restarting while reading speaks from the top
+     * and restarting while paused moves silently, which is the rule the section controls already follow.
+     * Returns `this` when the position is already at the start: a move that changes nothing is not a move.
+     */
+    fun movedToStart(): ReaderState = movedTo(0)
+
     private fun movedTo(index: Int): ReaderState =
         if (index == currentParagraphIndex) {
             this

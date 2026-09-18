@@ -7,6 +7,8 @@ import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.session.ListeningHistory
 import com.example.notionreader.domain.session.SessionStore
 import com.example.notionreader.domain.session.StoredSession
+import com.example.notionreader.player.PlayerCommand
+import com.example.notionreader.player.playerCommandAvailability
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -358,6 +360,77 @@ class ReaderApp(
     /** The Player's Play / Pause control. Resumes the existing session; it does not start a new one. */
     fun togglePlayPause() {
         if (session.isPlaying) session.pause() else session.play()
+    }
+
+    /**
+     * Invokes a Player command — the single entry point every transport uses.
+     *
+     * ## Why the Player's buttons come through here too
+     *
+     * The Product & Architecture Contract requires a command to be invokable without the widget it is
+     * normally drawn on, so that "Android media controls, accessibility actions, hardware controls, and
+     * future voice control can invoke the same behavior". The Player's own controls are therefore one
+     * caller among several rather than a special case: they read availability from
+     * [playerCommandAvailability] and invoke through this, which is what will make the media session added
+     * by the Background Playback spec a transport rather than a second implementation.
+     *
+     * ## Availability is checked here, not by the caller
+     *
+     * A transport may act on a stale value — a headset button pressed at the instant the queue completed —
+     * so the precondition is re-checked at dispatch. A command that has become unavailable is **rejected**:
+     * it changes nothing, plays nothing, and announces nothing. Rejection is not an error, because a stale
+     * invocation is an ordinary race between a transport and playback rather than a fault.
+     *
+     * Returns true when the command was carried out.
+     */
+    fun invoke(command: PlayerCommand, index: Int? = null): Boolean {
+        val availability = playerCommandAvailability(session.state.value, session.queueState.value)
+        if (!availability.allows(command)) return false
+
+        return when (command) {
+            PlayerCommand.Play -> {
+                session.play()
+                true
+            }
+            PlayerCommand.Pause -> {
+                session.pause()
+                true
+            }
+            PlayerCommand.TogglePlayback -> {
+                togglePlayPause()
+                true
+            }
+            PlayerCommand.NextSection -> {
+                session.nextSection()
+                true
+            }
+            PlayerCommand.PreviousSection -> {
+                session.previousSection()
+                true
+            }
+            PlayerCommand.NextPart -> {
+                session.nextPart()
+                true
+            }
+            PlayerCommand.PreviousPart -> {
+                session.previousPart()
+                true
+            }
+            PlayerCommand.RestartNote -> {
+                session.restartNote()
+                true
+            }
+            PlayerCommand.NextNote -> nextNote()
+            PlayerCommand.PreviousNote -> previousNote()
+            // The one command that cannot act without an argument: "jump somewhere" with no destination is
+            // not a command, so it is refused rather than guessed at.
+            PlayerCommand.JumpToNote -> index?.let { jumpToNote(it) } ?: false
+            // Surface actions. They change what the phone is displaying rather than what is being read, so
+            // they belong to the surface holding that state and are refused here by design — which is also
+            // what keeps them off a lock screen.
+            PlayerCommand.OpenQueue,
+            PlayerCommand.OpenMorePlaybackControls -> false
+        }
     }
 
     /**

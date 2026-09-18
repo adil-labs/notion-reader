@@ -49,6 +49,8 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
         private set
     var previousSectionCount = 0
         private set
+    var restartNoteCount = 0
+        private set
     var shutdownCount = 0
         private set
 
@@ -86,6 +88,7 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
             previousParagraphCount +
             nextSectionCount +
             previousSectionCount +
+            restartNoteCount +
             shutdownCount
 
     /** The document the engine is reading, for asserting a snapshot was frozen rather than aliased. */
@@ -159,6 +162,11 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
     override fun previousSection() {
         previousSectionCount++
         move { it.previousSection() }
+    }
+
+    override fun restartNote() {
+        restartNoteCount++
+        move { it.movedToStart() }
     }
 
     override fun setDocument(document: ReaderDocument, startParagraphIndex: Int) {

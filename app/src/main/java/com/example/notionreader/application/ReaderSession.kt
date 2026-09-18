@@ -607,6 +607,20 @@ class ReaderSession(val engine: ReaderEngine) {
 
     fun previousSection() = engine.previousSection()
 
+    /** One speakable part forward. The transport's `NextPart`; never crosses a Note boundary. */
+    fun nextPart() = engine.nextParagraph()
+
+    /** One speakable part back. The transport's `PreviousPart`. */
+    fun previousPart() = engine.previousParagraph()
+
+    /**
+     * Restarts the current Note from its first part, preserving the playing state.
+     *
+     * The transport's `RestartNote`. It does not restart the queue, does not start a new session, and does
+     * not change queue membership or position — those are different operations with different names.
+     */
+    fun restartNote() = engine.restartNote()
+
     /** Releases speech resources. The session must not be used afterwards. */
     fun shutdown() = engine.shutdown()
 

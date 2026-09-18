@@ -14,6 +14,7 @@ import com.example.notionreader.domain.queue.ActiveQueue
 import com.example.notionreader.domain.queue.QueueOrigin
 import com.example.notionreader.domain.queue.QueueState
 import com.example.notionreader.domain.queue.QueuedNote
+import com.example.notionreader.player.PlayerCommand
 import com.example.notionreader.player.ReaderState
 import com.example.notionreader.player.sectionSpans
 import com.example.notionreader.ui.A11y.assertIsReachable
@@ -73,21 +74,14 @@ class PlayerQueueViewAccessibilityTest {
     private fun showPlayer(
         queueState: QueueState = QueueState(),
         state: ReaderState = playerState(),
-        onNextNote: () -> Unit = {},
-        onPreviousNote: () -> Unit = {},
-        onSelectQueueNote: (Int) -> Unit = {}
+        onCommand: (PlayerCommand, Int?) -> Unit = { _, _ -> }
     ) {
         compose.setContent {
             PlayerScreen(
                 state = state,
                 documentTitle = document.title,
-                onPlayPause = {},
-                onNextSection = {},
-                onPreviousSection = {},
-                queueState = queueState,
-                onNextNote = onNextNote,
-                onPreviousNote = onPreviousNote,
-                onSelectQueueNote = onSelectQueueNote
+                onCommand = onCommand,
+                queueState = queueState
             )
         }
     }
@@ -211,16 +205,19 @@ class PlayerQueueViewAccessibilityTest {
 
     @Test
     fun selectingARowAsksTheSessionToMoveThere() {
-        var selected = -1
+        var selected: Int? = null
         showPlayer(
             queueState = QueueState(queue = queueOf("Alpha", "Beta", "Gamma"), index = 0),
-            onSelectQueueNote = { selected = it }
+            onCommand = { command, index ->
+                if (command == PlayerCommand.JumpToNote) selected = index
+            }
         )
 
         openQueue()
         compose.onNodeWithText("3. Gamma", substring = true)
             .performSemanticsAction(SemanticsActions.OnClick)
 
+        // The index travels with the command: "jump somewhere" with no destination is not a command.
         assertEquals(2, selected)
     }
 
@@ -288,9 +285,6 @@ class PlayerQueueViewAccessibilityTest {
             PlayerScreen(
                 state = playerState(),
                 documentTitle = document.title,
-                onPlayPause = {},
-                onNextSection = {},
-                onPreviousSection = {},
                 queueState = QueueState(queue = queueOf("Only"), index = 0)
             )
         }
@@ -320,19 +314,19 @@ class PlayerQueueViewAccessibilityTest {
 
     @Test
     fun eachNoteControlInvokesItsOwnAction() {
-        var next = 0
-        var previous = 0
+        val invoked = mutableListOf<PlayerCommand>()
         showPlayer(
             queueState = QueueState(queue = queueOf("Alpha", "Beta", "Gamma"), index = 1),
-            onNextNote = { next++ },
-            onPreviousNote = { previous++ }
+            onCommand = { command, _ -> invoked += command }
         )
 
         compose.onNodeWithText("Next note").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Previous note").performSemanticsAction(SemanticsActions.OnClick)
 
-        assertEquals(1, next)
-        assertEquals(1, previous)
+        assertEquals(
+            listOf(PlayerCommand.NextNote, PlayerCommand.PreviousNote),
+            invoked
+        )
     }
 
     /** Matches a node whose merged text contains every fragment. */

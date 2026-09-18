@@ -35,6 +35,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.domain.queue.QueueState
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.player.PlayerCommand
+import com.example.notionreader.player.playerCommandAvailability
 import com.example.notionreader.player.ReaderState
 
 /**
@@ -73,17 +75,26 @@ import com.example.notionreader.player.ReaderState
 fun PlayerScreen(
     state: ReaderState,
     documentTitle: String,
-    onPlayPause: () -> Unit,
-    onNextSection: () -> Unit,
-    onPreviousSection: () -> Unit,
+    /**
+     * Invokes a Player command.
+     *
+     * **One callback rather than one per control**, because a control is a *rendering* of a command: the
+     * Product & Architecture Contract requires that core Player commands "be representable independently of
+     * individual UI widgets", and a lambda per button is what made that untrue before this existed. The
+     * transport the Background Playback spec adds invokes the same commands through the same entry point.
+     *
+     * The index is the one argument any command carries — `JumpToNote` — and is null for every other.
+     */
+    onCommand: (PlayerCommand, Int?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     statusMessage: String? = null,
     queueState: QueueState = QueueState(),
-    onRetryQueueNote: () -> Unit = {},
-    onNextNote: () -> Unit = {},
-    onPreviousNote: () -> Unit = {},
-    onSelectQueueNote: (Int) -> Unit = {}
+    onRetryQueueNote: () -> Unit = {}
 ) {
+    // One published answer, read by every control below. A disabled control and an unadvertised transport
+    // command are therefore the same fact rather than two evaluations of it.
+    val availability = playerCommandAvailability(state, queueState)
+
     var showQueue by rememberSaveable { mutableStateOf(false) }
 
     // Reading is hands-free, so the display must not time out mid-paragraph. It is only held awake
@@ -100,7 +111,9 @@ fun PlayerScreen(
             queueState = queueState,
             onClose = { showQueue = false },
             onSelectNote = { index ->
-                onSelectQueueNote(index)
+                // Selecting a row is `JumpToNote`, which preserves the playing state and is a no-op for the
+                // Note already current. The view closes either way, because the listener asked to go there.
+                onCommand(PlayerCommand.JumpToNote, index)
                 showQueue = false
             },
             modifier = modifier
@@ -216,26 +229,28 @@ fun PlayerScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Button(
-                onClick = onPreviousSection,
-                enabled = !state.isAtFirstParagraph && !queueState.awaiting && !queueState.isStalled && !queueState.completed,
+                onClick = { onCommand(PlayerCommand.PreviousSection, null) },
+                enabled = availability.canMoveToPreviousSection,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Previous section")
             }
 
             Button(
-                onClick = onPlayPause,
+                // TogglePlayback rather than a branch here: the label is the only thing that differs, and
+                // the command is defined as exactly Play or Pause so the two cannot drift apart.
+                onClick = { onCommand(PlayerCommand.TogglePlayback, null) },
                 // Disabled while the queue cannot proceed. Enabling it would let Play call the engine and
                 // replay the Note that just ended, which reads as the queue jumping backwards.
-                enabled = !queueState.awaiting && !queueState.isStalled && !queueState.completed,
+                enabled = availability.allows(PlayerCommand.TogglePlayback),
                 modifier = Modifier.weight(1f)
             ) {
                 Text(if (state.isPlaying) "Pause" else "Play")
             }
 
             Button(
-                onClick = onNextSection,
-                enabled = !state.isAtLastParagraph && !queueState.awaiting && !queueState.isStalled && !queueState.completed,
+                onClick = { onCommand(PlayerCommand.NextSection, null) },
+                enabled = availability.canMoveToNextSection,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Next section")
@@ -251,14 +266,14 @@ fun PlayerScreen(
         ) {
             if (queueState.size > 1) {
                 Button(
-                    onClick = onPreviousNote,
+                    onClick = { onCommand(PlayerCommand.PreviousNote, null) },
                     // Enabled while the queue is *stalled*, deliberately. A Note that will not load leaves
                     // the session waiting with Retry as its only offer, and if moving on were also
                     // forbidden the rest of the queue would be unreachable — one missing page would cost
                     // the listener every Note after it. The spec's "it is never skipped" is about the app
                     // never advancing past a failed Note on its own; this is a listener pressing a control
                     // that says what it does, on a queue whose membership has not changed.
-                    enabled = queueState.hasPrevious && !queueState.awaiting,
+                    enabled = availability.canMoveToPreviousNote,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Previous note")
@@ -266,8 +281,11 @@ fun PlayerScreen(
             }
 
             Button(
+                // A surface action rather than a command: `OpenQueue` changes what the phone is
+                // displaying, so it is handled by the state that holds that and is deliberately absent
+                // from the command set a transport may offer.
                 onClick = { showQueue = true },
-                enabled = queueState.items.isNotEmpty(),
+                enabled = availability.canOpenQueue,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Queue")
@@ -275,8 +293,8 @@ fun PlayerScreen(
 
             if (queueState.size > 1) {
                 Button(
-                    onClick = onNextNote,
-                    enabled = queueState.hasNext && !queueState.awaiting,
+                    onClick = { onCommand(PlayerCommand.NextNote, null) },
+                    enabled = availability.canMoveToNextNote,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Next note")

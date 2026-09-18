@@ -84,6 +84,15 @@ interface ReaderEngine {
     /** Moves to the start of the current section, or to the previous section when already there. */
     fun previousSection()
 
+    /**
+     * Moves to the first part of the current document, preserving the playing state.
+     *
+     * The transport command `RestartNote`. Distinct from [playFromStart], which always begins reading: this
+     * one preserves the transport, so restarting while paused moves and stays silent. That difference is why
+     * both exist rather than one being renamed.
+     */
+    fun restartNote()
+
     /** Replaces the current document and resets the reading position. */
     fun setDocument(document: ReaderDocument, startParagraphIndex: Int = 0)
 
@@ -187,6 +196,8 @@ class ReaderEngineImpl(
     override fun nextSection() = move { it.nextSection() }
 
     override fun previousSection() = move { it.previousSection() }
+
+    override fun restartNote() = move { it.movedToStart() }
 
     override fun setDocument(document: ReaderDocument, startParagraphIndex: Int) {
         invalidateUtterance()

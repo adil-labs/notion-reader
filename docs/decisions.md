@@ -3775,6 +3775,98 @@ background-playback spec against the code already verified in §23.11 and §23.1
 re-run on the externally-edited tree before this section was written and were green, which is what
 established that the edits made outside this session did not disturb the P1/P2 work.
 
+### 23.15 Stage 1 — the Player command surface
+
+**Date:** 2026-09-18. 0a's Phase 1: the command type, the availability value, and every Player control routed
+through both. Behaviour-preserving — no control is added or removed, nothing visible changes, and the only
+new capability is that the commands have names and there is one answer to "can I do this?".
+
+The phase was done **before** the media session rather than with it, which is the point: the contract
+requires a command to be invokable without the widget it is drawn on, and building that boundary first is
+what stops the transport in Stage 2 from growing a second implementation of it. This is the same move §13
+made for the session, and the same reason: make the seam exist, then put the second caller behind it.
+
+#### What was added
+
+- **`player/PlayerCommand.kt`** — the closed set: eleven transport commands plus two surface actions, with
+  `isTransport` carrying the split the spec calls the point of the classification. `PlayerCommandAvailability`
+  holds the booleans and [`allows`] is the single place a command is matched to one.
+- **`playerCommandAvailability(state, queue)`** — a free function rather than a method on either state type,
+  because the answer is a function of *both*: `ReaderState` describes the document and `QueueState` describes
+  where the session is in its queue, and neither can derive the other.
+- **`ReaderApp.invoke(command, index)`** — the single entry point every transport uses. The Player's own
+  buttons are one caller among several rather than a special case.
+- **`ReaderEngine.restartNote()`**, **`ReaderState.movedToStart()`**, and three `ReaderSession` passthroughs
+  (`nextPart`, `previousPart`, `restartNote`), because `restartNote` was specified and did not exist.
+
+#### Four decisions worth recording
+
+**Availability does not include `queue != null`.** The first draft required a queue, mirroring
+`ReaderSession.canPlay`. That would have disabled Play in every instrumented Player test, because those
+render the screen with a default `QueueState` — the screen is tested in isolation, which is this project's
+established method. The condition is also unnecessary: a null queue is already expressed by the queue-level
+commands being unavailable, and the Player is unreachable without a session. So availability describes **the
+state being rendered**, and the available set is exactly right for a screen rendered on its own.
+
+**`restartNote` is not `playFromStart`.** The spec requires restart to preserve the playing state — speaking
+from the top while playing, moving silently while paused — and `playFromStart` always begins reading. Rather
+than rename it and lose an operation, both now exist with the difference stated where each is defined. That
+leaves §13.4's observation that `playFromStart` has no production caller **still true**, and now with a
+reason: the control it might have served wants the other behaviour.
+
+**The Player's controls assert against commands in tests now.** Two instrumented tests counted callbacks
+(`onPlayPause = { playPause++ }`); they assert the *commands* that fired instead. That is strictly better
+instrumentation — it is what a media session or a headset button will send — and it is why the tests changed
+rather than the design being arranged around them.
+
+**`OpenQueue` is refused by the dispatcher even when available.** Its availability is the surface question
+("is there a queue to show?"), and the dispatcher refuses it anyway because its effect is to change what the
+phone is displaying. That refusal is what keeps it off a lock screen, and a test asserts the refusal happens
+even in a state where the action is available.
+
+#### Verified
+
+- **360 JVM tests, 0 failures** (was 334). Twenty-six additions: 13 in `PlayerCommandTest` and 13 in
+  `PlayerCommandInvocationTest`.
+- **A failing-first proof for the dispatch guard.** Removing `if (!availability.allows(command)) return false`
+  failed **exactly** three tests and no others, out of 360:
+
+  | Guard removed | Tests that noticed |
+  |---|---|
+  | the availability re-check at dispatch | `anUnavailableCommandChangesNothingAndAnnouncesNothing`, `aPartCommandIsUnavailableAtTheEndOfTheNoteRatherThanLoadingTheNextOne`, `restartIsRefusedOnceTheQueueHasCompleted` |
+
+  Three is the right answer and is recorded rather than smoothed: the *surface-action* refusal and the
+  *jump-without-an-index* refusal are dispatch branches of their own rather than consequences of this guard,
+  so they pass either way — the same shape §21.6 recorded for three navigator tests that guarded clearing
+  rather than recording.
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` both succeed. The instrumented source set was
+  compiled explicitly, because the JVM task does not compile it — and it was where the change actually broke:
+  two call sites still passed the removed parameters, which the JVM run could not have seen.
+- **The instrumented suite on a device: 108 tests, 7 failures — and the identical seven §23.12 recorded.**
+  Every Player suite is green with the command-based assertions:
+
+  | Class | Result |
+  |---|---|
+  | `PlayerScreenAccessibilityTest` | **15/15** — including the two rewritten to assert commands |
+  | `PlayerQueueViewAccessibilityTest` | **17/17** — including `JumpToNote` carrying its index |
+  | `ReaderShellQueueBackTest`, `NoteScreenAccessibilityTest`, `QueuesScreenAccessibilityTest` | 2/2, 17/17, 15/15 |
+  | `BrowseScreenAccessibilityTest`, `HomeScreenAccessibilityTest` | 13/13, 9/9 |
+  | `FocusRestoreTest` | 1/4 — the pre-existing focus failures |
+  | `ReaderShellAccessibilityTest` | 12/16 — the same pre-existing focus failures |
+
+  So the count, the failing classes and the failing test names are **unchanged from before this round**, which
+  is the right shape for a behaviour-preserving refactor: the suite that describes the app's behaviour did not
+  move, and the two tests that had to change changed because they now assert something better.
+
+#### One mistake, made and corrected in this round
+
+A batch edit to `FakeReaderEngine` silently dropped the `setDocumentCount++` increment, because I replaced a
+line I meant to insert beside. Nothing failed immediately: the JVM suite was not run between that edit and
+the next. It was caught while adding the `restartNote` override and fixed before any verification run, so no
+result in this round is affected — but it is the reason the double's counters are asserted by the suite at
+all, and it is recorded because it is exactly the failure mode this project keeps finding in other shapes:
+an edit that removes something without the tooling noticing.
+
 ---
 
 ## Still open
@@ -3814,8 +3906,14 @@ established that the edits made outside this session did not disturb the P1/P2 w
 - **The instrumented suite's verdict is configuration-dependent and the configuration is not recorded**, so
   "the suite is green" is not yet a stable property of this repository.
 - **The two Player defects §23.8 found are now fixed** (§23.11): the end of a queue is spoken, and the
-  progress line counts parts. Phases 2 and 3 of the Core Player & TTS Playback spec are done; **Phase 1, the
-  command surface, is the next step**.
+  progress line counts parts. **0a's Phases 1–3 are done** (§23.15 added Phase 1), so the Player's command
+  set, its announcements and its progress line are implemented.
+- **Stage 2 is next: background playback**, starting with **R10 — the process-scoped session holder**
+  (§23.9, Phase 1 of the background specification). It is the refactor rather than the service, it changes
+  no behaviour, and it is the one piece with a JVM-verifiable acceptance: destroying the ViewModel must no
+  longer end the session. Everything after it — the `MediaSessionService`, audio focus, the notification,
+  removing `keepScreenOn` — needs a device, and its device gate is now **audio focus behaviour** rather than
+  a TalkBack measurement (D35).
 - **The session spec's live-region wording was amended in Notion and re-mirrored** (§23.11), closing the
   dependency §23.9 recorded. `tools/amend-session-live-region.ps1` is the first demonstrated Notion-first
   amendment from this repository.

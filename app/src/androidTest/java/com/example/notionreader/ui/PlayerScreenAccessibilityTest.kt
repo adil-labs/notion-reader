@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
+import com.example.notionreader.player.PlayerCommand
 import com.example.notionreader.player.ReaderState
 import com.example.notionreader.player.sectionSpans
 import com.example.notionreader.ui.A11y.assertIsReachable
@@ -49,17 +50,13 @@ class PlayerScreenAccessibilityTest {
 
     private fun showPlayer(
         state: ReaderState = playerState(),
-        onPlayPause: () -> Unit = {},
-        onNextSection: () -> Unit = {},
-        onPreviousSection: () -> Unit = {}
+        onCommand: (PlayerCommand, Int?) -> Unit = { _, _ -> }
     ) {
         compose.setContent {
             PlayerScreen(
                 state = state,
                 documentTitle = document.title,
-                onPlayPause = onPlayPause,
-                onNextSection = onNextSection,
-                onPreviousSection = onPreviousSection
+                onCommand = onCommand
             )
         }
     }
@@ -118,15 +115,11 @@ class PlayerScreenAccessibilityTest {
 
     @Test
     fun eachControlInvokesItsOwnAction() {
-        var playPause = 0
-        var next = 0
-        var previous = 0
+        val invoked = mutableListOf<PlayerCommand>()
 
         showPlayer(
             state = playerState(index = 3),
-            onPlayPause = { playPause++ },
-            onNextSection = { next++ },
-            onPreviousSection = { previous++ }
+            onCommand = { command, _ -> invoked += command }
         )
 
         // Semantics actions rather than synthetic taps: an accessibility service invokes these, and
@@ -135,9 +128,16 @@ class PlayerScreenAccessibilityTest {
         compose.onNodeWithText("Next section").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Previous section").performSemanticsAction(SemanticsActions.OnClick)
 
-        assertEquals(1, playPause)
-        assertEquals(1, next)
-        assertEquals(1, previous)
+        // Asserted as the *commands* that fired, which is what a media session or a headset button would
+        // send. The Player's buttons are one transport among several rather than a special case.
+        assertEquals(
+            listOf(
+                PlayerCommand.TogglePlayback,
+                PlayerCommand.NextSection,
+                PlayerCommand.PreviousSection
+            ),
+            invoked
+        )
     }
 
     /**
