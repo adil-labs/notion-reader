@@ -232,6 +232,25 @@ Both interfaces return **no `Result` and no error type**, for the reason `Sessio
 not a condition a caller branches on, and giving the interface an error channel invites exactly that
 branching. A storage failure is a lost queue, never a playback failure.
 
+### The one divergence, and it is forced rather than chosen
+
+Queues are changed through **a single operation that reads, decides and writes** — `SavedQueueStore.transact` —
+rather than through a read followed by a write.
+
+The two-step version is unsafe for a reason that follows directly from the rule above. A read must report a store
+it cannot read as "no queues", because that is what a caller *displaying* queues needs. So a decision taken on
+top of that answer is a decision about an empty library, and writing the result back wholesale removes every
+queue the store actually holds. Of the six operations, exactly one reaches this: **`Create`**, whose result does
+not depend on what was read — so it alone would have replaced a listener's whole library with the single queue
+they had just made, in an app that otherwise looks fine. Every other operation needs its target to have been
+read, and so answers "no such queue" and writes nothing.
+
+Doing the read and the write in one call makes that impossible rather than merely avoided: an implementation
+performs both inside one transaction, so a read that fails means the transaction never runs and nothing is
+committed. The rule this adds is not a new product rule — a failed read is still reported as "no queues" by
+`read`, and a failed write is still a dropped write — but it does add one structural requirement, and a store
+implementation that ignores it reintroduces the whole failure.
+
 ## The `QueueOrigin` change, and its version bump
 
 `QueueOrigin.Saved(name: String)` and `QueueOrigin.Smart(name: String)` are replaced by variants carrying

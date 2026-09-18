@@ -124,41 +124,45 @@ class SavedQueueTest {
     fun aFailedWriteLeavesTheStoredQueuesAsTheyWereRatherThanPartiallyApplied() = runTest {
         // The spec: a failed write is a lost edit, never a failure the listener is told about — and it must
         // not leave a half-applied list behind either.
-        val original = queue(name = "Original")
+        val original = queue(id = "a", notes = listOf(QueuedNote("p1", "Alpha")))
         val store = InMemorySavedQueueStore(listOf(original)).apply { failWrites = true }
 
-        store.write(listOf(queue(name = "Replacement")))
+        val outcome = store.transact { current ->
+            QueueEdit.Add("a", listOf(QueuedNote("p2", "Beta"))).applyTo(current, 7L)
+        }
 
         assertEquals(listOf(original), store.read())
+        // The write was attempted and dropped; the *decision* is still reported, because a storage failure is
+        // not a failure of the operation the listener performed.
+        assertEquals(1, store.writeCount)
+        assertTrue(outcome.changed)
     }
 
     @Test
-    fun writesAreWholeListReplacements() = runTest {
-        // The operation's postcondition is a statement about an ordering, so writing the list whole is what
-        // makes the operation and its persistence the same thing.
-        val store = InMemorySavedQueueStore()
+    fun aTransactionWritesTheWholeSetRatherThanOnlyTheQueueItTouched() = runTest {
+        // A queue operation's postcondition is a statement about an ordering, so the set is written whole —
+        // which is what keeps the operation and its persistence the same thing.
+        val store = InMemorySavedQueueStore(listOf(queue(id = "a"), queue(id = "b", notes = emptyList())))
 
-        store.write(listOf(queue(id = "a")))
-        assertEquals(listOf("a"), store.read().map { it.id })
+        store.transact { current ->
+            QueueEdit.Add("b", listOf(QueuedNote("p1", "Alpha"))).applyTo(current, 7L)
+        }
 
-        store.write(listOf(queue(id = "a"), queue(id = "b")))
-        assertEquals(listOf("a", "b"), store.read().map { it.id })
-
-        store.write(listOf(queue(id = "b")))
-        assertEquals(listOf("b"), store.read().map { it.id })
+        assertEquals(listOf("a", "b"), store.writes.single().map { it.id })
     }
 
     @Test
-    fun theDoubleRecordsWhatWasWrittenSoNoWriteRulesAreAssertable() = runTest {
-        // This exists for Phase 2: "a move at a boundary performs no write" is invisible in the resulting
-        // list, so it has to be asserted against the store's activity instead. The double is built for that
-        // now so the model tests cannot later be tempted to infer it.
-        val store = InMemorySavedQueueStore()
+    fun theDoubleRecordsWhatWasWrittenSoTheNoWriteRulesAreAssertable() = runTest {
+        // "A move at a boundary performs no write" is invisible in the resulting list, so it has to be
+        // asserted against the store's activity. The second move here changes nothing, because the member is
+        // already first — so one of two operations writes.
+        val store = InMemorySavedQueueStore(
+            listOf(queue(id = "a", notes = listOf(QueuedNote("p1", "Alpha"), QueuedNote("p2", "Beta"))))
+        )
 
-        store.write(listOf(queue()))
-        store.write(listOf(queue()))
+        store.transact { current -> QueueEdit.Move("a", "p2", QueueMove.Up).applyTo(current, 7L) }
+        store.transact { current -> QueueEdit.Move("a", "p2", QueueMove.Up).applyTo(current, 7L) }
 
-        assertEquals(2, store.writeCount)
-        assertEquals(2, store.writes.size)
+        assertEquals(1, store.writeCount)
     }
 }

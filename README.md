@@ -257,7 +257,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 327 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 459 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 

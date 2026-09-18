@@ -4757,6 +4757,99 @@ Phase 3 remains the one to do deliberately — the identity-carrying `QueueOrigi
 `SESSION_SCHEMA_VERSION` bump — because it is the only part of this work that changes persistence that already
 works, and its mistake would be silent.
 
+### 23.26 Saved Queue Phase 2 — the model, and the data-loss defect the phase found
+
+**Date:** 2026-09-19. The six operations as a pure model: one entry point, one place where "changed nothing"
+is decided, and the counters a surface needs to report a de-duplication honestly. **459 JVM tests, 0
+failures** (was 417; 42 additions).
+
+#### The design point: one `when`, so four rules cannot be forgotten
+
+`QueueEdit` is a sealed value and `QueueEdit.applyTo(queues, now)` is the only way to apply one, for the same
+reason `ReaderApp.invoke(command)` is the only way to command the player. Six methods could each get one of the
+shared rules right and one wrong, and the wrong one is invisible — the queue still lists, it just is not what
+the listener asked for. As one value, four rules are stated once:
+
+| Rule | How it is satisfied |
+|---|---|
+| a no-op performs no write | the candidate is compared with the input **once**, and `changed` is that comparison |
+| a rejection performs no write | a rejection's candidate *is* its input, so the same comparison answers it |
+| an edit touches one record | only the target's `lastEditedAt` is stamped, and `targetId` names it |
+| an edit preserves everything else | every branch derives its result from the input list; no branch can drop a record except the one it deletes |
+
+The ordering matters and cost a test to find. The comparison has to happen **before** the timestamp is
+applied: stamping first changes `lastEditedAt`, which makes "rename to the name it already has" report a change
+and write for nothing. `aRenameToTheNameItAlreadyHasPerformsNoWrite` is the test that names that.
+
+The cost of stamping afterwards is that the effect had been built from the pre-stamp record, so it named a
+record the outcome no longer contained — **two versions of one queue, differing only in a timestamp, handed to
+one caller**. `SavedQueueEditsTest` caught this as a failed equality between an effect's queue and the
+outcome's, and the fix is `QueueEffect.naming(final)`: five `copy` lines that re-point an effect at the record
+the outcome holds. That is not tidying — it turns "an effect and its outcome name the same record" from a
+coincidence of two expressions into a construction.
+
+#### The defect: a failed read became a whole-list write
+
+Phase 1's port was `read()` and `write()`. `read()` is required to report a store it cannot read as **no
+queues** — right for a caller displaying queues. But the coordinator then read, decided and wrote, and the write
+was the whole list. So a failed read produced an empty list, a decision was taken about an empty library, and
+writing it back **removed every queue the store actually holds**.
+
+Of the six operations exactly one reaches it: **`Create`**, whose result does not depend on what was read.
+Rename, Add, Remove, Move and Delete all need their target to have been read, so they answer `NoSuchQueue` and
+write nothing. So the reachable failure was: *a disk-read failure at the moment of a create leaves the listener
+with the one queue they just made and silently without the library.* And the failure is silent in the worst way
+— the app looks fine.
+
+**The fix is structural rather than a guard.** The port is now `read()` and
+`transact(decide: (List<SavedQueue>) -> QueueEditOutcome)`: the implementation decodes, decides and encodes
+inside a single `DataStore.edit` block, so a read that fails means the transaction never runs and **nothing is
+written at all**. A caller cannot get the sequence wrong because it cannot express the sequence. The
+two methods now differ deliberately on their failure answers — `read` reports an unreadable store as no queues,
+`transact` reports `StoreUnavailable` — and both are documented with the reason, because the difference is the
+whole fix.
+
+Two things fell out of it: `write` is **gone** rather than kept alongside, since an unguarded whole-list writer
+is the defect itself; and `QueueEffect.StoreUnavailable` is a distinct case rather than a `Rejected`, because
+the spec forbids reporting a storage failure as a failure of the operation the listener performed — the surface
+shows no error and simply leaves the screen as it was. The double's `failWrites` deliberately still reports the
+operation normally, so `StoreUnavailable` means exactly one thing: **the store could not be read, so nothing was
+attempted.**
+
+The Queue Creation spec gained a subsection for this, since the *shape* of the store is the spec's and this
+diverges from it. §23.25's description of a whole-list `write` is superseded here.
+
+#### Failing-first proofs
+
+Three guards removed one at a time, each noticed only by its own tests, and the file restored from a backup
+rather than re-edited. 459 tests throughout, so the removal changed no counts.
+
+| Guard removed | Tests that noticed |
+|---|---|
+| the no-op comparison (`if (candidate.queues == to)`) | **19** — every no-op and rejection test in `SavedQueueEditsTest`, the four no-write tests in `SavedQueuesTest`, and `theDoubleRecordsWhatWasWrittenSoTheNoWriteRulesAreAssertable` |
+| de-duplication by identity in `Add` | **5** — the by-identity-not-by-title test, the within-the-request test, the all-duplicates report, the count report, and the no-write version |
+| the transaction guard (a failed read treated as empty again) | **1** — `anUnreadableStorePerformsNothingRatherThanWritingOverWhatItCouldNotRead`, the regression guard, alone |
+
+The first is the widest because "nothing changed" is one decision serving two rules; the second is narrower and
+exactly the five that assert it; the third is a single test, which is the right shape for a regression guard —
+it is the only test that asserts the *store's* behaviour rather than the model's.
+
+#### Two smaller decisions worth recording
+
+**An empty request to `Add` is a rejection-free no-op that still reports counts.** `added = 0` with
+`alreadyPresent = n` is a success, and the pair of facts "nothing changed" and "nothing to say" is why the
+outcome separates `changed` from `effect`. The spec's reason is the common case: `Add all to queue` over a
+result set that overlaps the destination, where a listener who adds twelve things and is told nothing cannot
+tell that apart from a failure.
+
+**`Remove` and `Move` report a null member rather than having a "nothing happened" case**, so the same posture
+holds in three places at once: the effect always describes the **postcondition**, not the delta. Removing a
+Note that is not a member is a success because the postcondition the caller wanted already holds.
+
+**What Phase 2 deliberately does not do:** no surface reads any of it, `Play` is not implemented (Phase 4 owns
+its availability rule), and nothing consumes `nameWarning` yet — the Create and Rename screens (Phase 6) do.
+Phase 3 remains the next step that changes persistence that already works.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

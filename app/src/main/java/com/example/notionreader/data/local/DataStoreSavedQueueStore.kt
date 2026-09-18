@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.notionreader.domain.queue.QueueEditOutcome
+import com.example.notionreader.domain.queue.QueueEffect
 import com.example.notionreader.domain.queue.SavedQueue
 import com.example.notionreader.domain.queue.SavedQueueStore
 import kotlinx.coroutines.flow.first
@@ -39,12 +41,16 @@ private val Context.savedQueues by preferencesDataStore(name = "saved_queues")
  * is a boundary against an unreliable filesystem and untrusted bytes, not a place where a programming error
  * should be hidden.
  *
- * ## Whole-list writes
+ * ## The read and the decision happen inside one `edit` transaction
  *
- * A queue operation is defined by its postcondition on the *list* — "Move to top" means "this member is
- * first" — so the resulting list is written whole. That is what makes the operation and its persistence the
- * same thing rather than making an operation's meaning depend on the store's ability to express a partial
- * change.
+ * [transact] decodes the stored list, applies the caller's decision and encodes the result **inside a single
+ * `DataStore.edit` block**, which is what makes the read and the write one operation. The alternative — read,
+ * decide, write — cannot be made safe here: a read failure has to report no queues, so a decision taken on top
+ * of that answer would be a decision about an empty library, and writing it back would delete everything the
+ * store failed to read. Inside `edit`, a read that throws means the block never runs and nothing is committed.
+ *
+ * The lambda is synchronous, which `edit` requires and which is available only because the model it calls is
+ * pure: `SavedQueueCodec` and `QueueEdit.applyTo` neither suspend nor touch the platform.
  */
 class DataStoreSavedQueueStore(private val context: Context) : SavedQueueStore {
 
@@ -58,14 +64,25 @@ class DataStoreSavedQueueStore(private val context: Context) : SavedQueueStore {
         return SavedQueueCodec.decode(encoded.orEmpty())
     }
 
-    override suspend fun write(queues: List<SavedQueue>) {
+    override suspend fun transact(decide: (List<SavedQueue>) -> QueueEditOutcome): QueueEditOutcome {
+        // Assigned inside the transaction and read after it, because the value to report is the decision the
+        // caller's lambda reached — and because a commit that throws must not report that decision as applied.
+        var decided: QueueEditOutcome? = null
         try {
             context.savedQueues.edit { preferences ->
-                preferences[QUEUES] = SavedQueueCodec.encode(queues)
+                val current = SavedQueueCodec.decode(preferences[QUEUES].orEmpty())
+                val next = decide(current)
+                // The only write, and it happens only for a decision that says something changed. That is the
+                // caller's rule, honoured here rather than re-derived: an operation that changes nothing must
+                // not rewrite the file, or a reorder at a boundary would churn it for nothing.
+                if (next.changed) preferences[QUEUES] = SavedQueueCodec.encode(next.queues)
+                decided = next
             }
         } catch (failure: Exception) {
-            // A lost edit, deliberately not a failure the listener is told about.
+            // Either the file could not be read, so the transaction never ran, or the commit failed. Neither
+            // wrote anything, and neither is a failure of the operation the listener performed.
         }
+        return decided ?: UNAVAILABLE
     }
 
     private companion object {
@@ -74,5 +91,16 @@ class DataStoreSavedQueueStore(private val context: Context) : SavedQueueStore {
          * second key in the same file would be a queue kind this specification deliberately does not define.
          */
         val QUEUES = stringPreferencesKey("queues")
+
+        /**
+         * The answer for a store that could not be read: nothing happened, so there is nothing to report and
+         * no list that can be claimed. Built once here rather than at each site so the three fields cannot
+         * drift apart, since the pairing of an unchanged outcome with this effect is the whole statement.
+         */
+        val UNAVAILABLE = QueueEditOutcome(
+            queues = emptyList(),
+            changed = false,
+            effect = QueueEffect.StoreUnavailable
+        )
     }
 }

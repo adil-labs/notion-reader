@@ -32,7 +32,12 @@ class InMemorySavedQueueStore(
     var writeCount: Int = 0
         private set
 
-    /** Every list passed to [write], in order, so a test can see what was written and when. */
+    /**
+     * Every list this store was asked to persist, in order, whether or not the write was allowed to land.
+     *
+     * "Was a write attempted" is the question a no-op rule asks, so a dropped write is recorded here and
+     * leaves [stored] alone; the two facts are separately visible on purpose.
+     */
     val writes: MutableList<List<SavedQueue>> = mutableListOf()
 
     override suspend fun read(): List<SavedQueue> {
@@ -40,13 +45,30 @@ class InMemorySavedQueueStore(
         return if (failReads) emptyList() else stored
     }
 
-    override suspend fun write(queues: List<SavedQueue>) {
-        writeCount++
-        writes += queues
-        if (failWrites) return
-        stored = queues
+    override suspend fun transact(decide: (List<SavedQueue>) -> QueueEditOutcome): QueueEditOutcome {
+        // A store that cannot be read performs nothing at all, which is the whole point of the transaction:
+        // the caller's decision is never taken, so a failed read can never be written back.
+        if (failReads) return UNAVAILABLE
+
+        val next = decide(stored)
+        if (next.changed) {
+            writeCount++
+            writes += next.queues
+            // A dropped write leaves the queues as they were rather than half-applied. The decision is still
+            // reported: a storage failure is never a failure of the operation the listener performed.
+            if (!failWrites) stored = next.queues
+        }
+        return next
     }
 
     /** The queue with [id], or null. A convenience for assertions, not a lookup the production code uses. */
     fun queue(id: String): SavedQueue? = stored.firstOrNull { it.id == id }
+
+    private companion object {
+        val UNAVAILABLE = QueueEditOutcome(
+            queues = emptyList(),
+            changed = false,
+            effect = QueueEffect.StoreUnavailable
+        )
+    }
 }

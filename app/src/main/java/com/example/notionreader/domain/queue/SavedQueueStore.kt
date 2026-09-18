@@ -42,20 +42,45 @@ interface SavedQueueStore {
      *
      * Records that [SavedQueue.isValid] rejects are not returned, and neither is a failure: a discarded
      * record is indistinguishable from one that was never written, which is the policy.
+     *
+     * **This is for display, not for mutation.** An empty answer here cannot be told apart from a store that
+     * could not be read, so a caller that is *changing* queues must use [transact] — writing a list derived
+     * from this answer would remove whatever could not be read. The two methods differ deliberately on their
+     * failure answers, and the reason is in [transact].
      */
     suspend fun read(): List<SavedQueue>
 
     /**
-     * Replaces the stored queues with [queues].
+     * Reads the stored queues, computes the next state with [decide], and writes it — **as one operation**, and
+     * only when [decide] reports that something changed.
      *
-     * Whole-list replacement rather than per-queue mutation, and for a different reason than the session
-     * store has. The session's reason is retention — it is a decision about the *set*, so a per-entry writer
-     * would have to re-implement it. **Saved Queues are never pruned**, so there is no such decision here.
+     * Returns what [decide] produced, or [QueueEffect.StoreUnavailable] when the store could not be read.
      *
-     * The reason here is that a queue operation is defined by its *postcondition on the list*: "Move to top"
-     * means "this member is first", which is a statement about an ordering, and writing the resulting list
-     * whole is what makes the operation and its persistence the same thing. A per-member update would make
-     * the operation's meaning depend on the store's ability to express a partial change.
+     * ## Why this and not `read` followed by `write`
+     *
+     * This method exists because a two-step version had a data-loss defect, and the shape of it is worth
+     * keeping recorded rather than rediscovered.
+     *
+     * [read] is required to report a store it cannot read as "no queues". That is right for a caller that is
+     * *displaying* queues, where "nothing" is a safe answer. It is catastrophic for a caller that is
+     * *changing* them, because the natural next step is to write the result back wholesale — and a whole-list
+     * write derived from a failed read removes every queue the store actually holds. Of the six operations,
+     * exactly one reaches this: `Create`, whose result does not depend on what was read, so it alone would
+     * have replaced a listener's whole library with the single queue they had just made, leaving an app that
+     * looks fine.
+     *
+     * Doing the read and the write in one call closes it structurally rather than by remembering something: an
+     * implementation performs both inside a single transaction, so a read that fails means the transaction never
+     * runs and nothing is written at all. A caller cannot get the sequence wrong because it cannot express the
+     * sequence.
+     *
+     * ## What it deliberately does not do
+     *
+     * No `Result` and no error type, matching [read]: an unreadable store is reported as
+     * [QueueEffect.StoreUnavailable], which is a statement about what this call did — nothing — rather than a
+     * failure for a caller to branch on. And the write decision is [decide]'s, not this method's: "an operation
+     * that changes nothing performs no write" is a rule about queue operations, and it belongs where operations
+     * are defined, not repeated in every storage backend.
      */
-    suspend fun write(queues: List<SavedQueue>)
+    suspend fun transact(decide: (List<SavedQueue>) -> QueueEditOutcome): QueueEditOutcome
 }
