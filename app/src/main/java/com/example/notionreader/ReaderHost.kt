@@ -4,6 +4,7 @@ import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.domain.PositionMatch
 import com.example.notionreader.application.pendingRequest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -205,4 +206,26 @@ class ReaderHost(
             }
         }
     }
+
+    /**
+     * Calls [onChange] whenever the session's reading position or queue changes, until the returned job is
+     * cancelled.
+     *
+     * This is how the **second front end** stays in step. The media session renders the same session the
+     * Player does, and it must not keep its own copy of it — the specification's invariant is "one session
+     * object, two front ends. Neither is a second source of state." So the media session subscribes to the
+     * session rather than being told about it, exactly as the Player's composables do.
+     *
+     * The scope is the host's, which is the process's: a listener whose task is dismissed still has a media
+     * session, and a subscription on a task scope would die with the task while the session it describes
+     * carried on.
+     *
+     * `combine` over the two flows rather than a shared mutable value, so any change to either re-derives the
+     * projection. The first emission arrives immediately, which is what makes a freshly-created media session
+     * describe the session it found rather than an empty one.
+     */
+    fun observeSession(onChange: () -> Unit): Job =
+        scope.launch {
+            combine(app.session.state, app.session.queueState) { _, _ -> Unit }.collect { onChange() }
+        }
 }

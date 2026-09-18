@@ -167,6 +167,10 @@ fun commandForMediaCommand(mediaCommand: Int): PlayerCommand? = when (mediaComma
     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> PlayerCommand.PreviousNote
     Player.COMMAND_SEEK_TO_DEFAULT_POSITION -> PlayerCommand.RestartNote
 
+    // `JumpToNote`. It is `JumpToNote` rather than a command carrying its own index because a bare command int
+    // cannot: the caller supplies the destination separately, from `handleSeek`'s first argument.
+    Player.COMMAND_SEEK_TO_MEDIA_ITEM -> PlayerCommand.JumpToNote
+
     // Not advertised, so not accepted. `SEEK_TO_NEXT`/`SEEK_TO_PREVIOUS` and `SEEK_FORWARD`/`SEEK_BACK`
     // would land here if some other client sent them, and the correct answer is that this app does not
     // offer that granularity through a transport at all.

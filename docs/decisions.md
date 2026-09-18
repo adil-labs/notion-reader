@@ -4102,6 +4102,132 @@ Neither can be verified on the JVM, and the seek-path finding above is the argum
 the AAR before writing against it rather than from memory — the next two classes touch far more of the library
 than the mapping did.
 
+### 23.19 The media session exists, and one property catches a dead branch
+
+**Date:** 2026-09-18. Stage 2 Phase 2's second half: `ReaderSessionPlayer` (a `SimpleBasePlayer` that renders
+the session), `PlaybackService` (a `MediaSessionService`), the manifest declarations, and the pure projection
+they both depend on. **389 JVM tests, 0 failures.**
+
+#### How next/previous Note and the queue snapshot are implemented — one mechanism, not two
+
+The question that shaped this phase turned out to have a satisfying answer: **Media3's playlist *is* the
+queue**, so next/previous Note and the queue snapshot are projections of the same two facts the session
+already publishes:
+
+| Session state | Media3 state | What it drives |
+|---|---|---|
+| `QueueState.items` (`List<QueuedNote>`) | `setPlaylist(List<MediaItemData>)` | the queue snapshot a lock screen lists |
+| `QueueState.index` | `setCurrentMediaItemIndex(index)` | where in the queue you are |
+| `ReaderState.isPlaying` | `setPlayWhenReady(...)` | play vs pause |
+| `QueueState.awaiting/completed/failure` | `setPlaybackState(...)` | buffering / ended / ready |
+
+One direction only: nothing reads the playlist back into the session, and `ReaderSessionPlayer` holds no
+playback state of its own — it derives everything from the session on every `getState()`, and
+`ReaderHost.observeSession` calls `invalidateState()` when either flow changes. That is the specification's
+"one session object, two front ends. Neither is a second source of state", with the second front end actually
+existing for the first time.
+
+`handleSeek` dispatches **on the command, not on the position or the index**, which is the correction from
+§23.18 paying off structurally: `positionMs` is a distance the *transport* chose and is meaningless for our
+content, and the index is only trustworthy for the item-level commands — which is exactly why the four
+granularity commands were left unmapped. Anything unrecognised does nothing.
+
+#### The finding: an advertised command the reverse mapping did not accept
+
+`handleSeek` matches on the Player command and dispatches to `JumpToNote` with the index. But
+`commandForMediaCommand` did not map `COMMAND_SEEK_TO_MEDIA_ITEM` back to anything — so **"jump to that queue
+row" would have been advertised, pressable, and silently ignored.** It compiled, and **no existing test could
+see it**, because every test checked one direction of the mapping and none checked that the two directions
+agree.
+
+That is a genuinely new failure shape for this project and it has a generalisable fix: the property
+**advertised implies accepted**, asserted over every transport command. It is the same discipline the
+codebase applies elsewhere — ask whether the two halves agree, rather than testing each half — and it was
+found by writing the consumer rather than by reading the mapping.
+
+**Failing-first proof**, which is the part worth recording:
+
+| Guard removed | Tests that noticed |
+|---|---|
+| `COMMAND_SEEK_TO_MEDIA_ITEM -> JumpToNote` in the reverse mapping | `everyAdvertisedCommandIsAlsoAccepted`, `everyPlatformCommandCanSendMapsToARealPlayerCommand` |
+
+Exactly those two, out of 389, and the new property is the one whose message names the defect.
+
+#### `SimpleBasePlayer`'s defaults throw, and that is the library refusing on our behalf
+
+Read from the bytecode rather than assumed: every handler this class does *not* override throws
+`IllegalStateException("Missing implementation to handle COMMAND_X")`. Two consequences, both wanted:
+
+- **`handleSetMediaItems`, `handleAddMediaItems`, `handleMoveMediaItems` and `handleRemoveMediaItems` are
+  deliberately not overridden**, so a media controller that tries to add, remove or reorder a Note gets an
+  exception rather than a quiet no-op. The Product & Architecture Contract's "Active Queues are played, not
+  edited" is therefore enforced a **fourth** time — the enum's `isTransport`, `ReaderApp.invoke`'s refusal,
+  the command mapping's `null`, and now the library's own default — and this last one required no code at all,
+  which is the strongest form it could take. §22.5's refusal now has an enforcement point that cannot be
+  edited away by accident.
+- **Everything we advertise must be overridden.** `handleSetPlayWhenReady` (which `play()` and `pause()` both
+  funnel into, read from the bytecode), `handleSeek`, `handleStop`, `handlePrepare` and `handleRelease` are all
+  implemented, each with its reason at its definition.
+
+`handleRelease` is the one worth naming: it cancels the subscription and **does not** call `host.shutdown()`.
+The player is a rendering of the session and the media session comes and goes with the foreground service,
+so releasing it must not end the reading — the same ownership rule §23.16 corrected one layer up, now
+guarding a platform callback that would otherwise be a natural place to put a shutdown.
+
+#### Two project decisions that are now implemented rather than stated
+
+- **`onTaskRemoved` is deliberately empty.** Media3's own documentation shows
+  `pauseAllPlayersAndStopSelf()` there; this is written out and commented instead, because a listening app
+  that stops when the listener clears their recents is broken in a way that looks like a feature working.
+- **The uid is the queue *entry*, not the Note.** `pageId` is the obvious uid and it is wrong, because
+  `ActiveQueue` permits duplicates deliberately — "Two identical Notes in one queue is a legitimate thing for
+  a user to have asked for" — so two entries can share a page id while being distinct entries, and Media3
+  uses the uid to identify an item across state updates. `"$index:$pageId"` it is, with `pageId` as the
+  `mediaId` because a stable Note identity is what that field is for. §23.19 records this because it is the
+  kind of thing that looks like over-engineering until a queue repeats a Note.
+
+#### Verified, and not
+
+- **389 JVM tests, 0 failures** (was 379). Ten additions: nine in `LockScreenProjectionTest`, one in
+  `PlayerMediaCommandsTest`.
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` both succeed.
+- **On a device:** the app installs and launches with the new `PlaybackService` and player and logs no crash;
+  and the merged manifest is confirmed to carry `android:foregroundServiceType="mediaPlayback"`,
+  `android:exported="true"`, the `androidx.media3.session.MediaSessionService` intent filter and both
+  `FOREGROUND_SERVICE*` permissions. That last check reads AGP's merged manifest rather than the device,
+  because the device dropped off repeatedly during this round and a manifest merge is not a device fact.
+- **Not verified, and this is the honest statement of where the feature stands: nothing starts the service.**
+  `PlaybackService` is declared and correct, `ReaderSessionPlayer` exists and compiles, and **no code path
+  starts the service on a playback command** — which is Phase 2's remaining half, and until it is done there is
+  no media session on the device at all. `dumpsys media_session` was checked and reports no session for this
+  package, which is the expected and correct result for the code as it currently stands rather than a defect.
+  It is recorded this way so that no later reader mistakes the green suite for a working feature.
+
+#### Two more mistakes of my own, both recorded
+
+`LockScreenProjectionTest`'s duplicate-uid test **could not have failed for the right reason**: the fixture
+derived page ids from the index, so two entries titled "Alpha" got `page-0` and `page-1` and the premise
+("they are the same Note") was never true. The fixture now takes explicit page ids through a dedicated
+`repeatingQueue`, and the comment says why. That is the third appearance this session of "an assertion about
+a case that was never produced", which is now the project's most-repeated lesson by a distance.
+
+**I also used the truncation trap again** — `adb shell dumpsys media_session | Select-Object -First 6` — which
+hung the terminal for five minutes on a large dump. `AGENTS.md` warns about exactly this, I had read it, and I
+did it anyway. Noted because the lesson clearly needs to be a habit rather than a documented fact.
+
+#### Still owed in this phase
+
+1. **Starting the service on a playback command**, which is what makes any of this observable.
+2. **Audio attributes** (`USAGE_MEDIA`, `CONTENT_TYPE_SPEECH`) and the focus-outcome table — Phase 3, where
+   the silent failures live, verified with `adb shell cmd audio set-enable-hardening throw`.
+3. **The notification**, the session activity and the media keys — Phase 4.
+4. **Removing `keepScreenOn`** and inverting its instrumented assertion — Phase 5.
+
+The device was unreliable throughout this round — it dropped off mid-install three times, and a second
+unauthorised device appeared in the list at one point. `tools/run-accessibility-tests.ps1` now refuses to run
+with more than one device for exactly that reason, and that guard was written before this round rather than
+because of it.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

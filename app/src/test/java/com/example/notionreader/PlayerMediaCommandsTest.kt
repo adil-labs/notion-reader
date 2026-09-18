@@ -11,6 +11,7 @@ import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.player.ReaderState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -225,11 +226,36 @@ class PlayerMediaCommandsTest {
             Player.COMMAND_PLAY_PAUSE to PlayerCommand.TogglePlayback,
             Player.COMMAND_SEEK_TO_DEFAULT_POSITION to PlayerCommand.RestartNote,
             Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM to PlayerCommand.NextNote,
-            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM to PlayerCommand.PreviousNote
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM to PlayerCommand.PreviousNote,
+            Player.COMMAND_SEEK_TO_MEDIA_ITEM to PlayerCommand.JumpToNote
         )
 
         for ((mediaCommand, expected) in understood) {
             assertEquals("for platform command $mediaCommand", expected, commandForMediaCommand(mediaCommand))
+        }
+    }
+
+    /**
+     * **Advertised implies accepted** — the property that closes the gap between the two halves of the
+     * mapping.
+     *
+     * Everything above tests each direction; this tests that they *agree*, and it exists because they did not.
+     * The media-session handler dispatches on `commandForMediaCommand(seekCommand)` and matches on the Player
+     * command, so a Player command that `mediaCommandFor` advertises but `commandForMediaCommand` does not
+     * recognise produces a **silently dead branch**: the lock screen offers the control, the listener presses
+     * it, and nothing happens. That is what `JumpToNote` was until this test was written — it was advertised
+     * and not accepted, and it compiled, and no existing test could see it.
+     */
+    @Test
+    fun everyAdvertisedCommandIsAlsoAccepted() {
+        for (command in PlayerCommand.transports) {
+            val media = mediaCommandFor(command) ?: continue
+
+            assertNotNull(
+                "$command is advertised as platform command $media but the reverse mapping does not " +
+                    "recognise it, so a transport invoking it would be silently ignored",
+                commandForMediaCommand(media)
+            )
         }
     }
 

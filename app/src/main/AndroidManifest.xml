@@ -3,6 +3,19 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+        Background playback. Both permissions are required from API 34 for a service of type
+        `mediaPlayback`, and the type is required because Android 17's background-audio hardening applies to
+        every app that interacts with audio while it has no visible activity - whether or not it targets API
+        37. `targetSdk` here is 36, so the rule is live already.
+
+        The hardening's failure mode is the reason this is worth a comment: playback is suppressed with no
+        exception and no failure message from any API, so an app that is wrong about it looks like one whose
+        audio works intermittently rather than like one that is misconfigured.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <application
         android:name=".ReaderApplication"
         android:allowBackup="true"
@@ -21,6 +34,27 @@
             </intent-filter>
 
         </activity>
+
+        <!--
+            The media session host. `exported="true"` is required rather than incidental: the system's media
+            controls and the lock screen are external clients and must be able to bind to it. The action
+            filter is what makes it discoverable by them.
+
+            `foregroundServiceType="mediaPlayback"` is what exempts the app from the background-audio
+            restriction, and it is the type the hardening documentation names. Starting this service while the
+            app is visible is what grants it while-in-use capability, which is why the service is started from
+            a user-initiated playback command rather than lazily once the screen has gone off.
+        -->
+        <service
+            android:name=".PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+
+        </service>
 
     </application>
 
