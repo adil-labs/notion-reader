@@ -4442,6 +4442,80 @@ because it assumed a screen instead of reading one, after hard-coded coordinates
 - The service-not-running measurement was taken **while the app was reading aloud in the foreground**, from
   `dumpsys activity services`, before anything was allowed to exit.
 
+### 23.22 The notification permission is declared, and the service still does not start
+
+**Date:** 2026-09-18. §23.21 predicted that the missing notification permission explained the missing
+foreground claim. The permission has been added; **the service still does not start**, so that prediction was
+necessary-but-not-sufficient and §23.21's "Phase 2 cannot work until the notification exists" now needs one
+more layer.
+
+#### What was done
+
+- **`POST_NOTIFICATIONS` declared** in the manifest, with the reasoning recorded there: a `MediaSessionService`
+  becomes foreground *by posting a media notification*, so an app that cannot post one cannot hold a claim.
+- **Requested at the first playback action**, not at launch — `MainActivity` observes `isPlaying` becoming true
+  and asks once, with a **no-op result**. The discarded result is a requirement, not laziness: the Background
+  Playback spec says a denial "must not stop playback, must not fail a command, and must not be reported as a
+  playback error", so there is no branch to take. `Build.VERSION_CODES.TIRAMISU` is where the permission starts
+  being required and `minSdk` is 26, so the version guard is load-bearing.
+
+#### The measurement, after the fix
+
+Permission confirmed present and granted on the device:
+
+```plain text
+android.permission.POST_NOTIFICATIONS: granted=true
+PlaybackService present: False
+isForeground=true:      False
+```
+
+No exception in our process's own log (`logcat --pid`), and no Media3 message. So **`PlaybackService.start()`
+is either not being called or is being called and producing nothing**, and the notification permission was not
+the blocker. §23.21 listed exactly this as unestablished — "whether the service start is even attempted" — and
+it remains the open question, now with the permission ruled out as the cause.
+
+#### A second, unexplained observation that must not be guessed at
+
+While measuring the above, and reproducible: **after `am force-stop` followed by a fresh start, the app shows
+the Player, reports `Playing`, and TTS utterances continue** — with the process confirmed new (`pidof` empty
+after the stop, a different pid after the start).
+
+```plain text
+pid after start: 32326
+screen: Notion Reader — Active Queue & Reader Session Spec | Note 1 of 19 | Section 8 of 64 |
+        Paragraph 44 of 263 | Playing | Previous section | Pause | Next section
+TTS utterances: 23:42:26, 23:42:29, 23:42:30, 23:42:32 (checked at 23:42:46)
+```
+
+If that is what it looks like, it contradicts the Active Queue & Reader Session spec twice — "the most recent
+unfinished session is not played, not opened, and not resumed automatically" and "nothing in the application
+may start speaking without a listener action" — and the UI contract's "opening content does not imply
+playback".
+
+**It is recorded as an observation and not as a defect, deliberately.** A search of `src/main` finds
+`continueSession` and `replayCompleted` reachable only from the ViewModel's public methods, which are reached
+only from the shell's tap handlers, so *nothing in the code I can see starts playback at launch*. Something
+else is going on — a restored task, a resumed activity, a persisted state being acted on, or my own
+interpretation of the screen being wrong — and **none of those is worth guessing at**, because the cost of
+guessing wrong here is high: it is either a serious spec violation or a misreading, and the two need opposite
+responses. The next step is to determine which, with the process and the audio state observed together rather
+than inferred from a screen dump.
+
+#### Still not verified, and now with one more thing ruled out
+
+- The service start is not happening, and the notification permission is not why.
+- **Audio suppression was still not observed** — the `AudioHardening` entries on this device all name TalkBack.
+- The probe needs Browse's results to have loaded before `Play all` exists; its tap sequence is therefore
+  order-fragile against a slow network, which is worth fixing before it is relied on again.
+
+#### Verified
+
+- **389 JVM tests, 0 failures**; the APK and the instrumented source set compile.
+- The device is the **Pixel 8 Pro, API 37** — printed by the probe and confirmed directly, since the API level
+  is what makes the hardening question meaningful at all.
+- The permission is declared in the manifest and `granted=true` on the device, which is the part of this round
+  that is unambiguous.
+
 ### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
 
 **Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:

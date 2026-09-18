@@ -16,6 +16,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!--
+        Required from API 33, and it is load-bearing rather than cosmetic: a `MediaSessionService` becomes a
+        foreground service **by posting a media notification** — that notification *is* the foreground
+        notification. So without this permission the app cannot hold a foreground claim at all, and on
+        Android 17 the platform then silently refuses its background audio while logging only
+        `AudioHardening background playback muted ... level: partial`.
+
+        Measured rather than reasoned: before this declaration the service did not exist at all. See
+        docs/decisions.md 23.21, and tools/probe-background-audio.ps1 which reports this permission's state
+        alongside the service's.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".ReaderApplication"
         android:allowBackup="true"
