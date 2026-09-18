@@ -4007,6 +4007,76 @@ classified focus failures plus one unclassified — so it refused to retry. A re
 the unclassified failure to be treated as a harness signature, which is the thing the classifier exists to
 prevent. The one-entry addition above is the deliberate classification that follows.
 
+### 23.17 The touch-exploration explanation is wrong, tested rather than assumed
+
+**Date:** 2026-09-18. §23.12 blamed the seven focus failures on the device's accessibility configuration:
+"TalkBack is running **with touch exploration on**, and its braille keyboard is the active input method.
+Under touch exploration, accessibility focus belongs to TalkBack, and an input-focus request against a node
+that is not focusable in the Android sense is declined."
+
+That was a plausible reading of a measured fact and it was **never tested**. It has now been tested, and it
+is wrong.
+
+**The experiment.** `tools/run-accessibility-tests.ps1 -DisableTouchExploration` sets
+`touch_exploration_enabled=0` for the duration and restores it in the `finally`, exactly as it already does
+for `screen_off_timeout`. The wrapper now prints the device's accessibility configuration on every run, so a
+focus failure is attributable without re-deriving it.
+
+**The result: the same three tests fail, unchanged.**
+
+```plain text
+Device touch_exploration_enabled=1; enabled_accessibility_services=...TalkBackService
+Disabled touch exploration for this run: the focus-restore assertions are being made against a device
+that is not intercepting programmatic focus.
+com.example.notionreader.ui.FocusRestoreTest: tests=4 failures=3
+  FAILED: theSemanticsFocusActionIsGrantedInstead
+  FAILED: aPlainRequesterGrantedFromOutsideTheCompositionWorks
+  FAILED: aRequestFromALaunchedEffectWorks
+```
+
+**What survives, and what does not:**
+
+| Claim | Status |
+|---|---|
+| The window is focused; the refusal is not about window focus | **confirmed** — `requestFocus()` returned `false` while `hasWindowFocus()` returned `true` |
+| A `focusable()` node is granted where a `clickable` one is refused | **confirmed** — `anExplicitFocusableProducesAWorkingTarget` passes in the same run |
+| **Touch exploration is the cause** | **refuted** — identical failures with it off |
+| TalkBack being enabled is the cause | **not established** — TalkBack was still enabled; only touch exploration was changed |
+
+So the honest position is narrower and better than either previous statement: **`FocusRequester` is refused
+on a `clickable` node on this device, and granted on a `focusable()` one, and that is independent of touch
+exploration.** What is left as the difference between the two mechanisms is a Compose-versus-API-37
+interaction, not a device accessibility setting — and the app's rows are `clickable`, which is why the seven
+assertions fail.
+
+**This does not reopen D34/D35.** The decision was to keep the app inclusive, not to redesign the mechanism
+around TalkBack, and it did not depend on the cause being touch exploration. What changes is that the
+*record* no longer states a cause that a test disproves — a wrong explanation in a decision record is worse
+than none, because the next round would have started from it.
+
+**Two fixes to the runner, both from failures this round produced in itself.**
+
+The first is a guard against **concurrent runs**. A run was piped into `Select-Object -First N` — the
+truncation trap `AGENTS.md` warns about — which closed the pipeline and killed the run part-way; a second run
+was then started while the first was still tearing down. Both write to the same
+`app/build/outputs/androidTest-results/connected/debug/` directory, and the second died with
+
+```plain text
+java.nio.file.FileSystemException: ...\logcat-...FocusRestoreTest-....txt:
+The process cannot access the file because it is being used by another process
+```
+
+which names a **file** rather than a cause and reads as a Gradle or disk fault. The wrapper now takes a lock
+file holding its own pid and refuses to start while another run holds it — and identifies a **stale** lock
+(whose process is gone) and takes it over, because a killed run must not block every later run forever. That
+is the same shape as every other fix in this section: a symptom that named the wrong thing.
+
+The second is a **verified** restore. The killed run never reached its `finally`, so the device kept the
+raised `screen_off_timeout`, and the next run then captured that raised value as its "original" — reporting a
+successful restore to a value that was itself the damage. The `finally` now re-reads each setting and
+**warns with the manual command** if the device does not match what was intended. A restore that is only
+announced is not a restore.
+
 ---
 
 ## Still open

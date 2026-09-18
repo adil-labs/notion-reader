@@ -18,14 +18,31 @@
     So this script:
       1. wakes the device and dismisses the keyguard;
       2. raises `screen_off_timeout` for the duration of the run;
-      3. runs the tests;
-      4. restores the original timeout, even if the tests fail.
+      3. records the device's accessibility configuration, which one class of assertion depends on;
+      4. runs the tests;
+      5. restores the original timeout and accessibility setting, even if the tests fail.
 
     The restoration is in a `finally`, because leaving a device's screen timeout changed after a
     failed test run is exactly the kind of side effect that is discovered weeks later.
 
-    Only that one setting is touched, and only for the duration. Nothing is installed or uninstalled
+    Only those settings are touched, and only for the duration. Nothing is installed or uninstalled
     beyond what Gradle does normally.
+    THE ACCESSIBILITY CONFIGURATION, AND WHY IT IS REPORTED
+    Seven focus-restore assertions fail on this device for a reason that is the device's rather than the
+    app's, and the measurement is in `docs/decisions.md` 23.12: with TalkBack running *and touch
+    exploration enabled*, `FocusRequester.requestFocus()` is refused on a `clickable` node - the kind the
+    app's rows are - while it is granted on an explicitly `focusable()` one. The failure messages say so:
+    `requestFocus() returned false and hasWindowFocus() returned true`, so the window is focused and the
+    refusal is about the node's kind of focus.
+
+    So the configuration is read and printed on every run, because a focus failure is otherwise
+    unattributable - the same seven tests fail with touch exploration on and pass with it off, and the
+    assertion says nothing about which configuration produced it.
+
+    `-DisableTouchExploration` turns it off for the duration and restores it afterwards, which is how the
+    focus mechanism gets verified on a device that is not configured the unusual way. It is off by default
+    and has to be asked for, because it changes a global accessibility setting: a reader using the device
+    while a run is in progress would find touch exploration gone.
     HARNESS FAILURE CLASSIFICATION, AND ONE RETRY
     A residual, non-deterministic failure remains that is the *harness losing the test activity* rather
     than the app being wrong. Its signature is exact and comes from the device:
@@ -61,9 +78,21 @@
 .EXAMPLE
     pwsh -File tools/run-accessibility-tests.ps1
     pwsh -File tools/run-accessibility-tests.ps1 -Class com.example.notionreader.ui.PlayerScreenAccessibilityTest
+    pwsh -File tools/run-accessibility-tests.ps1 -DisableTouchExploration
 #>
 param(
-    [string]$Class = ''
+    [string]$Class = '',
+
+    <#
+        Turns off `touch_exploration_enabled` for the run and restores it afterwards.
+
+        Opt-in rather than default, because it changes a global accessibility setting: a reader using the
+        device while a run is in progress would find touch exploration gone. It exists so the seven
+        focus-restore assertions can be made against a device that is not intercepting programmatic focus,
+        which distinguishes "the mechanism does not work" from "the mechanism cannot be asserted in this
+        configuration" - the two readings the failures could not previously be told apart.
+    #>
+    [switch]$DisableTouchExploration
 )
 
 $ErrorActionPreference = 'Stop'
@@ -299,13 +328,106 @@ function Test-IsRetryable($result) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+
+<#
+    One run at a time, enforced rather than assumed.
+
+    This exists because it already went wrong: a run was killed part-way (a pipeline was closed early under
+    it), and a second run launched while the first was still tearing down. Both wrote to the same
+    `app/build/outputs/androidTest-results/connected/debug/` directory, and the second died with
+
+        java.nio.file.FileSystemException: ... Pixel 8 Pro - 17\logcat-...FocusRestoreTest-....txt:
+        The process cannot access the file because it is being used by another process
+
+    which names a *file* and not a cause, so it reads as a Gradle or disk problem. It also produced
+    `RESULT: INCONCLUSIVE` and left the device's screen timeout raised, because the killed run never reached
+    its `finally` — the same class of misattribution this project keeps meeting, where the symptom names
+    something other than the fault.
+
+    The lock is a file holding the owning process id, so a run that was killed leaves a lock that can be
+    identified as stale (its process is gone) and taken over, rather than blocking every later run forever.
+#>
+$lockPath = Join-Path $repoRoot 'app\build\.a11y-runner.lock'
+if (Test-Path $lockPath) {
+    $lockContents = (Get-Content $lockPath -Raw).Trim()
+    $lockPid = ($lockContents -split '\s+')[0]
+    $ownerAlive = $false
+    if ($lockPid -match '^\d+$') {
+        $ownerAlive = $null -ne (Get-Process -Id ([int]$lockPid) -ErrorAction SilentlyContinue)
+    }
+
+    if ($ownerAlive) {
+        throw ("Another instrumented run is in progress (pid $lockPid, started $lockContents). Two runs " +
+            'share the test-results directory and the second fails with a file-lock error that names a file ' +
+            'rather than the cause. Wait for it, or stop it, then re-run.')
+    }
+
+    Write-Warning ("Found a stale lock from pid $lockPid ($lockContents) - that run was killed before its " +
+        'finally, so it may also have left the device''s screen timeout raised. Taking the lock over.')
+}
+
+Set-Content -Path $lockPath -Value "$PID $(Get-Date -Format o)"
+
 $adb = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Google.PlatformTools_*\platform-tools\adb.exe" |
     Select-Object -First 1).FullName
 
 if (-not $adb) { throw 'adb not found.' }
 
-# 30 minutes: comfortably longer than a run, and short enough that a forgotten restore is not a
-# permanent change to how the device behaves.
+<#
+    The device must be *there* before anything else is attempted, and this is checked rather than assumed.
+
+    It is not politeness. Every step below reads a setting from the device and calls `.Trim()` on the
+    result, so with no device attached the script died at the first of them with
+
+        You cannot call a method on a null-valued expression
+
+    at the `screen_off_timeout` line - which names PowerShell, not the device, and is exactly the class of
+    misattribution this project has had to fix three times already: the keyguard producing 45 uniform "No
+    compose hierarchies found in the app" failures that looked like a total regression, `assertIsDisplayed`
+    reporting window state as an app defect, and `android layout` not saying which app it had dumped.
+
+    Three states, three messages, because they need three different actions from a person:
+
+      * nothing listed      -> the cable or the wireless session is gone
+      * `unauthorized`      -> the device is showing a debugging prompt that must be accepted; ALSO the
+                               symptom of two adb binaries running separate servers, where the device is
+                               authorised with one and not the other
+      * `offline` / other   -> the connection is half-up, usually fixed by reconnecting
+
+    Note the middle case, because it is the one that misleads: `unauthorized` looks like a code or key
+    problem and is usually an unanswered dialog on the screen.
+#>
+$deviceList = (& $adb devices) -split "`r?`n" | Where-Object { $_ -and $_ -notmatch '^List of devices' }
+$connected = @($deviceList | Where-Object { $_ -match '\sdevice$' })
+$unauthorized = @($deviceList | Where-Object { $_ -match '\sunauthorized$' })
+$offline = @($deviceList | Where-Object { $_ -match '\s(offline|no permissions)$' })
+
+if ($connected.Count -eq 0) {
+    Write-Output 'Device list:'
+    if ($deviceList) { $deviceList | ForEach-Object { Write-Output "  $_" } } else { Write-Output '  (none)' }
+
+    if ($unauthorized.Count -gt 0) {
+        throw ('The device is connected but UNAUTHORIZED, so nothing can be installed or queried. Look at ' +
+            'the device screen and accept the "Allow USB debugging" prompt; if there is no prompt, run ' +
+            '`adb kill-server` and replug/re-pair. This is also what two adb binaries running separate ' +
+            'servers looks like, where the device is authorised with one of them.')
+    }
+
+    if ($offline.Count -gt 0) {
+        throw ('The device is listed but not usable (offline or no permissions). Reconnect it, or run ' +
+            '`adb reconnect`.')
+    }
+
+    throw ('No device is attached, so there is nothing to run the instrumented suite against. The suite ' +
+        'needs a real device or an emulator: it asserts on the semantics tree, which no JVM test can see.')
+}
+
+if ($connected.Count -gt 1) {
+    throw ("$($connected.Count) devices are attached. This script does not choose one, because picking the " +
+        'wrong device reports a wrong answer with full confidence - pass a single device or disconnect the ' +
+        'others.')
+}
+
 $TEST_TIMEOUT_MS = 1800000
 
 $originalTimeout = (& $adb shell settings get system screen_off_timeout).Trim()
@@ -319,6 +441,32 @@ if ([string]::IsNullOrWhiteSpace($originalStayOn)) { $originalStayOn = '0' }
 
 Write-Output "Device screen_off_timeout was $originalTimeout ms; raising to $TEST_TIMEOUT_MS ms for this run."
 Write-Output "Device stay_on_while_plugged_in was $originalStayOn; setting to 7 (always on) for this run."
+
+<#
+    The device's accessibility configuration, which the seven focus-restore assertions depend on.
+
+    Read for every run and reported, because a focus failure is otherwise unattributable: the same seven
+    tests fail with touch exploration on and pass with it off, and nothing in the failure message says
+    which configuration produced it. `docs/decisions.md` §23.12 measured the cause; this makes it visible.
+
+    `-DisableTouchExploration` turns it off for the duration and restores it in the `finally` below,
+    exactly as `screen_off_timeout` is handled. It exists so that the focus mechanism can be verified on a
+    device that is not configured the unusual way, rather than being permanently unassertable - and so that
+    a green run means "the app puts focus back" rather than "the app puts focus back when nothing is
+    intercepting it".
+
+    It is off by default and has to be asked for, because it changes a global accessibility setting: a
+    reader using the device while a run is in progress would find touch exploration gone.
+#>
+$originalTouchExploration = (& $adb shell settings get secure touch_exploration_enabled).Trim()
+$accessibilityServices = (& $adb shell settings get secure enabled_accessibility_services).Trim()
+
+Write-Output "Device touch_exploration_enabled=$originalTouchExploration; enabled_accessibility_services=$accessibilityServices"
+if ($originalTouchExploration -eq '1' -and -not $DisableTouchExploration) {
+    Write-Output ('  NOTE: touch exploration is ON, so the focus-restore assertions in FocusRestoreTest and ' +
+        'ReaderShellAccessibilityTest are expected to fail (docs/decisions.md 23.12). Re-run with ' +
+        '-DisableTouchExploration to find out whether the mechanism works without it.')
+}
 
 <#
     The device must be unlocked before anything runs, and this is checked rather than assumed.
@@ -377,6 +525,11 @@ if (-not $isCharging) {
 try {
     & $adb shell settings put system screen_off_timeout $TEST_TIMEOUT_MS | Out-Null
     & $adb shell settings put global stay_on_while_plugged_in 7 | Out-Null
+    if ($DisableTouchExploration -and $originalTouchExploration -eq '1') {
+        & $adb shell settings put secure touch_exploration_enabled 0 | Out-Null
+        Write-Output ('Disabled touch exploration for this run: the focus-restore assertions are being ' +
+            'made against a device that is not intercepting programmatic focus.')
+    }
 
     $MAX_ATTEMPTS = 2
     $attempts = @()
@@ -451,7 +604,27 @@ finally {
     Write-Output ''
     & $adb shell settings put system screen_off_timeout $originalTimeout | Out-Null
     & $adb shell settings put global stay_on_while_plugged_in $originalStayOn | Out-Null
+    if ($DisableTouchExploration) {
+        & $adb shell settings put secure touch_exploration_enabled $originalTouchExploration | Out-Null
+    }
     $restored = (& $adb shell settings get system screen_off_timeout).Trim()
     $restoredStayOn = (& $adb shell settings get global stay_on_while_plugged_in).Trim()
+    $restoredTouch = (& $adb shell settings get secure touch_exploration_enabled).Trim()
     Write-Output "Restored screen_off_timeout to $restored ms and stay_on_while_plugged_in to $restoredStayOn."
+    Write-Output "touch_exploration_enabled is $restoredTouch (was $originalTouchExploration)."
+
+    # Verified rather than announced. A `settings put` that did not take - because the value was captured
+    # wrong after a killed run, or because the device refused it - would otherwise be reported as a
+    # successful restore, which is how a device silently keeps a 30-minute screen timeout set by a test.
+    if ($restored -ne $originalTimeout) {
+        Write-Warning ("screen_off_timeout did NOT restore: wanted $originalTimeout, device reports " +
+            "$restored. Restore it by hand: adb shell settings put system screen_off_timeout $originalTimeout")
+    }
+    if ($restoredStayOn -ne $originalStayOn) {
+        Write-Warning ("stay_on_while_plugged_in did NOT restore: wanted $originalStayOn, device reports " +
+            "$restoredStayOn. Restore it by hand: adb shell settings put global " +
+            "stay_on_while_plugged_in $originalStayOn")
+    }
+
+    if (Test-Path $lockPath) { Remove-Item $lockPath -Force -ErrorAction SilentlyContinue }
 }
