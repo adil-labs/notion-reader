@@ -1,0 +1,208 @@
+package com.example.notionreader
+
+import com.example.notionreader.application.ReaderApp
+import com.example.notionreader.domain.PositionMatch
+import com.example.notionreader.application.pendingRequest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+
+/**
+ * The process-scoped host of the listening session: what is being read, and the scope that keeps feeding it.
+ *
+ * ## Why this exists, and why it is not the service
+ *
+ * A listening session must outlive the *task*, not merely the screen. The Background Playback specification's
+ * Phase 1 says so, and the reason is that a `MediaSessionService` has its own lifecycle which the system may
+ * extend past the task's — so nothing the service controls may be owned by something the task destroys.
+ *
+ * It is deliberately **not** "the session moves into the service". The service stops when playback pauses,
+ * and the UI must still be able to see and drive the session while it is stopped; a session living in the
+ * service would be unreachable exactly when a listener returns to the app. So this is a holder that belongs
+ * to neither the service nor the task, and both reach it.
+ *
+ * ## The finding that shaped it: the session is not the only thing that must outlive the task
+ *
+ * The session used to be owned by `ReaderViewModel`, and so was **the loop that fetches each Note in turn**.
+ * Moving only the session would therefore not have been enough, and the failure would have been quiet and
+ * confusing: with the task dismissed, the session survives, playback continues to the *end of the current
+ * Note*, and then stops dead — because the collector that loads the next Note died with the ViewModel, and
+ * a session that is `awaiting` a document nobody fetches never advances. On a single-Note queue it would
+ * look like it worked, which is the state anyone would have tested first.
+ *
+ * So this type owns two things, and the second is the one that is easy to miss:
+ *
+ * | Owned here | Owned by the task |
+ * |---|---|
+ * | the [ReaderApp] — session, queue, position, history | which screen is showing |
+ * | the scope that feeds it and records it | the I/O a screen's own action starts |
+ *
+ * ## What is deliberately not here
+ *
+ * No Android type and no dispatcher, so the whole thing is JVM-testable: the constructor takes a
+ * [CoroutineScope] and a logger rather than creating either. `ReaderApplication` is what wires the real
+ * ones, and `docs/decisions.md` §23.16 records how the test that proves the property is written.
+ */
+class ReaderHost(
+    /** The application state every surface reads. */
+    val app: ReaderApp,
+    /**
+     * The scope the queue's feeding and the session's recording run on.
+     *
+     * Called "application" rather than "playback" because it must outlive the task, and that is the
+     * lifetime this is. It is passed in rather than created here so that a test can own it and observe what
+     * happens when a *different* scope is cancelled.
+     */
+    private val scope: CoroutineScope,
+    /**
+     * Where the resume match quality is recorded.
+     *
+     * Injected so that this class stays Android-free and the recording becomes assertable. It used to be a
+     * direct `Log.i` call inside the ViewModel, which meant the one fact the Active Queue & Reader Session
+     * spec requires to be recorded was untestable.
+     */
+    private val log: (String) -> Unit = {}
+) {
+
+    private val _speechMessage = MutableStateFlow<String?>(null)
+
+    /**
+     * Set when the device cannot speak at all, which no amount of retrying will fix.
+     *
+     * Here rather than on the ViewModel because the speech engine's lifetime is now this object's: a
+     * device-level speech failure outlives any screen that would report it.
+     */
+    val speechMessage: StateFlow<String?> = _speechMessage.asStateFlow()
+
+    /** Reports a device-level speech failure. Called by the engine that was built with this host. */
+    fun reportSpeechUnavailable(message: String) {
+        _speechMessage.value = message
+    }
+
+    /**
+     * Starts feeding and recording the session. Idempotent by construction — the [scope] is started once per
+     * process — and separate from the constructor so that a test can build the graph and then decide when it
+     * begins, rather than having a collector start during construction.
+     */
+    fun start() {
+        advanceTheQueue()
+        feedTheQueue()
+        recordHistory()
+        recordResumeQuality()
+    }
+
+    /**
+     * Ends the session and the scope.
+     *
+     * Called only when the process is going away, which is why nothing routine calls it: the point of this
+     * type is that a dismissed task must not. `ReaderViewModel.onCleared` deliberately does **not** reach
+     * here, and that is the whole correction.
+     */
+    fun shutdown() {
+        scope.cancel()
+        app.shutdown()
+    }
+
+    /**
+     * Advances the session to the next Note when the engine finishes the current one.
+     *
+     * This is the other half of feeding the queue, and it is the half that would have made the R10 finding
+     * look like an integration bug rather than an ownership one. Without it the session never *asks* for the
+     * next Note, so the fetcher below has nothing to fetch: playback would reach the end of the current Note
+     * and stop, with the queue still showing the Note it had just finished.
+     *
+     * `distinctUntilChanged` matters: the engine keeps reporting `hasReachedEnd` until a new document is set,
+     * and without it the queue would advance once per emission rather than once per Note.
+     */
+    private fun advanceTheQueue() {
+        scope.launch {
+            app.session.state
+                .map { it.hasReachedEnd }
+                .distinctUntilChanged()
+                .collect { finished -> if (finished) app.onNoteFinished() }
+        }
+    }
+
+    /**
+     * Fetches whatever Note the queue is waiting for, whenever that changes.
+     *
+     * **The trigger is the request, not "is something awaited".** Those look equivalent and are not:
+     * `awaiting` stays true across a *superseding* transition, so mapping to the boolean and applying
+     * `distinctUntilChanged` meant that replacing an in-flight request produced no emission at all —
+     * nothing fetched the new Note, while the arrival of the superseded one was correctly refused by
+     * the session's identity check. The session then waited for a request no one had made: the Player showed
+     * "Loading…" with every control disabled, permanently, and the only way out was to leave and start again.
+     *
+     * It is reachable with two presses: `Next note` twice on a page that takes a few seconds to load, which
+     * on this integration is every page with more than a hundred blocks.
+     */
+    private fun feedTheQueue() {
+        scope.launch {
+            app.session.queueState
+                .map { it.pendingRequest }
+                .distinctUntilChanged()
+                .collect { request -> if (request != null) app.loadPendingQueueNote() }
+        }
+    }
+
+    /**
+     * Records the live session into history.
+     *
+     * ## The load must finish before this subscribes, and that is a correctness requirement
+     *
+     * [ReaderApp.persistSession] writes the retained set, which is history **plus** the live session. If a
+     * write could happen first, it would persist an empty history plus the live session and silently discard
+     * every session already on disk — the listener's entire Continue listening list, erased by the launch of
+     * the app. So history is loaded in the same coroutine, before the collector starts.
+     *
+     * Collecting the position rather than a timer is what makes a session interrupted *while playing*
+     * resumable. Writing only on pause would mean the common case — the phone being taken out of the
+     * listener's hand mid-Note — loses everything since the last pause.
+     */
+    private fun recordHistory() {
+        scope.launch {
+            app.loadHistory()
+
+            combine(
+                app.session.state.map { listOf(it.currentParagraphIndex, it.isPlaying, it.hasReachedEnd) },
+                app.session.queueState.map { listOf(it.index, it.awaiting, it.completed) }
+            ) { reading, queue -> reading + queue }
+                .distinctUntilChanged()
+                .collect { app.persistSession() }
+        }
+    }
+
+    /**
+     * Records the match quality of a restore.
+     *
+     * The Active Queue & Reader Session spec requires this to be recorded, and it is the only way to tell an
+     * exact resume from a fallback: both start playback at a plausible place, and the difference is invisible
+     * in the audio until the listener notices they have heard a part before. An exact resume records nothing,
+     * because there is nothing to say and a line per resume would train the reader to ignore the ones that
+     * matter.
+     */
+    private fun recordResumeQuality() {
+        scope.launch {
+            // No `distinctUntilChanged`: the source is already a StateFlow, which conflates, so applying it
+            // to the flow directly is a deprecated no-op. The filter below is what decides what is worth
+            // recording.
+            app.session.lastResume.collect { decision ->
+                val match = decision?.match ?: return@collect
+                val announcement = decision.announcement
+
+                if (match == PositionMatch.CHUNK && announcement == null) return@collect
+
+                log(
+                    "resume match=$match startIndex=${decision.startIndex} " +
+                        "announcement=${announcement ?: "none"}"
+                )
+            }
+        }
+    }
+}

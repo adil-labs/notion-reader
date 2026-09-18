@@ -117,6 +117,21 @@ $HARNESS_FAILURE_PATTERNS = @(
     # zero on the second attempt too, and the runner reports the retry's outcome rather than the first's.
     'occupies no area',
 
+    # The same measurement race as the entry above, seen from the other side: the *root* is measured small
+    # instead of the node being measured empty, so a control that is perfectly placed reports as lying
+    # outside a surface that is a few hundred pixels across.
+    #
+    # Observed as `'Queue' lies outside the app surface at Rect.fromLTRB(363.0, 2082.0, 645.0, 2172.0)
+    # (surface is Rect.fromLTRB(54.0, 18.0, 282.0, 90.0))` - a 228x72 "surface" on a 1008x2244 device, which
+    # is a window that has not been laid out yet rather than anything about the Player. It failed once and
+    # passed on the immediate re-run of the same class, with no code change between the two.
+    #
+    # This is the *second* of `assertIsReachable`'s four checks to be demonstrated non-deterministic, and it
+    # is worth recording which two they are: "occupies area" and "overlaps the surface" are both facts about
+    # measurement, while "placed", "has OnClick" and "has a name" are facts about the app. The last three are
+    # the ones no app change can turn into a false failure, which is the property the helper was chosen for.
+    'lies outside the app surface',
+
     # The locked-device signature. Included as a second line of defence behind the preflight check
     # below: if the keyguard returns mid-run, every Compose test fails with this and nothing about the
     # app is implicated, so a single retry is the right response rather than a red suite.

@@ -1,31 +1,14 @@
 package com.example.notionreader
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.notionreader.application.DefaultLoadReaderDocument
-import com.example.notionreader.application.LoadReaderDocument
-import com.example.notionreader.application.NoteViewer
 import com.example.notionreader.application.ReaderApp
-import com.example.notionreader.application.ReaderNavigator
-import com.example.notionreader.application.ReaderSession
-import com.example.notionreader.application.pendingRequest
-import com.example.notionreader.data.local.DataStoreSessionStore
 import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
-import com.example.notionreader.domain.PositionMatch
-import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderIndexEntry
-import com.example.notionreader.platform.AndroidSpeechEngine
-import com.example.notionreader.player.ReaderEngineImpl
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -49,64 +32,44 @@ import kotlinx.coroutines.launch
  * contract's "playback may outlive the Player screen" is not satisfied by a session that dies whenever
  * the configuration does.
  *
- * A `ViewModel` is the platform's answer to exactly this question — "state whose lifetime is longer than a
- * screen's but shorter than the process's" — and it gives the session the right two boundaries:
+ * A `ViewModel` is the platform's answer to "state whose lifetime is longer than a screen's", and that was
+ * enough while the only thing to survive was a configuration change. It is **not** the answer for a session
+ * that must survive the *task*: `onCleared` runs when the Activity is finished, so a session owned here dies
+ * when the listener swipes the app away — which is exactly what background playback exists to prevent.
  *
- * | Event | Session |
- * |---|---|
- * | configuration change / screen recreation | survives, untouched |
- * | Android Back out of the app, or the task finishing | `onCleared`, then [ReaderApp.shutdown] |
- * | process death | gone; history on disk is what restores a place, never playback |
+ * So the ownership was split along the line the two lifetimes actually have:
  *
- * ## Why the orchestrators moved here too
+ * | Event | Session and its feeding | This class |
+ * |---|---|---|
+ * | configuration change / screen recreation | survives, untouched | survives, untouched |
+ * | Android Back out of the app, or the task dismissed | **survives** | cleared; its own I/O cancelled |
+ * | process death | gone; history on disk restores a place, never playback | gone |
  *
- * The three collectors and the two loaders used to live in the Activity on `lifecycleScope`, which is the
- * UI class performing I/O: subscribing to the queue, writing history, fetching the Browse index. Moving
- * them here leaves the Activity with one job — render state and forward intents — and puts the I/O where
- * its owner is, on [viewModelScope]. It also means they are subscribed once per task rather than
- * re-subscribed on every configuration change.
+ * The state and the loops that feed it now live in [ReaderHost], owned by [ReaderApplication], whose
+ * lifetime is exactly the process's. What is left here is the I/O a screen's action starts — opening a
+ * Note, retrying a load, fetching the Browse index — which *should* die with the task: nobody is waiting
+ * for a page whose screen is gone. See [onCleared].
  *
- * The one ordering constraint that must survive any edit is in [observeHistory]: history has to be read
- * **before** the persistence collector subscribes, or the first write persists an empty history plus the
- * live session and erases everything the listener had.
- *
- * This class is the composition root's other half — it names `data`, `platform` and `application`
- * together, which only the root may do. It holds an [Application] rather than an Activity, so it cannot
- * leak the thing it outlives.
+ * The one ordering constraint that must survive any edit is in `ReaderHost.recordHistory`: history has to be
+ * read **before** the persistence collector subscribes, or the first write persists an empty history plus
+ * the live session and erases everything the listener had.
  */
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
 
-    private companion object {
-        const val TAG = "NotionReader"
-    }
-
-    /** Set when the device cannot speak at all, which no amount of retrying will fix. */
-    private val _speechMessage = MutableStateFlow<String?>(null)
-    val speechMessage: StateFlow<String?> = _speechMessage.asStateFlow()
-
-    private val speechEngine = AndroidSpeechEngine(application) { message ->
-        _speechMessage.value = message
-    }
-
     /**
-     * The application's state, and the object every surface reads.
+     * The process-scoped host, obtained rather than built.
      *
-     * Held here rather than in the Activity, and never rebuilt: see the class comment.
+     * This is the correction R10 makes: the graph's lifetime is the process's, and this class no longer owns
+     * it. A `ViewModel` dies when the task does, so anything it owns dies then too — and with background
+     * playback that must not include the session, the queue, or the loop that fetches each Note in turn.
      */
-    val app: ReaderApp = ReaderApp(
-        session = ReaderSession(
-            ReaderEngineImpl(
-                speechEngine = speechEngine,
-                initialDocument = ReaderDocument.Demo
-            )
-        ),
-        noteViewer = NoteViewer(ReaderDocument.Demo),
-        navigator = ReaderNavigator(),
-        // One loader for every Note: the one the Note screen shows, and each Note in a queue, so
-        // queue loading inherits the error taxonomy rather than growing a second, thinner path.
-        loadDocument = notionLoader(),
-        sessionStore = DataStoreSessionStore(application)
-    )
+    private val host: ReaderHost = (application as ReaderApplication).host
+
+    /** The application's state, and the object every surface reads. */
+    val app: ReaderApp = host.app
+
+    /** A device-level speech failure, which outlives any screen that would report it. */
+    val speechMessage: StateFlow<String?> = host.speechMessage
 
     /** The Note-screen load in flight, so superseding it cancels it rather than merely ignoring it. */
     private var noteLoadJob: Job? = null
@@ -115,9 +78,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private var browseLoadJob: Job? = null
 
     init {
-        observeQueue()
-        observeHistory()
-        observeResumeQuality()
+        // The session's own loops are not started here any more. Feeding the queue and recording history
+        // belong to the process, because a task that is dismissed must not stop the reader from advancing to
+        // its next Note — and a collector cannot outlive the scope it was launched in.
+        //
+        // What remains below is the I/O a *screen's* action starts, which is correctly task-scoped: closing
+        // a Note or leaving Browse should cancel the fetch nobody is waiting for any more.
         loadBrowseIndex()
     }
 
@@ -177,105 +143,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * The two signals the queue needs from outside itself.
-     *
-     * Both are observations rather than callbacks the session fires, because the session is deliberately
-     * scope-free and synchronous: it cannot start a coroutine to load a Note, and the engine publishes
-     * completion as state rather than as an event. These two collectors are the whole of that boundary.
-     */
-    private fun observeQueue() {
-        // A Note finished, so the queue may advance to the next one. `distinctUntilChanged` matters: the
-        // engine keeps reporting `hasReachedEnd` until a new document is set, and without it the queue
-        // would advance once per emission rather than once per Note.
-        viewModelScope.launch {
-            app.session.state
-                .map { it.hasReachedEnd }
-                .distinctUntilChanged()
-                .collect { finished -> if (finished) app.onNoteFinished() }
-        }
-
-        // Fetch whatever Note the queue is waiting for, whenever that changes.
-        //
-        // **The trigger is the request, not "is something awaited".** Those look equivalent and are not:
-        // `awaiting` stays true across a *superseding* transition, so mapping to the boolean and applying
-        // `distinctUntilChanged` meant that replacing an in-flight request produced no emission at all —
-        // nothing fetched the new Note, while the arrival of the superseded one was correctly refused by
-        // `supplyDocument`'s identity check. The session then waited for a request no one had made: the
-        // Player showed "Loading…" with every control disabled, permanently, and the only way out was to
-        // leave and start again.
-        //
-        // It is reachable with two presses: `Next note` twice on a page that takes a few seconds to load,
-        // which on this integration is every page with more than a hundred blocks. `pendingRequest`
-        // compares the page *and* the request token, so a replacement is a different value and a retry of
-        // the same page is too — which is exactly what the token exists for.
-        viewModelScope.launch {
-            app.session.queueState
-                .map { it.pendingRequest }
-                .distinctUntilChanged()
-                .collect { request -> if (request != null) app.loadPendingQueueNote() }
-        }
-    }
-
-    /**
-     * Records the live session into history.
-     *
-     * ## The load must finish before this subscribes, and that is a correctness requirement rather than a
-     * ## nicety
-     *
-     * [ReaderApp.persistSession] writes the retained set, which is history **plus** the live session. If a
-     * write could happen first, it would persist an empty history plus the live session and silently
-     * discard every session already on disk — the listener's entire Continue listening list, erased by the
-     * launch of the app. So history is loaded in the same coroutine, before the collector starts.
-     *
-     * Collecting the position rather than a timer is what makes a session interrupted *while playing*
-     * resumable. Writing only on pause would mean the common case — the phone being taken out of the
-     * listener's hand mid-Note — loses everything since the last pause.
-     */
-    private fun observeHistory() {
-        viewModelScope.launch {
-            app.loadHistory()
-
-            combine(
-                app.session.state.map { listOf(it.currentParagraphIndex, it.isPlaying, it.hasReachedEnd) },
-                app.session.queueState.map { listOf(it.index, it.awaiting, it.completed) }
-            ) { reading, queue -> reading + queue }
-                .distinctUntilChanged()
-                .collect { app.persistSession() }
-        }
-    }
-
-    /**
-     * Records the match quality of a restore.
-     *
-     * The Active Queue & Reader Session spec requires this to be recorded, and it is the only way to tell
-     * an exact resume from a fallback: both start playback at a plausible place, and the difference is
-     * invisible in the audio until the listener notices they have heard a paragraph before. An exact resume
-     * logs nothing, because there is nothing to say and a log line per resume would train the reader to
-     * ignore the ones that matter.
-     */
-    private fun observeResumeQuality() {
-        viewModelScope.launch {
-            // No `distinctUntilChanged`: the source is already a StateFlow, which conflates, so applying it
-            // to the flow directly is a deprecated no-op. The filter below is what decides what is worth
-            // recording.
-            app.session.lastResume.collect { decision ->
-                val match = decision?.match ?: return@collect
-                val announcement = decision.announcement
-
-                // An exact resume says nothing: the text is the continuation, and a log line per resume
-                // would train the reader to ignore the ones that matter.
-                if (match == PositionMatch.CHUNK && announcement == null) return@collect
-
-                Log.i(
-                    TAG,
-                    "resume match=$match startIndex=${decision.startIndex} " +
-                        "announcement=${announcement ?: "none"}"
-                )
-            }
-        }
-    }
-
-    /**
      * Loads the Browse index.
      *
      * A no-op without a token: there is nothing to list, and the demo document keeps the rest of the app
@@ -299,32 +166,18 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Builds the use case that fetches one page by reference.
+     * Deliberately **not** a shutdown point any more.
      *
-     * A fresh client per call, deliberately rather than sharing one: a retry that reuses a closed client
-     * is a bug that only appears on the failure path, and this is called once per Note in a multi-Note
-     * queue rather than once per screen.
-     */
-    private fun notionLoader(): LoadReaderDocument = DefaultLoadReaderDocument { reference ->
-        val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
-        try {
-            repository.getDocument(reference)
-        } finally {
-            repository.close()
-        }
-    }
-
-    /**
-     * The single shutdown point, and the reason the session's lifetime is now correct.
+     * This used to call `app.shutdown()`, which was the right answer to "nothing that must outlive a screen
+     * lives in a screen" and the wrong one one level up. `onCleared` runs when the Activity is *finished* —
+     * Back out of the app, or the task swiped from recents — and the session must survive that: background
+     * playback exists precisely so that dismissing the task does not end the reading.
      *
-     * `onCleared` runs when the Activity is *finished*, not when it is recreated, so this is called once
-     * per listening session rather than once per configuration change. A session's last write may be
-     * cancelled here; that is safe, because a write is a snapshot taken at every chunk boundary, so at
-     * most the position within the current chunk is lost — and DataStore's writes are atomic, so a
-     * cancelled one cannot corrupt the file.
+     * What is cancelled here is only what `viewModelScope` owns, which is the I/O a *screen's* action
+     * started: a Note load nobody is waiting for, a Browse index fetch for a screen that is gone. The
+     * session, the queue, and the loops that feed them belong to `ReaderHost` and are untouched.
      */
     override fun onCleared() {
-        app.shutdown()
         super.onCleared()
     }
 }

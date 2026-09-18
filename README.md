@@ -132,9 +132,9 @@ data.notion   data.content   data.local          domain (+ queue / session / dis
                     |
                    ui  (screens; depends on domain, player and application)
 
-The root package holds the composition root: `MainActivity` (the Compose host) and `ReaderViewModel`
-(the retained owner of the application object, and of the I/O that surrounds it). Only the root may name
-`data`, `platform` and `application` together, which is what wiring is.
+The root package holds the composition root: `ReaderApplication` (the process-scoped owner of the graph), the
+`ReaderHost` it builds, `MainActivity` (the Compose host) and `ReaderViewModel` (the I/O a screen's own
+action starts). Only the root may name `data`, `platform` and `application` together, which is what wiring is.
 ```
 
 - `domain/` — the provider-agnostic model, and nothing else. `ReaderDocument`, `ReaderSection`,

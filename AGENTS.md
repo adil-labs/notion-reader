@@ -105,10 +105,14 @@ moving a file, and change the rule table deliberately if a dependency is genuine
 
 Two rules that are about lifetime rather than direction, and both are load-bearing:
 
-- **Nothing that must outlive a screen lives in a screen.** The listening session is owned by
-  `ReaderViewModel`, not `MainActivity`, because there is no `android:configChanges` and the system
-  rebuilds the Activity for rotation, font scale and dark mode at dusk. `onCleared` is the only
-  shutdown point.
+- **Nothing that must outlive a screen lives in a screen — or a task.** The listening session, its queue and
+the loops that feed it are owned by the process-scoped `ReaderHost`, built by `ReaderApplication`, not by
+`MainActivity` or `ReaderViewModel`. The system rebuilds the Activity for every configuration change
+(rotation, font scale, dark mode at dusk) and destroys the ViewModel when the task ends; a session owned by
+either would end with it. `ReaderViewModel.onCleared` deliberately does **not** shut the session down. A
+subtlety worth keeping: it is not only the *session* that has to outlive the task but the loop that advances
+the queue and the loop that fetches the next Note — move the session alone and playback stops one Note
+later, which a single-Note queue never reveals (`docs/decisions.md` §23.16).
 - **Notion DTOs never reach the reader domain.** The mapper consumes `NormalizedBlock`, not
   `NotionBlock`. That is why content mapping lives in `data.content` while the types it produces live
   in `domain`.

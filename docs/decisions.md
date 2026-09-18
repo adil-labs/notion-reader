@@ -3867,6 +3867,146 @@ result in this round is affected — but it is the reason the double's counters 
 all, and it is recorded because it is exactly the failure mode this project keeps finding in other shapes:
 an edit that removes something without the tooling noticing.
 
+### 23.16 Stage 2, Phase 1 — R10: the session stops being owned by the task
+
+**Date:** 2026-09-18. The background specification's Phase 1, which is the refactor rather than the service:
+the object graph's lifetime becomes the process's instead of the task's. Behaviour-preserving, and the only
+thing it makes possible is that a dismissed task no longer ends the reading.
+
+#### The finding: the session was not the only thing that had to outlive the task
+
+R10 was written as "move the session to a process-scoped holder", and that would have been **half a fix**,
+with a failure mode worse than the original because it would have looked like an integration bug.
+
+The session's two feeders lived on `viewModelScope` too:
+
+| Loop | What it does | What its death would look like |
+|---|---|---|
+| `advanceTheQueue` | observes `hasReachedEnd` and calls `onCurrentNoteFinished` | the session never asks for the next Note |
+| `feedTheQueue` | observes `pendingRequest` and loads that Note | a requested Note is never fetched |
+
+So moving only the session would have produced this: with the task dismissed, playback continues to the end
+of the *current* Note, the engine reports the end, nothing advances the queue, and the reader stops in
+silence. **On a single-Note queue it would not happen at all**, which is the case anyone would check first
+— and a one-Note queue is how every `Play` from the Note screen is expressed.
+
+That is why the new type owns two things and the second is the one worth naming: the [state] *and the scope
+that feeds it*. `ReaderHost` is documented as such, including the table of what is the host's and what is
+still the task's.
+
+#### What was built
+
+- **`ReaderHost`** (root package) — owns the `ReaderApp` and an injected application-lifetime scope, and runs
+the four loops: advancing, fetching, recording history, recording resume quality. No Android type and no
+dispatcher of its own, so it is JVM-testable; the scope and the logger are constructor parameters.
+- **`ReaderApplication`** — the platform's only object whose lifetime is exactly the process's, and therefore
+the place this belongs. It builds the speech engine, the DataStore and the Notion loader, and hands the host
+their real implementations. Named in the manifest.
+- **`ReaderViewModel`** — obtains the host instead of building the graph, keeps only the I/O a *screen's*
+action starts (`openNote`, `retryNoteLoad`, `retryBrowseIndex`, `continueSession`, `replayCompleted`,
+`loadBrowseIndex`), and **`onCleared` no longer shuts anything down**.
+
+#### One side benefit worth recording, because it was a real gap
+
+The resume match quality used to be recorded with a direct `Log.i` call inside the ViewModel, which is
+unreachable from a JVM test — so the one fact the Active Queue & Reader Session spec explicitly requires to
+be recorded was untestable. The logger is now injected, and two tests assert both halves of its rule: a lost
+position is recorded, and an **exact** resume records nothing.
+
+#### Deliberately unchanged
+
+- **`continueSession` still loads the pending Note itself**, even though the host's fetcher also observes the
+  request. That looks like the duplicate fetch §19.6 removed, and it is not: `QueueLoader` guards on the
+  request rather than on "something is in flight", which is exactly what that round put there. Removing the
+explicit call would have been a behaviour change in a phase whose whole point is that there is none.
+- **Browse's index still loads per task.** It is a screen's data, so re-fetching it for a new task is
+  correct rather than wasteful.
+
+#### Verified
+
+- **365 JVM tests, 0 failures** (was 360). Five additions, all in `ReaderHostTest`.
+- **A failing-first proof.** The guard here is *which scope the loops run on*, so the proof substitutes the
+task scope for the application scope and asserts the outcome changes:
+
+  | Guard removed | Tests that noticed |
+  |---|---|
+  | the loops run on the host's scope rather than the task's | `theQueueIsStillFedAfterTheTaskScopeIsCancelled` |
+
+  Exactly one test and no others, out of 365 — correct rather than thin: the other four `ReaderHostTest`
+  cases assert what the host *owns* (the session's identity, its state, the recording), which survives a
+  cancelled scope either way. Only the feeding is a property of the scope, and only that test asserts it.
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` both succeed.
+
+#### Two tests were written wrong first, and both are the same mistake
+
+`advancingToTheNextNoteIsItselfADutyOfTheHost` drove the fake engine's position to the last part and expected
+the host to advance. It does not, and should not: `hasReachedEnd` is set when the last part is **spoken
+through**, not when the position merely reaches the end, so the test was asserting about a state it had
+never produced — §22.9's lesson, one layer down. It now uses the real `ReaderEngineImpl` with the fake speech
+engine and completes the utterances.
+
+`anExactResumeRecordsNothing` guessed a chunk id, which resolved to something other than `CHUNK`, so it
+silently exercised the *loss* path while claiming to assert the exact one. It now builds the position with
+`positionFrom` the document itself. Both are recorded because "an assertion about a case that was never
+produced" is this project's most repeated lesson, and these are two more instances of it.
+
+#### What is verified on a device, and what is not
+
+**Verified:** the app installs, launches with the new `ReaderApplication`, reaches `MainActivity`, and
+produces no crash — which is the specific risk of a manifest `android:name` change and of moving the graph's
+construction. Confirmed by `adb shell dumpsys window` showing this package focused and by an empty
+`AndroidRuntime:E` log.
+
+**Not verified, and stated rather than implied:** that **task dismissal** now leaves playback running. The
+mechanism is that `onCleared` no longer shuts the session down, and the JVM test proves the *feeding*
+survives a cancelled task scope — but no device probe dismisses the task and listens. `am force-stop` is
+**not** the check: it kills the process, which legitimately ends the session and is a different case the
+Active Queue & Reader Session spec already covers. Confirming this properly needs a way to remove the task
+while keeping the process, which is worth building once Stage 2's Phase 2 gives playback a notification to
+observe it from. Recorded so that no later reader mistakes the JVM proof for a device observation.
+
+#### `assertIsReachable`'s second non-deterministic check, demonstrated
+
+The instrumented suite came back at **108 tests and 8 failures** — the seven known focus ones, plus
+`PlayerQueueViewAccessibilityTest > theQueueControlIsPresentAndNamed`, which had been 17/17 in the previous
+run of the same class with the same production code.
+
+```plain text
+'Queue' lies outside the app surface at Rect.fromLTRB(363.0, 2082.0, 645.0, 2172.0)
+(surface is Rect.fromLTRB(54.0, 18.0, 282.0, 90.0)), so a listener would have to scroll to reach it
+```
+
+A 228×72 "surface" on a 1008×2244 device is a window that has not been laid out yet, not a layout defect —
+and the control's own bounds are exactly where they belong. The immediate re-run of that class passed
+**17/17 with no code change**, which is what makes this a measurement race rather than a regression.
+
+**This is the second of `assertIsReachable`'s four checks to be shown non-deterministic**, and which two they
+are is the useful part of the finding:
+
+| Check | Kind | Can an app change make it a false failure? |
+|---|---|---|
+| `isPlaced` | the app | no |
+| **"occupies area"** | **measurement** | **yes** — §22.9 |
+| `OnClick` present | the app | no |
+| non-blank name | the app | no |
+| **"overlaps the surface"** | **measurement** | **yes** — this round |
+
+§22.9 said "three of them are [app-side and deterministic]" and named the exception as "occupies area". The
+honest correction is that **two** are measurement claims and only three are app claims. That does not make
+the helper the wrong choice — `assertIsDisplayed` was strictly worse, being about the device's window rather
+than about layout at all — but the claim that the replacement is fully deterministic needs retiring.
+
+**Handled the way §22.9 handled the first one: classified, not fixed.** The check stays, because a control
+outside its surface *is* a control a listener cannot reach and dropping the check would let a real one pass;
+the runner learns the signature instead, with the pattern and this reasoning in
+`tools/run-accessibility-tests.ps1`. A retry still cannot launder a real failure: a control that is genuinely
+outside the surface reports so on the second attempt too, and the runner reports the retry's outcome.
+
+Note what the wrapper did on the first run, and that it was right: the failures were **mixed** — seven
+classified focus failures plus one unclassified — so it refused to retry. A retry there would have needed
+the unclassified failure to be treated as a harness signature, which is the thing the classifier exists to
+prevent. The one-entry addition above is the deliberate classification that follows.
+
 ---
 
 ## Still open
