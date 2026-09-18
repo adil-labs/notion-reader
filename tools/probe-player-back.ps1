@@ -11,6 +11,42 @@
 $ErrorActionPreference = 'Stop'
 $adb = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Google.PlatformTools_*\platform-tools\adb.exe" | Select-Object -First 1).FullName
 
+<#
+    Which device this result belongs to, printed first and always.
+
+    This exists because it already went wrong: a round of verification reported findings as "on a device"
+    while the attached device had silently changed from a Pixel 8 Pro on API 37 to a Galaxy S24 on API 16 -
+    and the API difference is not cosmetic here. Android 17's background-audio hardening does not exist before
+    API 37, so behaviour that is correct on 16 would have its audio silently suppressed on 17. A conclusion
+    recorded without the device it came from is not a smaller claim than it looks; it is a claim about an
+    unknown platform.
+
+    The same reasoning as the script's other two guards, and the reason both were written: a probe that misses
+    reports a wrong answer with full confidence. Hard-coded coordinates were the first instance, a screen
+    classified by document title the second, and an unattributed result the third.
+
+    Also refuses to run with more than one device attached rather than picking one, for the same reason the
+    accessibility runner refuses: choosing would answer a question about a device nobody chose.
+#>
+$attached = @(& $adb devices | Where-Object { $_ -match '\sdevice$' } | ForEach-Object { ($_ -split '\s+')[0] })
+
+if ($attached.Count -eq 0) { throw 'No device attached, so there is nothing to probe.' }
+if ($attached.Count -gt 1) {
+    throw ("$($attached.Count) devices are attached. This script does not choose one - pass a single device " +
+        'or disconnect the others, because a result attributed to the wrong device is worse than no result.')
+}
+
+$model = (& $adb shell getprop ro.product.model).Trim()
+$sdk = (& $adb shell getprop ro.build.version.sdk).Trim()
+$release = (& $adb shell getprop ro.build.version.release).Trim()
+
+Write-Output "device: $model (Android $release, API $sdk), serial $($attached[0])"
+if ([int]$sdk -lt 37) {
+    Write-Output '  NOTE: background-audio hardening is Android 17 (API 37) and later. Behaviour verified on ' +
+        'this device says nothing about an app whose audio Android 17 would refuse to start without a ' +
+        'foreground service. See docs/decisions.md 23.20.'
+}
+
 function Dump([string]$name) {
     & $adb shell uiautomator dump /sdcard/ui.xml | Out-Null
     & $adb pull /sdcard/ui.xml "$env:TEMP\$name.xml" | Out-Null
