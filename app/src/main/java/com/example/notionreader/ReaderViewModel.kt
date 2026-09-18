@@ -9,6 +9,8 @@ import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.queue.QueueEffect
+import com.example.notionreader.domain.queue.QueuedNote
+import com.example.notionreader.application.ReaderFocus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -249,6 +251,56 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             repository.getBrowseIndex()
         } finally {
             repository.close()
+        }
+    }
+
+    /**
+     * `Add all to queue` on Browse: capture the visible result set and open Queue Destination.
+     *
+     * The result set is read **here**, from `BrowseModel`, rather than by the screen. Two reasons, and the
+     * second is the one that matters: the contract says `Add all to queue` "captures the current result
+     * set", which is a statement about a moment, and a screen that passed its own `state.results` would be
+     * passing whatever it had at composition — while `playAllVisibleResults` already establishes that Browse's
+     * visible set is read from the model. One of the two reading it differently is how they drift.
+     */
+    fun addAllToQueue() {
+        app.beginAddToQueue(
+            app.browse.state.value.results.toQueuedNotes(),
+            fromFocusId = ReaderFocus.BrowseAddAllToQueue
+        )
+    }
+
+    /**
+     * `Add to queue` on the Note screen: capture the Note the screen is showing.
+     *
+     * The document the viewer holds rather than the configured page id — the same distinction
+     * [retryNoteLoad] records, because a Note reached from Browse is not the configured page.
+     */
+    fun addNoteToQueue() {
+        val document = app.noteViewer.document.value
+        app.beginAddToQueue(listOf(QueuedNote.of(document)), fromFocusId = ReaderFocus.NoteAddToQueue)
+    }
+
+    /**
+     * A destination was chosen: place the captured Notes and show the result.
+     *
+     * ## Why this navigates, and why it clears the pending set either way
+     *
+     * The Add is a write, so it is here rather than in the screen; and where the listener lands afterwards is
+     * a consequence of the write, which only the caller of the write can see. Landing on the destination
+     * queue's Details is this slice's choice — the contract does not say where Add leaves you — and it is the
+     * one place the listener can see the postcondition, which is the same information the report spells out
+     * in words.
+     *
+     * The pending set is cleared by the application's own operation before it writes, so a refused or failed
+     * Add does not leave it to be placed by a later tap the listener did not make. What this adds is the
+     * navigation, which happens whether or not the write landed: a storage failure is never reported to the
+     * listener as a failure of what they did, and stranding them on the chooser would be exactly that.
+     */
+    fun chooseQueueDestination(queueId: String) {
+        viewModelScope.launch {
+            app.addPendingToQueue(queueId)
+            app.openSavedQueueDetails(queueId, fromFocusId = queueId)
         }
     }
 

@@ -16,6 +16,7 @@ import com.example.notionreader.ui.A11y.assertIsReadable
 import com.example.notionreader.ui.A11y.assertIsReachable
 import com.example.notionreader.ui.A11y.hasPaneTitle
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -201,6 +202,94 @@ class ReaderShellSavedQueueTest {
 
         compose.onNodeWithText("Create saved queue").assertIsReachable()
         compose.onNodeWithText("1. Alpha").assertDoesNotExist()
+    }
+
+    @Test
+    fun addingFromBrowsePlacesTheWholeResultSetAndReportsItOnTheQueueItWentInto() {
+        // The first increment a listener can actually build a queue with: pick some results, add them to a
+        // queue, and be told what happened. Asserted through the shell because the three steps live in three
+        // places — the control on Browse, the pending set in the application, and the report on Details.
+        val app = harness.app(
+            entries = (1..3).map { harness.entry(it) },
+            savedQueues = listOf(queue("q-7", "Reading"))
+        )
+
+        compose.setContent {
+            ReaderShell(
+                app = app,
+                speechMessage = null,
+                onOpenNote = { },
+                onRetryNoteLoad = { },
+                onRetryBrowseIndex = { },
+                onContinueSession = { },
+                onReplayCompleted = { },
+                onCreateSavedQueue = { },
+                onAddAllToQueue = { app.beginAddToQueue(app.browse.state.value.results.toQueuedNotes()) },
+                onChooseQueueDestination = { queueId ->
+                    runBlocking {
+                        app.addPendingToQueue(queueId)
+                        app.openSavedQueueDetails(queueId)
+                    }
+                }
+            )
+        }
+
+        compose.onNodeWithText("Browse").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Add all to queue").performSemanticsAction(SemanticsActions.OnClick)
+
+        // The chooser lists the destination and states how much is being placed.
+        compose.onNode(hasPaneTitle("Add to queue")).assertExists()
+        compose.onNodeWithText("3 notes to add.").assertExists()
+
+        compose.onNodeWithText("Reading").performSemanticsAction(SemanticsActions.OnClick)
+
+        // The notes landed, and the queue's own screen says so.
+        assertEquals(listOf("page-1", "page-2", "page-3"), app.savedQueues.value.single().notes.map { it.pageId })
+        compose.onNodeWithText("Added 3 notes.").assertIsReadable()
+    }
+
+    @Test
+    fun addingTheSameResultSetTwiceReportsThatNothingWasAddedRatherThanFailing() {
+        // The case the specification singles out: "a listener who adds twelve things and is told nothing
+        // cannot tell 'all twelve were already there' from 'the app failed'".
+        val app = harness.app(
+            entries = (1..2).map { harness.entry(it) },
+            savedQueues = listOf(queue("q-7", "Reading"))
+        )
+
+        compose.setContent {
+            ReaderShell(
+                app = app,
+                speechMessage = null,
+                onOpenNote = { },
+                onRetryNoteLoad = { },
+                onRetryBrowseIndex = { },
+                onContinueSession = { },
+                onReplayCompleted = { },
+                onCreateSavedQueue = { },
+                onAddAllToQueue = { app.beginAddToQueue(app.browse.state.value.results.toQueuedNotes()) },
+                onChooseQueueDestination = { queueId ->
+                    runBlocking {
+                        app.addPendingToQueue(queueId)
+                        app.openSavedQueueDetails(queueId)
+                    }
+                }
+            )
+        }
+
+        compose.onNodeWithText("Browse").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Add all to queue").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Reading").performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(2, app.savedQueues.value.single().notes.size)
+
+        // Second time: same results, so nothing can be added and the report has to say so as a success.
+        compose.onNodeWithText("Browse").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Add all to queue").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Reading").performSemanticsAction(SemanticsActions.OnClick)
+
+        assertEquals(2, app.savedQueues.value.single().notes.size)
+        compose.onNodeWithText("Nothing was added, because all 2 notes were already in this queue.")
+            .assertIsReadable()
     }
 
     /** Dispatches a real Back press, as the system would. */

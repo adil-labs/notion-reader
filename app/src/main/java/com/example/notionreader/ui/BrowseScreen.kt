@@ -81,6 +81,8 @@ fun BrowseScreen(
     onQueryChange: (String) -> Unit,
     onOpenNote: (ReaderIndexEntry) -> Unit,
     onPlayAll: () -> Unit,
+    /** `Add all to queue`, which captures the visible result set and opens Queue Destination. */
+    onAddAllToQueue: () -> Unit = {},
     onClearQuery: () -> Unit,
     onRetry: () -> Unit,
     onSortChange: (BrowseSort) -> Unit = {},
@@ -94,6 +96,7 @@ fun BrowseScreen(
     // which is the unpredictable focus movement the contract's rule exists to prevent.
     LaunchedEffect(focusTarget, state.entries) {
         val owned = focusTarget == ReaderFocus.BrowsePlayAll ||
+            focusTarget == ReaderFocus.BrowseAddAllToQueue ||
             state.entries.any { it.pageId == focusTarget }
         if (focusTarget != null && !owned) onFocusHandled()
     }
@@ -213,23 +216,37 @@ fun BrowseScreen(
                     }
                 }
 
-                // "For a non-empty result set, Browse exposes Play all ... These controls belong to the
-                // result set as a whole. They should not be repeated on every individual result row."
+                // "For a non-empty result set, Browse exposes Play all ... Add all to queue. These controls
+                // belong to the result set as a whole. They should not be repeated on every individual
+                // result row." Both are set-level, so both are named by their control rather than by any
+                // content — and distinctly, so a listener who left the Player having pressed one lands on
+                // that one. See `ReaderFocus`.
                 Button(
                     onClick = onPlayAll,
                     modifier = Modifier
                         .fillMaxWidth()
-                        // A set-level action has no content identity, so it is named by the control — see
-                        // `ReaderFocus`. The listener who left the Player with Back lands on the button
-                        // they pressed to get there.
                         .restoreFocusOn(
                             target = focusTarget,
                             id = ReaderFocus.BrowsePlayAll,
                             onHandled = onFocusHandled
                         )
-                        .padding(horizontal = 24.dp, vertical = 12.dp)
+                        .padding(start = 24.dp, end = 24.dp, top = 12.dp)
                 ) {
                     Text("Play all")
+                }
+
+                Button(
+                    onClick = onAddAllToQueue,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .restoreFocusOn(
+                            target = focusTarget,
+                            id = ReaderFocus.BrowseAddAllToQueue,
+                            onHandled = onFocusHandled
+                        )
+                        .padding(horizontal = 24.dp, vertical = 12.dp)
+                ) {
+                    Text("Add all to queue")
                 }
             }
         }

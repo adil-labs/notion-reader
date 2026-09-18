@@ -48,4 +48,23 @@ object ReaderFocus {
      * push has, and it is what Back returns focus to. That is the case [ReaderStop.subjectId] documents as
      * the reason a stop needs two ids rather than one.
      */
-    const val SavedQueueCreate: String = "savedQueue:create"}
+    const val SavedQueueCreate: String = "savedQueue:create"
+
+    /**
+     * The Note screen's `Add to queue`.
+     *
+     * A control rather than a Note, so it is named rather than identified by the page id it acts on: the
+     * destination it opens is reached from this screen and from Browse, and a listener who backs out must
+     * return to the button they pressed rather than to a row that happens to share an id.
+     */
+    const val NoteAddToQueue: String = "note:addToQueue"
+
+    /**
+     * Browse's `Add all to queue`.
+     *
+     * Distinct from [BrowsePlayAll] because they are two separate controls on one screen: a listener who left
+     * the Player having pressed one of them must land on the one they pressed, and one shared id would put
+     * focus on the other.
+     */
+    const val BrowseAddAllToQueue: String = "browse:addAllToQueue"
+}

@@ -4924,6 +4924,166 @@ yet — that is Phase 4's `Play`. So this phase is a type and persistence change
 what the spec's phase split intends: the part that reaches into working persistence lands on its own, verified
 by a wire-format test rather than by a screen.
 
+### 23.30 Slice 2 — the Add path, and the increment that makes a queue usable
+
+**Date:** 2026-09-19. `Add to queue` on a Note and `Add all to queue` on Browse, the Queue Destination they open, the de-duplication report, and the create-if-empty path. **512 JVM tests, 0 failures** (was 490; 22 additions) and **168 instrumented tests** (was 153; 15 additions).
+
+#### Why this slice came before Edit mode
+
+§23.28 recorded the ordering change and its reason: **membership enters a Saved Queue through exactly one operation, `Add`.** So until this slice landed, every Saved Queue that could exist was empty, `Play` on one was always unavailable, Edit mode would have had nothing to move, and the specification's own device validation — a queue surviving process death "with its identity, name, **membership** and order intact" — was unperformable. With this slice, the feature is usable end to end for the first time: create a queue, fill it from Browse or a Note, and play it.
+
+#### What shipped
+
+| Piece | Where |
+|---|---|
+| `beginAddToQueue`, `addPendingToQueue`, `cancelPendingAdd`, `pendingAddCount` | `ReaderApp` |
+| `queueReport` and `consumeQueueReport` — the de-duplication report | `ReaderApp` |
+| `createSavedQueue` now receives any pending Notes | `ReaderApp` (the create-if-empty path) |
+| `QueueDestination`, a new secondary destination | `ReaderDestination` |
+| `NoteAddToQueue`, `BrowseAddAllToQueue` | `ReaderFocus` |
+| the destination screen | `QueueDestinationScreen` |
+| `Add to queue` / `Add all to queue` | `NoteScreen`, `BrowseScreen` |
+
+#### Three design points
+
+**The pending set is application state, not a navigation subject.** Queue Destination is about *a set of Notes to place*, and `ReaderStop.subjectId` carries an identity — a string — because every other destination is about something that already exists and can be named. A pending set is a payload, and encoding a list of Notes into a navigation id would be a second serialization of the domain, in the one place nothing validates it. Holding it in `ReaderApp` also gives it an owner that can end its life, which a navigation stop has not.
+
+**The capture is a copy, and it has a test.** `Add all to queue` captures Browse's *visible result set*, which re-sorts. Capturing a reference would place whatever the list happened to hold when the destination was finally chosen — the same class of defect as handing a live queue to a session, at the other end of the flow.
+
+**Two callbacks, not one.** The first wiring passed a single `onAddToQueue` to both screens, which would have had to guess which was asking. The shell's `when` already knows which surface it is rendering, so the distinction is made at the one place that has both facts.
+
+#### The defect the shell tests caught, and it was a real one
+
+The report was consumed **as soon as it rendered** — `LaunchedEffect(report) { if (report != null) onReportShown() }` — so the sentence appeared for one frame and vanished. Two new end-to-end tests failed on it, and the fix is a lifetime rather than a delay:
+
+| | |
+|---|---|
+| **Was** | cleared on render, so it could not be read twice |
+| **Now** | shown for the whole visit, cleared by a `DisposableEffect` when the listener leaves |
+
+That is a defect and not a test artefact: a listener who cannot see the screen and wants the sentence read again had nothing left to read, and the *whole* reason the report exists is the specification's observation that "a listener who adds twelve things and is told nothing cannot tell 'all twelve were already there' from 'the app failed'". A report that flashes is that same failure with more steps.
+
+`rememberUpdatedState` is used for the disposer, because `DisposableEffect(Unit)` captures its first lambda and a stale reference would clear the wrong thing after any recomposition.
+
+#### Two smaller defects the tests caught
+
+**The all-duplicates sentence repeated itself.** The first version produced "Nothing was added, because every note was already in this queue. 1 was already in this queue." — one fact, twice. The count now belongs *in* the nothing-sentence.
+
+**An empty pending set produced a report.** Reachable by choosing a second destination after the first placement, and it told the listener "nothing was added" about an action they had not taken. The report is now raised only when the operation had an incoming set at all.
+
+#### A tooling bug in this round's own script
+
+`tools/setup-emulator.ps1` crashed with *"You cannot call a method on a null-valued expression"* while waiting for a boot: it called `.Trim()` on the `$null` that `adb shell` returns when a device is listed but not yet answering, and `2>$null` had swallowed the message. The symptom named a method rather than a device state — the same misattribution shape as everything else in §23.29. Fixed by checking for the null, distinguishing `offline`/`unauthorized` from `device`, and keeping the serial the wait loop proved usable rather than re-listing it.
+
+Worth recording separately: the emulator also **degraded** over a long session — one full run took **39 minutes** against 11 minutes for the same suite earlier. Restarting it restored the time. An instrumented round that suddenly takes three times as long is the emulator, not the app.
+
+#### The classifier could never classify anything, and had never been able to
+
+The full run reported one failure, and it was **not an assertion**:
+
+```plain text
+java.lang.AssertionError: Activity never becomes requested state "[DESTROYED]"
+  (last lifecycle transition = "PAUSED")
+    at androidx.test.core.app.ActivityScenario.waitForActivityToBecomeAnyOf(ActivityScenario.java:454)
+    at androidx.test.ext.junit.rules.ActivityScenarioRule.after(ActivityScenarioRule.java:117)
+```
+
+Thrown from `ActivityScenarioRule.after` — the **teardown** — so the test body had already completed and its assertions had already passed. It also passed 11/11 when the same class was run alone, with no code change between.
+
+That much was straightforward. What was not is **why the runner refused to retry**, and the answer is worth the round on its own.
+
+The first diagnosis was "the signature is missing from the list", and adding it would have been exactly wrong — a change that looks like a fix and changes nothing. The real cause was found by checking whether the classification could work at all, rather than assuming it could:
+
+```plain text
+$_.failure.'#text'   -> empty
+```
+
+**PowerShell's `[xml]` adapter reduces an `<failure>` element that has no attributes and holds only text to a plain String**, and a String has no `'#text'` property. Gradle writes the attribute-less form. Measured both ways:
+
+| fixture | node type | `'#text'` | message read |
+|---|---|---|---|
+| `<failure>text</failure>` | `String` | — | **empty** |
+| `<failure message="x">text</failure>` | `XmlElement` | present | the text |
+
+So `$text` was always empty, no entry in `$HARNESS_FAILURE_PATTERNS` could ever match, and **the retry mechanism had never once fired** — while appearing entirely present: the array was populated with six entries and their explanations, the loop ran, the branch existed, and the report language ("a green second attempt after a harness failure is a different fact from a green first attempt") described a behaviour that could not occur.
+
+This is the project's own recorded lesson in a new place: **a check that can never match is indistinguishable from a clean run.** It is the same shape as the regex with a Windows path bug that silently matched nothing while two rounds reported success. It survived because nothing asserted that the classifier *could* classify — and the failure of that classifier looks exactly like "this failure is not a harness failure", which is a legitimate answer.
+
+The fix reads the message from whichever shape the adapter returns — `String` or `XmlNode.InnerText` — and is deliberately total, because it runs inside the reporting path where an exception would replace a test verdict with a script error. The teardown signature is on the list as well, classified deliberately: thrown in the rule's `after`, the test body already passed, the Activity reached `PAUSED` which is normal stopping, and it passed 11/11 in isolation.
+
+**Verified by a check that runs the classifier, not by reading it**: `app/build/check-harness-signatures.ps1` lifts the wrapper's own `Get-FailureText` and the pattern list out of the script — so it cannot pass against a copy that has drifted — and asserts that both XML shapes read a non-empty message and that the new signature matches it. It also re-finds the two bugs its own first version had, both of which produced a *false* failure: a fixture whose message spanned several lines, and a pattern-extraction regex that matched apostrophes inside the explanatory comments and "found" eleven patterns, six of them sentences.
+
+A retry still cannot launder a real defect: the read is now what it should be, any *mixed* result is still red immediately, and the runner reports the retry's outcome rather than the first's.
+
+#### And then the same round found that a *partial* run could be reported as a pass
+
+The next verification attempt ended with this:
+
+```plain text
+Failed to list /sdcard/Android/media/com.example.notionreader/additional_test_output:
+  ls: ... Transport endpoint is not connected
+Failed to uninstall package com.example.notionreader. Output:
+...
+HTML report: tests=125 failures=1
+```
+
+**The suite contains 168 tests.** The emulator's transport died part-way through, so four classes never ran, one class reported 8 of its 16 tests, and the results file contained only what had finished before the device went away. The run was not a verdict at all — 43 tests are simply absent.
+
+It was reported red only by luck: one of the classes that *did* run happened to fail. **Had that class passed, the runner would have printed `RESULT: PASSED - 125 tests, 0 failures.`** on a run that had exercised three quarters of the suite, with no error, no warning, and nothing at all to notice. That is a wrong answer reported with full confidence — this project's recurring shape — and it is worse than most, because the wrong answer is "all green".
+
+The pass condition was "no failures". Nothing compared how many tests ran against how many should have. The check that closes it sits **before** the verdict:
+
+| | |
+|---|---|
+| **Was** | `failures > 0` → FAILED, otherwise PASSED |
+| **Now** | `failures > 0` → FAILED; `tests < expected` → **INCOMPLETE**; otherwise PASSED |
+
+`$expectedTests` is counted from the `@Test` annotations in the source tree rather than remembered, so adding a test raises the bar automatically and a stale constant cannot become the next silent wrong answer. The word is deliberately **INCOMPLETE** and not FAILED: the missing tests are not failing tests, they did not run, and conflating the two would send the next person looking for a defect in code that was never executed.
+
+Proved rather than assumed, by `app/build/check-wrapper-completeness.ps1`, which lifts the wrapper's own count expression out of the script and exercises the verdict across five scenarios including the one that happened:
+
+```plain text
+expected tests counted from sources : 168
+  tests=168  failures=0  -> PASSED       complete run, 0 failures
+  tests=168  failures=3  -> FAILED       complete run, 3 failures
+  tests=126  failures=0  -> INCOMPLETE   TRUNCATED run, 0 failures
+  tests=126  failures=1  -> FAILED       truncated run, 1 failure
+  tests=0    failures=0  -> INCONCLUSIVE nothing ran
+```
+
+That third row is the whole point: before this change it read **PASSED**.
+
+Two ordering and scoping bugs were found by running those checks rather than by reading them. `$expectedTests` was first placed beside the signature list near the top of the file, well before `$repoRoot` exists, and crashed with *"Cannot bind argument to parameter 'Path' because it is null"* — a failure that names a parameter rather than a missing variable. And the completeness checker itself invoked the extracted count block with `&`, which runs it **in its own scope**, so the assignment never escaped and the checker reported a failure against a wrapper that was working. That is the third time PowerShell's scoping rule has cost time in this project, after two accumulators built inside functions.
+
+#### The emulator is now the least reliable component, and it is worth saying so
+
+Three verification attempts in a row failed for reasons that were entirely the emulator or the harness:
+
+1. a full run took **39 minutes** against 11 for the same suite (restarting fixed it);
+2. the transport died mid-run, truncating the results to 125 of 168 tests;
+3. `-Stop` returned before the device disappeared, so the following start saw a stale listing, skipped launching, and then timed out with *"did not finish booting (no emulator listed)"* — two true statements that together read as a broken script.
+
+`-Stop` now waits for the device to actually go, and the completeness check means (2) can no longer masquerade as a pass. But the honest position is that the emulator is a **less trustworthy environment than the phone** was, and the suite's verdicts on it need the completeness check to mean anything. `tools/setup-emulator.ps1` still earns its place — a phone with a credential lock cannot be prepared from a script at all — but "an emulator removes a dependency" should not be read as "an emulator is more reliable".
+
+#### Verification
+
+- **512 JVM tests, 0 failures**; **168 instrumented tests, 0 failures** — every class, with the completeness check confirming the count against the sources:
+
+  ```plain text
+  HTML report: tests=168 failures=0
+  gradle exit code: 0
+  RESULT: PASSED - 168 tests, 0 failures (expected 168).
+  Restored screen_off_timeout to 2147483647 ms and stay_on_while_plugged_in to 7.
+  ```
+
+  That closing line is new, and it is the point: before this round the runner could not have distinguished this run from the truncated one it also produced.
+- The report-lifetime fix was confirmed on the affected class alone (10/10) before the full run, which is what the scoped run exists for.
+- `app/build/check-wrapper-completeness.ps1` proves a truncated run cannot be reported as a pass, and `app/build/check-harness-signatures.ps1` proves the classifier can read a failure message and match a signature — the latter on **both** XML shapes, because the shape was the variable that broke it.
+
+#### Not verified
+
+The emulator is API 36 and the phone is unplugged, so everything in this slice is verified on the emulator only. Nothing here is API-37-dependent, but that is an argument rather than a measurement.
+
 ### 23.29 The emulator unblocks the device round, and the focus failures were ours all along
 
 **Date:** 2026-09-19. Two things that had each cost several rounds: the instrumented suite no longer depends on a phone being unlocked, and the seven focus-restore assertions that had been red since §23.12 are **green because the cause was in this project's own code**. **490 JVM tests, 0 failures; 153 instrumented tests, 0 failures.**

@@ -71,7 +71,7 @@ edit.
 ## Build and test
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest              # 490 JVM tests, no device, this is the default check
+.\gradlew.bat :app:testDebugUnitTest              # 512 JVM tests, no device, this is the default check
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:compileDebugAndroidTestKotlin  # REQUIRED after touching androidTest
 pwsh -File tools\run-accessibility-tests.ps1      # instrumented a11y suite; needs a device or emulator
@@ -219,6 +219,22 @@ and they now pass on their own merits.
   exit code from the collected results.
 - A retry is only permitted when **every** failure matches a known harness signature; a mixed or
   unclassified result is red immediately, because a retry must never launder a real defect into a pass.
+- **A partial run must never be reported as a pass, and once it could be** (`docs/decisions.md` §23.30). The
+  pass condition was "no failures" with nothing comparing how many tests ran against how many exist, so an
+  emulator that died mid-run left a results file holding only the classes that had finished — all of them
+  passing — and the runner would have printed `RESULT: PASSED - 125 tests, 0 failures.` on a run that had
+  exercised three quarters of the suite. It is now `INCOMPLETE`, and the expected count is read from the
+  `@Test` annotations rather than remembered. `app/build/check-wrapper-completeness.ps1` proves a truncated
+  run cannot pass. **The emulator is less reliable than the phone was**, so this check is what makes its
+  verdicts mean anything.
+- **That classifier was dead for as long as it existed, and looked healthy** (`docs/decisions.md` §23.30).
+  It read the failure message as `$_.failure.'#text'`, which is **empty for an `<failure>` with no
+  attributes** — PowerShell's `[xml]` adapter reduces such an element to a plain `String`, and a String has
+  no `'#text'`. Gradle writes the attribute-less form, so no signature could ever match and the retry never
+  fired once, while the array, the loop and the branch all looked correct. It is fixed by
+  `Get-FailureText`, which handles both shapes. `app/build/check-harness-signatures.ps1` asserts that the
+  classifier can read and match — run it after touching the signature list, because the failure mode of a
+  check like this is indistinguishable from a clean result.
 
 **PowerShell** (this project's tooling is almost all `.ps1`; these traps have each cost a session)
 
@@ -260,8 +276,8 @@ and they now pass on their own merits.
 
 | Script | Purpose |
 |---|---|
-| `run-accessibility-tests.ps1` | The instrumented suite, with the device prepared. Use this, not Gradle. |
-| `setup-emulator.ps1` | Installs the emulator + an API 36 image and creates/boots an AVD, so the suite can run without a phone and therefore without a PIN. Idempotent; `-Check` reports only, `-Stop` shuts it down. |
+| `run-accessibility-tests.ps1` | The instrumented suite, with the device prepared. Use this, not Gradle. Derives its own verdict, and reports **INCOMPLETE** if fewer tests ran than the sources contain. |
+| `setup-emulator.ps1` | Installs the emulator + an API 36 image and creates/boots an AVD, so the suite can run without a phone and therefore without a PIN. Idempotent; `-Check` reports only, `-Stop` shuts it down and waits for it to go. |
 | `probe-player-back.ps1`, `probe-player-navigation.ps1`, `probe-history.ps1`, `probe-listening-tab.ps1`, `probe-config-change.ps1` | Drive the real UI over `adb` and read the accessibility dump back. They read tap targets from the dump rather than hard-coding coordinates — keep it that way, because a probe that misses reports a wrong answer with full confidence. |
 | `notion-tool.ps1` | Read-only `-Action list\|page\|children` inspector against the live Notion API. |
 | `capture-reader-fixture.ps1`, `seed-reader-fixture.ps1`, `extend-reader-fixture.ps1`, `verify-identity-stability.ps1` | Fixture capture/seeding, and the API-level proof that block ids survive edits (edits, captures, restores and *verifies* the restore). |

@@ -72,12 +72,17 @@ The **Saved** tab lists the queues the listener built, most recently edited firs
 member count, and offers `Create saved queue`. Activating a queue opens **Saved Queue Details**, which
 shows its members in order and offers `Play` — which snapshots the queue's current membership and order
 into a new session, and is unavailable on an empty queue with the reason stated. A member row opens its
-Note and does not play it. Editing a queue's membership and order is the next slice.
+Note and does not play it.
 
-The Note's `Add to queue` action is still deliberately absent: it needs a Saved Queue to add to, and a
-visible control that does nothing is worse for a TalkBack user than an absent one. A queue can therefore
-be created but not yet filled — membership is added through Queue Destination, which is the next slice
-after Edit mode.
+A queue is filled through the contract's **Add** path: `Add to queue` on a Note and `Add all to queue` on
+Browse both open **Queue Destination**, which lists the Saved Queues and `Create new queue`. Choosing one
+appends the captured Notes, de-duplicates by identity, and lands on that queue's Details with a report of
+what happened — including, in the all-duplicates case, that **nothing** was added, which is a success and
+is said as one. Creating a queue from the chooser receives the Notes, so "these things, into a queue" is
+completed rather than abandoned at an empty screen.
+
+The Note's `Add to queue` is present, and so is Browse's `Add all to queue`: both route to Queue
+Destination and neither touches playback, because neither is given a way to reach the session.
 
 ## Install on a device
 
@@ -91,13 +96,10 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Not yet implemented
 
-- The Note's `Add to queue`, `Add all to queue` on Browse, Queue Destination, and the mini-player's own
-  screen. Each needs a Saved Queue to add to, and the destination screen that would do it is the next slice.
-  **Until it lands, a Saved Queue can be created but not filled**, so `Play` on one is always unavailable —
-  the one visible consequence of the ordering, and the reason the Add path is being taken before Edit mode.
-- Queue **management** of Saved Queues — rename, reorder, remove, delete. Create ships; the four moves,
-  `Remove`, `Rename` and their confirmations are the slices after the Add path. The model underneath them
-  is done and tested (`docs/decisions.md` §23.26), so each is a surface rather than a rule.
+- Queue **management** of Saved Queues — rename, reorder, remove, delete. Create and Add ship; the four
+  moves, `Remove`, `Rename` and their confirmations are the remaining slices. The model underneath them is
+  done and tested (`docs/decisions.md` §23.26), so each is a surface rather than a rule.
+- The mini-player's own screen. It renders today, but not as a destination with its own surface.
 - Queues' **Smart** tab. **Listening** and **Saved** are built. **Smart** waits on the Queue Creation &
   Queue Management specification plus the Content Metadata & Workspace Schema Adapters specification, so it
   is deliberately out of scope by decision (`docs/decisions.md` §23, D30) rather than left as an
@@ -264,7 +266,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 490 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 512 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 
@@ -277,7 +279,7 @@ be silent.
 
 ### Instrumented accessibility tests
 
-The 153 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+The 168 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
 consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
 directly:
 

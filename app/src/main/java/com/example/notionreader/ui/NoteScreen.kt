@@ -42,10 +42,11 @@ import com.example.notionreader.domain.ReaderDocument
  * callback, and is rendered from a document snapshot the engine already owns.
  *
  * Primary action is Play, which the contract defines as "creates a new Active Queue containing only
- * this Note; starts from the beginning; opens Player". The companion "Add to queue" action is absent
- * because there is no queue: Active Queue, Queue Destination and the queue specifications do not exist
- * yet. Adding a control that cannot do anything would be worse than omitting it, and the milestone
- * that introduces queues will bring the action with it.
+ * this Note; starts from the beginning; opens Player". Its companion `Add to queue` is now here too: it
+ * was omitted while there was no queue to add to, and the Queue Creation & Queue Management specification
+ * is what supplied one. The contract's rule for it is narrow and this screen obeys it structurally — the
+ * control opens Queue Destination and does nothing else, so it "does not: start playback; stop playback;
+ * modify an Active Queue", and it cannot, because it is given no way to reach the session.
  *
  * Rendering follows the contract's "content may include" list: title, headings, paragraphs, lists,
  * links, code, supported structured content. Two deliberate omissions:
@@ -75,6 +76,13 @@ fun NoteScreen(
     document: ReaderDocument,
     loadState: DocumentLoadState,
     onPlay: () -> Unit,
+    /**
+     * `Add to queue`: hand this Note to Queue Destination.
+     *
+     * A default so that every existing construction of this screen keeps compiling, and so a test that is
+     * about something else does not have to state it.
+     */
+    onAddToQueue: () -> Unit = {},
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     statusMessage: String? = null,
@@ -156,6 +164,22 @@ fun NoteScreen(
                 )
             ) {
                 Text("Play")
+            }
+
+            // Available on the same terms as Play: there is nothing to add to a queue until the Note has
+            // loaded and has content, and a control that could only add an empty set would be one the
+            // listener presses to no effect. `beginAddToQueue` refuses an empty set as well, so the screen and
+            // the operation agree about when this is meaningful rather than the screen being the only guard.
+            Button(
+                onClick = onAddToQueue,
+                enabled = loadState is DocumentLoadState.Loaded && document.chunks.isNotEmpty(),
+                modifier = Modifier.restoreFocusOn(
+                    target = focusTarget,
+                    id = ReaderFocus.NoteAddToQueue,
+                    onHandled = onFocusHandled
+                )
+            ) {
+                Text("Add to queue")
             }
         }
     }

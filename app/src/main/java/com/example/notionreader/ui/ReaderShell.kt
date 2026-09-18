@@ -66,6 +66,19 @@ fun ReaderShell(
      * decide that from a value that cannot distinguish "created" from "refused".
      */
     onCreateSavedQueue: (String) -> Unit,
+    /**
+     * The Note screen's `Add to queue`, which captures the one Note it is showing.
+     *
+     * **Two callbacks rather than one**, because the two controls capture different things: Browse's reads
+     * its own visible result set from the model, and the Note's reads the document the viewer holds. A
+     * single callback would have to guess which screen was asking, and the shell's `when` already knows —
+     * which is why the distinction is made here, at the one place that has both facts.
+     */
+    onAddNoteToQueue: () -> Unit = {},
+    /** `Add all to queue` on Browse, which captures the visible result set. */
+    onAddAllToQueue: () -> Unit = {},
+    /** Choosing a destination, which places the captured Notes and reports what that did. */
+    onChooseQueueDestination: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sessionState by app.session.state.collectAsState()
@@ -81,6 +94,9 @@ fun ReaderShell(
     // Collected for the same reason `history` is: the Saved tab's cards are a projection of the queue
     // records, and reading the flow here is what makes the tab recompose when one is created or edited.
     val savedQueueRecords by app.savedQueues.collectAsState()
+    // The pending set and its report, both of which Queue Destination and the Details screen it hands over
+    // to need. Collected here because the shell is what decides when they are rendered and consumed.
+    val queueReport by app.queueReport.collectAsState()
     val current = navigation.current
 
     // Back is handled whenever it has somewhere visual to go, which is now most of the app rather than
@@ -132,6 +148,7 @@ fun ReaderShell(
                         onSortChange = app.browse::setSort,
                         onOpenNote = { entry -> onOpenNote(entry.pageId) },
                         onPlayAll = app::playAllVisibleResults,
+                        onAddAllToQueue = onAddAllToQueue,
                         onClearQuery = app.browse::clearQuery,
                         onRetry = onRetryBrowseIndex,
                         focusTarget = navigation.focusTarget,
@@ -164,6 +181,19 @@ fun ReaderShell(
                         queue = navigation.currentSubjectId?.let { app.savedQueueCard(it) },
                         onOpenNote = { pageId -> onOpenNote(pageId) },
                         onPlay = { queueId -> app.playSavedQueue(queueId) },
+                        // The Add's own report, which is read here because the Add navigates to this screen.
+                        report = queueReport,
+                        onReportShown = app::consumeQueueReport,
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.QueueDestination -> QueueDestinationScreen(
+                        queues = savedQueueRecords.let { app.savedQueueCards() },
+                        pendingCount = app.pendingAddCount,
+                        onCreateNewQueue = app::openCreateSavedQueue,
+                        onChooseQueue = onChooseQueueDestination,
+                        report = queueReport,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )
@@ -182,6 +212,8 @@ fun ReaderShell(
                         // is a named action rather than a side effect of loading.
                         onPlay = app::playNote,
                         onRetry = onRetryNoteLoad,
+                        // The Note's own `Add to queue`, which captures this one Note.
+                        onAddToQueue = onAddNoteToQueue,
                         statusMessage = speechMessage,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled

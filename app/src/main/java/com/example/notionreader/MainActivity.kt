@@ -99,7 +99,10 @@ class MainActivity : ComponentActivity() {
                         onRetryBrowseIndex = model::retryBrowseIndex,
                         onContinueSession = model::continueSession,
                         onReplayCompleted = model::replayCompleted,
-                        onCreateSavedQueue = model::createSavedQueue
+                        onCreateSavedQueue = model::createSavedQueue,
+                        onAddNoteToQueue = model::addNoteToQueue,
+                        onAddAllToQueue = model::addAllToQueue,
+                        onChooseQueueDestination = model::chooseQueueDestination
                     )
                 }
             }

@@ -12,8 +12,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -81,6 +86,19 @@ fun SavedQueueDetailsScreen(
     onOpenNote: (String) -> Unit,
     onPlay: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * What the last Add did, when this screen was reached by one.
+     *
+     * The Add navigates here, so this is where its report is read — see `ReaderApp.queueReport` for why the
+     * de-duplication rule and the report are one requirement rather than two. Null when the listener arrived
+     * some other way, which is the common case.
+     */
+    report: String? = null,
+    /**
+     * Called once the listener has left this screen, so a report about a completed Add is not still there
+     * the next time they look at the queue.
+     */
+    onReportShown: () -> Unit = {},
     /** The member the listener activated before leaving, if Back brought them back. */
     focusTarget: String? = null,
     onFocusHandled: () -> Unit = {}
@@ -88,6 +106,26 @@ fun SavedQueueDetailsScreen(
     if (queue == null) {
         GoneQueue(modifier = modifier)
         return
+    }
+
+    // ## Why this is a dispose effect and not an effect keyed on the report
+    //
+    // The first version consumed the report **as soon as it rendered**, which cleared the state the moment it
+    // was drawn — so the sentence appeared for one frame and vanished. Two of the new shell tests caught it,
+    // and it is a real defect rather than a test artefact: a listener who cannot see the screen and wants the
+    // sentence read a second time has nothing left to read, and the whole reason the report exists is that
+    // "nothing was added" is information.
+    //
+    // The lifetime that is actually right is the *visit*: the report describes an Add the listener has just
+    // made, so it belongs on screen while they are looking at the queue it went into, and it must not still be
+    // there next time they open that queue — which would read as though it had just happened again.
+    //
+    // `rememberUpdatedState` so the disposer always calls the current callback: `DisposableEffect(Unit)`
+    // captures the first one, and a stale reference would clear the wrong thing after any recomposition that
+    // produced a new lambda.
+    val currentOnReportShown by rememberUpdatedState(onReportShown)
+    DisposableEffect(Unit) {
+        onDispose { currentOnReportShown() }
     }
 
     Column(
@@ -108,6 +146,17 @@ fun SavedQueueDetailsScreen(
             text = queue.memberDescription,
             style = MaterialTheme.typography.bodyMedium
         )
+
+        if (report != null) {
+            Text(
+                // A live region, because the listener has just pressed something and the sentence is the
+                // answer: an Add that added nothing is still a result, and it is the case that most needs
+                // saying out loud.
+                text = report,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
 
         Button(
             onClick = { onPlay(queue.queueId) },

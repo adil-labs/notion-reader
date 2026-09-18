@@ -115,6 +115,47 @@ function Get-HtmlReportCounter([string]$Html, [string]$ElementId) {
 }
 
 <#
+    The failure message, from whichever shape the XML adapter hands back.
+
+    ## Why this exists, and it is not a nicety
+
+    The classifier used to read `$_.failure.'#text'`, and **that expression is empty for an element with no
+    attributes** - which is what Gradle writes for a test failure. PowerShell's `[xml]` adapter surfaces an
+    attribute-less element that holds only text as a plain **String**, and a String has no `'#text'`
+    property, so the read yielded `$null` and the concatenation was empty.
+
+    The consequence was silent and total: `$text` was always empty, no entry in
+    `$HARNESS_FAILURE_PATTERNS` could ever match, and the retry mechanism could not fire once in the whole
+    time it has existed. It looked present - the array was populated, the loop ran, the branch existed -
+    while being dead. That is the same shape as this project's own lesson about a regex that never matches
+    being indistinguishable from a clean build, and it survived because nothing ever asserted that the
+    classifier *could* classify.
+
+    Measured directly, both shapes:
+
+        <failure message="attr">text</failure>   ->  XmlElement  (has '#text')
+        <failure>text</failure>                  ->  String      (no '#text'; the string IS the message)
+
+    So both are handled and neither is assumed. The function is deliberately total - a missing node gives an
+    empty string rather than throwing - because it runs inside the reporting path, where an exception would
+    replace a test verdict with a script error.
+#>
+function Get-FailureText($node) {
+    if ($null -eq $node) { return '' }
+
+    # The attribute-less case: the adapter has already reduced the element to its text.
+    if ($node -is [string]) { return $node }
+
+    # An XmlElement. `InnerText` is the honest read - every XmlNode has it - while '#text' depends on the
+    # adapter's shape, which is the whole reason this function exists.
+    if ($node -is [System.Xml.XmlNode]) { return $node.InnerText }
+
+    # Anything else is unexpected rather than fatal: returned as text so it lands in the failure list as an
+    # unexplained failure, which is red, rather than being silently dropped.
+    return [string]$node
+}
+
+<#
 .SYNOPSIS
     The exact text patterns that mean "the harness lost the device", not "the app is wrong".
 
@@ -170,7 +211,32 @@ $HARNESS_FAILURE_PATTERNS = @(
     # *every* test uniformly it reads as a catastrophic regression rather than as an environment fault.
     # The measured cause was the keyguard being up: the test activity cannot come to the foreground
     # behind a lock screen, so it never draws a Compose hierarchy at all.
-    'No compose hierarchies found in the app'
+    'No compose hierarchies found in the app',
+
+    # The test rule failing to tear its own Activity down, after the test body has finished.
+    #
+    # Observed as:
+    #
+    #     java.lang.AssertionError: Activity never becomes requested state "[DESTROYED]"
+    #       (last lifecycle transition = "PAUSED")
+    #         at androidx.test.core.app.ActivityScenario.waitForActivityToBecomeAnyOf(ActivityScenario.java:454)
+    #         at androidx.test.ext.junit.rules.ActivityScenarioRule.after(ActivityScenarioRule.java:117)
+    #
+    # Two things make it a harness signature rather than a product one, and the first is the reason the
+    # existing entry above is also on this list: `ActivityScenarioRule.after` runs **after** the test body,
+    # so no assertion in the test can be implicated - the assertions had already passed. The second is that
+    # the Activity reached `PAUSED`, which is normal stopping, so this is the framework not completing a
+    # transition rather than the app refusing to die.
+    #
+    # The evidence it is non-deterministic is the usual shape: it failed once in a full 168-test run and then
+    # passed 11/11 when the same class was run alone, with no code change between the two.
+    #
+    # A retry cannot launder a real defect here either, and the reason is the same as for the entries above:
+    # an app that genuinely blocked teardown would block it on the second attempt too, and the runner reports
+    # the retry's outcome rather than the first's. It is also worth noting what would make this list wrong -
+    # if this signature ever appears *alongside* anything else, the runner refuses to retry, because a mixed
+    # result is red immediately.
+    'Activity never becomes requested state'
 )
 
 <#
@@ -242,7 +308,7 @@ function Invoke-TestAttempt {
         $attempt.Failures += [int]$suite.failures + [int]$suite.errors
 
         $suite.testcase | Where-Object { $_.failure -or $_.error } | ForEach-Object {
-            $text = $_.failure.'#text' + $_.error.'#text'
+            $text = Get-FailureText ($_.failure) + Get-FailureText ($_.error)
 
             $isHarness = $false
             foreach ($pattern in $HARNESS_FAILURE_PATTERNS) {
@@ -328,6 +394,35 @@ function Test-IsRetryable($result) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+
+<#
+    How many tests this suite contains, counted from the sources rather than remembered.
+
+    ## Why it is counted and not a constant
+
+    It is the bar the completeness check compares a run against, so a constant would be a number that goes
+    stale silently - which is the failure mode the completeness check exists to catch, one level up. Read
+    from the `@Test` annotations, adding a test raises the bar automatically and deleting one lowers it.
+
+    Every test in this suite is a plain JUnit 4 `@Test` method; there are no parameterised or dynamically
+    generated cases, so counting annotations is counting tests. If that ever stops being true, this is the
+    place that has to change - and the symptom would be a permanently "INCOMPLETE" verdict, which is loud
+    rather than silent.
+
+    **It is computed here, immediately after `$repoRoot`, and it has to be.** The first version sat next to
+    the signature list near the top of the file and crashed with "Cannot bind argument to parameter 'Path'
+    because it is null": that is well before `$repoRoot` exists, and the failure named a parameter rather
+    than a missing variable, so it read as a path problem rather than as an ordering one.
+#>
+$expectedTests = @(
+    Get-ChildItem (Join-Path $repoRoot 'app\src\androidTest') -Recurse -Filter '*.kt' -ErrorAction SilentlyContinue |
+        ForEach-Object { Select-String -Path $_.FullName -Pattern '^\s*@Test\b' }
+).Count
+
+if ($expectedTests -eq 0) {
+    Write-Warning ('No @Test annotations were found under app\src\androidTest, so the completeness check ' +
+        'has nothing to compare against and will not be able to tell a full run from a truncated one.')
+}
 
 <#
     One run at a time, enforced rather than assumed.
@@ -635,6 +730,13 @@ try {
 
     if ($final.Failures -gt 0) {
         Write-Output "RESULT: FAILED - $($final.Failures) failing test(s) out of $($final.Tests)."
+        # Worth saying even here: a run with failures *and* missing classes is a weaker result than the
+        # failure count alone suggests, and the next person should not read a class that never ran as one
+        # that passed.
+        if ($final.Tests -lt $expectedTests) {
+            Write-Warning ("This attempt is also incomplete: $($final.Tests) of $expectedTests tests ran, " +
+                'so some classes reported nothing at all.')
+        }
         exit 1
     }
 
@@ -642,6 +744,39 @@ try {
         # No counters anywhere: nothing ran, which is not success. Fall back to Gradle's status.
         Write-Output 'RESULT: INCONCLUSIVE - no test counts were readable from either report.'
         exit $(if ($final.GradleExit -ne 0) { $final.GradleExit } else { 1 })
+    }
+
+    # ---------------------------------------------------------------------------------------------------
+    # Completeness, and it is checked before the verdict rather than after it.
+    #
+    # ## Why this exists
+    #
+    # Until this check, the pass condition was "no failures" and nothing compared the number of tests that
+    # ran against the number that should have. That is fine while a run is complete, and **wrong in exactly
+    # the case that matters**: an emulator that dies part-way through leaves a results file containing the
+    # classes that had finished, all of them passing. The runner would have printed
+    #
+    #     RESULT: PASSED - 125 tests, 0 failures.
+    #
+    # on a run that had exercised three-quarters of the suite, with the four missing classes simply absent -
+    # no error, no red, nothing to notice. Observed for real: a run ended with `tests=125` against a suite of
+    # 168, four classes missing from the report and `Transport endpoint is not connected` in the log, and it
+    # only came out red because one of the classes that *did* run happened to fail first.
+    #
+    # That is this project's recurring failure shape - a wrong answer reported with full confidence - and it
+    # is worse than most, because the wrong answer is "all green". A partial run is not a smaller verdict; it
+    # is not a verdict at all.
+    #
+    # The expected count comes from the sources rather than from a remembered number, so it cannot go stale:
+    # a test added tomorrow raises the bar automatically, and one deleted lowers it.
+    # ---------------------------------------------------------------------------------------------------
+    if ($final.Tests -lt $expectedTests) {
+        Write-Output ''
+        Write-Output ("RESULT: INCOMPLETE - only $($final.Tests) of $expectedTests tests ran, with " +
+            "$($final.Failures) failures. A run that lost part of its suite cannot be reported as a pass.")
+        Write-Output ('  The missing tests are not passing tests: they did not run. Check the device or ' +
+            'emulator - a severed transport, a reboot mid-run, or a full disk all produce this.')
+        exit 1
     }
 
     # The known false negative, reported rather than silently swallowed: a future reader seeing a red
@@ -655,7 +790,7 @@ try {
         Write-Warning $explanation
     }
 
-    Write-Output "RESULT: PASSED - $($final.Tests) tests, 0 failures."
+    Write-Output "RESULT: PASSED - $($final.Tests) tests, 0 failures (expected $expectedTests)."
     exit 0
 }
 finally {

@@ -62,6 +62,18 @@ enum class ReaderDestination {
     SavedQueueDetails,
 
     /**
+     * Choose which Saved Queue receives the Notes `Add to queue` or `Add all to queue` captured.
+     *
+     * Secondary, and reached from two different screens — the Note and Browse — which is why it is a
+     * destination rather than a dialog owned by either: the set of queues it offers does not depend on where
+     * the Notes came from, and the contract is explicit that it shows the same three things either way.
+     *
+     * It is **about a pending set of Notes**, and that set lives in `ReaderApp` rather than in this stop's
+     * `subjectId`. See `ReaderApp.pendingAdd` for why a payload is not an identity.
+     */
+    QueueDestination,
+
+    /**
      * Name a new Saved Queue. Reached from the Saved tab's `Create saved queue`.
      *
      * A screen rather than a dialog, because the contract describes it as one and because the state it

@@ -572,11 +572,35 @@ class ReaderApp(
      * [SavedQueueDraft.toQueue] states: a value that embedded an identity source could not be tested. A
      * random UUID cannot collide, so the model's "the id must be fresh" assumption holds at the only place
      * it is made.
+     *
+     * ## It also receives any pending Add, which is the create-if-empty path
+     *
+     * The UI contract: "If no Saved Queue exists, the application may directly open Create Saved Queue rather
+     * than showing an empty destination screen. The new queue receives the incoming Notes, so the listener's
+     * intent — 'these things, into a queue' — is completed rather than abandoned at a screen with nothing on
+     * it."
+     *
+     * So this is deliberately **one operation with two effects** rather than two operations a caller
+     * sequences, because a caller that created the queue and forgot the Notes would leave the listener with
+     * an empty queue and no indication that anything was lost. The two writes are separate `transact` calls
+     * rather than a combined edit — the model has no "create with members" operation, and inventing one for
+     * this would be a second way to do `Add` — and a failure between them is the same lost edit as any other
+     * write failure, with the queue already created and reported as such.
      */
     suspend fun createSavedQueue(name: String): QueueEditOutcome {
-        val draft = SavedQueueDraft(name)
-        val edit = QueueEdit.Create(draft, id = UUID.randomUUID().toString())
-        return transact(edit)
+        val incoming = pendingAdd
+        val edit = QueueEdit.Create(SavedQueueDraft(name), id = UUID.randomUUID().toString())
+        val outcome = transact(edit)
+
+        val created = (outcome.effect as? QueueEffect.Created)?.queue ?: return outcome
+        if (incoming.isEmpty()) return outcome
+
+        // The pending set is put back and placed by the same operation a chosen destination uses, so the
+        // report a listener sees after creating is worded by exactly the same code as the report after
+        // choosing — the two paths cannot describe one de-duplication differently. `addPendingToQueue` clears
+        // the set, which is why the restore has to happen first.
+        pendingAdd = incoming
+        return addPendingToQueue(created.id)
     }
 
     /**
@@ -628,6 +652,147 @@ class ReaderApp(
 
     /** The queue with [id] as a surface describes it, or null when it is gone. */
     fun savedQueueCard(id: String): SavedQueueCard? = _savedQueues.value.firstOrNull { it.id == id }?.toCard()
+
+    // --- Add: the path that gives a queue members ---------------------------------------------------
+
+    /**
+     * The Notes `Add to queue` or `Add all to queue` has captured and not yet placed.
+     *
+     * ## Why this is application state and not a navigation subject
+     *
+     * Queue Destination is about *a set of Notes to place*, and `ReaderStop.subjectId` carries an identity —
+     * a string — because every other destination is about something that already exists and can be named. A
+     * pending set is not: it is a payload, and encoding a list of Notes into a navigation id would be a second
+     * serialization of the domain, in the one place nothing validates it.
+     *
+     * Holding it here also makes the *lifetime* explicit, which is the property that matters. A pending set
+     * exists from the moment the control is pressed until it is placed or abandoned, and both of those are
+     * things this class does. A payload living in a navigation stop would have no owner to clear it.
+     *
+     * ## Why it is not exposed
+     *
+     * A surface cannot do anything useful with the Notes themselves — the destination only needs to know
+     * whether there is something to place, and [pendingAddCount] is that fact. Exposing the list would invite
+     * a screen to render it, which is the Active Queue view's job and not this screen's.
+     */
+    private var pendingAdd: List<QueuedNote> = emptyList()
+
+    /** How many Notes are waiting to be placed, or 0 when nothing is pending. */
+    val pendingAddCount: Int get() = pendingAdd.size
+
+    private val _queueReport = MutableStateFlow<String?>(null)
+
+    /**
+     * What the last Add did, for the surface that lands after it, or null when there is nothing to say.
+     *
+     * ## Why an Add has to report itself
+     *
+     * The spec is emphatic, and for a reason that is not decoration: "the common case is `Add all to queue`
+     * over a result set that overlaps the destination, and a listener who adds twelve things and is told
+     * nothing cannot tell 'all twelve were already there' from 'the app failed'." The de-duplication rule and
+     * the report are one requirement — the dedupe without the report is indistinguishable from a failure.
+     *
+     * It is a flow rather than a returned value because the Add and the surface that shows the result are
+     * different moments: the Add happens when a destination is chosen, and the result is read by the queue's
+     * Details screen, which the Add navigates to. That is why it survives one navigation, and why
+     * [consumeQueueReport] exists to clear it.
+     */
+    val queueReport: StateFlow<String?> = _queueReport.asStateFlow()
+
+    /**
+     * `Add to queue` / `Add all to queue`: capture [notes] and open Queue Destination.
+     *
+     * Returns false when there is nothing to add, in which case **nothing happens at all** — no navigation,
+     * no pending set. A destination screen with no incoming Notes would offer a listener queues to add
+     * nothing to, which is a control that cannot do what its name says.
+     *
+     * [fromFocusId] is the control that was pressed, which is what focus returns to if the listener backs out
+     * without choosing a queue.
+     */
+    fun beginAddToQueue(notes: List<QueuedNote>, fromFocusId: String? = null): Boolean {
+        if (notes.isEmpty()) return false
+
+        // Captured, not referenced: the caller's list is Browse's visible result set, which re-sorts. Adding
+        // from a live list would place whatever it happened to hold when the destination was finally
+        // chosen — the same class of defect as handing a session a live queue, at the other end of the flow.
+        pendingAdd = notes.toList()
+        // A report from an earlier Add is not this one's, and leaving it would make the destination's next
+        // arrival explain something that did not happen.
+        _queueReport.value = null
+
+        navigator.open(ReaderDestination.QueueDestination, fromFocusId = fromFocusId)
+        return true
+    }
+
+    /** Abandons a pending Add, which is what Back from Queue Destination does. */
+    fun cancelPendingAdd() {
+        pendingAdd = emptyList()
+    }
+
+    /**
+     * Places the pending Notes into [queueId] and reports what that did.
+     *
+     * Returns the outcome so a caller that has to navigate on it can, which is the same rule
+     * [createSavedQueue] follows: only the caller can see the result, so only the caller can decide what
+     * happens next.
+     */
+    suspend fun addPendingToQueue(queueId: String): QueueEditOutcome {
+        val incoming = pendingAdd
+        // Cleared before the write so an operation that fails cannot leave the set pending for a second
+        // attempt the listener did not ask for. A lost write is a lost edit, not a retry.
+        pendingAdd = emptyList()
+
+        val outcome = transact(QueueEdit.Add(queueId, incoming))
+        val added = outcome.effect as? QueueEffect.Added
+        // Only a placement the listener actually asked for is reported. An empty pending set is a no-op
+        // nobody initiated — reachable when a second destination is chosen after the first placement — and
+        // telling the listener "nothing was added" about an action they did not take would be worse than
+        // saying nothing.
+        if (added != null && added.added + added.alreadyPresent > 0) {
+            _queueReport.value = describeAdd(added)
+        }
+        return outcome
+    }
+
+    /** Clears the report, once the surface showing it has done so. */
+    fun consumeQueueReport() {
+        _queueReport.value = null
+    }
+
+    /**
+     * How an Add describes itself, in one or two sentences.
+     *
+     * Written as separate sentences rather than one template with substitutions, because each of the three
+     * facts that vary has a case that reads as nonsense if it is templated:
+     *
+     * - **added 0** is the *successful* all-duplicates case, which the spec singles out as the common one,
+     *   and it must not read like a failure. Its count belongs in the "nothing" sentence rather than beside
+     *   it — a first version appended "1 was already in this queue" to "...every note was already in this
+     *   queue", which says the same thing twice, and a test caught it.
+     * - **one** anything is "1 note", not "1 notes".
+     * - **nothing skipped** says nothing about skipping, rather than "0 were already in this queue".
+     */
+    private fun describeAdd(added: QueueEffect.Added): String {
+        val skipped = added.alreadyPresent
+
+        if (added.added == 0) {
+            return if (skipped == 1) {
+                "Nothing was added, because 1 note was already in this queue."
+            } else {
+                "Nothing was added, because all $skipped notes were already in this queue."
+            }
+        }
+
+        val placed = if (added.added == 1) "Added 1 note." else "Added ${added.added} notes."
+        if (skipped == 0) return placed
+
+        val tail = if (skipped == 1) {
+            "1 was already in this queue."
+        } else {
+            "$skipped were already in this queue."
+        }
+        return "$placed $tail"
+    }
 
     /**
      * Runs one queue operation, publishing the result.

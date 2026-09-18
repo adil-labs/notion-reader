@@ -67,11 +67,36 @@ if (-not $adb) { throw 'adb not found. Install platform-tools first.' }
 
 if ($Stop) {
     Write-Head 'Stopping the emulator'
+    $killed = $false
     & $adb devices | Select-String '^emulator-' | ForEach-Object {
         $serial = ($_ -split '\s+')[0]
         Write-Step "killing $serial"
         & $adb -s $serial emu kill 2>&1 | Out-Host
+        $killed = $true
     }
+
+    if (-not $killed) {
+        Write-Step 'no emulator was listed'
+        return
+    }
+
+    # **Wait for it to actually go**, rather than returning as soon as `emu kill` is acknowledged.
+    #
+    # This was a real race: `-Stop` returned while the device was still listed in `device` state, so a
+    # following start saw "an emulator is already running", skipped starting one, and then found nothing to
+    # wait for - ending in "did not finish booting ... (no emulator listed)". Two true statements that
+    # together look like a broken script, and the cause was one step being asynchronous.
+    Write-Step 'waiting for it to disappear'
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline) {
+        if (@(& $adb devices | Select-String '^emulator-').Count -eq 0) {
+            Write-Step 'stopped'
+            return
+        }
+        Start-Sleep -Seconds 2
+    }
+    Write-Warning ('The emulator is still listed 90 seconds after being killed. A following start will ' +
+        'refuse to launch a second one; check `adb devices` if that happens.')
     return
 }
 
@@ -198,29 +223,66 @@ if ($alreadyRunning.Count -gt 0) {
 }
 
 Write-Head 'Waiting for the device to be usable'
+
+<#
+    Read defensively, because a device that is *listed* is not necessarily a device that can be talked to.
+
+    The first version of this loop did `(& $adb -s $id shell getprop sys.boot_completed 2>$null).Trim()` and
+    crashed with "You cannot call a method on a null-valued expression" — because `adb devices` had briefly
+    reported `emulator-5554  device` while the emulator was still coming up, so the shell command failed,
+    `2>$null` swallowed the message, and the expression evaluated to `$null` with no `.Trim()` on it. The
+    symptom named a method rather than a device state, which is the same misattribution this project keeps
+    meeting: the fix is to check for the null rather than to trust the listing.
+
+    A serial is only usable once its state is exactly `device`, and `offline`/`unauthorized` are both real
+    intermediate states during a boot.
+#>
+function Get-OnlineEmulator {
+    $online = @(& $adb devices |
+        Select-String '^emulator-\S+\s+device\s*$' |
+        ForEach-Object { ($_ -split '\s+')[0] })
+    # Empty is `$null` once the pipeline unrolls it, so it is normalised back to a list.
+    return , @($online)
+}
+
+function Get-Prop([string] $serial, [string] $name) {
+    # `-join` rather than an index, because a failed `adb` call yields either nothing or several lines and
+    # both have to reduce to one comparable string without throwing.
+    return ((& $adb -s $serial shell getprop $name 2>$null) -join '').Trim()
+}
+
 $deadline = (Get-Date).AddSeconds($BootTimeoutSeconds)
 $booted = $false
+$lastState = 'no emulator listed'
 while ((Get-Date) -lt $deadline) {
-    $serial = (& $adb devices | Select-String '^emulator-\S+\s+device$' | Select-Object -First 1)
-    if ($serial) {
-        $id = ($serial -split '\s+')[0]
-        if ((& $adb -s $id shell getprop sys.boot_completed 2>$null).Trim() -eq '1') {
-            Write-Step "$id is up, API $((& $adb -s $id shell getprop ro.build.version.sdk).Trim())"
-            $booted = $true
-            break
+    $serials = Get-OnlineEmulator
+    if ($serials.Count -eq 0) {
+        $lastState = ((& $adb devices | Select-String '^emulator-') -join '; ')
+        if (-not $lastState) { $lastState = 'no emulator listed' }
+    } else {
+        foreach ($serial in $serials) {
+            if ((Get-Prop $serial 'sys.boot_completed') -eq '1') {
+                Write-Step "$serial is up, API $(Get-Prop $serial 'ro.build.version.sdk')"
+                $booted = $true
+                # The serial the wait loop just proved usable, kept rather than re-listed. A second listing is
+                # a second race, and it is the one that produced the null-dereference this loop was fixed for.
+                $id = $serial
+                break
+            }
+            $lastState = "$serial listed but not booted"
         }
     }
+    if ($booted) { break }
     Start-Sleep -Seconds 5
 }
 
-if (-not $booted) { throw "The emulator did not finish booting within $BootTimeoutSeconds seconds." }
+if (-not $booted) { throw "The emulator did not finish booting within $BootTimeoutSeconds seconds ($lastState)." }
 
 # -----------------------------------------------------------------------------------------------------------------
 # What the suite needs from this device, printed rather than assumed
 # -----------------------------------------------------------------------------------------------------------------
 
 Write-Head 'The suite will read'
-$id = ((& $adb devices | Select-String '^emulator-\S+\s+device$' | Select-Object -First 1) -split '\s+')[0]
 
 # The dumpsys output is captured ONCE and filtered HERE, in PowerShell. An earlier version wrote
 # `& $adb -s $id shell 'dumpsys window | Select-String isKeyguardShowing'` and got back
