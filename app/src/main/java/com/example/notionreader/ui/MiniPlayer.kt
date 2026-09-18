@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import com.example.notionreader.application.ContinueListeningCard
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
@@ -45,6 +46,13 @@ import androidx.compose.ui.unit.dp
  * action produces; and it says the mini-player "should not read the complete queue state every time
  * focus reaches it", which is why the queue position is the short "Note 3 of 8" rather than a list.
  *
+ * The region is marked `isTraversalGroup`, which is what "logically grouped" means in Compose: traversal
+ * does not leave the region until it has visited everything in it. That is the right behaviour on its own,
+ * and it has a second use — the instrumented suite scopes its *focus-stop count* to this node, so "is the
+ * mini-player two focus stops rather than one or six?" (the check `docs/decisions.md` §12.4 named) is asked
+ * about this surface instead of about the whole screen. A count taken over the screen would have to be
+ * updated every time anything else on the screen changed.
+ *
  * Play/Pause is a separate, explicit control rather than part of that group, because the contract
  * requires it to "remain an explicit accessible control" — merging it in would make the whole region one
  * button and remove the separate way to pause.
@@ -56,7 +64,11 @@ fun MiniPlayer(
     onPlayPause: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { isTraversalGroup = true }
+    ) {
         HorizontalDivider()
 
         Row(

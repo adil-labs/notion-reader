@@ -23,6 +23,12 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
   when already there — so one press re-reads the section and two presses go back one.
 - Late completion callbacks from a cancelled utterance are discarded, so pause/next/previous can never
   cause an unexpected jump.
+- **Previous note** / **Next note** move a whole Note within the frozen queue, and appear only when there
+  is more than one Note to move between. Like the section controls they **preserve the playing state**:
+  pressed while paused they move the position and stay silent, and pressed while playing they continue
+  reading (announcing the new Note's title, since an unannounced Note change is indistinguishable from
+  the reader having stopped). They are also the only way past a Note that will not load, which otherwise
+  stalls the queue with Retry as its only offer.
 - The listening session survives a configuration change — rotating the phone, changing the font size, or
   the system switching to dark mode at dusk. Speech is not interrupted, and the queue, its position and
   its history entry are the same afterwards (`docs/decisions.md` §19.4).
@@ -41,8 +47,13 @@ interchangeable:
 - **Note** — manual reading and inspection. Renders the whole document in reading order; opening it
   never starts playback and moving focus through it never changes playback progress.
 - **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
-  and Previous section / Play-Pause / Next section. Back returns to the previous screen while playback
-  continues.
+  queue position, and the contract's full primary control set: Previous section / Play-Pause /
+  Next section / **Queue**. Back returns to the previous screen while playback continues.
+- **Active Queue** — the Player's `Queue` control opens a read-only view of the session's frozen
+  snapshot: every Note, in order, with the current one marked. Selecting a row moves the session to that
+  Note. There is deliberately nothing to edit — an Active Queue's membership and order are fixed for the
+  session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
+  played" (`docs/decisions.md` §22).
 
 Queues ships **one of its three tabs**. Saved and Smart Queues need two specifications that do not
 exist, and two permanently unusable controls one tap from a populated surface is the same problem as
@@ -50,9 +61,8 @@ an empty screen, only better hidden (see `docs/decisions.md` §18.4). The tab ro
 deferred tab is one tab and one screen. Settings is absent for the same reason it always was — it has
 no content by definition.
 
-The Player's `Queue` control and the Note's `Add to queue` action are deliberately absent: both need
-Saved or Smart Queues, and a visible control that does nothing is worse for a TalkBack user than an
-absent one.
+The Note's `Add to queue` action is still deliberately absent: it needs Saved Queues to add to, and a
+visible control that does nothing is worse for a TalkBack user than an absent one.
 
 ## Install on a device
 
@@ -66,8 +76,13 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Not yet implemented
 
-- Queue surfaces (the Player's `Queue` control, the Note's `Add to queue`, and the mini-player's own
-  screen).
+- The Note's `Add to queue`, `Add all to queue` on Browse, Queue Destination, and the mini-player's own
+  screen. Each needs a Saved Queue to act on.
+- Queue **management** of Saved and Smart Queues — create, rename, reorder, remove, delete. This is
+  slice M and it is blocked on the Queue Creation & Queue Management specification, which does not exist;
+  the UI contract defers the persistence schema to it and the integration spec explicitly delegates it
+  away from itself. The pieces that *are* implemented are the ones that need nothing new: the Active
+  Queue's snapshot and the navigation within it.
 - Queues' **Saved** and **Smart** tabs. The **Listening** tab is built; the other two need two
   specifications that do not exist, and the integration spec explicitly delegates their persistence
   away from itself.

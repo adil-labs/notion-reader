@@ -10,6 +10,7 @@ import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.player.FakeReaderEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -402,5 +403,279 @@ class ReaderSessionQueueTest {
 
         assertTrue(session.canPlay)
         assertTrue(session.isPlaying)
+    }
+
+    // --- Moving between Notes by hand -----------------------------------------------------------------
+    //
+    // The Player's `Next note` / `Previous note` / queue-row controls. Every case below is a transition, so
+    // it is driven one step at a time and inspected between steps like the rest of this file.
+
+    @Test
+    fun nextNoteMovesToTheFollowingNoteAndWaitsForIt() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta, gamma))
+        session.supplyDocument(alpha)
+
+        assertTrue(session.nextNote())
+
+        assertEquals(1, session.queueState.value.index)
+        assertEquals("beta", session.queueState.value.currentItem?.pageId)
+        assertTrue(session.queueState.value.awaiting)
+
+        session.supplyDocument(beta)
+        assertFalse(session.queueState.value.awaiting)
+    }
+
+    @Test
+    fun nextNoteAtTheEndIsRefusedAndChangesNothing() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+        session.onCurrentNoteFinished()
+        session.supplyDocument(beta)
+
+        assertFalse(session.nextNote())
+
+        // The button is disabled at the boundary, and a disabled control that was nonetheless reached must
+        // not move the session — the same rule the section controls follow.
+        assertEquals(1, session.queueState.value.index)
+        assertFalse(session.queueState.value.awaiting)
+    }
+
+    @Test
+    fun previousNoteStepsBackAWholeNote() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+        session.onCurrentNoteFinished()
+        session.supplyDocument(beta)
+
+        assertTrue(session.previousNote())
+
+        assertEquals(0, session.queueState.value.index)
+        assertEquals("alpha", session.queueState.value.currentItem?.pageId)
+        assertTrue(session.queueState.value.awaiting)
+    }
+
+    @Test
+    fun previousNoteAtTheFirstNoteIsRefused() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+
+        assertFalse(session.previousNote())
+        assertEquals(0, session.queueState.value.index)
+    }
+
+    @Test
+    fun aManualMoveStopsTheNoteItIsLeaving() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+        assertTrue(session.isPlaying)
+
+        session.nextNote()
+
+        // Not a cross-fade: leaving the previous Note speaking while the next one loads would read content
+        // the listener has just navigated away from.
+        assertFalse(session.isPlaying)
+        assertEquals(1, engine.pauseCount)
+    }
+
+    /**
+     * The defect this round found, and the reason `playWhenSupplied` exists.
+     *
+     * `Next note` while paused used to start speaking the following Note, because the load path called
+     * `engine.play()` unconditionally. That contradicts the behaviour the section controls already had and
+     * the README documents ("while paused they only move the position"), and it makes a *navigation*
+     * control own playback — the product contract's "navigation does not own playback" in its plainest
+     * form: the listener had just said they did not want to hear anything.
+     */
+    @Test
+    fun movingWhilePausedLoadsTheNoteWithoutStartingIt() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+        session.pause()
+
+        val speaksBefore = engine.speakCount
+        assertTrue(session.nextNote())
+        session.supplyDocument(beta)
+
+        // Loaded and on screen, so the Player can show the new Note and its position...
+        assertEquals("beta", engine.currentDocument.pageId)
+        assertFalse(session.queueState.value.awaiting)
+
+        // ...and silent: nothing spoken, nothing announced, still paused.
+        assertFalse(session.isPlaying)
+        assertEquals(speaksBefore, engine.speakCount)
+        assertEquals(0, engine.announceThenPlayCount)
+    }
+
+    @Test
+    fun movingWhilePlayingKeepsReadingTheNewNote() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+        assertTrue(session.isPlaying)
+
+        session.nextNote()
+        session.supplyDocument(beta)
+
+        // Hands-free reading continues across a manual move, and the new Note is announced because an
+        // unannounced Note change is indistinguishable from the reader having stopped.
+        assertTrue(session.isPlaying)
+        assertEquals(listOf("Beta"), engine.announcements)
+    }
+
+    /**
+     * The bug that would have been introduced by the fix above, caught before it shipped.
+     *
+     * A silent load leaves "stay silent" recorded. If the *next*, automatic transition inherited it, the
+     * Note after a paused manual move would load silently too — so a listener who pressed `Next note` while
+     * paused, then `Play`, would have hands-free reading stop dead at the end of that Note.
+     */
+    @Test
+    fun aSilentlyLoadedNoteStillAdvancesLoudlyWhenItFinishes() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta, gamma))
+
+        session.supplyDocument(alpha)
+        session.pause()
+        session.nextNote()
+        session.supplyDocument(beta)
+        assertFalse(session.isPlaying)
+
+        // The listener resumes, reads beta to its end, and the queue advances on its own.
+        session.play()
+        assertTrue(session.isPlaying)
+        session.onCurrentNoteFinished()
+        session.supplyDocument(gamma)
+
+        assertTrue("automatic progression must keep reading", session.isPlaying)
+        assertEquals(listOf("Gamma"), engine.announcements)
+    }
+
+    @Test
+    fun jumpingToANoteMovesToIt() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta, gamma))
+        session.supplyDocument(alpha)
+
+        assertTrue(session.jumpToNote(2))
+
+        assertEquals(2, session.queueState.value.index)
+        assertEquals("gamma", session.queueState.value.currentItem?.pageId)
+        assertTrue(session.queueState.value.awaiting)
+    }
+
+    @Test
+    fun jumpingOutsideTheQueueIsRefused() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+
+        assertFalse(session.jumpToNote(2))
+        assertFalse(session.jumpToNote(-1))
+        assertEquals(0, session.queueState.value.index)
+    }
+
+    /**
+     * Selecting the row the listener is already on must not rewind it.
+     *
+     * The queue view's rows are how a listener moves the position, and a row that is already the position
+     * says so. The first version re-loaded the current Note from its first chunk, so tapping that row threw
+     * away the listener's place in the Note they were listening to — a destructive reading of an action
+     * that only says "go here".
+     */
+    @Test
+    fun jumpingToTheCurrentNoteIsNotATransition() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta))
+        session.supplyDocument(alpha)
+        engine.nextParagraph()
+
+        val positionBefore = engine.state.value.currentParagraphIndex
+        val callsBefore = engine.callCount
+
+        assertTrue(session.jumpToNote(0))
+
+        assertFalse(session.queueState.value.awaiting)
+        assertEquals(callsBefore, engine.callCount)
+        assertEquals(positionBefore, engine.state.value.currentParagraphIndex)
+    }
+
+    /**
+     * The starvation case, expressed as the thing an observer actually collects.
+     *
+     * The queue is `[alpha, alpha, alpha]` deliberately: three entries for **one page**, so the page id is
+     * identical at every index and only the request token distinguishes them. This is the exact queue
+     * `ReaderViewModel` walks, and the property the trigger depends on is that a move which replaces an
+     * in-flight fetch produces a *different* [PendingNoteRequest]. Without that, the trigger sees no change,
+     * the new Note is never fetched, and the superseded arrival is refused by the identity guard — so the
+     * session waits forever for a request nobody made, with the Player showing "Loading…" and every control
+     * disabled. Two presses of `Next note` on a slow page is all it takes.
+     */
+    @Test
+    fun aMoveThatReplacesAnInFlightFetchIsVisibleToAnObserver() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, alpha, alpha))
+        session.supplyDocument(alpha)
+
+        session.nextNote()
+        val fetchingTheFirstMove = session.queueState.value.pendingRequest
+
+        session.nextNote()
+        val fetchingTheSecondMove = session.queueState.value.pendingRequest
+
+        // The same page is awaited both times, and `awaiting` is true on both sides of the transition...
+        assertNotNull(fetchingTheFirstMove)
+        assertNotNull(fetchingTheSecondMove)
+        assertEquals(fetchingTheFirstMove?.pageId, fetchingTheSecondMove?.pageId)
+
+        // ...so the request token is the only thing that makes the replacement observable, and it is what
+        // lets the trigger fire a second time rather than waiting for a request that no longer exists.
+        assertNotEquals(fetchingTheFirstMove, fetchingTheSecondMove)
+    }
+
+    @Test
+    fun movingOnWhileAFetchIsInFlightAsksForTheNewNoteRatherThanTheOld() {
+        val engine = FakeReaderEngine()
+        val session = ReaderSession(engine)
+        session.start(queue(alpha, beta, gamma))
+        session.supplyDocument(alpha)
+
+        session.nextNote()
+        val first = session.queueState.value.pendingRequest
+
+        // Replaced before the first fetch returns.
+        session.nextNote()
+        val second = session.queueState.value.pendingRequest
+
+        assertEquals("beta", first?.pageId)
+        assertEquals(2, session.queueState.value.index)
+        assertEquals("gamma", second?.pageId)
+
+        // The superseded arrival is refused by identity, so the queue keeps waiting for the request it
+        // actually made instead of being filled by one it did not.
+        session.supplyDocument(beta)
+        assertTrue(session.queueState.value.awaiting)
+        assertEquals("gamma", session.queueState.value.currentItem?.pageId)
+
+        session.supplyDocument(gamma)
+        assertFalse(session.queueState.value.awaiting)
+        assertEquals("gamma", engine.currentDocument.pageId)
     }
 }

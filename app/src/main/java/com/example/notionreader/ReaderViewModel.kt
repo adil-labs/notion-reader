@@ -10,6 +10,7 @@ import com.example.notionreader.application.NoteViewer
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderNavigator
 import com.example.notionreader.application.ReaderSession
+import com.example.notionreader.application.pendingRequest
 import com.example.notionreader.data.local.DataStoreSessionStore
 import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
@@ -193,13 +194,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 .collect { finished -> if (finished) app.onNoteFinished() }
         }
 
-        // While a Note is awaited, fetch it. One step per emission, and a failed load clears `awaiting`,
-        // so this cannot spin: it stops until the user presses Retry, which sets `awaiting` again.
+        // Fetch whatever Note the queue is waiting for, whenever that changes.
+        //
+        // **The trigger is the request, not "is something awaited".** Those look equivalent and are not:
+        // `awaiting` stays true across a *superseding* transition, so mapping to the boolean and applying
+        // `distinctUntilChanged` meant that replacing an in-flight request produced no emission at all —
+        // nothing fetched the new Note, while the arrival of the superseded one was correctly refused by
+        // `supplyDocument`'s identity check. The session then waited for a request no one had made: the
+        // Player showed "Loading…" with every control disabled, permanently, and the only way out was to
+        // leave and start again.
+        //
+        // It is reachable with two presses: `Next note` twice on a page that takes a few seconds to load,
+        // which on this integration is every page with more than a hundred blocks. `pendingRequest`
+        // compares the page *and* the request token, so a replacement is a different value and a retry of
+        // the same page is too — which is exactly what the token exists for.
         viewModelScope.launch {
             app.session.queueState
-                .map { it.awaiting }
+                .map { it.pendingRequest }
                 .distinctUntilChanged()
-                .collect { awaiting -> if (awaiting) app.loadPendingQueueNote() }
+                .collect { request -> if (request != null) app.loadPendingQueueNote() }
         }
     }
 

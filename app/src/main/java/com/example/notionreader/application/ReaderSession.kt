@@ -94,11 +94,45 @@ class ReaderSession(val engine: ReaderEngine) {
     /**
      * Which request for a Note the queue is on. See [pendingRequest].
      *
-     * Incremented by every transition that issues a request — starting, restoring, advancing, retrying —
-     * and deliberately *not* by supplying a document or recording a failure, because those answer a
-     * request rather than making one.
+     * Held in [QueueState.requestToken] rather than as a field here, so that a superseding request is
+     * *observable*. As a private field it was invisible: an observer asking "is a Note awaited?" saw the
+     * same answer before and after a transition that replaced an in-flight request, so nothing fetched the
+     * new one and the queue waited forever for a request no one had made. The token is bumped by every
+     * transition that issues a request — starting, restoring, advancing, retrying — and deliberately *not*
+     * by supplying a document or recording a failure, because those answer a request rather than make one.
      */
-    private var loadToken: Int = 0
+    private val requestToken: Int get() = _queueState.value.requestToken
+
+    /**
+     * Whether playback should begin once the awaited Note's document arrives.
+     *
+     * ## Why this has to be remembered
+     *
+     * A queue transition always pauses the engine before fetching, because the Note that is about to be
+     * replaced must stop speaking immediately. What happens *after* the fetch is a different question, and
+     * answering it with "always play" makes the Reader's Note controls own playback — pressing **Next
+     * note** while paused would start speaking the following Note, which is the one thing the listener had
+     * just said they did not want.
+     *
+     * It is not a hypothetical: it contradicts this project's own established behaviour. Moving a section
+     * preserves the playing state (the engine's `move` re-speaks only when the state says it is playing),
+     * and the README documents it — "while paused they only move the position". This is the same rule for
+     * Notes, and the same rule the product contract states as "navigation does not own playback".
+     *
+     * Automatic progression is unaffected: it happens because a Note finished *while playing*, so the
+     * recorded intent is true and the next Note starts speaking, which is what hands-free reading means.
+     *
+     * ## The invariant, because it is the kind a later edit breaks silently
+     *
+     * **Every path that sets `awaiting = true` also sets this.** There are six — [start] for a document,
+     * [start] for a queue, [restore], [replay] (through [start]), [onCurrentNoteFinished],
+     * [retryCurrentNote] and [beginManualTransition] — and a seventh that forgot to would inherit whatever
+     * the previous transition happened to record. That is not theoretical: [onCurrentNoteFinished] needed
+     * the assignment added *because* the fix above made a stale `false` reachable, and the bug it would
+     * have caused (hands-free reading stopping dead after a paused manual move) is invisible until a
+     * listener presses Play and hears nothing follow.
+     */
+    private var playWhenSupplied: Boolean = true
 
     private val _lastResume = MutableStateFlow<ResumeDecision?>(null)
 
@@ -152,8 +186,8 @@ class ReaderSession(val engine: ReaderEngine) {
         id = newSessionId()
         restoring = false
         pendingPosition = null
-        loadToken += 1
-        _queueState.value = QueueState(queue = ActiveQueue.of(document))
+        playWhenSupplied = true
+        _queueState.value = QueueState(queue = ActiveQueue.of(document), requestToken = requestToken + 1)
 
         // The index is given to setDocument rather than relying on its default, so "from the beginning"
         // is stated where it is meant instead of inherited from an unrelated default. This uses
@@ -179,8 +213,15 @@ class ReaderSession(val engine: ReaderEngine) {
         id = newSessionId()
         restoring = false
         pendingPosition = null
-        loadToken += 1
-        _queueState.value = QueueState(queue = queue, index = 0, awaiting = true)
+        // A new session begins by playing: the contract's Play starts reading, and `Play all` is Play over
+        // many Notes rather than a different verb.
+        playWhenSupplied = true
+        _queueState.value = QueueState(
+            queue = queue,
+            index = 0,
+            awaiting = true,
+            requestToken = requestToken + 1
+        )
     }
 
     /**
@@ -205,12 +246,15 @@ class ReaderSession(val engine: ReaderEngine) {
         id = snapshot.id
         restoring = true
         pendingPosition = snapshot.position
-        loadToken += 1
+        // Continue is the spec's "restores the snapshot and the position, opens the Player, and begins
+        // playback", so a restore resumes speaking rather than waiting to be told to.
+        playWhenSupplied = true
 
         _queueState.value = QueueState(
             queue = queue,
             index = snapshot.index.coerceIn(0, queue.size - 1),
-            awaiting = true
+            awaiting = true,
+            requestToken = requestToken + 1
         )
     }
 
@@ -267,12 +311,7 @@ class ReaderSession(val engine: ReaderEngine) {
      * tracked it itself would be a second copy of the queue that could disagree with the first.
      */
     val pendingRequest: PendingNoteRequest?
-        get() {
-            val current = _queueState.value
-            if (!current.awaiting) return null
-            val pageId = current.currentItem?.pageId ?: return null
-            return PendingNoteRequest(pageId, loadToken)
-        }
+        get() = _queueState.value.pendingRequest
 
     /**
      * This session as a record, or null when it has no queue or no identity.
@@ -357,7 +396,14 @@ class ReaderSession(val engine: ReaderEngine) {
         val announcement = decision.announcement
             ?: if (!wasRestoring && current.index > 0) current.currentItem?.title ?: document.title else null
 
-        if (announcement != null) {
+        // Whether anything is spoken at all is decided by the intent the transition recorded, not by the
+        // fact that a document arrived. `announceThenPlay` speaks and then reads on, so it is only reached
+        // when the session is meant to be reading: announcing a Note and then continuing into it is exactly
+        // the behaviour that makes `Next note` while paused start speaking.
+        if (!playWhenSupplied) {
+            // Loaded, on screen, and silent. The position moved and the listener can read where to; the
+            // heading and the position line show the new Note, and Play begins it from its first chunk.
+        } else if (announcement != null) {
             // The start index goes with the announcement. Announcing a section and then beginning at the
             // document's first chunk would be worse than saying nothing: it would name where the listener
             // is and then read from somewhere else entirely.
@@ -386,16 +432,106 @@ class ReaderSession(val engine: ReaderEngine) {
         if (current.awaiting || current.isStalled || current.completed) return
 
         _queueState.value = if (current.hasNext) {
+            // Automatic progression is always a continue-reading transition: it happens because a Note was
+            // read to its end, so the next one must start speaking. Stated explicitly rather than inherited,
+            // because a *manual* move made while paused records "stay silent" — and if that value were still
+            // in effect here, the Note after a silent load would load silently too and hands-free reading
+            // would stop dead the first time a listener used `Next note` while paused.
+            playWhenSupplied = true
+
             // A transition issues a new request, so a fetch of the Note that just ended can no longer be
             // mistaken for the fetch this session is now waiting on.
-            loadToken += 1
-            current.copy(index = current.index + 1, awaiting = true)
+            current.copy(
+                index = current.index + 1,
+                awaiting = true,
+                requestToken = current.requestToken + 1
+            )
         } else {
             // "At the final Note: announce that the queue has ended; stop automatic progression; mark
             // the session completed". Marked here as a fact. What a completed session is *retained* for
             // belongs to the Reader Session specification, which does not exist, so nothing is invented.
             current.copy(completed = true)
         }
+    }
+
+    /**
+     * Advances to the next Note in the queue.
+     *
+     * Returns true when the transition was initiated, false if already at the last Note or if no queue exists.
+     */
+    fun nextNote(): Boolean {
+        val current = _queueState.value
+        if (current.queue == null || !current.hasNext) return false
+
+        beginManualTransition(index = current.index + 1)
+        return true
+    }
+
+    /**
+     * Steps back to the previous Note in the queue.
+     *
+     * Returns true when the transition was initiated, false if already at the first Note or if no queue exists.
+     *
+     * **A whole Note back, including from the middle of one.** That is what the control says, and it is
+     * deliberately not the rule its section counterpart follows — "Previous section" returns to the start
+     * of the current section first, so one press re-reads and two go back one. The asymmetry is chosen
+     * rather than overlooked: a listener who wants to restart the Note they are part-way through has
+     * "Previous section" for the section they are in, and a control named "Previous note" that sometimes
+     * did nothing visible would be the surprising one.
+     */
+    fun previousNote(): Boolean {
+        val current = _queueState.value
+        if (current.queue == null || !current.hasPrevious) return false
+
+        beginManualTransition(index = current.index - 1)
+        return true
+    }
+
+    /**
+     * Jumps directly to a specific Note index within the active queue.
+     *
+     * **Selecting the Note already playing is not a transition.** It used to re-load the current Note from
+     * its first chunk, so tapping the row a listener was already on silently rewound what they were
+     * listening to — a destructive reading of an action that says only "go here". Returning true anyway,
+     * because the target was valid and the caller's job (closing the queue view) should happen either way.
+     */
+    fun jumpToNote(targetIndex: Int): Boolean {
+        val current = _queueState.value
+        val queue = current.queue ?: return false
+        if (targetIndex !in 0 until queue.size) return false
+        if (targetIndex == current.index) return true
+
+        beginManualTransition(index = targetIndex)
+        return true
+    }
+
+    /**
+     * The shared body of a listener-initiated move to another Note.
+     *
+     * Three things have to happen together and in this order, which is why they are in one place rather
+     * than repeated across the three controls:
+     *
+     * 1. **The current Note stops speaking.** A manual move is not a cross-fade, and leaving the old Note
+     *    talking while the new one loads would speak content the listener has just navigated away from.
+     * 2. **Whether to speak the new one is recorded, not assumed.** Captured *before* the pause above, so
+     *    it is the listener's intent rather than a consequence of the engine having been stopped.
+     * 3. **A new request is issued**, with a new token, so that a fetch of the Note being left behind
+     *    cannot be mistaken for the one now awaited — and so that the change is *observable*, which is what
+     *    makes something actually fetch it.
+     */
+    private fun beginManualTransition(index: Int) {
+        playWhenSupplied = isPlaying
+        if (isPlaying) engine.pause()
+
+        pendingPosition = null
+        restoring = false
+        _queueState.value = _queueState.value.copy(
+            index = index,
+            awaiting = true,
+            completed = false,
+            failure = null,
+            requestToken = requestToken + 1
+        )
     }
 
     /**
@@ -426,8 +562,14 @@ class ReaderSession(val engine: ReaderEngine) {
         val current = _queueState.value
         if (!current.isStalled) return
 
-        loadToken += 1
-        _queueState.value = current.copy(failure = null, awaiting = true)
+        // Retrying means "read this Note", so it resumes speaking. A stall stopped playback as a
+        // consequence of not having a document, not because the listener asked for silence.
+        playWhenSupplied = true
+        _queueState.value = current.copy(
+            failure = null,
+            awaiting = true,
+            requestToken = current.requestToken + 1
+        )
     }
 
     /**
@@ -469,3 +611,30 @@ data class PendingNoteRequest(
     /** Opaque. Only equality against another request's token means anything. */
     val token: Int
 )
+
+/**
+ * The Note this queue state is waiting for, or null when it is waiting for nothing.
+ *
+ * ## One definition, four users
+ *
+ * This is the single answer to "what needs loading?", and it is here rather than inside any one caller
+ * because four of them have to agree about it: [ReaderSession] exposes it, the loader fetches it, the
+ * observer in `ReaderViewModel` triggers on it, and the tests assert it. They used to disagree. The loader
+ * and the session compared *requests* (so a superseded fetch could be refused), while the observer watched
+ * `awaiting` — a boolean that is `true` on both sides of a superseding transition. So a move that replaced
+ * an in-flight fetch produced no observable change, nothing fetched the replacement, and the queue waited
+ * forever for a request nobody had made.
+ *
+ * Deriving it from the state rather than storing it means there is no second copy to fall out of step, and
+ * it is why [QueueState.requestToken] is published at all.
+ *
+ * It is an extension here rather than a member of [QueueState] because [PendingNoteRequest] belongs to this
+ * layer: the domain model describes where the queue is, and "which fetch is outstanding" is an application
+ * concern. Keeping it beside the type it produces is what makes the two impossible to redefine separately.
+ */
+val QueueState.pendingRequest: PendingNoteRequest?
+    get() = if (!awaiting) {
+        null
+    } else {
+        currentItem?.pageId?.let { PendingNoteRequest(pageId = it, token = requestToken) }
+    }

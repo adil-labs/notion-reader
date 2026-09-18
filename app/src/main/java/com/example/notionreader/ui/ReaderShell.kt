@@ -1,0 +1,214 @@
+package com.example.notionreader.ui
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Modifier
+import com.example.notionreader.application.ReaderApp
+import com.example.notionreader.application.ReaderDestination
+
+/**
+ * The application shell: the destination the application is on, the mini-player, and the tab bar.
+ *
+ * ## Why this is a composable rather than the Activity's body
+ *
+ * It used to be written inline in `MainActivity.onCreate`, which made the shell the one surface in the
+ * application with **no test at all**. Its correctness was established by `tools/probe-*.ps1` — a
+ * scripted tap sequence whose result a human reads at the end of a round — and `docs/decisions.md` §19.9
+ * recorded the cost in the round that fixed Browse's result position: the fix was four lines of Compose
+ * runtime behaviour and it was verified *by construction*, because there was nowhere to assert it.
+ *
+ * Composed out here it can be rendered by a test with `setContent`, which is what every other screen in
+ * the suite already does. That matters most for the three things a shell owns and nothing else does:
+ * which destinations are tabs, whether the mini-player is on screen, and where Back goes. All three are
+ * now assertions rather than readings of a log.
+ *
+ * ## The application object is a parameter, not a lookup
+ *
+ * The shell takes the [ReaderApp] it renders rather than building one, which is what makes the test
+ * possible without a Notion token, a network, or a `ViewModel`. It names `application` types, which `ui`
+ * is allowed to do.
+ *
+ * The five callbacks are the operations that perform I/O and therefore need a coroutine scope. They are
+ * passed in rather than called, because a screen must not own a scope: the root package's `ReaderViewModel`
+ * holds the jobs and cancels a superseded one, and the shell only forwards intent.
+ *
+ * ## What it deliberately does not do
+ *
+ * It holds no application state. What is being read aloud, what the Note screen is showing, and which
+ * surface is on top all live above it, because a listening session must outlive the screen it was started
+ * from — and this composable does not, since the system rebuilds the Activity for every configuration
+ * change. See `ReaderViewModel` for that boundary.
+ */
+@Composable
+fun ReaderShell(
+    app: ReaderApp,
+    /** The one thing that comes from outside the application object: a device-level speech failure. */
+    speechMessage: String?,
+    onOpenNote: (String) -> Unit,
+    onRetryNoteLoad: () -> Unit,
+    onRetryBrowseIndex: () -> Unit,
+    onContinueSession: (String) -> Unit,
+    onReplayCompleted: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sessionState by app.session.state.collectAsState()
+    val sessionDocument by app.session.document.collectAsState()
+    val queueState by app.session.queueState.collectAsState()
+    val noteDocument by app.noteViewer.document.collectAsState()
+    val noteLoad by app.noteViewer.loadState.collectAsState()
+    val browseState by app.browse.state.collectAsState()
+    val navigation by app.navigator.state.collectAsState()
+    // Not used directly: collecting it is what makes the lambda below re-run when history changes, since
+    // `continueListeningCards()` reads values rather than being a flow.
+    val history by app.history.collectAsState()
+    val current = navigation.current
+
+    // Back is handled whenever it has somewhere visual to go, which is now most of the app rather than
+    // just the Player. ReaderNavigator holds no reference to the session, so this cannot become a Back
+    // that pauses, and it answers false when it is at Home with nothing pushed — at which point the
+    // system's normal behaviour applies.
+    if (navigation.canGoBack) {
+        BackHandler { app.back() }
+    }
+
+    // The mini-player is deliberately absent on the Player, whose full surface already owns the same
+    // controls, and absent when there is no resumable session.
+    val miniPlayerVisible = app.isSessionResumable && current != ReaderDestination.Player
+
+    // Each destination keeps its own `rememberSaveable` state while another destination is on screen —
+    // Browse's position in its result list, most visibly. Without this the `when (current)` below removes
+    // the surface from composition and takes that state with it, which is what made
+    // `Browse -> Note -> Back` lose the user's place. The contract asks Browse to restore "search text;
+    // filters; sort; result position"; the query came from `BrowseModel` and was already safe, and this is
+    // what makes the position safe too.
+    //
+    // Keyed by the destination's name rather than by the enum itself, because the key is written into the
+    // saved-instance-state bundle and a string is unambiguous there.
+    val destinationState = rememberSaveableStateHolder()
+
+    Column(modifier = modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f)) {
+            destinationState.SaveableStateProvider(current.name) {
+                when (current) {
+                    ReaderDestination.Home -> HomeScreen(
+                        // Reading `history` here is what makes Home recompose when the session moves; the
+                        // cards themselves are derived from it and from the live session, so nothing here
+                        // has to know which session is which.
+                        continueListening = history.let { app.continueListeningCards() },
+                        onContinue = onContinueSession,
+                        onBrowse = app::openBrowse,
+                        onPlayPause = app::togglePlayPause,
+                        // Where focus goes when Back returns from the Player.
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.Browse -> BrowseScreen(
+                        state = browseState.results,
+                        isLoading = browseState.isLoading,
+                        error = browseState.error,
+                        queryText = browseState.query.text,
+                        onQueryChange = app.browse::setText,
+                        onSortChange = app.browse::setSort,
+                        onOpenNote = { entry -> onOpenNote(entry.pageId) },
+                        onPlayAll = app::playAllVisibleResults,
+                        onClearQuery = app.browse::clearQuery,
+                        onRetry = onRetryBrowseIndex,
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.Queues -> QueuesScreen(
+                        // Both lists are read from `history`, which is collected above for the same reason
+                        // Home collects it: the entries are derived from it and from the live session, so
+                        // nothing here has to know which session is which.
+                        continueListening = history.let { app.listeningContinueEntries() },
+                        recentlyCompleted = history.let { app.listeningCompletedEntries() },
+                        // Continue restores the named session; Play on a completed entry starts a new one.
+                        // Two different operations, so two different calls rather than one with a flag.
+                        onContinue = onContinueSession,
+                        onReplay = onReplayCompleted,
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.Note -> NoteScreen(
+                        // The inspected document, not the one being read. Loading another Note must leave
+                        // the session alone, and this is what makes that visible.
+                        document = noteDocument,
+                        loadState = noteLoad,
+                        // Play means "creates a new Active Queue containing only this Note; starts from the
+                        // beginning; opens Player" — the one place a Note becomes playback, which is why it
+                        // is a named action rather than a side effect of loading.
+                        onPlay = app::playNote,
+                        onRetry = onRetryNoteLoad,
+                        statusMessage = speechMessage,
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.Player -> PlayerScreen(
+                        state = sessionState,
+                        // The session's title, not the Note screen's: the Player shows what is being read,
+                        // which is the document Play was pressed on.
+                        documentTitle = sessionDocument.title,
+                        onPlayPause = app::togglePlayPause,
+                        onNextSection = app.session::nextSection,
+                        onPreviousSection = app.session::previousSection,
+                        statusMessage = speechMessage,
+                        queueState = queueState,
+                        onRetryQueueNote = app::retryQueueNote,
+                        onNextNote = app::nextNote,
+                        onPreviousNote = app::previousNote,
+                        onSelectQueueNote = app::jumpToNote
+                    )
+                }
+            }
+        }
+
+        if (miniPlayerVisible) {
+            val card = app.continueListeningCard()
+            if (card != null) {
+                MiniPlayer(
+                    session = card,
+                    onOpenPlayer = app::continueListening,
+                    onPlayPause = app::togglePlayPause
+                )
+            }
+        }
+
+        // Only the top-level destinations are tabs. The Note and the Player are reached from them, which
+        // is the UI contract's "the Player is not a fifth bottom-navigation destination" and "the Note
+        // screen is not a top-level destination".
+        NavigationBar {
+            NavigationBarItem(
+                selected = navigation.top == ReaderDestination.Home,
+                onClick = { app.openHome() },
+                icon = {},
+                // Labels carry the accessible name, so no item is an unlabelled button.
+                label = { Text("Home") }
+            )
+            NavigationBarItem(
+                selected = navigation.top == ReaderDestination.Browse,
+                onClick = { app.openBrowse() },
+                icon = {},
+                label = { Text("Browse") }
+            )
+            NavigationBarItem(
+                selected = navigation.top == ReaderDestination.Queues,
+                onClick = { app.openQueues() },
+                icon = {},
+                label = { Text("Queues") }
+            )
+        }
+    }
+}

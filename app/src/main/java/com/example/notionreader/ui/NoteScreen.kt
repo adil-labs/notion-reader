@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.application.DocumentLoadState
+import com.example.notionreader.application.ReaderFocus
 import com.example.notionreader.domain.ReaderChunk
 import com.example.notionreader.domain.ReaderChunkKind
 import com.example.notionreader.domain.ReaderDocument
@@ -76,7 +77,13 @@ fun NoteScreen(
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-    statusMessage: String? = null
+    statusMessage: String? = null,
+    /**
+     * Set when Back brought the listener here from the Player, so Play — the control they pressed — takes
+     * focus again rather than the screen starting at its top.
+     */
+    focusTarget: String? = null,
+    onFocusHandled: () -> Unit = {}
 ) {
     Column(
         modifier = modifier
@@ -137,7 +144,17 @@ fun NoteScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = onPlay) {
+            Button(
+                onClick = onPlay,
+                enabled = loadState is DocumentLoadState.Loaded && document.chunks.isNotEmpty(),
+                modifier = Modifier.restoreFocusOn(
+                    target = focusTarget,
+                    // A named id rather than a page id: the *button* is what was pressed, and the Play
+                    // buttons of two different Notes are the same control. See `ReaderFocus`.
+                    id = ReaderFocus.NotePlay,
+                    onHandled = onFocusHandled
+                )
+            ) {
                 Text("Play")
             }
         }

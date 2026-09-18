@@ -99,7 +99,7 @@ class BrowseModel {
      * default state has anything to clear.
      */
     fun clearQuery() {
-        _state.value = _state.value.copy(query = BrowseQuery.Default)
+        _state.value = _state.value.copy(query = _state.value.query.copy(text = ""))
     }
 
     /**

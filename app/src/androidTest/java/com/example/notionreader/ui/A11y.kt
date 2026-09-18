@@ -175,6 +175,33 @@ internal object A11y {
     fun hasHeading(): SemanticsMatcher =
         SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)
 
+    /**
+     * Matches a node that names the screen it belongs to.
+     *
+     * The UI contract requires every screen to say where the listener has arrived, and the shell is what
+     * makes that answerable across a navigation: the pane title is the one property that distinguishes
+     * "I am on Browse" from "I am on Note" without reading content that both screens could show.
+     */
+    fun hasPaneTitle(title: String): SemanticsMatcher =
+        SemanticsMatcher("has pane title '$title'") { node ->
+            node.config.contains(SemanticsProperties.PaneTitle) &&
+                node.config[SemanticsProperties.PaneTitle] == title
+        }
+
+    /**
+     * Matches an accessibility traversal group — Compose's spelling of "logically grouped region".
+     *
+     * Used to *scope* a focus-stop count to one region of the screen rather than to the whole tree, which
+     * is what makes "is the mini-player two focus stops rather than one or six?" an assertion about the
+     * mini-player. A count taken over the screen would change every time anything else on it did.
+     *
+     * It is not sufficient on its own as a region identifier: a Material3 `NavigationBar` is also a
+     * traversal group, so a test that needs the mini-player specifically combines this with something
+     * only the mini-player contains.
+     */
+    fun hasTraversalGroup(): SemanticsMatcher =
+        SemanticsMatcher.keyIsDefined(SemanticsProperties.IsTraversalGroup)
+
     // ------------------------------------------------------------------ reachability
 
     /**

@@ -1877,6 +1877,10 @@ thing for a listening app is arguably not on this list at all.
 | — | **Slice E — Raw Notion navigation** | code | the one roadmap slice still undone, and genuinely unblocked, but the lowest-value destination in the contract ("secondary escape hatch") | nothing |
 | — | **Slice A′ — the shell's instrumented checks** | code | tab semantics and the mini-player's focus count; completes slice A, which was verified by accessibility dump instead | P0 |
 
+> **Superseded in §20.** Both P0 items and P1 are closed (§17), and the list above has been re-derived
+> against the UI contract as it now stands; §20 is the current order. The last row's "P0" dependency meant
+> the flake, not a priority on A′ itself, and it has lifted.
+
 ### 16.3 Why the session spec is P1 rather than P2, given P2 unlocks more visible surface
 
 Three reasons, none of them preference:
@@ -2552,13 +2556,599 @@ Each of these was read with the question in the section heading above, and each 
   restore — is still open. This round was an audit, and an audit that starts refactoring things that are
   already correct is the failure mode it was written to avoid.
 
+---
+
+## 20. The UI contract as the remaining work, and the order of the next slices
+
+**Date:** 2026-09-18. **Scope:** read the UI Screens & Navigation Contract as a work list for the second
+time — §12 did it when almost nothing had shipped, and §17–§19 have since shipped the queue, the session,
+the shell, Browse's default state and the Listening tab — then enumerate what is still unmet, what each
+piece waits on, and in what order the next slices go. No code.
+
+### 20.1 What the contract asks for and does not exist
+
+| # | Contract requirement | Waits on |
+|---|---|---|
+| 1 | **Settings**, the fourth top-level destination (invariant 1) | nothing, because there is nothing to put in it — "specific settings are introduced by the specifications that require them". Not a slice until a specification requires a setting; the named candidates are background playback and TTS preferences |
+| 2 | **Home → Your queues** (invariant 4) | the Queue Creation & Queue Management spec — there is no Saved or Smart Queue to surface |
+| 3 | **Home → Explore** (invariant 4, "reader-oriented shortcuts into result sets") | the Content Metadata & Workspace Schema Adapters spec |
+| 4 | **Browse → facets** (invariant 7, "filters are facets, not folders") | the metadata spec, plus §5's recorded workspace gaps |
+| 5 | **Browse → the active filter summary** | facets — with none active there is nothing to summarise, and with them absent nothing can become active |
+| 6 | **Browse → a sort control** (invariant 7 names sorting; "sort order is user-visible because it directly determines `Play all` order") | nothing for `Title`; a content date for the date orders; the Browse/Search spec for `Relevance` |
+| 7 | **Browse → `Add all to queue`** (invariant 12) | Queue Destination → Saved Queues → the Queue Creation spec |
+| 8 | **Browse → `Browse Notion structure`** | nothing |
+| 9 | **Note → `Add to queue`** ("keep primary actions minimal: Play, Add to queue") | the Queue Creation spec |
+| 10 | **Player → `Queue`** ("expected primary controls: `Previous section / Play / Pause / Next section / Queue`") | **nothing** — see §20.2 |
+| 11 | **Queues → Saved**, Saved Queue Details, Create Saved Queue, Edit Saved Queue (invariants 14, 17, 19, 20, 21) | the Queue Creation spec |
+| 12 | **Queues → Smart**, Smart Queue Details, Edit Smart Queue (invariants 14, 18, 22) | the Queue Creation spec, and the metadata spec for "12 current matches" |
+| 13 | **Queue Destination** (invariants 12, 22, 23) | the Queue Creation spec |
+| 14 | **Raw Notion Navigation** and **Raw Notion Database Pages** (invariant 30) | nothing, but it needs API surface `NotionApi` does not have — see slice K |
+| 15 | **Back restores the previous meaningful focus target** ("`Browse` result 7 → `Note` → Back should preferably restore focus to result 7") | nothing; only the *scroll position* is restored today (§19.6) |
+| 16 | **Slice A′** — Home's and Browse's own instrumented checks, and the shell's | nothing; neither screen has any, and the shell is covered by nothing but `tools/probe-*.ps1` |
+| 17 | **The Compose v2 test rule** (§17.3) | nothing |
+
+Three further items are not in the UI contract but are the product's core, and two are recorded as measured
+losses rather than as improvements:
+
+| # | Item | Evidence |
+|---|---|---|
+| 18 | Image and file captions are speakable text and are dropped | round 4's census: 8 blocks in this workspace |
+| 19 | A page dominated by a child database reads as ~empty | round 4: 1 chunk from 2 blocks (§16.2) |
+| 20 | Ordered-list numbering is not recoverable | one `LIST_ITEM` kind serves both list styles |
+
+And one is a whole specification away: **background playback**, whose rank §16.4 already records as the
+plan's largest disagreement with product value.
+
+### 20.2 The one control that became unblocked and was not noticed
+
+The Player's `Queue` action is the fourth of the four primary controls the contract names, and three ship.
+It was deferred as Saved Queue territory, and that reading is wrong: the contract says the opposite twice
+over — "`Queue` opens a view of the current frozen Active Queue/session if such a view is required. This
+represents the current playback snapshot. **It is not the underlying Saved Queue or Smart Queue
+definition.**"
+
+The condition in that sentence is now satisfiable without inventing anything, because §17's session spec
+defines the snapshot and `ReaderSession` already publishes it: `QueueState.queue.items` is a
+`List<QueuedNote>` — identity plus title, in frozen order, for every member — and `QueueState.index` says
+which one is current. A queue view is therefore a **read-only rendering of state that already exists**: no
+new state, no fetch, no second playback model. That is the same rule invariant 26 requires of the
+mini-player, applied to the one other surface that describes a session.
+
+It is also the only place where §15.1's between-Notes announcement has a visible counterpart, and the only
+control on the contract's Player list that is cheap and unblocked.
+
+### 20.3 The ordering principle, unchanged, and what it now ranks
+
+§16.1 ranks four things, none by user-visible value: **remove ambiguity from future rounds**, **things the
+existing code was already shaped for**, **user-visible unlock**, **silent data loss**. Three things have
+changed since it was written, and each moves the order:
+
+- **Its rank-2 argument has been spent.** The session spec was ranked first because
+  `ReaderDocumentPosition`, its resolver and the unused DataStore dependency had been built to wait for it.
+  They no longer wait for anything. Whatever is next inherits that argument only if the code was shaped for
+  it, and the one remaining candidate shaped this way is slice F, whose `ReaderSession.start(queue)` and
+  `ActiveQueue.snapshotOf` were written to be reused rather than replaced.
+- **Two items are rank 1, and one of them is the shell's tests.** Slice A′ has now been deferred across
+  four rounds, and each of those rounds closed by verifying the shell "on device by dump" or "by
+  construction". §19.9 stated the cost: the four-line fix at the centre of that round has no test at all.
+  A shell nothing tests makes every later round's shell change ambiguous — including slice M, which adds
+  four secondary screens and two tabs to it.
+- **The largest unlock is a document.** `Add to queue` is the contract's own second primary action for a
+  Note and it does not exist; four secondary screens, two tabs and two result-set actions wait on the same
+  missing specification, and two of §20.1's rows (#2, #12) wait on it as well.
+
+### 20.4 The plan
+
+Named G onward, so that the roadmap letters A–F keep meaning what §12.4 made them mean.
+
+| # | Slice | Delivers | Blocked by | Verified by |
+|---|---|---|---|---|
+| **G** | **The shell's instrumented checks** (slice A′, completed) | Home's and Browse's own checks; tab semantics for the destinations that ship; the mini-player being two focus stops rather than one or six, and absent on Player; Back returning to the originating tab; Browse's position surviving a trip to a Note | nothing | the instrumented suite, Home and Browse added to the three screens that have one |
+| **H** | **Restoring focus on Back** | `Browse` result 7 → `Note` → Back lands on result 7; the same for a queue row, and for returning from Player | nothing | G's harness, extended — the contract's own example is the test |
+| **I** | **The Player's `Queue` view** | the fourth named primary control, and a read-only rendering of the frozen Active Queue | nothing (§20.2) | JVM: a view built from `QueueState` cannot disagree with the session it came from; instrumented: one row is one focus stop, and the current row says so |
+| **J** | **Content fidelity from the census** | captions read aloud; a child-database-dominated page no longer reads as empty; ordered-list numbering recoverable | nothing | JVM against the frozen census fixture |
+| **K** | **Raw Notion navigation** (roadmap slice E) | `Browse Notion structure` → Database → Page → Note | nothing, but it needs API surface `NotionApi` lacks: a database listing (`POST /v1/search` filtered to `object = database`, where `searchBody` currently pins `page`) and a database's pages | JVM: a database's pages are listed in a deterministic order; instrumented: the standard Note screen opens unchanged |
+| **L** | **Browse's sort control** | `Sort: Title` beside `Recently updated`, over the same result set, so `Play all` order is visible | the date orders wait on the metadata spec; `Relevance` on the Browse/Search spec | JVM: the ordering is already a pure function of the query, which is the shape `BrowseQuery`'s tests take |
+| **M** | **Saved and Smart Queues, Queue Destination, `Add to queue`, `Add all to queue`** (roadmap slice F) | four secondary screens, two tabs, a Note's second primary action, Browse's second result-set action | the Queue Creation & Queue Management spec, which does not exist — **M1 is writing it** | a session-store round trip for a Saved Queue; the destination's dedupe-by-identity rule; edit-mode reordering without drag |
+| **N** | **The Compose v2 test rule** | the harness stops losing the activity rather than classifying the loss | nothing | the same 47 tests, with the retry classifier removed and their assertions unchanged |
+| **O** | **Background playback** | playback with the screen off, lock-screen controls, headset buttons | the Background Playback, Media Controls & Hands-Free Commands spec | on device, with the screen off — the one slice whose verification cannot be JVM |
+
+The order:
+
+| Priority | Slice | Why here |
+|---|---|---|
+| P0 | **G, then H** | rank 1 and rank 3, unblocked, and one round's work: H cannot be verified without G, and most of G's value is that it makes H's verdict mean something. It is also the honest response to four rounds of "verified by dump" |
+| P1 | **M1 — write the Queue Creation & Queue Management spec** | rank 2 (the code was shaped for it) and the largest unlock on the list. §16.3's "settle persistence once" argument now points here: a session store exists, so Saved Queues must reuse it rather than invent a second |
+| P2 | **M2 — slice F** | implement what M1 settles |
+| P3 | **I, J and L** | three small unblocked slices, and the right work while a document is being written. I leads because it completes a control set the contract names |
+| P4 | **K** | unblocked, and the last roadmap slice, but the contract's own lowest-value destination: "secondary escape hatch" |
+| P5 | **The metadata spec, then Browse's facets and Home's Explore** | unlocks three surfaces at once, but it is the largest and most uncertain document here, and §5 already recorded that this workspace cannot supply part of what it would have to say |
+| — | **N** | removes ambiguity, but it is a harness change with 47 tests riding on it, so it belongs in a round with no other risk |
+| — | **O** | the largest product gap — a listening app that stops when the screen sleeps — and last by unblocking order. §16.4's disagreement, restated rather than resolved |
+
+### 20.5 Decisions the next round needs from the product owner
+
+1. **The P0 choice.** G + H by the §16.1 ordering, because that pair is the only one that removes
+   ambiguity; M1 leads instead if the priority is visible surface. This plan ranks ambiguity first and says
+   so, so that the choice is visible rather than emergent — the same courtesy §16.4 pays background
+   playback.
+2. **Background playback's rank.** §16.4 recorded that ordering by unblocking puts the largest functional
+   gap in a listening app last. Nothing here changes that, and repeating it is not agreement. A decision
+   to rank by product value moves O to P1 and makes *its* specification the next document written instead
+   of the queue spec. This is the highest-leverage decision in the plan, and it is a product call rather
+   than an engineering one.
+3. **Slice L's scope.** Whether to ship `Title` alone and be explicit that it is one of five named orders,
+   or to hold sorting entirely until the date orders are real. One selectable order is a smaller lie than
+   a control offering three over data that does not exist — which is §15.3's reason for not adding the
+   enum member early in the first place.
+4. **Slice J's ordering within itself.** Captions are the largest *measured* loss; a child-database page is
+   the most *misleading* failure, because it reads as empty while looking full. Which of those is a defect
+   to fix first and which is an enhancement is a product call.
+
+### 20.6 What this plan does not propose
+
+- **No new destination.** The contract's rule is that "a downstream specification should justify creating
+  another major destination rather than overloading one of these responsibilities", and every screen in
+  §20.1 is one of the fourteen the contract already names.
+- **No change to what is read aloud in G, H, I, K, L, M or N.** J changes exactly that, which is why it is
+  separated rather than folded into the queue work.
+- **No resolution of §19.9's dead end** — a Note that will never load stops a queue with Retry as the only
+  way past. That belongs to M, because "skip this Note" is a queue-management rule, and inventing it here
+  would repeat the thing §14.3 avoided by naming it a product decision.
+- **No Settings screen.** Adding one still needs a specification that requires a setting, which is the
+  condition §12.5's deferral was written with.
+
+---
+
+## 21. Twelfth round — the shell gets tests (G), and Back restores focus (H)
+
+**Date:** 2026-09-18. **Scope:** §20.4's P0 pair, implemented end to end. G is the shell's instrumented
+checks — called slice A′ for four rounds — and H is the UI contract's "returning with Back restores the
+previous meaningful focus target". No specification was needed for either, and none was changed.
+
+The two are one round because H is not verifiable without G: the assertion H needs *is* "focus is on result
+7", and until the shell was renderable by a test there was nowhere to write it. That is also why the
+enabling refactor (§21.1) came with the tests rather than before them.
+
+### 21.1 The shell was the one surface with no test, and the reason was where it lived
+
+`MainActivity.onCreate` built the surface inline: the `when (current)` over destinations, the mini-player,
+the tab bar and the `SaveableStateProvider` all sat inside `setContent`. That made the shell the **only
+shipped surface in the application with no instrumentation of any kind** — Note, Player and Queues each had
+their own semantics suite — and the cost was recorded in three consecutive rounds:
+
+| Round | How the shell was verified | What was admitted |
+|---|---|---|
+| §15 | `tools/probe-player-back.ps1`, read by a human | the shell's own checks were "not written" |
+| §18.9 | the same | "Home is still the only shipped surface with no instrumented test of its own" |
+| §19.9 | the same, plus reasoning | Browse's result-position fix is "verified by construction, not by a test" |
+
+Nothing was wrong with those probes; the problem is that a scripted tap sequence produces a conclusion
+rather than a verdict, and a conclusion has to be believed by whoever reads it. The fix is not more probes,
+it is a surface a test can render — and the only thing standing in the way was that the shell needed a
+`ReaderApp` and a coroutine scope, both of which `MainActivity` supplied from inside itself.
+
+So the shell moved to **`ui/ReaderShell.kt`**, taking the application object and the five I/O-bearing
+operations as parameters. `MainActivity` is now about sixty lines: build the retained root, collect the one
+value that does not come from it, render. The five callbacks are the boundary that already existed
+conceptually — the shell forwards intent, and the owner with the scope performs it — it just had not been
+drawn there.
+
+The class comment on `ReaderShell` states this, and the Activity's states what it *stopped* being, because
+the placement of the shell was not an accident of style: it was the reason four rounds could not assert the
+things the contract cares most about.
+
+### 21.2 G — what the shell's checks are for
+
+Nine checks in `ReaderShellAccessibilityTest`, plus two new screen suites. Each answers a question the
+contract asks and that nothing could previously answer:
+
+| Assertion | Contract requirement |
+|---|---|
+| exactly three tabs, asserted **while the Player is on screen** | "The Player is not a fifth bottom-navigation destination" |
+| exactly three tabs with the Note on screen | "The Note screen is not a top-level destination" |
+| the mini-player is exactly **two** focus stops | "a logically grouped accessible region", with "Play/Pause ... an explicit accessible control" |
+| the mini-player names the current Note and not the queue | "should not read the complete queue state every time focus reaches it" |
+| the mini-player is absent on the Player | D25 and "the mini-player must remain deliberately compact" |
+| the mini-player is absent with nothing played | D25: surfaced "once playback has begun" |
+| nothing is focused on entry | "must not unpredictably land on: bottom navigation; mini-player" |
+| Back from Browse lands on Home; from a Note on its tab; from the Player on the Note | the Back table |
+| Browse keeps its result position across a trip to a Note | "Browse state survives temporary navigation" |
+
+The Player-not-a-tab check is made with the Player *on screen* on purpose. A count taken on Home would pass
+whether or not the Player had been added as a tab, because a fourth tab is only visible in the state where
+it exists.
+
+`HomeScreenAccessibilityTest` and `BrowseScreenAccessibilityTest` close the other half of the gap: Home had
+no instrumented test at all, and Browse's screen had none either — its *behaviour* was covered by
+`BrowseModelTest` and `BrowseQueryTest`, which cannot see an announcement. Both assert the semantics tree
+rather than the composables, because that is what TalkBack consumes, and the reading-order helper reads
+order out of the tree for the same reason.
+
+Two Browse checks are worth naming because they encode a defect rather than a shape: the error message is
+asserted to be **the live region itself** and to **not contain "Retry"**, which is the failure this project
+already found once (a live region on a parent that does not merge its descendants creates its own node, so
+TalkBack watches an empty container and the announcement never fires), and the Retry control is asserted to
+be absent entirely for a category whose `canRetry` is false.
+
+### 21.3 H — how focus gets back
+
+The mechanism is three small pieces, and the placement of each is the decision:
+
+**The identity is recorded when the screen is pushed**, because that is the only moment the fact exists.
+`ReaderNavigator.open(destination, fromFocusId)` stores a `ReaderStop`, and `back()` surfaces the popped
+stop's id as `ReaderNavigation.focusTarget`. Modelling the stop as a pair rather than as a bare destination
+is what makes `Browse → Note → Play → Player → Back → Back` restore *Play*, then *result 7* — one screen at
+a time, each from its own record. A single field on the navigator could not.
+
+**The id is a plain string, and the navigation layer does not know what it means.** It cannot hold a
+`FocusRequester`, and it must not know which screen owns the id. A Browse row's id is its page id and a
+history entry's is its session id — both of which already exist and are already the row's identity
+everywhere else — so a parallel naming scheme would have been a second source of truth for the same fact.
+For the two controls with no content identity (`Note`'s Play, Browse's `Play all`) `ReaderFocus` holds
+namespaced constants, and the reason they live in `application` rather than beside the buttons is the
+architecture rule: a screen may not define the id the navigation layer records, because `application`
+cannot depend on `ui`.
+
+**The item claims the hint, not the screen.** `restoreFocusOn` is a `Modifier` extension, so each row asks
+"am I the one?" and requests focus if it is. This is not a stylistic choice; it is the shape Compose
+supports. A screen cannot search the composed tree for a target, and an item that is not composed cannot be
+focused at all. That degrades correctly rather than surprisingly: the listener activated a row they could
+see, the destination's scroll position is preserved (§19.6), so the row is composed by the time Back
+returns.
+
+The hint is **one-shot**, and consumed even when it could not be honoured. `focusHandled()` clears it, and a
+screen that is handed an id it does not recognise clears it too — a hint left pending would fire on some
+later, unrelated visit, which is exactly the unpredictable focus movement the contract's rule exists to
+prevent. The trade is stated rather than hidden: a target whose row has genuinely been disposed is dropped
+instead of being honoured later.
+
+The other half of the fix is that navigating *forward* clears a stale hint, and so does selecting a tab.
+Without that, a hint recorded for another tab's list could survive and fire in a list it never described.
+
+### 21.4 The mini-player became a traversal group, for a second reason
+
+The contract asks for a "logically grouped accessible region", and `Modifier.semantics { isTraversalGroup =
+true }` is Compose's spelling of that: traversal does not leave the region until it has visited everything
+in it. That is a correctness improvement on its own.
+
+It also made the count assertable, which is the check §12.4 named four rounds ago: "the mini-player is two
+focus targets rather than one or six". A count taken over the whole screen would have to be revised whenever
+anything else on the screen changed; scoped to the region, it is a statement about the mini-player.
+
+`isTraversalGroup` is **not sufficient as a region identifier**, and the test says so: a Material3
+`NavigationBar` is also a traversal group, so counting by it alone would count the tabs. The matcher
+combines it with the one thing only the mini-player contains — the session title — which is also the right
+scope semantically, since the point of grouping the region is that it is about one session.
+
+### 21.5 What these tests cannot see
+
+**Focus asserted here is Compose's input focus.** `assertIsFocused` reads `SemanticsProperties.Focused`,
+which is the node the focus system moved to. Whether TalkBack's *speech* focus follows a programmatic
+request, and what it then says, is not in the semantics tree and is not something any test in this project
+can assert.
+
+That is the same gap the integration spec's oldest open item names — the complete flow performed with
+TalkBack enabled, *heard* rather than asserted — and this round narrows what is left of it without closing
+it. H answers "does the app put focus back where the listener left it"; it does not answer "does the
+listener hear that". §21.7 keeps the gate open rather than implying G and H retired it.
+
+### 21.6 Verified
+
+- **314 JVM tests, 0 failures** (was 303). The additions are 7 in `ReaderNavigatorTest` and 4 in
+  `ReaderAppTest`, and the focus guard has a **failing-first proof**: making `back()` drop the id it had
+  just popped failed exactly 8 tests — the 4 `ReaderAppTest` route tests and 4 of the 7 navigator tests —
+  and no others, and restoring it made the suite green again.
+  - The three navigator tests that passed either way are the ones asserting the *clearing* rather than the
+    recording (`theFocusHintIsConsumedOnceSoItCannotFireLater`, `selectingATabDiscardsAStaleFocusHint`,
+    `backWithNothingRecordedLeavesNoFocusHint`). That is recorded rather than glossed: they guard a
+    different property from the one the failing-first check exercised.
+- **The debug APK builds**, and `:app:compileDebugAndroidTestKotlin` was compiled explicitly — the JVM
+  tasks and `assembleDebug` do not compile `androidTest`, which §18.6 records as how a broken instrumented
+  source set was once committed while the suite reported green.
+
+### 21.7 What this round did not do
+
+- **The TalkBack listening gate is still open.** It is now the oldest item on the project by a wide margin,
+  and §21.5 says precisely what G and H did and did not take off it: the app's own focus movement is now
+  asserted, and whether a listener *hears* it is not.
+- **A focus target that is no longer composed is dropped.** Stated in §21.3 rather than papered over. The
+  alternative — keeping the hint pending until a matching row appears — would fire on an unrelated visit.
+- **The mini-player does not take focus back** when the Player returns. The listener activated a *region*
+  rather than an identified element, and it is on screen on every top-level destination, so a hint would
+  have to name a region rather than an element and the listener is one swipe from it either way. Recorded as
+  a decision rather than an omission.
+- **Nothing in the shell's *behaviour* changed** beyond the focus work. G is instrumentation; the only
+  production changes it needed were the extraction itself and the mini-player's traversal group.
+- Everything §20.6 listed as deliberately not proposed, unchanged: slices I through O, the metadata and
+  queue-management specifications, and §19.9's unreadable-Note dead end (which is M's to settle).
+
+---
+
+## 22. Thirteenth round — Note navigation, the Active Queue's view, and what "queue management" is allowed to mean
+
+**Date:** 2026-09-18. **Scope:** the Player's `Next note` / `Previous note` controls, the Active Queue's
+snapshot as a surface, and queue management. The first two were implemented; the third was **audited and
+mostly refused**, and that refusal is the most important thing in this section.
+
+### 22.1 What was found, and what it was found in
+
+Work had started on this before the audit, and it did not compile: the queue view was written against
+`QueueState.items`, which did not exist. That is the shallow finding. The others came from asking the
+question this project's audits ask — *who owns this, and can two things disagree about it?*
+
+| # | Finding | Class |
+|---|---|---|
+| F1 | `QueueState.items` referenced but never declared; the module did not build | defect |
+| F2 | A superseding Note load was **invisible**, so the queue could wait for a request nobody made — forever | liveness |
+| F3 | `Next note` while **paused** started speaking | defect |
+| F4 | Selecting the queue row you are already on **rewound** it | defect |
+| F5 | The queue view called every row before the current one "Completed" | false claim |
+| F6 | The decorative `▶` marker was read aloud by TalkBack | a11y defect |
+| F7 | The queue view relied on `BackHandler` registration order | fragility |
+| F8 | Active Queue *editing* (remove / reorder) is **forbidden by the contract** | boundary |
+| F9 | Saved and Smart Queue *management* needs a specification that does not exist | blocked |
+
+### 22.2 F2 — the one that could hang the app, and why a boolean was the wrong question
+
+`ReaderViewModel` fetched an awaited Note by collecting `queueState.map { it.awaiting }`, which is a
+boolean. `awaiting` is `true` on **both sides** of a superseding transition — a transition that replaces an
+in-flight request keeps the queue waiting, so the observable value does not change, `distinctUntilChanged`
+swallows it, and nothing fetches the replacement. Meanwhile the arrival of the superseded document is
+correctly refused by §19's identity guard.
+
+```
+Next note        queue = [beta, gamma], index 1, awaiting = true, fetch(beta) begins
+Next note        queue = [beta, gamma], index 2, awaiting = true, fetch(gamma) ...
+                 -> no emission: awaiting was already true
+fetch(beta)      arrives, refused: the queue awaits gamma
+                 -> the session waits forever for a request nobody made
+```
+
+The Player shows `Loading…` with every control disabled, permanently, and the only way out is to leave and
+start again. It takes two presses on a page that loads slowly, and on this integration a page is several
+HTTP requests — §4 measured one at 343 chunks.
+
+**The lesson is the same one §19 taught and is worth restating because it recurred**: the session already
+had the right abstraction — `PendingNoteRequest`, page id plus a load token — and the *loader* compared
+requests while the *observer* compared a boolean. Two components, one fact, two questions. The fix is not a
+new guard but a single definition of "what needs loading?":
+
+```kotlin
+val QueueState.pendingRequest: PendingNoteRequest?
+```
+
+with the token moved out of a private field and into `QueueState.requestToken`. Four callers — the session,
+the loader, the observer, and the tests — now read the same answer, and a superseding request is
+distinguishable precisely because the token travels with the state rather than beside it.
+
+### 22.3 F3 — a navigation control that owned playback
+
+`supplyDocument` called `engine.play()` whenever a document arrived, so pressing `Next note` while **paused**
+loaded the following Note and started speaking it. That is the product contract's "navigation does not own
+playback" in its plainest form: the listener had just said they wanted silence.
+
+It also contradicted this project's own established behaviour. `ReaderEngineImpl.move()` re-speaks only when
+the state says it is playing, so `Next section` while paused moves the position and stays silent — and the
+README documents exactly that ("while paused they only move the position"). One rule for sections and
+another for Notes was never a decision; it was an omission.
+
+The fix records the intent at the transition (`playWhenSupplied`), captured **before** the pause so it is the
+listener's intent rather than a consequence of the engine having been stopped, and `supplyDocument` honours
+it: the Note loads, the Player shows it, and nothing is spoken.
+
+**And that fix introduced the next bug, which a test caught before it shipped.** A silent load leaves "stay
+silent" recorded, so the *next* transition — the automatic one at the end of the Note — would have inherited
+it and loaded silently too. A listener who pressed `Next note` while paused and then `Play` would have had
+hands-free reading stop dead at the end of that Note. `onCurrentNoteFinished` now states
+`playWhenSupplied = true` explicitly, because automatic progression is by definition a continue-reading
+transition. That is recorded here rather than only in a comment because it is the second-order failure of a
+correct fix, which is the kind that ships.
+
+### 22.4 F5 — a label the session could not support
+
+The queue view marked every row before the current position "Completed". The session knows one fact —
+**which Note is current** — and nothing about which Notes were read: a listener who presses `Next note`
+twice, or taps a row near the end of the queue, moves *past* Notes that were never read. The rows now say
+"Now playing", "Earlier in the queue", "Later in the queue".
+
+A false "Completed" is worse than a vaguer true label, because a listener deciding whether to go back would
+rely on it. The same discipline the project applies everywhere else it does not have a fact applies here.
+
+### 22.5 F8 and F9 — the audit's answer on "queue management": no, and the contract says so
+
+This is the part of the request that was **refused**, and the reasoning is the durable output of the round.
+
+**The Active Queue cannot be edited, because three separate statements forbid it.** The product contract's
+queue ownership model:
+
+> Saved Queues are **edited**. Smart Queues are **configured**. Active Queues are **played**.
+
+its playback invariants: "Active Queue membership and ordering are fixed snapshots for the lifetime of that
+listening session" (§7) and "New Notion content must not silently appear inside an existing Active Queue"
+(§8); and its snapshot contract, which lists six things that must not change a queue once it exists.
+
+The contract does leave one door open, and it is worth quoting because it is the only way this feature could
+ever be legitimate:
+
+> If future Player-specific behavior permits modifying an active playback session, that behavior must be
+> explicitly scoped to the Active Queue/Player and must not redefine the global Add to queue action.
+
+So removing or reordering Notes in a playing queue is **not an unfinished feature. It is a product change**,
+requiring the contract to be amended in Notion *first*, dependents reviewed, and only then implemented —
+which is the conflict protocol the product contract sets out and §1 already recorded. Building it now would
+be inventing the semantics, which is the thing every round of this project has refused to do.
+
+What the queue surface therefore ships is what the contract does allow: the frozen snapshot, read-only, with
+navigation within it — which is what `Queue` is *for*. Its doc comment says what it must not offer and why,
+so the absence reads as a requirement rather than an omission.
+
+**Saved and Smart Queue management is blocked on a document that does not exist.** Create, rename, reorder,
+remove, delete, and the Queue Destination all live in the Queue Creation & Queue Management specification,
+which is slice M1 in §20.4. The UI contract defers the persistence schema to it; the integration spec
+explicitly delegates Saved Queue and Smart Queue persistence away from itself. There is nothing here to
+"complete" without writing that document first, and writing it as a side effect of implementing the screen it
+belongs to would invert the order the project depends on: the specification is what decides, and the screen
+follows.
+
+### 22.6 The one deliberate enablement, and why it is not a contract breach
+
+`Next note` and `Previous note` stay **enabled while the queue is stalled** on a Note that will not load.
+
+§19.9 recorded that a failed Note in a queue is "still a dead end, with Retry as the only option and no way
+past", and attributed it to a queue-management specification. That attribution was right in the sense that
+the *policy* belongs there — but the dead end is also reachable today, and the fix available today does not
+need a new policy. The spec's rule is that "**it is never skipped**", about the app advancing on its own;
+this is a listener pressing a control that says what it will do, on a queue whose membership has not
+changed. Without it, one missing page costs the listener every Note after it, with no way to continue — which
+is a worse outcome than the one the rule protects against, and is not what the rule is about.
+
+The distinction is stated in the code at the `enabled` expression, and §19.9's item is narrowed rather than
+closed: what remains for M is whether a stalled Note should offer anything beyond Retry and move-on.
+
+### 22.7 F7 — Back, and a note on how the fix was verified
+
+The queue view is a view of the Player, not a destination: the contract's ten secondary screens name
+`Queue Destination`, which is the Saved Queue chooser that `Add all to queue` routes through, and is a
+different thing. So Back closes the view rather than reversing navigation, and it is the one Back rule the
+contract states as a prohibition — "Back must never implicitly mean: Pause, Stop, Previous section, Previous
+note" — which holds structurally because the view is given no playback callback at all.
+
+The implementation relies on the inner `BackHandler` beating the shell's, which is the framework's
+registration-order rule. It works, and it is the fragile kind of thing that stops working silently, so it is
+asserted by a test that dispatches a real Back press through `onBackPressedDispatcher` — which needs the
+Activity, hence `createAndroidComposeRule` in its own small class rather than switching the whole shell suite
+over to it.
+
+### 22.8 Verified
+
+- **327 JVM tests, 0 failures** (was 314). Thirteen additions, all in `ReaderSessionQueueTest`, and three of
+  them have **failing-first proofs**:
+
+  | Guard removed | Tests that noticed |
+  |---|---|
+  | the request identity in `QueueState.pendingRequest` (token forced to a constant) | `aMoveThatReplacesAnInFlightFetchIsVisibleToAnObserver` |
+  | jumping to the current Note is a no-op | `jumpingToTheCurrentNoteIsNotATransition` |
+  | the advance path states its playback intent | `aSilentlyLoadedNoteStillAdvancesLoudlyWhenItFinishes` |
+  | the awaited Note honours the recorded playback intent | `movingWhilePausedLoadsTheNoteWithoutStartingIt` **and** `aSilentlyLoadedNoteStillAdvancesLoudlyWhenItFinishes` |
+
+  Each was verified by removing exactly that guard, observing the named tests and no others, and restoring
+  it. The fourth case failing *two* tests is the right answer and is recorded rather than smoothed: one
+  asserts the silent load directly, the other needs a silent load to exist before it can observe that the
+  following transition is loud.
+
+- **The debug APK builds**, and both new instrumented suites compile — checked with
+  `:app:compileDebugAndroidTestKotlin` explicitly, because the JVM tasks and `assembleDebug` do not compile
+  the instrumented source set (§18.6).
+- **On device, 103 instrumented tests, 8 failures on the first run.** All eight were informative: four were
+  missing test-side imports or a second `setContent` in one test (Writing a test is not exempt from the
+  project's own standards, and the suite caught it), and **four were a real defect in this round's focus
+  restoration** — see §22.9.
+
+### 22.9 The device found what reasoning had missed, twice in one round
+
+**Focus restoration did not work at all.** All four of §21's new focus assertions — the ones this round
+inherited and re-ran — failed on the device with focus still nowhere. The cause was not the mechanism but
+its timing: `requestFocus()` on a target that is composed but **not attached and placed** does nothing and
+reports nothing. And there is no single frame that is guaranteed to be late enough, because `LazyColumn`
+places its items during layout.
+
+It took three attempts, and the sequence is the part worth keeping, because the first two were both
+plausible and both wrong.
+
+| Attempt | Change | Outcome |
+|---|---|---|
+| A | request focus immediately | 4 failures — focus nowhere |
+| B | wait **one frame**, then request | 4 failures — focus nowhere |
+| C | retry across up to **eight** frames, stopping on grant | 4 failures — focus nowhere |
+| D | C, **plus** the test advancing the clock | passing |
+
+C is still correct and is kept: `requestFocus()` on a target that is composed but not attached and placed
+does nothing and reports nothing, and there is no single frame guaranteed to be late enough because a
+`LazyColumn` places its items during layout.
+
+**What D adds is the realisation that the test was not running the mechanism.** `ComposeTestRule` installs a
+**test frame clock**, so `withFrameNanos` callbacks only run when the test advances the clock, and
+`waitForIdle()` settles recomposition without guaranteeing that a pending frame callback has been resumed.
+The effect was waiting for a frame that never came, `onHandled()` never ran, and the assertion was asking
+about a request that had not been made yet. The tests now use `waitUntil`, which advances the clock while
+polling, and the note in `ReaderShellAccessibilityTest` says why a "wait for it" is a fix here and not a
+weakened assertion: the timeout still elapses and the assertion still reports what it found.
+
+The decisive evidence throughout was the node dump from the failing runs, and it is worth keeping because it
+is what distinguishes "arrived too early" from "cannot work":
+
+```
+Node #124 at (l=54.0, t=766.0, r=954.0, b=915.0)px
+Focused = 'false'
+Text = '[Result 3, September 1]'
+Actions = [..., OnClick, RequestFocus, ...]
+```
+
+Correct node, correct bounds, focus action available, focus not held. Three separate runs produced that same
+picture while the mechanism was already correct — which is the signature of a *test* that cannot see the
+mechanism, and is why attempt C's failure was not evidence against the production code.
+
+This is the clearest example so far of the thing §21.1 argued: the shell had no instrumentation for four
+rounds, and the first time it got some it found a defect in code that had been *"verified by construction"*
+one round earlier. §21.5 had also claimed the limit of this approach was only TalkBack's *speech* focus —
+that input focus was assertable. The mechanism was assertable; what was not yet true was that the assertion
+was running it.
+
+**A test that asserts about a node which was never drawn passes for the wrong reason.** Browse's
+result-count check passed an empty query in the state while passing the query *text* separately, so the
+summary it asserted about was never rendered — and "this is not a live region" is trivially true of nothing.
+The fix is in the fixture, and the lesson is §15's, restated: an assertion about absence has to prove its
+subject exists first.
+
+**And a correction to §17.2, which claimed more than it could.** That section replaced six
+`assertIsDisplayed` calls because they were claims about the device's window state, and described the four
+checks that replaced them as "deterministic" and app-side. Three are. **"Occupies area" is not**, and
+attempt B's run produced it twice:
+
+```
+'Play' is laid out but occupies no area, so nothing can be tapped: bounds=Rect.fromLTRB(0.0, 0.0, 0.0, 0.0)
+'Continue' is laid out but occupies no area, so nothing can be tapped: bounds=Rect.fromLTRB(0.0, 0.0, 0.0, 0.0)
+```
+
+A node inside a root the device has not measured yet reports zero in every direction, and that is a fact
+about measurement rather than about the control — on a `Button` that cannot legitimately have no size. It
+did not reproduce in attempt C's run, which is what a measurement race looks like.
+
+It is **classified rather than fixed**, and the reasoning is a deliberate trade: the assertion is the
+requirement worth keeping — a control a listener cannot touch is not a control — so the check stays and the
+runner learns the signature. A retry cannot launder a real one, because a control that is truly not laid out
+reports zero on the second attempt as well and the runner reports the retry's outcome.
+
+One more thing that run demonstrated is worth recording because it is the runner behaving exactly as
+designed: it **refused to retry**, because its failures were mixed — two harness signatures and four real
+assertions. A retry that fired there would have buried four genuine failures inside a "flaky" verdict, which
+is the thing §17.3 built the classifier to prevent.
+
+
+
+
+---
+
 ## Still open
 
-- The TalkBack listening gate (§11), now the oldest outstanding item.
-- The Compose test rule's v2 migration (§17.3).
-- Slice A′ (Home's instrumented checks), slice E (raw Notion navigation), slice F (Saved/Smart queues and
-  `Add to queue`), plus slice C's facets and the two deferred Queues tabs.
+- **The TalkBack listening gate** (§11, §14.6). The oldest outstanding item on the project, and the only
+  acceptance criterion no test can close: the integration spec's gate is a complete playback and
+  navigation flow with TalkBack enabled, and the risk it carries is unique — whether TalkBack's speech and
+  the reader's TTS overlap in practice. It needs ears, not code, and enabling it changes the device's touch
+  behaviour globally, so it is the user's call.
+  unblocking order; it needs a specification before it needs code. §20.5 makes its rank an explicit
+  product decision rather than a consequence of the ordering principle.
+- **Slices G through O**, in the order §20.4 gives: G (the shell's instrumented checks), H (restoring focus
+  on Back), I (the Player's `Queue` view), J (the caption and child-database losses measured in round 4),
+  K (roadmap slice E, raw Notion navigation), L (Browse's sort control), M (roadmap slice F, Saved and
+  Smart Queues, Queue Destination and `Add to queue`, blocked on its own specification), N (the Compose v2
+  test rule, §17.3) and O (background playback).
+- **Slice C's facets and Home's Explore**, blocked on the Content Metadata & Workspace Schema Adapters
+  spec, which §5 records this workspace can only partly supply.
+- **Slice A′'s gap now has a name** — it is G — and **§19.9's two stated gaps** are closed by it: Browse's
+  result position, verified by construction only, becomes testable through the shell harness, and the
+  unreadable-Note dead end is M's to settle.
 - `ReaderEngine.playFromStart()`'s absent caller (§13.4).
 - `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path (§17.1).
-- An inexact restore on a device (§17.6).
-- Background playback (§16.4), and a shell-level test with it (§19.9).
+- An inexact restore has not been observed on a device; it is covered by unit tests only (§17.6).

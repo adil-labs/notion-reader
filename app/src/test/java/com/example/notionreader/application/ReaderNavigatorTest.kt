@@ -2,6 +2,7 @@ package com.example.notionreader.application
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -148,5 +149,113 @@ class ReaderNavigatorTest {
 
         assertTrue(navigator.back())
         assertEquals(ReaderDestination.Home, navigator.state.value.top)
+    }
+
+    // --- Where focus goes when Back returns ---------------------------------------------------------
+
+    @Test
+    fun backPutsFocusOnTheElementThatOpenedTheScreenItLeaves() {
+        // The UI contract's accessibility rule and its worked example: "Browse result 7 -> Note -> Back
+        // should preferably restore focus to result 7". The id has to be recorded when the screen is
+        // *pushed*, because the activation is the only moment that fact exists — so this asserts the whole
+        // round trip rather than the field.
+        val navigator = ReaderNavigator()
+        navigator.openTopLevel(ReaderDestination.Browse)
+
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        assertTrue(navigator.back())
+
+        assertEquals("page-7", navigator.state.value.focusTarget)
+        assertEquals(ReaderDestination.Browse, navigator.state.value.current)
+    }
+
+    @Test
+    fun theFocusHintIsConsumedOnceSoItCannotFireLater() {
+        val navigator = ReaderNavigator()
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        navigator.back()
+
+        navigator.focusHandled()
+
+        // A hint that survived being honoured would pull the listener back to the same row every time the
+        // screen recomposed, which is the unpredictable focus movement the contract's rule is about.
+        assertNull(navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun navigatingForwardDiscardsAStaleFocusHint() {
+        val navigator = ReaderNavigator()
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        navigator.back()
+        assertEquals("page-7", navigator.state.value.focusTarget)
+
+        navigator.open(ReaderDestination.Player, fromFocusId = "note:play")
+
+        // Recorded for the screen being left. Left pending, it would fire on the *next* return to that
+        // screen, on an activation that had nothing to do with it.
+        assertNull(navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun selectingATabDiscardsAStaleFocusHint() {
+        val navigator = ReaderNavigator()
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        navigator.back()
+
+        navigator.openTopLevel(ReaderDestination.Queues)
+
+        // The id named a row in Browse's list. Focusing it — or anything — in another tab's list would be
+        // worse than focusing nothing.
+        assertNull(navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun twoScreensDeepReturnFocusOneScreenAtATime() {
+        // Browse -> Note -> Play -> Player -> Back -> Back. Each Back restores the element that opened the
+        // screen it is leaving, which is why the focus target has to live with the *stop* rather than on
+        // the navigator as a whole.
+        val navigator = ReaderNavigator()
+        navigator.openTopLevel(ReaderDestination.Browse)
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        navigator.open(ReaderDestination.Player, fromFocusId = "note:play")
+
+        navigator.back()
+        assertEquals(ReaderDestination.Note, navigator.state.value.current)
+        assertEquals("note:play", navigator.state.value.focusTarget)
+
+        navigator.focusHandled()
+        navigator.back()
+        assertEquals(ReaderDestination.Browse, navigator.state.value.current)
+        assertEquals("page-7", navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun backWithNothingRecordedLeavesNoFocusHint() {
+        val navigator = ReaderNavigator()
+        navigator.open(ReaderDestination.Note)
+
+        navigator.back()
+
+        // A route with nothing identifiable to return to says so rather than naming a placeholder, so
+        // nothing is focused and the screen's own entry behaviour applies.
+        assertNull(navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun aRepeatedTripToTheSameRowAsksForFocusAgain() {
+        // The hint is consumed each time, so the second visit is a *change* in the navigator's state and
+        // the screen's effect re-runs. A hint that were merely "still set" would silently stop working the
+        // second time the listener opened and closed the same row.
+        val navigator = ReaderNavigator()
+
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        navigator.back()
+        navigator.focusHandled()
+        assertNull(navigator.state.value.focusTarget)
+
+        navigator.open(ReaderDestination.Note, fromFocusId = "page-7")
+        navigator.back()
+
+        assertEquals("page-7", navigator.state.value.focusTarget)
     }
 }

@@ -5,7 +5,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Where the user is: a selected top-level destination, and whatever is pushed on top of it.
+ * One pushed screen, and the element the user activated to push it.
+ *
+ * The second field is what makes the UI contract's focus rule implementable: "When returning from a
+ * secondary destination, restore the previous meaningful focus target when it still exists", whose worked
+ * example is `Browse result 7 → Note → Back` landing back on result 7. Recording *who* opened a screen is
+ * the only way Back can know where to put focus, and it has to be recorded at push time because the
+ * activation is the one moment that fact exists.
+ *
+ * It is an identifier and not a focus object: this class must not hold a Compose `FocusRequester`, and it
+ * must not know which screen the id belongs to. `docs/decisions.md` §21 records why the id is a plain
+ * string — the destination that receives it is the one that can resolve it, and it silently ignores ids
+ * that are not its own.
+ */
+data class ReaderStop(
+    val destination: ReaderDestination,
+    /** The element that was activated to open [destination], or null when nothing identifiable was. */
+    val fromFocusId: String? = null
+)
+
+/**
+ * Where the user is: a selected top-level destination, whatever is pushed on top of it, and where focus
+ * should land when Back removes one of those.
  *
  * ## Why this replaced a single value
  *
@@ -34,10 +55,19 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 data class ReaderNavigation(
     val top: ReaderDestination = ReaderDestination.Home,
-    val secondary: List<ReaderDestination> = emptyList()
+    val secondary: List<ReaderStop> = emptyList(),
+    /**
+     * The element that should receive focus on the screen Back just returned to, or null.
+     *
+     * Set by [ReaderNavigator.back] from the popped stop and cleared by [ReaderNavigator.focusHandled],
+     * which is what stops it firing more than once. It is a *one-shot hint for the destination below*,
+     * not a property of any screen: nothing else may read it, and a top-level switch clears it because a
+     * target recorded for one tab's list means nothing in another tab's.
+     */
+    val focusTarget: String? = null
 ) {
     /** The destination on screen. */
-    val current: ReaderDestination get() = secondary.lastOrNull() ?: top
+    val current: ReaderDestination get() = secondary.lastOrNull()?.destination ?: top
 
     /** True when Back has somewhere visual to go. */
     val canGoBack: Boolean get() = secondary.isNotEmpty() || top != ReaderDestination.Home
@@ -68,14 +98,23 @@ class ReaderNavigator(initial: ReaderNavigation = ReaderNavigation()) {
      *
      * A secondary destination is pushed; a top-level one selects that tab. The split is taken from the
      * destination rather than from the caller, so a caller cannot ask for the Player to become a tab.
+     *
+     * [fromFocusId] names the element the user activated to get here. It is optional because not every
+     * route has one — a destination reached by a tab, or by a set-level action, has nothing to return
+     * focus to — and passing null is the honest answer rather than a placeholder id.
      */
-    fun open(destination: ReaderDestination) {
+    fun open(destination: ReaderDestination, fromFocusId: String? = null) {
         if (destination.isTopLevel) {
             openTopLevel(destination)
             return
         }
 
-        _state.value = _state.value.copy(secondary = _state.value.secondary + destination)
+        _state.value = _state.value.copy(
+            secondary = _state.value.secondary + ReaderStop(destination, fromFocusId),
+            // Navigating forward invalidates any target recorded for the screen being left. Without
+            // this, a target that was never consumed would fire on the *next* return to that screen.
+            focusTarget = null
+        )
     }
 
     /**
@@ -85,6 +124,10 @@ class ReaderNavigator(initial: ReaderNavigation = ReaderNavigation()) {
      * "returning to a top-level screen should not unnecessarily reset the user's context" is satisfied by
      * the *destination's* own state (Browse keeps its search, filters, sort and result position) rather
      * than by navigation retaining a stale Note over an abandoned tab.
+     *
+     * A fresh value rather than a `copy`, so the focus target is cleared with the secondaries: it was
+     * recorded for a list in the tab being left, and focusing an unrelated row in the tab being entered
+     * would be worse than focusing nothing.
      */
     fun openTopLevel(destination: ReaderDestination) {
         _state.value = ReaderNavigation(top = destination, secondary = emptyList())
@@ -96,12 +139,20 @@ class ReaderNavigator(initial: ReaderNavigation = ReaderNavigation()) {
      * Returns true when this consumed the press, so the caller must not finish. Returning false means
      * "not mine" and the caller should let the system handle it — the contract's "at top-level
      * destinations, Android system Back follows normal application behavior".
+     *
+     * Popping a secondary also surfaces the element that opened it, so the screen underneath can put
+     * focus back where the user left it. That is the whole of the focus mechanism on this side: this class
+     * decides *which id* and nothing about how it is applied.
      */
     fun back(): Boolean {
         val state = _state.value
+        val popped = state.secondary.lastOrNull()
 
-        if (state.secondary.isNotEmpty()) {
-            _state.value = state.copy(secondary = state.secondary.dropLast(1))
+        if (popped != null) {
+            _state.value = state.copy(
+                secondary = state.secondary.dropLast(1),
+                focusTarget = popped.fromFocusId
+            )
             return true
         }
 
@@ -115,5 +166,18 @@ class ReaderNavigator(initial: ReaderNavigation = ReaderNavigation()) {
         }
 
         return false
+    }
+
+    /**
+     * The destination has put focus where the user left it.
+     *
+     * Called by whichever screen consumed the target, including when it could not honour it — a row that
+     * is no longer composed, say. Clearing on an unhonoured target is deliberate: the alternative is a
+     * hint that stays pending until some unrelated event fires it, which is the "guess the user's
+     * intent" behaviour the contract's focus rules exist to prevent.
+     */
+    fun focusHandled() {
+        if (_state.value.focusTarget == null) return
+        _state.value = _state.value.copy(focusTarget = null)
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -24,7 +25,9 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.application.BrowseIndexStatus
+import com.example.notionreader.application.ReaderFocus
 import com.example.notionreader.domain.discovery.BrowseResults
+import com.example.notionreader.domain.discovery.BrowseSort
 import com.example.notionreader.domain.ReaderIndexEntry
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -65,6 +68,9 @@ import java.time.format.DateTimeFormatter
  *
  * The result count is deliberately **not** a live region. Search changes it on every keystroke, and the
  * contract warns against repeatedly re-announcing large parts of the interface for small state changes.
+ *
+ * Focus restoration is per row rather than per screen: see [restoreFocusOn] for why the item is the only
+ * thing that can know when it exists.
  */
 @Composable
 fun BrowseScreen(
@@ -77,8 +83,21 @@ fun BrowseScreen(
     onPlayAll: () -> Unit,
     onClearQuery: () -> Unit,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    onSortChange: (BrowseSort) -> Unit = {},
+    modifier: Modifier = Modifier,
+    /** The element the listener activated before leaving this screen, if they came back with Back. */
+    focusTarget: String? = null,
+    onFocusHandled: () -> Unit = {}
 ) {
+    // A hint this screen cannot resolve — a page that has since left the result set, say — is consumed
+    // rather than left pending. Leaving it would mean it fired the next time a row with that id appeared,
+    // which is the unpredictable focus movement the contract's rule exists to prevent.
+    LaunchedEffect(focusTarget, state.entries) {
+        val owned = focusTarget == ReaderFocus.BrowsePlayAll ||
+            state.entries.any { it.pageId == focusTarget }
+        if (focusTarget != null && !owned) onFocusHandled()
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -110,6 +129,28 @@ fun BrowseScreen(
                     TextButton(onClick = onClearQuery) {
                         Text("Clear search")
                     }
+                }
+            }
+
+            Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Sort:",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Button(
+                    onClick = { onSortChange(BrowseSort.RECENTLY_UPDATED) },
+                    enabled = state.query.sort != BrowseSort.RECENTLY_UPDATED
+                ) {
+                    Text("Recently updated")
+                }
+                Button(
+                    onClick = { onSortChange(BrowseSort.TITLE) },
+                    enabled = state.query.sort != BrowseSort.TITLE
+                ) {
+                    Text("Title")
                 }
             }
 
@@ -163,7 +204,12 @@ fun BrowseScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(items = state.entries, key = { it.pageId }) { entry ->
-                        BrowseResultRow(entry = entry, onClick = { onOpenNote(entry) })
+                        BrowseResultRow(
+                            entry = entry,
+                            onClick = { onOpenNote(entry) },
+                            focusTarget = focusTarget,
+                            onFocusHandled = onFocusHandled
+                        )
                     }
                 }
 
@@ -173,6 +219,14 @@ fun BrowseScreen(
                     onClick = onPlayAll,
                     modifier = Modifier
                         .fillMaxWidth()
+                        // A set-level action has no content identity, so it is named by the control — see
+                        // `ReaderFocus`. The listener who left the Player with Back lands on the button
+                        // they pressed to get there.
+                        .restoreFocusOn(
+                            target = focusTarget,
+                            id = ReaderFocus.BrowsePlayAll,
+                            onHandled = onFocusHandled
+                        )
                         .padding(horizontal = 24.dp, vertical = 12.dp)
                 ) {
                     Text("Play all")
@@ -190,15 +244,27 @@ fun BrowseScreen(
  * date. The contract's example announcement is "Thoughts are less reactive but still frequent.
  * Reflection. Mind and Learning. September 17." — the type and area parts of that are waiting on the
  * metadata specification; the title and date are what exist.
+ *
+ * The page id is the row's identity everywhere — it is the list key, the id the navigation layer records,
+ * and the id this row answers to when Back returns.
  */
 @Composable
 private fun BrowseResultRow(
     entry: ReaderIndexEntry,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    focusTarget: String?,
+    onFocusHandled: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            // Before `clickable`, because that is the modifier that creates the focus target this
+            // requester attaches to.
+            .restoreFocusOn(
+                target = focusTarget,
+                id = entry.pageId,
+                onHandled = onFocusHandled
+            )
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {}
             .padding(vertical = 12.dp),

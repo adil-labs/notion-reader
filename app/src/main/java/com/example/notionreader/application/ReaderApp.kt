@@ -155,7 +155,9 @@ class ReaderApp(
 
         if (record.id != session.id) session.restore(record)
 
-        navigator.open(ReaderDestination.Player)
+        // The session id is the activated element: a history entry is identified by its session, not by
+        // its title, which is why Back from the Player can find the very entry Continue was pressed on.
+        navigator.open(ReaderDestination.Player, fromFocusId = id)
 
         // Restoring the *state* is offline and immediate; restoring *playback* needs the current Note, and
         // may therefore fail like any other load - which is why it goes through the queue's own loader and
@@ -174,7 +176,7 @@ class ReaderApp(
         val record = ListeningHistory.completed(_history.value).firstOrNull { it.id == id } ?: return
 
         session.replay(record)
-        navigator.open(ReaderDestination.Player)
+        navigator.open(ReaderDestination.Player, fromFocusId = id)
         loadPendingQueueNote()
     }
 
@@ -231,7 +233,7 @@ class ReaderApp(
         )
     }
 
-    fun openNote() = navigator.open(ReaderDestination.Note)
+    fun openNote() = navigator.open(ReaderDestination.Note, fromFocusId = ReaderFocus.NotePlay)
 
     fun openHome() = navigator.openTopLevel(ReaderDestination.Home)
 
@@ -249,7 +251,10 @@ class ReaderApp(
      */
     fun playNote() {
         session.start(noteViewer.document.value)
-        navigator.open(ReaderDestination.Player)
+        // Play is the control that was activated, so it is where focus returns if the listener comes
+        // back from the Player. It is a named id rather than the Note's page id because the *button* is
+        // what was pressed, and the buttons of two different Notes are the same control.
+        navigator.open(ReaderDestination.Player, fromFocusId = ReaderFocus.NotePlay)
     }
 
     /**
@@ -264,7 +269,9 @@ class ReaderApp(
      * playback session remains unchanged".
      */
     suspend fun openNote(pageId: String) {
-        navigator.open(ReaderDestination.Note)
+        // The page id is the activated element: a Browse row is identified by the page it opens, which is
+        // also its `key` in the list, so Back can find the row the listener actually left.
+        navigator.open(ReaderDestination.Note, fromFocusId = pageId)
         noteViewer.load(pageId, loadDocument)
     }
 
@@ -336,7 +343,14 @@ class ReaderApp(
         )
     }
 
-    /** Opens the Player on the existing session. Does not start or change anything. */
+    /**
+     * Opens the Player on the existing session. Does not start or change anything.
+     *
+     * No focus target, unlike [continueSession]: what was activated here is the mini-player, which is a
+     * region rather than an identified element and is on screen on every top-level destination anyway. A
+     * listener who leaves the Player with Back is at most one swipe from it, so there is nothing worth
+     * restoring and no id that would be honest to record.
+     */
     fun continueListening() {
         if (isSessionResumable) navigator.open(ReaderDestination.Player)
     }
@@ -361,7 +375,10 @@ class ReaderApp(
         if (notes.isEmpty()) return
 
         session.start(ActiveQueue.snapshotOf(notes, origin))
-        navigator.open(ReaderDestination.Player)
+        // Nothing here has a content identity — `Play all` acts on the result *set* — so it is named by
+        // the control instead, which is also what the contract's focus rule wants: the listener comes
+        // back to the button they pressed.
+        navigator.open(ReaderDestination.Player, fromFocusId = ReaderFocus.BrowsePlayAll)
     }
 
     /**
@@ -371,6 +388,15 @@ class ReaderApp(
      * [loadPendingQueueNote], so a failure can be handled without unwinding a half-advanced position.
      */
     fun onNoteFinished() = session.onCurrentNoteFinished()
+
+    /** Advances to the next Note in the queue if available. */
+    fun nextNote(): Boolean = session.nextNote()
+
+    /** Steps back to the previous Note in the queue if available. */
+    fun previousNote(): Boolean = session.previousNote()
+
+    /** Jumps to a specific Note in the active queue by index. */
+    fun jumpToNote(index: Int): Boolean = session.jumpToNote(index)
 
     /**
      * Loads the Note the queue is waiting for, if any.
@@ -389,6 +415,14 @@ class ReaderApp(
     fun retryQueueNote() {
         session.retryCurrentNote()
     }
+
+    /**
+     * The destination has put focus where the user left it.
+     *
+     * Forwarded rather than reimplemented, so there is exactly one place that knows a focus hint is
+     * one-shot. Read by the shell and by whichever screen consumed it.
+     */
+    fun focusHandled() = navigator.focusHandled()
 
     /**
      * Visual Back. Returns true when it was consumed.

@@ -158,10 +158,41 @@ data class QueueState(
     val index: Int = 0,
     val awaiting: Boolean = false,
     val completed: Boolean = false,
-    val failure: ReaderLoadException? = null
+    val failure: ReaderLoadException? = null,
+    /**
+     * Which request for a Note this state represents.
+     *
+     * ## Why this is published rather than kept private
+     *
+     * The session increments a token on every transition that issues a request, so that a fetch which
+     * completes after the session moved on can be told apart from one that is still current — and so that
+     * the *same page* can be asked for twice in a row (a retry, or a queue whose first two Notes are the
+     * same page) and still count as two requests.
+     *
+     * It used to be private, and that made it invisible to anything observing the queue. An observer that
+     * asked "is a Note awaited?" saw `true` both before and after a superseding transition, so a request
+     * that replaced an in-flight one produced **no observable change at all** and nothing ever fetched it —
+     * while the arrival of the superseded one was correctly refused by the identity guard. The queue then
+     * sat awaiting a Note that no request existed for. Publishing the token is what lets "which Note do I
+     * need?" be an observable question rather than a hidden one.
+     *
+     * It is part of the *state* rather than a separate channel on purpose: a token that lived anywhere else
+     * would be a second thing to keep in step with `index` and `awaiting`, which is exactly the class of
+     * bug it exists to prevent.
+     */
+    val requestToken: Int = 0
 ) {
 
     val size: Int get() = queue?.size ?: 0
+
+    /**
+     * Every Note in the queue, in frozen order — the whole snapshot, for a surface that renders it.
+     *
+     * Empty rather than null with no queue, so a caller cannot render "no queue" as a crash and does not
+     * have to distinguish the two before drawing a list. The distinction is still available where it
+     * matters: [queue] is null when there is no session at all.
+     */
+    val items: List<QueuedNote> get() = queue?.items ?: emptyList()
 
     val currentItem: QueuedNote? get() = queue?.itemAt(index)
 
@@ -170,7 +201,10 @@ data class QueueState(
 
     val hasNext: Boolean get() = index < size - 1
 
+    val hasPrevious: Boolean get() = index > 0
+
     val isStalled: Boolean get() = failure != null
+
 
     /**
      * "Note 3 of 8", or null for a queue of one.

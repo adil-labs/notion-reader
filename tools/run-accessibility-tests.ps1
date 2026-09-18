@@ -100,6 +100,23 @@ $HARNESS_FAILURE_PATTERNS = @(
     'Process crashed',
     'Instrumentation run failed',
 
+    # A node that is *placed but unmeasured*: `isPlaced` is true, the layout info exists, and the reported
+    # bounds are `Rect(0, 0, 0, 0)`.
+    #
+    # This is the residual half of the flake that `A11y.assertIsReachable` was written to remove, and it is
+    # worth recording that the replacement did not remove all of it. Deciding to stop asserting
+    # `assertIsDisplayed` was right - it matches against the *root view* and intersects
+    # `getGlobalVisibleRect`, both claims about the device's window - and the four checks that replaced it
+    # were described as app-side and deterministic. Three of them are. **"Occupies area" is not**, because a
+    # node inside a root that the device has not measured yet reports zero in every direction, and that is a
+    # statement about measurement rather than about the control.
+    #
+    # It is classified rather than fixed because the assertion is the requirement worth keeping: a control
+    # a listener cannot touch is not a control, and dropping the check would let a genuinely zero-sized
+    # button pass. A retry cannot launder a real one either - a control that is truly not laid out reports
+    # zero on the second attempt too, and the runner reports the retry's outcome rather than the first's.
+    'occupies no area',
+
     # The locked-device signature. Included as a second line of defence behind the preflight check
     # below: if the keyguard returns mid-run, every Compose test fails with this and nothing about the
     # app is implicated, so a single retry is the right response rather than a red suite.

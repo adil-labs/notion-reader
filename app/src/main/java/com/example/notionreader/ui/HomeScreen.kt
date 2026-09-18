@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -72,8 +73,22 @@ fun HomeScreen(
      * Reading the clock during composition would make the same session describe itself differently on two
      * recompositions, and would put a clock in the middle of a display-only composable.
      */
-    now: Long = System.currentTimeMillis()
+    now: Long = System.currentTimeMillis(),
+    /**
+     * The element the listener activated before leaving this screen, if they came back with Back.
+     *
+     * Continue is the only control here that navigates — Play/Pause acts on the session in place — so it
+     * is the only one that can be restored.
+     */
+    focusTarget: String? = null,
+    onFocusHandled: () -> Unit = {}
 ) {
+    // A hint for a session this list no longer shows is consumed rather than left pending, so it cannot
+    // fire later as focus moving on its own.
+    LaunchedEffect(focusTarget, continueListening) {
+        if (focusTarget != null && continueListening.none { it.sessionId == focusTarget }) onFocusHandled()
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -110,7 +125,9 @@ fun HomeScreen(
                 session = session,
                 now = now,
                 onContinue = { onContinue(session.sessionId) },
-                onPlayPause = onPlayPause
+                onPlayPause = onPlayPause,
+                focusTarget = focusTarget,
+                onFocusHandled = onFocusHandled
             )
         }
     }
@@ -122,7 +139,9 @@ private fun ContinueListeningEntry(
     session: ContinueListeningCard,
     now: Long,
     onContinue: () -> Unit,
-    onPlayPause: () -> Unit
+    onPlayPause: () -> Unit,
+    focusTarget: String?,
+    onFocusHandled: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(
@@ -154,7 +173,16 @@ private fun ContinueListeningEntry(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = onContinue) {
+            Button(
+                onClick = onContinue,
+                modifier = Modifier.restoreFocusOn(
+                    target = focusTarget,
+                    // A history entry is identified by its session, never by its title — the same id the
+                    // navigation layer was given when Continue opened the Player.
+                    id = session.sessionId,
+                    onHandled = onFocusHandled
+                )
+            ) {
                 Text("Continue")
             }
 

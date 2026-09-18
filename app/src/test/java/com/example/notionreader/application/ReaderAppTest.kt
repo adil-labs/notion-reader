@@ -632,4 +632,87 @@ class ReaderAppTest {
         // different state, so a queue transition cannot rewrite what the user is reading.
         assertEquals(demo, app.noteViewer.document.value)
     }
+
+    // --- What Back returns focus to -----------------------------------------------------------------
+    //
+    // The navigator's own rules are `ReaderNavigatorTest`; these assert that each *route* records the right
+    // identity, which is the half the navigator cannot check. A route that passed the wrong id would look
+    // correct in isolation and focus the wrong thing on a real device — and focus is not something a JVM
+    // test can see, so the id is asserted here and its effect is asserted in the instrumented suite.
+
+    @Test
+    fun openingABrowseResultRemembersTheRowToReturnTo() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        app.openNote("page-2")
+
+        // Navigating forward must not leave a hint pending, or it would fire on the next return.
+        assertNull(app.navigator.state.value.focusTarget)
+
+        app.back()
+
+        // The page id: a result row's identity, and therefore the row the listener can be sent back to.
+        assertEquals("page-2", app.navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun backFromThePlayerReturnsFocusOneScreenAtATime() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        app.openNote("page-2")
+        app.playNote()
+
+        assertEquals(ReaderDestination.Player, app.navigator.state.value.current)
+
+        // Back to the Note: Play is the control that was pressed, and it is a named control because the
+        // Play buttons of two different Notes are the same button.
+        app.back()
+        assertEquals(ReaderDestination.Note, app.navigator.state.value.current)
+        assertEquals(ReaderFocus.NotePlay, app.navigator.state.value.focusTarget)
+
+        // Back to Browse: now the row it was opened from.
+        app.focusHandled()
+        app.back()
+        assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
+        assertEquals("page-2", app.navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun backFromPlayAllReturnsFocusToTheSetLevelAction() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        app.playAll(queued("Alpha", "Beta"))
+        app.back()
+
+        // Nothing here has a content identity — `Play all` acts on the whole result set — so the control
+        // is what is remembered. The alternative would be no hint at all, leaving the listener at the top
+        // of a list they had deliberately left from its foot.
+        assertEquals(ReaderFocus.BrowsePlayAll, app.navigator.state.value.focusTarget)
+    }
+
+    @Test
+    fun continueRemembersTheHistoryEntryItWasPressedOn() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(ReaderNavigation(top = ReaderDestination.Queues)),
+            loadDocument = DefaultLoadReaderDocument { pageId -> note(pageId, "Queued $pageId") }
+        )
+
+        app.playAll(queued("Alpha"))
+        val sessionId = app.session.id
+        app.loadPendingQueueNote()
+        app.back()
+
+        app.continueSession(sessionId!!)
+        app.back()
+
+        // A history entry is identified by its session and never by its title, which is the same identity
+        // the entry itself uses — so Continue and Back cannot disagree about which entry is which.
+        assertEquals(sessionId, app.navigator.state.value.focusTarget)
+    }
 }

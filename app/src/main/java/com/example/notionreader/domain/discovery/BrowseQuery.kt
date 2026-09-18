@@ -15,7 +15,8 @@ import java.time.Instant
  */
 enum class BrowseSort {
     /** `All Notes, Sort = Recently updated` — the contract's default Browse state. */
-    RECENTLY_UPDATED
+    RECENTLY_UPDATED,
+    TITLE
 }
 
 /**
@@ -98,6 +99,9 @@ fun BrowseQuery.applyTo(entries: List<ReaderIndexEntry>): BrowseResults {
         BrowseSort.RECENTLY_UPDATED -> matched.sortedWith(
             compareBy<ReaderIndexEntry> { it.lastEditedAt == null }
                 .thenByDescending { it.lastEditedAt ?: Instant.EPOCH }
+        )
+        BrowseSort.TITLE -> matched.sortedWith(
+            compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
         )
     }
 

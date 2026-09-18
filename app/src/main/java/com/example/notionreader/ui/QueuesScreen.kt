@@ -15,6 +15,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -81,8 +82,17 @@ fun QueuesScreen(
      * describe itself differently on two recompositions, and would put a clock in a display-only
      * composable.
      */
-    now: Long = System.currentTimeMillis()
+    now: Long = System.currentTimeMillis(),
+    /** The history entry the listener activated before leaving this screen, if Back brought them back. */
+    focusTarget: String? = null,
+    onFocusHandled: () -> Unit = {}
 ) {
+    // A hint for a session neither list shows any more is consumed rather than left pending.
+    LaunchedEffect(focusTarget, continueListening, recentlyCompleted) {
+        val owned = (continueListening + recentlyCompleted).any { it.sessionId == focusTarget }
+        if (focusTarget != null && !owned) onFocusHandled()
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -119,7 +129,9 @@ fun QueuesScreen(
                         // One lambda for both sections, because "activate this entry" is the same
                         // intention either way and the verb is derived from the entry rather than chosen
                         // by the caller.
-                        onActivate = { onContinue(entry.sessionId) }
+                        onActivate = { onContinue(entry.sessionId) },
+                        focusTarget = focusTarget,
+                        onFocusHandled = onFocusHandled
                     )
                 }
             }
@@ -130,7 +142,9 @@ fun QueuesScreen(
                     HistoryRow(
                         entry = entry,
                         now = now,
-                        onActivate = { onReplay(entry.sessionId) }
+                        onActivate = { onReplay(entry.sessionId) },
+                        focusTarget = focusTarget,
+                        onFocusHandled = onFocusHandled
                     )
                 }
             }
@@ -176,7 +190,9 @@ private fun EmptyHistory() {
 private fun HistoryRow(
     entry: HistoryEntry,
     now: Long,
-    onActivate: () -> Unit
+    onActivate: () -> Unit,
+    focusTarget: String?,
+    onFocusHandled: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(
@@ -201,7 +217,16 @@ private fun HistoryRow(
         // Outside the merged column on purpose: the contract requires Continue to be an explicit named
         // control rather than part of the entry's announcement, so that a listener hears the session and
         // then chooses what to do with it.
-        Button(onClick = onActivate) {
+        Button(
+            onClick = onActivate,
+            modifier = Modifier.restoreFocusOn(
+                target = focusTarget,
+                // The session id, which is what this control was given when it opened the Player — so the
+                // entry the listener left is the entry focus returns to.
+                id = entry.sessionId,
+                onHandled = onFocusHandled
+            )
+        ) {
             Text(if (entry.isCompleted) "Play" else "Continue")
         }
     }
