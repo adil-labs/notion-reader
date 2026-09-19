@@ -436,6 +436,28 @@ function Invoke-TestAttempt {
 
 <#
 .SYNOPSIS
+    Reads a device setting, or returns $null when the device cannot answer.
+
+.DESCRIPTION
+    Used by the restore path, which runs inside a `finally` — so the device may be exactly what died during
+    the run. An unguarded `(& $adb shell settings get ...).Trim()` throws "You cannot call a method on a
+    null-valued expression" when adb's daemon died with `system_server`, and that replaces the run's verdict
+    with a PowerShell error.
+
+    Three failure shapes are treated as "no answer", because all three mean the same thing here and none of
+    them is a value: no output at all (the null that threw), `cmd: Can't find service: settings` (the package
+    manager gone with the system server), and the literal `null` that `settings get` returns for an unset key.
+#>
+function Get-DeviceSetting($namespace, $key) {
+    $out = (@(& $adb shell settings get $namespace $key 2>$null) -join '').Trim()
+    if ([string]::IsNullOrWhiteSpace($out)) { return $null }
+    if ($out -like 'cmd:*') { return $null }
+    if ($out -eq 'null') { return $null }
+    return $out
+}
+
+<#
+.SYNOPSIS
     Whether an attempt's failures are all the harness losing the activity, and so worth one re-run.
 #>
 function Test-IsRetryable($result) {
@@ -478,7 +500,48 @@ $expectedTests = @(
         ForEach-Object { Select-String -Path $_.FullName -Pattern '^\s*@Test\b' }
 ).Count
 
-if ($expectedTests -eq 0) {
+# **When a class filter is supplied, the bar is that class's tests, not the whole suite.**
+#
+# This is a fix, and the defect it removes made the documented iteration mode unusable. `-Class` runs a subset
+# by definition, so comparing its result against the full-suite count reported `INCOMPLETE` - and exit 1 - for
+# every deliberately-filtered run. Observed:
+#
+#     pwsh -File tools\run-accessibility-tests.ps1 -Class ...SavedQueueEditModeAccessibilityTest
+#     RESULT: INCOMPLETE - only 11 of 180 tests ran, with 0 failures.
+#
+# Eleven tests ran and all eleven passed; the wrapper called that a failure. AGENTS.md and the verification
+# skill both recommend `-Class` as the way to iterate, so the advice and the tool disagreed, and the tool was
+# wrong about a run that had done exactly what it was asked. Worse, it is the same shape as the defects in
+# §23.30-§23.32: a report that could not describe the thing it was reporting on.
+#
+# Counted the same way - from the sources - so it cannot go stale, and it accepts a comma-separated list
+# because that is how the runner takes multiple classes.
+$expectedTestsWholeSuite = $expectedTests
+if ($Class) {
+    $wanted = @($Class -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $expectedTests = @(
+        Get-ChildItem (Join-Path $repoRoot 'app\src\androidTest') -Recurse -Filter '*.kt' -ErrorAction SilentlyContinue |
+            Where-Object {
+                $stem = $_.BaseName
+                ($wanted | Where-Object { $_ -eq $stem -or $_ -like "*.$stem" }).Count -gt 0
+            } |
+            ForEach-Object { Select-String -Path $_.FullName -Pattern '^\s*@Test\b' }
+    ).Count
+
+    if ($expectedTests -eq 0) {
+        # Better to say this than to silently fall back to the whole-suite bar, which would report a filtered
+        # run as INCOMPLETE for a reason the reader cannot see.
+        Write-Warning ("-Class was given ($Class) but no matching test file was found under app\src\androidTest, " +
+            'so the completeness check cannot tell whether the filtered run lost anything. Running without the check.')
+        $expectedTests = 0
+    }
+    else {
+        Write-Output ("Running a filtered set: expecting $expectedTests test(s) from $($wanted.Count) " +
+            "class(es), out of $expectedTestsWholeSuite in the whole suite.")
+    }
+}
+
+if ($expectedTests -eq 0 -and -not $Class) {
     Write-Warning ('No @Test annotations were found under app\src\androidTest, so the completeness check ' +
         'has nothing to compare against and will not be able to tell a full run from a truncated one.')
 }
@@ -879,14 +942,38 @@ try {
     #
     # ## The rule
     #
-    # Prefer the most recent attempt that ran the **whole** suite; fall back to the last attempt only when no
-    # attempt did. "Most recent" rather than "best" on purpose: among complete attempts, the later one is the
-    # better evidence, because it is the one that had a second chance to reproduce the failure — which is what
+    # Prefer the most recent attempt that ran the **whole** suite; when none did, prefer the attempt that
+    # read the **most** tests; fall back to the last attempt only when nothing reported at all. "Most recent"
+    # rather than "best" among complete attempts on purpose: among complete attempts the later one is the
+    # better evidence, because it is the one that had a second chance to reproduce the failure - which is what
     # the retry was for.
+    #
+    # **The second clause is a fix too, and a real run exposed it.** This was
+    # `if ($complete.Count -gt 0) { $complete[-1] } else { $attempts[-1] }`, and falling back to the LAST
+    # attempt is wrong when the last one read *less*. Observed on a single-class run:
+    #
+    #     Attempt 1: 7 test(s), 2 failure(s) - INCOMPLETE    <- two failures, both classified as the harness
+    #     Attempt 2: 0 test(s), 0 failure(s) - INCOMPLETE    <- install failed; the device was dead
+    #     Verdict comes from attempt 2 of 2.
+    #     RESULT: INCONCLUSIVE - no test counts were readable from either report.
+    #
+    # Attempt 1 had already done the useful work: seven tests, and the two failures named and classified as
+    # the harness. The fallback discarded all of it for a run that produced nothing, and "INCONCLUSIVE" reads
+    # as "this run told us nothing" when the run had in fact told us quite a lot. Preferring the attempt with
+    # the most data keeps that information, and INCONCLUSIVE is then reserved for the case where it is true.
     # ---------------------------------------------------------------------------------------------------
     $complete = @($attempts | Where-Object { $_.Reported -and $_.Tests -ge $expectedTests })
-    $final = if ($complete.Count -gt 0) { $complete[-1] } else { $attempts[-1] }
     $discarded = @($attempts | Where-Object { $_.Reported -and $_.Tests -lt $expectedTests })
+
+    $mostRead = $null
+    foreach ($a in $attempts) {
+        if (-not $a.Reported) { continue }
+        # `-ge` rather than `-gt` so that, among attempts that read the same number of tests, the later one
+        # wins - the same "later is better evidence" rule the complete case uses.
+        if ($null -eq $mostRead -or $a.Tests -ge $mostRead.Tests) { $mostRead = $a }
+    }
+
+    $final = if ($complete.Count -gt 0) { $complete[-1] } elseif ($null -ne $mostRead) { $mostRead } else { $attempts[-1] }
 
     # The replicability statement. A green second attempt after a harness failure is a different fact
     # from a green first attempt, and a reader has to be able to tell them apart.
@@ -900,11 +987,18 @@ try {
         }
 
         if ($discarded.Count -gt 0) {
-            Write-Warning ("Attempt(s) {0} ran only part of the suite and were NOT used for the verdict. A " +
-                'retry cannot be allowed to replace a complete result with a partial one - see the note in ' +
-                'this script about why.' -f (($attempts | ForEach-Object -Begin { $i = 1 } -Process {
-                            if ($_.Tests -lt $expectedTests) { $i }; $i++
-                        }) -join ', '))
+            # Built in two steps, and the parenthesisation around the whole concatenation is load-bearing.
+            # This was one expression ending `... about why.' -f (...)` - and `-f` binds **tighter** than `+`,
+            # so it applied to the last string fragment alone, which contains no `{0}`. The format was
+            # therefore a no-op on a string that was then concatenated, and the warning printed a literal
+            # "Attempt(s) {0}" in a real run. A message that cannot say which attempt it means is the same
+            # family as the classifier that could not match and the filter that dropped the failure.
+            $discardNumbers = (($attempts | ForEach-Object -Begin { $i = 1 } -Process {
+                        if ($_.Tests -lt $expectedTests) { $i }; $i++
+                    }) -join ', ')
+            Write-Warning (("Attempt(s) {0} ran only part of the suite and were NOT used for the verdict. A " +
+                    'retry cannot be allowed to replace a complete result with a partial one - see the note ' +
+                    'in this script about why.') -f $discardNumbers)
         }
 
         Write-Output ('Verdict comes from attempt {0} of {1}.' -f `
@@ -985,20 +1079,34 @@ finally {
     if ($DisableTouchExploration) {
         & $adb shell settings put secure touch_exploration_enabled $originalTouchExploration | Out-Null
     }
-    $restored = (& $adb shell settings get system screen_off_timeout).Trim()
-    $restoredStayOn = (& $adb shell settings get global stay_on_while_plugged_in).Trim()
-    $restoredTouch = (& $adb shell settings get secure touch_exploration_enabled).Trim()
-    Write-Output "Restored screen_off_timeout to $restored ms and stay_on_while_plugged_in to $restoredStayOn."
-    Write-Output "touch_exploration_enabled is $restoredTouch (was $originalTouchExploration)."
+    # Null-safe, because this block runs in a `finally` and the device is precisely what may have died by now.
+    # Observed on the run that produced this fix: the tests completed, `system_server` died during collection,
+    # and `(& $adb shell settings get ...).Trim()` threw "You cannot call a method on a null-valued
+    # expression" - replacing the run's verdict with a PowerShell error and hiding the fact that the suite had
+    # already said something useful. A restore path that throws is worse than one that reports it could not run.
+    $restored = Get-DeviceSetting 'system' 'screen_off_timeout'
+    $restoredStayOn = Get-DeviceSetting 'global' 'stay_on_while_plugged_in'
+    $restoredTouch = Get-DeviceSetting 'secure' 'touch_exploration_enabled'
+
+    if ($null -eq $restored -or $null -eq $restoredStayOn) {
+        Write-Warning ("The device is not answering, so the settings were NOT verified. Settings were laid " +
+            'back and the test should be harmless, but check by hand: ' + "`n" +
+            "  adb shell settings put system screen_off_timeout $originalTimeout`n" +
+            "  adb shell settings put global stay_on_while_plugged_in $originalStayOn")
+    }
+    else {
+        Write-Output "Restored screen_off_timeout to $restored ms and stay_on_while_plugged_in to $restoredStayOn."
+        Write-Output "touch_exploration_enabled is $restoredTouch (was $originalTouchExploration)."
+    }
 
     # Verified rather than announced. A `settings put` that did not take - because the value was captured
     # wrong after a killed run, or because the device refused it - would otherwise be reported as a
     # successful restore, which is how a device silently keeps a 30-minute screen timeout set by a test.
-    if ($restored -ne $originalTimeout) {
+    if ($null -ne $restored -and $restored -ne $originalTimeout) {
         Write-Warning ("screen_off_timeout did NOT restore: wanted $originalTimeout, device reports " +
             "$restored. Restore it by hand: adb shell settings put system screen_off_timeout $originalTimeout")
     }
-    if ($restoredStayOn -ne $originalStayOn) {
+    if ($null -ne $restoredStayOn -and $restoredStayOn -ne $originalStayOn) {
         Write-Warning ("stay_on_while_plugged_in did NOT restore: wanted $originalStayOn, device reports " +
             "$restoredStayOn. Restore it by hand: adb shell settings put global " +
             "stay_on_while_plugged_in $originalStayOn")

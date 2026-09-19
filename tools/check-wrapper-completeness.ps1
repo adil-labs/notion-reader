@@ -56,22 +56,41 @@ function Verdict([int] $tests, [int] $failures, [int] $expected) {
 <#
     Which attempt the verdict comes from.
 
-    The wrapper prefers the most recent attempt that ran the whole suite, falling back to the last attempt
-    only when none did. This was `$attempts[-1]`, and a real run showed why that is wrong:
+    **Lifted out of the wrapper by regex, not retyped.** This function used to be a hand-written copy of the
+    rule, which is exactly what this project's own rule forbids: a copy can drift, and then the check passes
+    against logic that is no longer deployed. It did drift - the wrapper gained a second clause and the copy
+    did not, so the check would have gone on passing while testing the old rule.
 
-        attempt 1: 180 tests, 1 failure  <- complete; its only failure was a harness failure
-        attempt 2: 139 tests, 1 failure  <- truncated
-        reported:  FAILED - 1 of 139
+    Two clauses, both learned from real runs:
 
-    A retry discarded a complete run for a partial one. A retry is only permitted when every failure in the
-    first attempt was a harness failure, so the attempt being thrown away is the one whose verdict was already
-    known to be uninformative - and the one kept is a fragment.
+    1. Prefer the most recent attempt that ran the **whole** suite. This was `$attempts[-1]`, and:
+
+           attempt 1: 180 tests, 1 failure  <- complete; its only failure was a harness failure
+           attempt 2: 139 tests, 1 failure  <- truncated
+           reported:  FAILED - 1 of 139
+
+       A retry discarded a complete run for a partial one, when a retry is only permitted if every failure
+       in the first attempt was a harness failure - so the attempt thrown away is the one already known to be
+       uninformative, and the one kept is a fragment.
+
+    2. When **no** attempt is complete, prefer the one that read the most tests. This was `$attempts[-1]`, and:
+
+           Attempt 1: 7 test(s), 2 failure(s) - INCOMPLETE   <- both failures classified as the harness
+           Attempt 2: 0 test(s), 0 failure(s) - INCOMPLETE   <- install failed; the device was dead
+           reported:  INCONCLUSIVE
+
+       Attempt 1 had done the useful work and all of it was thrown away.
 #>
-function ChosenAttempt($attempts, [int] $expected) {
-    $complete = @($attempts | Where-Object { $_.Reported -and $_.Tests -ge $expected })
-    if ($complete.Count -gt 0) { return $complete[-1] }
-    return $attempts[-1]
+$selectionMatch = [regex]::Match($wrapperText,
+    '(?s)(\$complete = @\(\$attempts.*?\$final = if .*?\n)')
+
+if (-not $selectionMatch.Success) {
+    throw ("Could not extract the attempt-selection logic from $wrapperPath. If it was rewritten, this check " +
+        'must be updated deliberately - it must not silently stop testing anything.')
 }
+
+$selectionText = $selectionMatch.Groups[1].Value
+. ([scriptblock]::Create("function ChosenAttempt(`$attempts, [int] `$expectedTests) {`n" + $selectionText + "return `$final`n}"))
 
 # The scenario that actually happened: three quarters of the suite, no failures, four classes absent.
 $truncated = [Math]::Floor($expectedTests * 0.75)
@@ -137,6 +156,59 @@ $twoComplete = @(
 )
 if ((ChosenAttempt $twoComplete $expectedTests).Failures -ne 0) {
     throw 'Among two complete attempts, the later one must win.'
+}
+
+# ------------------------------------------------------------------ no complete attempt: the second fix
+
+# The exact scenario a single-class run produced. Neither attempt is complete; the LATER one read fewer tests,
+# because the device died and the retry could not install. The verdict must come from attempt 1 - which had
+# seven tests and two classified harness failures - not from a run that produced nothing.
+$noneComplete = @(
+    [pscustomobject]@{ Reported = $true;  Tests = 7; Failures = 2 },
+    [pscustomobject]@{ Reported = $false; Tests = 0; Failures = 0 }
+)
+$chosenNone = ChosenAttempt $noneComplete $expectedTests
+
+$report += ''
+$report += 'Attempt selection when nothing is complete:'
+$report += ("  attempt 1: {0} tests, {1} failure(s)" -f $noneComplete[0].Tests, $noneComplete[0].Failures)
+$report += ("  attempt 2: {0} tests (reported={1})" -f $noneComplete[1].Tests, $noneComplete[1].Reported)
+$report += ("  chosen   : {0} tests  <- must be the one that read MORE" -f $chosenNone.Tests)
+
+if ($chosenNone.Tests -ne 7) {
+    # Parenthesised around the whole concatenation, because `-f` binds tighter than `+`. The first version of
+    # this throw message was not, and printed a literal "{0}" - the identical mistake the wrapper itself was
+    # just fixed for, made again in the code written to test it. That is worth keeping in mind here: this
+    # precedence rule is sticky precisely because the line reads correctly.
+    throw (("With no complete attempt, the one that read the most tests must be chosen: chose {0} tests " +
+            '(attempt 2, which read nothing) instead of 7.') -f $chosenNone.Tests)
+}
+
+# And the ordering must not be backwards: with the same data in the other order, the later attempt wins,
+# because among equals the later one is the better evidence.
+$noneCompleteSwapped = @(
+    [pscustomobject]@{ Reported = $true; Tests = 2;  Failures = 1 },
+    [pscustomobject]@{ Reported = $true; Tests = 9; Failures = 1 }
+)
+if ((ChosenAttempt $noneCompleteSwapped $expectedTests).Tests -ne 9) {
+    throw 'Among incomplete attempts, the one that read the most tests must win regardless of order.'
+}
+$noneCompleteTie = @(
+    [pscustomobject]@{ Reported = $true; Tests = 5; Failures = 0 },
+    [pscustomobject]@{ Reported = $true; Tests = 5; Failures = 1 }
+)
+if ((ChosenAttempt $noneCompleteTie $expectedTests).Failures -ne 1) {
+    throw 'Among incomplete attempts that read the same number of tests, the later one must win.'
+}
+
+# A run that reported nothing at all must still fall back to the last attempt, so the INCONCLUSIVE path is
+# reachable - otherwise 'nothing ran' would have no verdict to describe.
+$noneReported = @(
+    [pscustomobject]@{ Reported = $false; Tests = 0; Failures = 0 },
+    [pscustomobject]@{ Reported = $false; Tests = 0; Failures = 0 }
+)
+if ((ChosenAttempt $noneReported $expectedTests).Reported) {
+    throw 'With no reported attempt the fallback must still return an attempt, so INCONCLUSIVE can be reached.'
 }
 
 Write-Output ''
