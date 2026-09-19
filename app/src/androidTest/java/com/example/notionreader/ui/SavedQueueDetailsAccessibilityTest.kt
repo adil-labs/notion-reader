@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.example.notionreader.application.SavedQueueCard
+import com.example.notionreader.domain.queue.QueueMove
 import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.ui.A11y.assertIsReadable
 import com.example.notionreader.ui.A11y.assertIsReachable
@@ -56,11 +57,24 @@ class SavedQueueDetailsAccessibilityTest {
     private fun show(
         queue: SavedQueueCard? = queue(),
         onOpenNote: (String) -> Unit = { },
-        onPlay: (String) -> Unit = { }
+        onPlay: (String) -> Unit = { },
+        onMove: (String, QueueMove) -> Unit = { _, _ -> },
+        onRemove: (String) -> Unit = { }
     ) {
         compose.setContent {
-            SavedQueueDetailsScreen(queue = queue, onOpenNote = onOpenNote, onPlay = onPlay)
+            SavedQueueDetailsScreen(
+                queue = queue,
+                onOpenNote = onOpenNote,
+                onPlay = onPlay,
+                onMove = onMove,
+                onRemove = onRemove
+            )
         }
+    }
+
+    /** Enters Edit mode, which is the screen's other state and the only way to reach the edit controls. */
+    private fun enterEditMode() {
+        compose.onNodeWithText("Edit queue").performSemanticsAction(SemanticsActions.OnClick)
     }
 
     // ------------------------------------------------------------ Viewing exposes no editing controls
@@ -79,13 +93,22 @@ class SavedQueueDetailsAccessibilityTest {
     @Test
     fun viewingExposesNoRemoveControlAtAllAndNoDone() {
         // `Remove` is the destructive one, and this is the assertion that it is not one focus stop from an
-        // ordinary control. `Done` belongs to a state this screen is not in, so it is absent too.
+        // ordinary control. `Done` belongs to the other state, so it is absent here too — and so are the
+        // moves, asserted above.
         show()
 
         compose.onAllNodesWithText("Remove").assertCountEquals(0)
         compose.onAllNodesWithText("Done").assertCountEquals(0)
-        // Nor is the entry point to that state offered yet: `Edit queue` arrives with the state it enters.
-        compose.onAllNodesWithText("Edit queue").assertCountEquals(0)
+    }
+
+    @Test
+    fun viewingOffersTheWayIntoEditMode() {
+        // The counterpart to the assertions above: the edit controls are absent from Viewing, and the one
+        // control that *is* here is the way to them. Without this, "Viewing exposes no move" would be
+        // satisfied by a screen that could never reach them at all.
+        show()
+
+        compose.onNodeWithText("Edit queue").assertIsReachable()
     }
 
     // ------------------------------------------------------------------------------ what Viewing offers

@@ -46,6 +46,28 @@ enum class QueueMove {
         remaining.add(target.coerceIn(0, remaining.size), moved)
         return remaining
     }
+
+    /**
+     * Whether this move is worth offering for the member at [index] — false at the boundary it moves towards.
+     *
+     * ## Why this is derived rather than restated
+     *
+     * It would be easy to write the boundary rules out again — `Up` needs `index > 0`, `Down` needs
+     * `index < size - 1` — and it would be wrong in a way that takes a while to notice, because the two
+     * statements would agree until one of them changed. Deriving the answer from [applyTo] means the question
+     * "would this do anything?" is answered by the operation itself, so a fifth move gets the right answer
+     * without being told what its boundary is.
+     *
+     * ## Why the screen needs it at all
+     *
+     * The Queue Creation & Queue Management spec requires that "a disabled move is disabled, not inert" —
+     * `Move up` on the first member is *unavailable*, and a listener is told so rather than pressing something
+     * that does nothing. That is the same rule the Player's controls follow. So the screen has to know, before
+     * the press, what the operation already knows: this is that question asked in one place, which is what
+     * stops the control's availability and the operation's no-op rule from being two rules.
+     */
+    fun isAvailableFor(notes: List<QueuedNote>, index: Int): Boolean =
+        index in notes.indices && applyTo(notes, index) != notes
 }
 
 /**

@@ -9,6 +9,7 @@ import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.queue.QueueEffect
+import com.example.notionreader.domain.queue.QueueMove
 import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.application.ReaderFocus
 import kotlinx.coroutines.Job
@@ -302,6 +303,22 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             app.addPendingToQueue(queueId)
             app.openSavedQueueDetails(queueId, fromFocusId = queueId)
         }
+    }
+
+    /**
+     * Edit mode's four moves: reorder one member of a Saved Queue.
+     *
+     * A write, so it is here rather than in the screen. The announcement follows from the outcome — a move at
+     * its own boundary changes nothing and says nothing — and that is a decision the caller of the write can
+     * make and a composable cannot.
+     */
+    fun moveQueueMember(queueId: String, pageId: String, move: QueueMove) {
+        viewModelScope.launch { app.moveSavedQueueMember(queueId, pageId, move) }
+    }
+
+    /** Edit mode's `Remove`: take one member out of a Saved Queue. */
+    fun removeQueueMember(queueId: String, pageId: String) {
+        viewModelScope.launch { app.removeSavedQueueMember(queueId, pageId) }
     }
 
     /**

@@ -102,7 +102,9 @@ class MainActivity : ComponentActivity() {
                         onCreateSavedQueue = model::createSavedQueue,
                         onAddNoteToQueue = model::addNoteToQueue,
                         onAddAllToQueue = model::addAllToQueue,
-                        onChooseQueueDestination = model::chooseQueueDestination
+                        onChooseQueueDestination = model::chooseQueueDestination,
+                        onMoveQueueMember = model::moveQueueMember,
+                        onRemoveQueueMember = model::removeQueueMember
                     )
                 }
             }

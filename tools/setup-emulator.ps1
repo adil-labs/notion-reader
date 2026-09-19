@@ -211,6 +211,70 @@ if (Test-Path $config) {
 }
 
 # -----------------------------------------------------------------------------------------------------------------
+# Memory, and this is the fix for the flakiness rather than a tuning preference
+# -----------------------------------------------------------------------------------------------------------------
+#
+# `-Stop` waited for the device to go above, so nothing is holding the config file now.
+#
+# The AVD created by `android emulator create medium_phone` gets `hw.ramSize=2048` and `vm.heapSize=228`. On a
+# machine with 47 GB free that is not a budget, it is a shortage: API 36 plus the AndroidX Test orchestrator,
+# which starts **one process per test**, plus a Compose UI suite, will exhaust 2 GB, and Android's low-memory
+# killer then takes the largest process — `system_server`.
+#
+# Every emulator failure in this session is consistent with exactly that, and none of them named memory:
+#
+#   * `Transport endpoint is not connected` — the adb daemon died with the system;
+#   * `cmd: Can't find service: package` — the package manager died with `system_server`;
+#   * `mWakefulness=Asleep` mid-run, which failed 161 of 180 tests with "No compose hierarchies found";
+#   * a full run taking **39 minutes** against 11 for the same suite, which is thrashing;
+#   * `-Stop` racing a device that was still listed.
+#
+# Raising these is cheap on this host and silences the whole class. The values are deliberately generous rather
+# than tuned: an emulator that has enough memory behaves like a device, and one that does not produces
+# different wrong answers each time.
+
+$avdConfig = Join-Path $avdHome "$AvdName.avd\config.ini"
+$memorySettings = @{
+    'hw.ramSize'  = '4096'
+    'vm.heapSize' = '512'
+}
+
+if (Test-Path $avdConfig) {
+    $configLines = Get-Content $avdConfig
+    $changed = @()
+
+    foreach ($key in $memorySettings.Keys) {
+        $wanted = $memorySettings[$key]
+        $current = ($configLines | Select-String -Pattern "^$([regex]::Escape($key))=" |
+            Select-Object -First 1) -replace "^$([regex]::Escape($key))=", ''
+
+        if ($current -eq $wanted) { continue }
+
+        if ($configLines -match "^$([regex]::Escape($key))=") {
+            $configLines = $configLines -replace "^$([regex]::Escape($key))=.*$", "$key=$wanted"
+        } else {
+            $configLines += "$key=$wanted"
+        }
+        $changed += "$key : $current -> $wanted"
+    }
+
+    if ($changed.Count -gt 0) {
+        if ($Check) {
+            Write-Head 'Memory would be raised (not changed: -Check)'
+            $changed | ForEach-Object { Write-Step $_ }
+        } else {
+            Write-Head 'Raising the AVD memory, because 2 GB is what made this emulator unreliable'
+            Set-Content -Path $avdConfig -Value $configLines
+            $changed | ForEach-Object { Write-Step $_ }
+            Write-Step 'A change here only takes effect on the next boot.'
+        }
+    } else {
+        Write-Head 'AVD memory is already adequate'
+        foreach ($key in $memorySettings.Keys) { Write-Step ("{0} = {1}" -f $key, $memorySettings[$key]) }
+    }
+}
+
+# -----------------------------------------------------------------------------------------------------------------
 # Boot
 # -----------------------------------------------------------------------------------------------------------------
 

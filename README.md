@@ -81,6 +81,12 @@ what happened — including, in the all-duplicates case, that **nothing** was ad
 is said as one. Creating a queue from the chooser receives the Notes, so "these things, into a queue" is
 completed rather than abandoned at an empty screen.
 
+A queue's membership is changed through **Edit mode**: `Edit queue` on Details reveals the four accessible
+moves (`Move up`, `Move down`, `Move to top`, `Move to bottom`) and `Remove` on every member, with `Done` to
+leave. Reordering needs no gesture, the moves are unavailable rather than inert at the boundaries, and each
+one announces the member and its new position. Edits apply as they are made, so there is nothing to lose;
+and Back leaves Edit mode rather than the screen, so the most reflexive gesture cannot commit a change.
+
 The Note's `Add to queue` is present, and so is Browse's `Add all to queue`: both route to Queue
 Destination and neither touches playback, because neither is given a way to reach the session.
 
@@ -96,9 +102,9 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Not yet implemented
 
-- Queue **management** of Saved Queues — rename, reorder, remove, delete. Create and Add ship; the four
-  moves, `Remove`, `Rename` and their confirmations are the remaining slices. The model underneath them is
-  done and tested (`docs/decisions.md` §23.26), so each is a surface rather than a rule.
+- Queue **management** of Saved Queues — rename and delete, with their confirmations. Create, Add and Edit
+  mode ship; `Rename` and `Delete` are the remaining operations, and the model underneath them is done and
+  tested (`docs/decisions.md` §23.26), so each is a surface rather than a rule.
 - The mini-player's own screen. It renders today, but not as a destination with its own surface.
 - Queues' **Smart** tab. **Listening** and **Saved** are built. **Smart** waits on the Queue Creation &
   Queue Management specification plus the Content Metadata & Workspace Schema Adapters specification, so it
@@ -266,7 +272,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 512 JVM tests
+./gradlew.bat :app:testDebugUnitTest       # 534 JVM tests
 ./gradlew.bat :app:assembleDebug
 ```
 
@@ -279,7 +285,7 @@ be silent.
 
 ### Instrumented accessibility tests
 
-The 168 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+The 180 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
 consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
 directly:
 
@@ -325,7 +331,7 @@ The pass condition was "no failures" with nothing comparing how many tests ran a
 a run whose device died mid-suite reported `tests=125` against a suite of 168, four classes simply absent,
 and only came out red because one of the classes that *did* run happened to fail. It now reports
 **INCOMPLETE** below the bar, and the bar is counted from the `@Test` annotations in the sources rather than
-remembered, so it cannot go stale. `app/build/check-wrapper-completeness.ps1` proves a truncated run cannot
+remembered, so it cannot go stale. `tools/check-wrapper-completeness.ps1` proves a truncated run cannot
 pass.
 
 **The focus-restore assertions pass, and the reason they once did not was in the app**

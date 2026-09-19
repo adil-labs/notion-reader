@@ -118,7 +118,7 @@ class ReaderAppAddToQueueTest {
 
         assertTrue(outcome.changed)
         assertEquals(listOf("p1", "p2"), store.stored.single().notes.map { it.pageId })
-        assertEquals("Added 2 notes.", app.queueReport.value)
+        assertEquals("Added 2 notes.", app.queueMessage.value)
     }
 
     @Test
@@ -135,7 +135,7 @@ class ReaderAppAddToQueueTest {
         assertFalse(outcome.changed)
         assertEquals(
             "Nothing was added, because 1 note was already in this queue.",
-            app.queueReport.value
+            app.queueMessage.value
         )
     }
 
@@ -154,7 +154,7 @@ class ReaderAppAddToQueueTest {
 
         assertEquals(
             "Nothing was added, because all 3 notes were already in this queue.",
-            app.queueReport.value
+            app.queueMessage.value
         )
     }
 
@@ -168,7 +168,7 @@ class ReaderAppAddToQueueTest {
 
         app.addPendingToQueue("q1")
 
-        assertNull(app.queueReport.value)
+        assertNull(app.queueMessage.value)
     }
 
     @Test
@@ -184,7 +184,7 @@ class ReaderAppAddToQueueTest {
 
         app.addPendingToQueue("q1")
 
-        assertEquals("Added 2 notes. 2 were already in this queue.", app.queueReport.value)
+        assertEquals("Added 2 notes. 2 were already in this queue.", app.queueMessage.value)
     }
 
     @Test
@@ -196,7 +196,7 @@ class ReaderAppAddToQueueTest {
         app.beginAddToQueue(listOf(note("p1")))
         app.addPendingToQueue("q1")
 
-        assertEquals("Added 1 note.", app.queueReport.value)
+        assertEquals("Added 1 note.", app.queueMessage.value)
     }
 
     @Test
@@ -210,7 +210,7 @@ class ReaderAppAddToQueueTest {
         app.beginAddToQueue(listOf(note("p1"), note("p9")))
         app.addPendingToQueue("q1")
 
-        assertEquals("Added 1 note. 1 was already in this queue.", app.queueReport.value)
+        assertEquals("Added 1 note. 1 was already in this queue.", app.queueMessage.value)
     }
 
     @Test
@@ -223,7 +223,7 @@ class ReaderAppAddToQueueTest {
         app.beginAddToQueue(listOf(note("p1"), note("p2"), note("p3")))
         app.addPendingToQueue("q1")
 
-        assertEquals("Added 3 notes.", app.queueReport.value)
+        assertEquals("Added 3 notes.", app.queueMessage.value)
     }
 
     @Test
@@ -283,11 +283,11 @@ class ReaderAppAddToQueueTest {
 
         app.beginAddToQueue(listOf(note("p1")))
         app.addPendingToQueue("q1")
-        assertEquals("Added 1 note.", app.queueReport.value)
+        assertEquals("Added 1 note.", app.queueMessage.value)
 
         app.beginAddToQueue(listOf(note("p2")))
 
-        assertNull(app.queueReport.value)
+        assertNull(app.queueMessage.value)
     }
 
     @Test
@@ -298,9 +298,9 @@ class ReaderAppAddToQueueTest {
         app.beginAddToQueue(listOf(note("p1")))
         app.addPendingToQueue("q1")
 
-        app.consumeQueueReport()
+        app.consumeQueueMessage()
 
-        assertNull(app.queueReport.value)
+        assertNull(app.queueMessage.value)
     }
 
     @Test
@@ -314,7 +314,7 @@ class ReaderAppAddToQueueTest {
         val outcome = app.addPendingToQueue("q1")
 
         assertEquals(QueueEffect.StoreUnavailable, outcome.effect)
-        assertNull(app.queueReport.value)
+        assertNull(app.queueMessage.value)
         assertEquals(0, app.pendingAddCount)
     }
 
@@ -335,7 +335,7 @@ class ReaderAppAddToQueueTest {
         assertEquals("Reading", created.name)
         assertEquals(listOf("p1", "p2"), created.notes.map { it.pageId })
         assertTrue(outcome.changed)
-        assertEquals("Added 2 notes.", app.queueReport.value)
+        assertEquals("Added 2 notes.", app.queueMessage.value)
     }
 
     @Test
@@ -348,7 +348,7 @@ class ReaderAppAddToQueueTest {
         app.createSavedQueue("Reading")
 
         assertEquals(emptyList<QueuedNote>(), app.savedQueues.value.single().notes)
-        assertNull(app.queueReport.value)
+        assertNull(app.queueMessage.value)
     }
 
     @Test

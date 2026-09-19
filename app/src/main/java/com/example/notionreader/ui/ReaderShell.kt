@@ -14,6 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
+import com.example.notionreader.domain.queue.QueueMove
 /**
  * The application shell: the destination the application is on, the mini-player, and the tab bar.
  *
@@ -79,6 +80,10 @@ fun ReaderShell(
     onAddAllToQueue: () -> Unit = {},
     /** Choosing a destination, which places the captured Notes and reports what that did. */
     onChooseQueueDestination: (String) -> Unit = {},
+    /** Edit mode's four moves, for one member of the queue the details screen is about. */
+    onMoveQueueMember: (String, String, QueueMove) -> Unit = { _, _, _ -> },
+    /** Edit mode's `Remove`, for one member of the queue the details screen is about. */
+    onRemoveQueueMember: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val sessionState by app.session.state.collectAsState()
@@ -94,9 +99,9 @@ fun ReaderShell(
     // Collected for the same reason `history` is: the Saved tab's cards are a projection of the queue
     // records, and reading the flow here is what makes the tab recompose when one is created or edited.
     val savedQueueRecords by app.savedQueues.collectAsState()
-    // The pending set and its report, both of which Queue Destination and the Details screen it hands over
+    // The pending set and its message, both of which Queue Destination and the Details screen it hands over
     // to need. Collected here because the shell is what decides when they are rendered and consumed.
-    val queueReport by app.queueReport.collectAsState()
+    val queueMessage by app.queueMessage.collectAsState()
     val current = navigation.current
 
     // Back is handled whenever it has somewhere visual to go, which is now most of the app rather than
@@ -181,9 +186,20 @@ fun ReaderShell(
                         queue = navigation.currentSubjectId?.let { app.savedQueueCard(it) },
                         onOpenNote = { pageId -> onOpenNote(pageId) },
                         onPlay = { queueId -> app.playSavedQueue(queueId) },
-                        // The Add's own report, which is read here because the Add navigates to this screen.
-                        report = queueReport,
-                        onReportShown = app::consumeQueueReport,
+                        // Edit mode's two operations. They perform I/O, so they need the scope the shell
+                        // does not have — hence two callbacks rather than a pass-through. The queue is read
+                        // from the navigation state here as well, because it is the shell that knows which
+                        // queue is open.
+                        onMove = { pageId, move ->
+                            navigation.currentSubjectId?.let { onMoveQueueMember(it, pageId, move) }
+                        },
+                        onRemove = { pageId ->
+                            navigation.currentSubjectId?.let { onRemoveQueueMember(it, pageId) }
+                        },
+                        // The operation's own message, which is read here because the Add navigates to this
+                        // screen and a move or a remove happens on it.
+                        report = queueMessage,
+                        onReportShown = app::consumeQueueMessage,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )
@@ -193,7 +209,7 @@ fun ReaderShell(
                         pendingCount = app.pendingAddCount,
                         onCreateNewQueue = app::openCreateSavedQueue,
                         onChooseQueue = onChooseQueueDestination,
-                        report = queueReport,
+                        report = queueMessage,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )

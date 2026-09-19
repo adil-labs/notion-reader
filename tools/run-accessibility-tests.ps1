@@ -317,7 +317,16 @@ function Invoke-TestAttempt {
 
             if ($isHarness) {
                 $attempt.HarnessFailures += [pscustomobject]@{ Name = $_.name; Text = $text }
-                Write-Output ("  HARNESS FAILURE: {0} - the device lost the test activity, so no" -f $_.name)
+                # **Collected, not written.** This was `Write-Output`, which adds to the *function's output* —
+                # the same success stream the caller assigns `$result` from. The effect was that the failure's
+                # name was swallowed: the report prints `$result.Report`, and this string was never in it, so
+                # the line a reader most needs ("savedQueues.aTeardownFailure") did not appear while its
+                # continuation line did. The two lines are one statement and must travel together.
+                #
+                # It went unnoticed because `$result` was an *array* — the object plus this stray string — and
+                # `$result.Report` still worked by PowerShell's member enumeration, which finds the property on
+                # whichever element has it. So everything looked correct except the missing name.
+                $attempt.Report += ("  HARNESS FAILURE: {0} - the device lost the test activity, so no" -f $_.name)
                 $attempt.Report += '                   assertion was reached. This is not a verdict on the app.'
             }
             else {
@@ -512,18 +521,74 @@ if ($connected.Count -gt 1) {
         'others.')
 }
 
-$TEST_TIMEOUT_MS = 1800000
+# The floor for `screen_off_timeout` during a run, and it is a **floor** rather than the value.
+#
+# ## Two bugs this replaced, one of them the cause of a 161-failure run
+#
+# The constant used to be assigned unconditionally, and the message said "raising" whatever the device had.
+# On this emulator the device's own value is `2147483647` (24.8 days), so the wrapper **lowered** it to
+# 1,800,000 ms (30 minutes) and reported that as raising it. A wrong statement, and worse than cosmetic.
+#
+# The run then failed **161 of 180 tests**, all but one with "No compose hierarchies found in the app", two
+# Browse tests having passed before the display went dark. `dumpsys power` afterwards says it plainly:
+#
+#     mWakefulness=Asleep   mScreenOnFully=false   isKeyguardShowing=false
+#
+# So the display slept mid-run and every Compose hierarchy stopped existing. With the device's own 24.8-day
+# timeout left alone, that cannot happen.
+#
+# ## And why the wake check below had to change too
+#
+# The preflight woke the device and then verified **the keyguard**, which is not the same question. The line
+# above is the counter-example: `isKeyguardShowing=false` while `mWakefulness=Asleep`. A sleeping device with
+# no lock passes a keyguard check, so the script printed "Device is awake and unlocked" about a device that
+# was asleep. It now reads wakefulness, which is the fact it was always trying to establish.
+$TEST_TIMEOUT_FLOOR_MS = 1800000
 
-$originalTimeout = (& $adb shell settings get system screen_off_timeout).Trim()
+<#
+    Reading a device setting, with the failure mode named.
+
+    `(& $adb shell settings get ...).Trim()` is a null-dereference whenever the device's `system_server` is
+    not answering: `adb shell` exits 0 and prints nothing, `settings get` never runs, and `.Trim()` throws
+    "You cannot call a method on a null-valued expression" — a message about PowerShell rather than about a
+    device whose framework has died. That is the class of misattribution this file keeps recording, and it
+    stops the run before any test is compiled.
+
+    So a missing value is `$null` here, and the caller decides. For the timeout, `$null` means "cannot read
+    it", which is not the same as "no timeout is needed" — see the check below.
+#>
+function Get-DeviceSetting([string] $namespace, [string] $key) {
+    $value = (& $adb shell settings get $namespace $key 2>$null) -join ''
+    $value = $value.Trim()
+    if ([string]::IsNullOrWhiteSpace($value) -or $value -eq 'null') { return $null }
+    return $value
+}
+
+# A device whose framework is not answering cannot run the suite at all, and every later step would fail with
+# a message naming PowerShell. Refused here, once, with the actual cause.
+if ($null -eq (Get-DeviceSetting 'system' 'screen_off_timeout')) {
+    throw ('The device is not answering `settings get` - its system_server has most likely died, which ' +
+        'happens to an emulator under memory pressure. Nothing about the app is implicated. Restart it: ' +
+        'pwsh -NoProfile -File tools\setup-emulator.ps1 -Stop, then run that script again.')
+}
+
+$originalTimeout = Get-DeviceSetting 'system' 'screen_off_timeout'
+$originalTimeoutMs = 0
+if (-not [int]::TryParse($originalTimeout, [ref]$originalTimeoutMs)) { $originalTimeoutMs = 0 }
+
+# Never lower it. A device already configured to stay awake longer than this run needs is left alone, which
+# is also what makes the restore a no-op rather than a change of the owner's settings.
+$TEST_TIMEOUT_MS = [Math]::Max($originalTimeoutMs, $TEST_TIMEOUT_FLOOR_MS)
 
 # `stay_on_while_plugged_in` as well as the timeout. The timeout stops the screen from sleeping, but on
 # this device `assertIsDisplayed` still failed intermittently with only "is not displayed" to go on, and
 # the display state is the remaining variable: a LazyColumn that is not being drawn has no bounds. 7 =
 # always on. Read and restored rather than assumed, because the previous value differs per device.
-$originalStayOn = (& $adb shell settings get global stay_on_while_plugged_in).Trim()
+$originalStayOn = Get-DeviceSetting 'global' 'stay_on_while_plugged_in'
 if ([string]::IsNullOrWhiteSpace($originalStayOn)) { $originalStayOn = '0' }
 
-Write-Output "Device screen_off_timeout was $originalTimeout ms; raising to $TEST_TIMEOUT_MS ms for this run."
+Write-Output ("Device screen_off_timeout was $originalTimeout ms; setting to $TEST_TIMEOUT_MS ms for this run " +
+    $(if ($TEST_TIMEOUT_MS -eq $originalTimeoutMs) { '(unchanged - the device already outlasts the run)' } else { '' }) + '.')
 Write-Output "Device stay_on_while_plugged_in was $originalStayOn; setting to 7 (always on) for this run."
 
 <#
@@ -643,15 +708,46 @@ if (-not $keyguardDismissed) {
 
 Write-Output 'Device is awake and unlocked.'
 
+# ## Wakefulness is a separate question from the keyguard, and this is where that was learned
+#
+# The preflight used to establish only that the keyguard was not showing, and then report "Device is awake
+# and unlocked" -- which asserts two facts from one measurement. The counter-example came from a real run
+# that failed 161 of 180 tests:
+#
+#     mWakefulness=Asleep   mScreenOnFully=false   isKeyguardShowing=false
+#
+# A sleeping device with no lock satisfies the keyguard check, so the script declared it awake while it was
+# asleep, and every Compose hierarchy then failed to exist. `dumpsys power` is where wakefulness is
+# published; `dumpsys window` publishes the keyguard and the display flags, not the power state.
+$wakefulness = (& $adb shell dumpsys power | Select-String -Pattern 'mWakefulness=\w+' |
+    Select-Object -First 1).Matches.Value
+if ($wakefulness -and $wakefulness -ne 'mWakefulness=Awake') {
+    Write-Output "Device reports $wakefulness; waking it before the run."
+    & $adb shell input keyevent KEYCODE_WAKEUP | Out-Null
+    $wakefulness = (& $adb shell dumpsys power | Select-String -Pattern 'mWakefulness=\w+' |
+        Select-Object -First 1).Matches.Value
+}
+Write-Output "Device wakefulness: $wakefulness"
+
+if ($wakefulness -and $wakefulness -ne 'mWakefulness=Awake') {
+    # Refused rather than attempted, because the failure it produces is the mass one: with the display off,
+    # no Compose hierarchy exists, so ~90% of the suite fails with a message that names the app's own
+    # `setContent` and reads as a catastrophic regression.
+    throw ("The device is not awake ($wakefulness) and would not wake. With the display off every Compose " +
+        "test fails with 'No compose hierarchies found in the app', which is indistinguishable from a total " +
+        'regression and is not one. Wake it and re-run: adb shell input keyevent KEYCODE_WAKEUP.')
+}
+
 $isCharging = (& $adb shell dumpsys battery | Select-String -Pattern '(AC|USB|Wireless) powered: true' |
     Select-Object -First 1).Matches.Count -gt 0
 
 if (-not $isCharging) {
     # Reported rather than silently relied on. `stay_on_while_plugged_in` is set below regardless,
     # because it costs nothing and helps if the device is plugged in for a long run, but a reader should
-    # know that on battery the ONLY thing keeping the screen on is `screen_off_timeout`.
-    Write-Output ('Device is on battery, so stay_on_while_plugged_in has no effect; the raised ' +
-        'screen_off_timeout is what keeps the display on for this run.')
+    # know that on battery the ONLY thing keeping the screen on is `screen_off_timeout` -- which is why that
+    # value is never lowered below the device's own, above.
+    Write-Output ('Device is on battery, so stay_on_while_plugged_in has no effect; the ' +
+        'screen_off_timeout set for this run is what keeps the display on.')
 }
 
 $lockPath = Join-Path $repoRoot 'app\build\.a11y-runner.lock'
@@ -713,17 +809,56 @@ try {
             'out whether the failure reproduces.')
     }
 
-    $final = $attempts[-1]
+    # ---------------------------------------------------------------------------------------------------
+    # Which attempt the verdict comes from, and a retry must not be able to make it worse.
+    #
+    # ## The defect this replaces, which a real run exposed
+    #
+    # This was `$final = $attempts[-1]`, and that is wrong whenever the retry produces a *less usable* result
+    # than the attempt it replaced. Observed:
+    #
+    #     attempt 1: tests=180 failures=1   <- complete, and its only failure was a harness failure
+    #     attempt 2: tests=139 failures=1   <- truncated; the system server died again
+    #     RESULT: FAILED - 1 failing test(s) out of 139
+    #
+    # The retry discarded a **complete** run and reported an incomplete one. Worse, the retry is only ever
+    # permitted when every failure in the first attempt was a harness failure — so the attempt being thrown
+    # away is precisely the one whose verdict was already known to be uninformative-and-probably-fine, and the
+    # one kept is a partial run. A retry that can degrade the verdict is not a retry; it is a second, worse
+    # measurement that hides the first.
+    #
+    # ## The rule
+    #
+    # Prefer the most recent attempt that ran the **whole** suite; fall back to the last attempt only when no
+    # attempt did. "Most recent" rather than "best" on purpose: among complete attempts, the later one is the
+    # better evidence, because it is the one that had a second chance to reproduce the failure — which is what
+    # the retry was for.
+    # ---------------------------------------------------------------------------------------------------
+    $complete = @($attempts | Where-Object { $_.Reported -and $_.Tests -ge $expectedTests })
+    $final = if ($complete.Count -gt 0) { $complete[-1] } else { $attempts[-1] }
+    $discarded = @($attempts | Where-Object { $_.Reported -and $_.Tests -lt $expectedTests })
 
     # The replicability statement. A green second attempt after a harness failure is a different fact
     # from a green first attempt, and a reader has to be able to tell them apart.
     if ($attempts.Count -gt 1) {
-        $first = $attempts[0]
         Write-Output ''
-        Write-Output ('A first attempt failed with {0} harness failure(s): {1}' -f `
-                $first.Failures, (($first.HarnessFailures | ForEach-Object { $_.Name }) -join ', '))
-        Write-Output ('On a clean re-run it {0}.' -f `
-            $(if ($final.Failures -eq 0) { 'did not reproduce' } else { 'reproduced, so it is real' }))
+        for ($n = 0; $n -lt $attempts.Count; $n++) {
+            $a = $attempts[$n]
+            Write-Output ('Attempt {0}: {1} test(s), {2} failure(s){3}' -f `
+                ($n + 1), $a.Tests, $a.Failures,
+                $(if ($a.Tests -lt $expectedTests) { ' - INCOMPLETE' } else { '' }))
+        }
+
+        if ($discarded.Count -gt 0) {
+            Write-Warning ("Attempt(s) {0} ran only part of the suite and were NOT used for the verdict. A " +
+                'retry cannot be allowed to replace a complete result with a partial one - see the note in ' +
+                'this script about why.' -f (($attempts | ForEach-Object -Begin { $i = 1 } -Process {
+                            if ($_.Tests -lt $expectedTests) { $i }; $i++
+                        }) -join ', '))
+        }
+
+        Write-Output ('Verdict comes from attempt {0} of {1}.' -f `
+                (($attempts.IndexOf($final)) + 1), $attempts.Count)
     }
 
     Write-Output ''

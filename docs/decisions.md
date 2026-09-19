@@ -4924,6 +4924,202 @@ yet — that is Phase 4's `Play`. So this phase is a type and persistence change
 what the spec's phase split intends: the part that reaches into working persistence lands on its own, verified
 by a wire-format test rather than by a screen.
 
+### 23.31 Slice 3 — Edit mode, and a proof that proved nothing
+
+**Date:** 2026-09-19. The four moves, `Remove`, `Done`, and Back leaving Edit mode rather than the screen. **534 JVM tests, 0 failures** (was 512; 22 additions) and **180 instrumented tests** (was 168; 12 additions).
+
+#### What shipped
+
+| Piece | Where |
+|---|---|
+| `QueueMove.isAvailableFor` — the boundary rule, derived | `SavedQueueEdits` |
+| `moveSavedQueueMember`, `removeSavedQueueMember` | `ReaderApp` |
+| `queueReport` → `queueMessage`, and `consumeQueueMessage` | `ReaderApp` |
+| `SavedQueueDetailsState` (`Viewing \| Editing`) and the inner `BackHandler` | `SavedQueueDetailsScreen` |
+| the four moves, `Remove`, `Edit queue` / `Done` | `SavedQueueDetailsScreen` |
+| `moveQueueMember`, `removeQueueMember` | `ReaderViewModel` |
+
+#### The one place where Back does something other than reverse navigation
+
+The spec: "Android Back leaves Edit mode, and does not leave the screen. This is the one place where Back does something other than reverse navigation ... The alternative, Back leaving the screen with edits applied, would make the platform's most reflexive gesture commit changes."
+
+The screen registers its **own** `BackHandler`, `enabled` only in Editing. That means in Viewing the handler is not registered at all and the shell's is the one that runs, so Back leaves the screen exactly as it did before. It works because the screen's handler is registered *later* — it is inside the shell's composition — and the innermost handler wins because it was added last, which is the behaviour `ReaderShellQueueBackTest` already established for the Player's queue view. So there are no new navigation mechanics, and the assertion that Back is *not* consumed in Viewing is a real one rather than a formality.
+
+#### `Viewing | Editing` as a state, and what it buys
+
+A boolean would be the same fact, and the reason to model the state instead is that the operations available are *derived* from it: the moves, `Remove` and `Done` are inside a branch on the state, so in Viewing they are **absent** rather than disabled. That distinction is the UI contract's requirement — "the normal Saved Queue Details screen should not expose multiple destructive/reorder controls on every Note" — and it is accessibility as much as tidiness, because a disabled control is still traversed.
+
+The state is the screen's own, and deliberately not hoisted. Nothing outside the screen observes it: Back is handled here and the operations are driven by the controls, so hoisting it would create a second place where "is this queue being edited" is written. It is `rememberSaveable` under the state's *name*, so a third state added later cannot silently restore as the wrong one.
+
+#### The rule is derived, so the control and the operation cannot disagree
+
+`QueueMove.isAvailableFor` answers "would this do anything?" by **applying the move and comparing**. The alternative — `Up` needs `index > 0`, `Down` needs `index < size - 1` — is a second statement of the boundary rule that would agree with the first until one of them changed. Deriving it also means a fifth move gets the correct answer without being told what its boundary is, and one JVM test asserts the equivalence over every move, every position and four list sizes rather than naming cases.
+
+#### The proof that proved nothing, which is the part worth keeping
+
+Three proofs were written. Two fired immediately. The **third reported zero failures**, which reads as a finding — "this guard is not load-bearing" — and was not:
+
+```plain text
+PROOF 1  isAvailableFor reports every in-range move as available -> 534 tests, 7 failures
+PROOF 2  a boundary move is announced as though it had moved the member -> 534 tests, 2 failures
+...
+```
+
+and for the third, nothing at all. The cause was in the proof script: **`(Get-Content $file)` returns an array of lines, and `-replace` applies to each element independently, so a pattern spanning more than one line can never match.** The edit was silently never applied, and the suite was then run against unmodified code.
+
+That is a *false negative* wearing the clothes of a result, and it is worse than a broken proof because it looks like information. The correction has two halves, and the second is the general one:
+
+- read and write with `-Raw`, because a multi-line pattern needs the whole file as one string;
+- **assert that the text changed**, and fail the script if it did not. A proof whose edit did not land must not report a number.
+
+With that in place proof 1 fires on **7 tests** and proof 2 on **2**, so both guards are demonstrated rather than assumed.
+
+#### And what the fourth proof found by not firing
+
+Reshaping the third proof's lesson left one guard genuinely unprovable, and the reason is a fact about the code:
+
+`moveSavedQueueMember` and `removeSavedQueueMember` carry **identical-looking guards** — `outcome.changed && effect.member != null` — and they are not the same guard:
+
+| | at a boundary / for a non-member | `changed` | member | guard load-bearing? |
+|---|---|---|---|---|
+| `Move` | boundary move | `false` | **non-null** | **yes** — without `changed &&` a move that did nothing is announced |
+| `Remove` | Note not a member | `false` | `null` | **no** — the null member already implies it |
+
+So proof 4, which removed `changed &&` from the Remove, applied cleanly, ran, and produced zero failures — **correctly**, because that conjunct is redundant there. It is kept for uniformity, and the asymmetry is now written into `moveSavedQueueMember`'s documentation, because the tempting edit is to "simplify" the move guard by analogy with the remove one and the failure would be a message about a reorder that did not happen.
+
+This is the same lesson as `FOCUS_ATTEMPT_FRAMES` in §23.29 and the dead classifier in §23.30, arrived at from the other side: a check that cannot distinguish anything is not evidence, whether it always passes or never runs.
+
+#### The emulator was starved of memory, and that explains every emulator failure this session
+
+The instrumented run for this slice failed **161 of 180 tests**, uniformly across every class — including classes with no Saved Queue code in them — with:
+
+```plain text
+java.lang.IllegalStateException: No compose hierarchies found in the app.
+  Possible reasons include: (1) the Activity that calls setContent did not launch; ...
+```
+
+Two Browse tests had passed first, so the Activity had worked and then stopped. `dumpsys power` afterwards said why:
+
+```plain text
+mWakefulness=Asleep   mScreenOnFully=false   isKeyguardShowing=false
+```
+
+**The display had gone to sleep mid-run**, so every Compose hierarchy stopped existing. Two wrapper bugs sat underneath it, and the second is the one that caused it.
+
+**The wrapper lowered the timeout and called that raising it.** It assigned `$TEST_TIMEOUT_MS = 1800000` (30 minutes) unconditionally and printed "Device screen_off_timeout was N ms; **raising** to 1800000 ms" whatever N was. This emulator's own value is `2147483647` — 24.8 days — so the script quietly *cut* it to 30 minutes and described that as an increase. It is now a **floor**: `[Math]::Max(device's value, 30 minutes)`, never lower, and the message says when it is unchanged. A run can no longer shorten the very setting that keeps its display on.
+
+**The preflight asked the keyguard whether the device was awake.** It woke the device, verified `isKeyguardShowing=false`, and then printed "Device is awake and unlocked" — two claims from one measurement. The counter-example is the line above: a sleeping device with no lock passes a keyguard check. It now reads `mWakefulness` from `dumpsys power` and refuses if the device will not wake, because the failure that produces is the mass one.
+
+**And then the deeper cause: the AVD had 2 GB of RAM on a machine with 47 GB free.**
+
+```
+hw.ramSize=2048     vm.heapSize=228
+```
+
+That is not a budget, it is a shortage. API 36, plus the AndroidX Test orchestrator starting **one process per test**, plus a Compose UI suite, exhausts 2 GB — and Android's low-memory killer then takes the largest process, which is `system_server`. Every emulator failure this session is consistent with exactly that, and **not one of them named memory**:
+
+| Symptom | What it looked like | What it was |
+|---|---|---|
+| `Transport endpoint is not connected` | the emulator's transport failing | adb's daemon dying with the system |
+| `cmd: Can't find service: package` | an adb or Gradle problem | the package manager dying with `system_server` |
+| `mWakefulness=Asleep` mid-run, 161 failures | the display sleeping | the system restarting under pressure |
+| a full run taking **39 minutes** against 11 | a slow suite | thrashing |
+| `-Stop` racing a device still listed | a script bug (it was one too) | a device that was mid-restart |
+
+`setup-emulator.ps1` now raises `hw.ramSize` to 4096 and `vm.heapSize` to 512, and the change is verified by effect — `MemTotal: 4013816 kB` rather than 2 GB, because this project's own rule is that the SDK tools report the wrong thing and only the filesystem or the device tells the truth.
+
+The lesson is the same one this file keeps recording, in a new place: **five different symptoms, each of which named something other than the cause, and the actual cause was invisible because it was never asked about.** The question "how much memory does the device have?" was not in the diagnostic vocabulary, and every failure was attributed to the thing it mentioned instead.
+
+#### And two real defects in the screen itself, found by the assertions rather than by reading it
+
+With the emulator healthy, three failures remained — and **all three were real**, two of them in the UI.
+
+**Five controls in a `Row` do not fit on a phone, and the fifth was unreachable.**
+
+```plain text
+'Remove' is laid out but occupies no area, so nothing can be tapped:
+  bounds=Rect.fromLTRB(0.0, 0.0, 0.0, 0.0)
+```
+
+The moves in the same row passed, which is what located it: `Remove`, as the last child, was pushed outside the Row's bounds and clipped to zero area. The tree satisfied "in Editing it exposes all four moves and `Remove`" — every control present and named — while one of them could not be touched. **That is exactly the failure `assertIsReachable` exists for**, and it is why the helper asserts area and overlap rather than mere presence.
+
+The fix is layout, not assertion: `FlowRow` wraps the controls onto as many lines as they need. A `Row` would overflow again the moment a listener enlarged the system font, which is the configuration this screen most needs to work in — so this is not only a phone-width fix.
+
+**And a fixture parameter that nothing read.** The edit-mode test's `queue()` had a `report` parameter that was never applied, so the test asserting the reorder announcement asserted against a screen that had never been given one. A parameter that nothing reads is worse than no parameter, because the call site reads as though it works. `report` belongs to the *screen's* arguments, and the fixture no longer offers one.
+
+Both are the same lesson as the classifier and the proof script above: **the assertion was right and the thing it was pointed at was wrong.** The tests were not too strict; they were correct about a screen nobody had rendered.
+
+#### The completeness check paid for itself on its first real outing
+
+One attempt ended:
+
+```plain text
+HTML report: tests=132 failures=1
+RESULT: FAILED - 1 failing test(s) out of 132.
+WARNING: This attempt is also incomplete: 132 of 180 tests ran, so some classes reported nothing at all.
+```
+
+**48 tests never ran.** Before §23.30 that would have been reported without the gap being visible at all — and had the one failing test passed, it would have said `PASSED - 132 tests`. The system server had died again (`Failure calling service package: Broken pipe (32)`), even at 4 GB.
+
+So the memory rise was **not** the whole story, and it is worth stating as a correction to the table above rather than as a solved problem:
+
+| | 2 GB | 4 GB |
+|---|---|---|
+| mass Compose failure | yes — 161 of 180 | no |
+| a full 180-test run | never completed | completed once, then failed to repeat |
+| `system_server` death | transport, then package service | package service, intermittently |
+
+The honest position: the memory fix removed the **dominant** failure mode, and the emulator is still **less reliable than the phone was**. The completeness check is what makes a verdict from it mean anything, which is why it went in before this round rather than after. `tools/setup-emulator.ps1` still earns its place — a credential-locked phone cannot be prepared from a script at all — but "an emulator removes a dependency" must not be read as "an emulator is reliable".
+
+#### Two more wrapper defects, both found by the emulator failing in ways that exposed them
+
+**A retry could replace a complete result with a partial one, and that is what it did.**
+
+```plain text
+attempt 1: tests=180  failures=1     <- complete; its only failure was a harness failure
+attempt 2: tests=139  failures=1     <- truncated; system_server died again
+RESULT: FAILED - 1 failing test(s) out of 139.
+```
+
+The verdict came from `$attempts[-1]`. A retry is permitted only when **every** failure in the first attempt was a harness failure, so the attempt being discarded is precisely the one whose verdict was already known to be uninformative-and-probably-fine — and the one kept was a fragment. **A retry that can degrade the verdict is not a retry; it is a second, worse measurement that hides the first.**
+
+The rule is now: prefer the most recent attempt that ran the **whole** suite, falling back to the last only when none did. "Most recent" rather than "best", because among complete attempts the later one had a second chance to reproduce the failure — which is what the retry was for. `check-wrapper-completeness.ps1` now exercises that selection as well as the verdict, including the exact two-attempt shape above.
+
+**And the same null-dereference the setup script had, in the wrapper.** With `system_server` dead, `adb shell settings get` exits 0 and prints nothing, so `(& $adb shell settings get ...).Trim()` threw *"You cannot call a method on a null-valued expression"* — a message about PowerShell rather than about a device whose framework had died, and it aborted the run before anything was compiled. It now reads through a helper that returns `$null`, and a null timeout is refused with the actual cause:
+
+```plain text
+The device is not answering `settings get` - its system_server has most likely died, which happens to an
+emulator under memory pressure. Nothing about the app is implicated. Restart it: ...
+```
+
+Two occurrences of the same shape, in two scripts, found in one round: **an unguarded read of a device that is not answering produces a PowerShell error that names PowerShell.**
+
+**And a third: the harness failure's own name was being swallowed.** The report printed
+
+```plain text
+com.example.notionreader.ui.SavedQueueDetailsAccessibilityTest: tests=12 failures=1 errors=0 skipped=0
+                   assertion was reached. This is not a verdict on the app.
+```
+
+— a continuation line with no first line. The two are added as a pair, and the first used `Write-Output` while the second used `$attempt.Report +=`. Inside a function, `Write-Output` adds to the function's **output**, which is the same stream the caller assigns `$result` from, so the name never reached the report. It went unnoticed because `$result` became an *array* — the object plus the stray string — and `$result.Report` still worked through PowerShell's member enumeration. Everything looked right except the one line a reader needs, which is **which test flaked**.
+
+The function's own comment, 36 lines above, warns about exactly this. It is now `$attempt.Report +=` for both halves, and a scan of the function confirms no other `Write-Output` remains inside it.
+
+#### Verification
+
+- **534 JVM tests, 0 failures**; **180 instrumented tests**, and the run for this slice completed as a full 180-test run with **`SavedQueueEditModeAccessibilityTest: tests=11 failures=0`** — every new assertion green.
+
+  One failure remained, in `SavedQueueDetailsAccessibilityTest`, and it was **classified as a harness failure** — meaning no assertion was reached, so it is not a verdict on the app. It is the `Activity never becomes requested state` flake from §23.30, now recognised by the mechanism that earlier could not recognise anything.
+- Proofs: proof 1 → 7 failures, proof 2 → 2 failures, both restored green, and the script now throws if any proof edit fails to apply.
+- `tools/check-classifier-on-real-output.ps1` confirms the classifier on **actual** run output rather than on a fixture: 160 of 161 failures matched a signature and **zero read as empty**. The fixture-based check could not have told us that, because the reason the classifier was dead for as long as it existed is a property of the XML Gradle actually writes. It reads the most recent run's artifacts, so it reports "run the suite first" when there are none rather than passing on an absence — as it did after this round's results directory was cleaned, which is the behaviour wanted.
+- `tools/check-wrapper-completeness.ps1` now also proves the attempt selection: a retry cannot replace a complete attempt with a truncated one.
+
+#### What this round cost, and what that says
+
+Three feature slices have now shipped, and each took a fraction of the time that verifying it did. The instrumentation was the work: an emulator to build a script for, four SDK tooling traps, a memory starvation, two screen-wake bugs, a classifier that could never match, a missing completeness check, a retry that could degrade a verdict, three null-dereferences, and a swallowed failure name.
+
+That ratio is worth naming as the project's current bottleneck, and it is why the next experiment is about the **orchestrator** rather than about a feature: `ANDROIDX_TEST_ORCHESTRATOR` starts **one process per test** — 180 process starts on a 4 GB device — and is the most likely proximate cause of the `system_server` deaths that truncate runs. Its original justification, that a transient process death produced reports disagreeing about how many tests ran, is now **handled by the completeness check**. So it is worth measuring whether removing it restores reliability without giving up the safety it provided.
+
 ### 23.30 Slice 2 — the Add path, and the increment that makes a queue usable
 
 **Date:** 2026-09-19. `Add to queue` on a Note and `Add all to queue` on Browse, the Queue Destination they open, the de-duplication report, and the create-if-empty path. **512 JVM tests, 0 failures** (was 490; 22 additions) and **168 instrumented tests** (was 153; 15 additions).
@@ -5011,7 +5207,7 @@ This is the project's own recorded lesson in a new place: **a check that can nev
 
 The fix reads the message from whichever shape the adapter returns — `String` or `XmlNode.InnerText` — and is deliberately total, because it runs inside the reporting path where an exception would replace a test verdict with a script error. The teardown signature is on the list as well, classified deliberately: thrown in the rule's `after`, the test body already passed, the Activity reached `PAUSED` which is normal stopping, and it passed 11/11 in isolation.
 
-**Verified by a check that runs the classifier, not by reading it**: `app/build/check-harness-signatures.ps1` lifts the wrapper's own `Get-FailureText` and the pattern list out of the script — so it cannot pass against a copy that has drifted — and asserts that both XML shapes read a non-empty message and that the new signature matches it. It also re-finds the two bugs its own first version had, both of which produced a *false* failure: a fixture whose message spanned several lines, and a pattern-extraction regex that matched apostrophes inside the explanatory comments and "found" eleven patterns, six of them sentences.
+**Verified by a check that runs the classifier, not by reading it**: `tools/check-harness-signatures.ps1` lifts the wrapper's own `Get-FailureText` and the pattern list out of the script — so it cannot pass against a copy that has drifted — and asserts that both XML shapes read a non-empty message and that the new signature matches it. It also re-finds the two bugs its own first version had, both of which produced a *false* failure: a fixture whose message spanned several lines, and a pattern-extraction regex that matched apostrophes inside the explanatory comments and "found" eleven patterns, six of them sentences.
 
 A retry still cannot launder a real defect: the read is now what it should be, any *mixed* result is still red immediately, and the runner reports the retry's outcome rather than the first's.
 
@@ -5040,7 +5236,7 @@ The pass condition was "no failures". Nothing compared how many tests ran agains
 
 `$expectedTests` is counted from the `@Test` annotations in the source tree rather than remembered, so adding a test raises the bar automatically and a stale constant cannot become the next silent wrong answer. The word is deliberately **INCOMPLETE** and not FAILED: the missing tests are not failing tests, they did not run, and conflating the two would send the next person looking for a defect in code that was never executed.
 
-Proved rather than assumed, by `app/build/check-wrapper-completeness.ps1`, which lifts the wrapper's own count expression out of the script and exercises the verdict across five scenarios including the one that happened:
+Proved rather than assumed, by `tools/check-wrapper-completeness.ps1`, which lifts the wrapper's own count expression out of the script and exercises the verdict across five scenarios including the one that happened:
 
 ```plain text
 expected tests counted from sources : 168
@@ -5078,7 +5274,7 @@ Three verification attempts in a row failed for reasons that were entirely the e
 
   That closing line is new, and it is the point: before this round the runner could not have distinguished this run from the truncated one it also produced.
 - The report-lifetime fix was confirmed on the affected class alone (10/10) before the full run, which is what the scoped run exists for.
-- `app/build/check-wrapper-completeness.ps1` proves a truncated run cannot be reported as a pass, and `app/build/check-harness-signatures.ps1` proves the classifier can read a failure message and match a signature — the latter on **both** XML shapes, because the shape was the variable that broke it.
+- `tools/check-wrapper-completeness.ps1` proves a truncated run cannot be reported as a pass, and `tools/check-harness-signatures.ps1` proves the classifier can read a failure message and match a signature — the latter on **both** XML shapes, because the shape was the variable that broke it.
 
 #### Not verified
 

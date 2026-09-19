@@ -5,6 +5,7 @@ import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.domain.queue.QueueEdit
 import com.example.notionreader.domain.queue.QueueEditOutcome
 import com.example.notionreader.domain.queue.QueueEffect
+import com.example.notionreader.domain.queue.QueueMove
 import com.example.notionreader.domain.queue.QueueOrigin
 import com.example.notionreader.domain.queue.SavedQueue
 import com.example.notionreader.domain.queue.SavedQueueDraft
@@ -680,24 +681,39 @@ class ReaderApp(
     /** How many Notes are waiting to be placed, or 0 when nothing is pending. */
     val pendingAddCount: Int get() = pendingAdd.size
 
-    private val _queueReport = MutableStateFlow<String?>(null)
+    private val _queueMessage = MutableStateFlow<String?>(null)
 
     /**
-     * What the last Add did, for the surface that lands after it, or null when there is nothing to say.
+     * What the last queue operation did, for the listener who asked for it, or null when there is nothing to
+     * say.
      *
-     * ## Why an Add has to report itself
+     * ## Why an operation has to report itself
      *
-     * The spec is emphatic, and for a reason that is not decoration: "the common case is `Add all to queue`
-     * over a result set that overlaps the destination, and a listener who adds twelve things and is told
-     * nothing cannot tell 'all twelve were already there' from 'the app failed'." The de-duplication rule and
-     * the report are one requirement — the dedupe without the report is indistinguishable from a failure.
+     * The spec is emphatic about the Add, and for a reason that is not decoration: "the common case is
+     * `Add all to queue` over a result set that overlaps the destination, and a listener who adds twelve
+     * things and is told nothing cannot tell 'all twelve were already there' from 'the app failed'." The
+     * de-duplication rule and the report are one requirement — the dedupe without the report is
+     * indistinguishable from a failure.
      *
-     * It is a flow rather than a returned value because the Add and the surface that shows the result are
-     * different moments: the Add happens when a destination is chosen, and the result is read by the queue's
-     * Details screen, which the Add navigates to. That is why it survives one navigation, and why
-     * [consumeQueueReport] exists to clear it.
+     * The reorder has its own version of the same requirement: "a listener who cannot see the list has no
+     * other way to know where the member went", so a move announces the member and its new position.
+     *
+     * ## Why one channel rather than two
+     *
+     * Because a listener experiences one operation at a time. Two flows would be two things for a surface to
+     * render in one place, and the only question a second one could answer is "which kind of message is
+     * this", which nothing acts on differently.
+     *
+     * It was called `queueReport` when the Add was the only operation that spoke; the name changed with the
+     * second operation rather than the mechanism, because "report" had come to mean the Add specifically.
+     *
+     * ## Its lifetime, which is a *visit* rather than a frame
+     *
+     * Cleared by [consumeQueueMessage] when the listener leaves the screen showing it. Consuming on render
+     * was the first version and it flashed the sentence for one frame — see `SavedQueueDetailsScreen`, where
+     * the reasoning is, including why a listener who wants it read twice needs it to stay.
      */
-    val queueReport: StateFlow<String?> = _queueReport.asStateFlow()
+    val queueMessage: StateFlow<String?> = _queueMessage.asStateFlow()
 
     /**
      * `Add to queue` / `Add all to queue`: capture [notes] and open Queue Destination.
@@ -716,9 +732,9 @@ class ReaderApp(
         // from a live list would place whatever it happened to hold when the destination was finally
         // chosen — the same class of defect as handing a session a live queue, at the other end of the flow.
         pendingAdd = notes.toList()
-        // A report from an earlier Add is not this one's, and leaving it would make the destination's next
-        // arrival explain something that did not happen.
-        _queueReport.value = null
+        // A message from an earlier operation is not this one's, and leaving it would make the destination's
+        // next arrival explain something that did not happen.
+        _queueMessage.value = null
 
         navigator.open(ReaderDestination.QueueDestination, fromFocusId = fromFocusId)
         return true
@@ -749,14 +765,74 @@ class ReaderApp(
         // telling the listener "nothing was added" about an action they did not take would be worse than
         // saying nothing.
         if (added != null && added.added + added.alreadyPresent > 0) {
-            _queueReport.value = describeAdd(added)
+            _queueMessage.value = describeAdd(added)
         }
         return outcome
     }
 
-    /** Clears the report, once the surface showing it has done so. */
-    fun consumeQueueReport() {
-        _queueReport.value = null
+    /** Clears the message, once the surface showing it has done so. */
+    fun consumeQueueMessage() {
+        _queueMessage.value = null
+    }
+
+    // --- Editing a queue's membership, which is what Edit mode drives -----------------------------------
+
+    /**
+     * `Move up` / `Move down` / `Move to top` / `Move to bottom`: the four accessible moves.
+     *
+     * Returns the outcome, which the caller needs for one thing the screen cannot work out for itself:
+     * whether anything actually moved. A move at its own boundary is a no-op and performs no write — the
+     * control is *disabled* there, so an arrival would mean a stale press — and a no-op must not be announced,
+     * because "Moved Alpha to position 1 of 5" when nothing moved is a false statement about the listener's
+     * queue.
+     *
+     * ## `outcome.changed &&` is load-bearing here, and it is not in the Remove below
+     *
+     * The two guards look identical and are not, which is worth stating because the tempting edit is to
+     * "simplify" one to match the other. A boundary move produces a **non-null** member with `changed = false`,
+     * so without the `changed &&` a reorder that did nothing would be announced as though it had happened —
+     * and a failing-first proof confirms exactly that, by removing it.
+     *
+     * [removeSavedQueueMember]'s guard is the opposite case: `QueueEdit.Remove` yields a null member for a Note
+     * that is not a member, so `removed?.member != null` already implies `changed`. Removing the `changed &&`
+     * there changes no behaviour, and a proof that tried to demonstrate otherwise produced **zero failures** —
+     * correct, and a finding rather than a blank. It is kept for uniformity, and this note is why it is not
+     * evidence of anything.
+     *
+     * ## The announcement
+     *
+     * The Queue Creation & Queue Management spec: "Moving a member changes the list, and a listener who cannot
+     * see the list has no other way to know where the member went. The announcement is the member's name and
+     * its new position, brief and once." The position counts from 1 because that is the number a surface
+     * speaks and the number a listener is counting in — and it is read from the *effect* rather than computed
+     * here, so the number announced is the number the model reached.
+     */
+    suspend fun moveSavedQueueMember(
+        queueId: String,
+        pageId: String,
+        move: QueueMove
+    ): QueueEditOutcome {
+        val outcome = transact(QueueEdit.Move(queueId, pageId, move))
+        val moved = outcome.effect as? QueueEffect.MemberMoved
+        if (outcome.changed && moved?.member != null) {
+            _queueMessage.value = "Moved ${moved.member.title} to position ${moved.position} of ${moved.queue.notes.size}."
+        }
+        return outcome
+    }
+
+    /**
+     * `Remove`: takes one member out of the queue.
+     *
+     * Removing the only member leaves an empty queue, which is valid — it is not a delete. Removing a Note
+     * that is not a member is a no-op and is announced as nothing, for the same reason a boundary move is.
+     */
+    suspend fun removeSavedQueueMember(queueId: String, pageId: String): QueueEditOutcome {
+        val outcome = transact(QueueEdit.Remove(queueId, pageId))
+        val removed = outcome.effect as? QueueEffect.MemberRemoved
+        if (outcome.changed && removed?.member != null) {
+            _queueMessage.value = "Removed ${removed.member.title}."
+        }
+        return outcome
     }
 
     /**
