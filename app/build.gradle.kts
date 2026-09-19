@@ -67,14 +67,31 @@ android {
     }
 
     testOptions {
-        // Each instrumented test runs in its own instrumentation invocation.
+        // **No test orchestrator.** This is a deliberate reversal of an earlier decision, so both
+        // halves of it are recorded here.
         //
-        // This suite is Compose-under-instrumentation on a real phone, and a single transient,
-        // device-side process death was observed to abort the run: the runner reported
-        // "Process crashed", and the resulting XML then disagreed with the HTML report about how many
-        // tests had even run, so the results could not be trusted either way. Isolating each test
-        // means one bad invocation fails exactly one test and the rest still execute.
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
+        // Why it was added: this suite is Compose-under-instrumentation, and a transient device-side
+        // process death was observed to abort a run. The runner reported "Process crashed", and the
+        // resulting XML then disagreed with the HTML report about how many tests had even run, so
+        // neither could be trusted. One process per test meant a bad invocation failed exactly one test
+        // and the rest still executed.
+        //
+        // Why it was removed: the second half of that justification is now handled by name rather than
+        // prevented. `tools/run-accessibility-tests.ps1` counts the `@Test` annotations in the sources
+        // and reports **INCOMPLETE**, not PASSED, whenever fewer tests ran than exist - whatever the
+        // cause. And the first half was bought with a process start per test: 180 of them, on an
+        // emulator whose process budget the orchestrator itself competes for. That is the suspicion
+        // measured in docs/decisions.md §23.32.
+        //
+        // What is given up, stated plainly so it is not rediscovered as a surprise: with a single
+        // instrumentation process, a device-side crash can take more than one test with it, and state
+        // can outlive the test that made it. Neither is load-bearing here - no test drives the real
+        // `MainActivity`, because they render `ComponentActivity` with in-memory doubles built by
+        // `ShellHarness`, so no on-disk session state is reachable from a test at all.
+        //
+        // If process deaths return, reinstate `execution = "ANDROIDX_TEST_ORCHESTRATOR"` (and the
+        // `androidTestUtil` dependency below) rather than widening a timeout - §23.31 is what widening
+        // a timeout instead of asking the question costs.
     }
 }
 
@@ -210,7 +227,9 @@ dependencies {
     // fails in Espresso.onIdle before reaching an assertion. 3.7.0 is the current release and does not.
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    androidTestUtil("androidx.test:orchestrator:1.6.1")
+    // No `androidTestUtil("androidx.test:orchestrator:...")`: without `execution =
+    // "ANDROIDX_TEST_ORCHESTRATOR"` above it would be installed on every run and never invoked. See
+    // the `testOptions` block for why the orchestrator was removed and how it would come back.
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

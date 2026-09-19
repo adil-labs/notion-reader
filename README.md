@@ -313,18 +313,33 @@ Two other things are pinned deliberately, both because the failure they prevent 
 - **`espresso-core:3.7.0`.** `ui-test-junit4` pulls in Espresso 3.5.0 transitively, whose idle path
   reflects on the hidden `InputManager.getInstance()` on Android 17 / API 37. The symptom is *every*
   test failing in `Espresso.onIdle`, which reads as a broken suite rather than a stale library.
-- **`execution = "ANDROIDX_TEST_ORCHESTRATOR"`.** One process per test. A transient device-side
-  process death previously aborted whole runs, and the XML and HTML reports then disagreed about how
-  many tests had run.
+- **No test orchestrator, deliberately** (`docs/decisions.md` §23.31, §23.32). It was added to stop one
+  transient device-side process death from aborting a whole run — and it does that — but it buys that with
+  **one process start per test**, 180 of them on an emulator whose process budget the orchestrator then
+  competes for. The half of its justification that mattered most, that a truncated run must not read as a
+  clean one, is now handled by name instead: the runner reports **INCOMPLETE** whenever fewer tests ran
+  than the sources contain. What was given up is recorded in `app/build.gradle.kts`: no test here drives the
+  real `MainActivity` or touches on-disk session state, so neither loss is load-bearing.
 
 Controls are driven through `SemanticsActions.OnClick` rather than synthetic taps. That is what an
 accessibility service performs, and unlike a synthesised touch it cannot be silently dropped by the
 device's window.
 
+**What this suite costs, measured** (`docs/decisions.md` §24): **180 tests in 873 s — 4.7 s each**, against
+**534 JVM tests in 0.8 s (~1.5 ms each)**. The instrumented cost is *flat across every class*, which makes it
+fixed per-test setup — Activity launch, instrumentation, Compose idle, teardown — rather than the assertions.
+So the JVM suite is the default check, `-Class` is the way to iterate, and the plan is to move the pure-UI
+classes to Robolectric and leave only focus, Back dispatch and one smoke test on a device. That move is a
+**spike first**, because Robolectric does not render and these helpers assert geometry.
+
 A real failure is retried only when **every** failing test matches a short list of harness signatures —
 the harness losing the activity, the test rule failing to tear its own Activity down, or the locked-device
 signature above. Any unclassified or mixed result is red immediately, because a retry must never be able to
-launder a real defect into a pass.
+launder a real defect into a pass. A failure recorded with **no message and no trace** counts as the harness
+rather than as the app (`docs/decisions.md` §23.32): an assertion failure always records a stack trace, so an
+empty record means the process never produced one. The runner also compares the failures the reports counted
+against the per-test records it read, and prints `UNACCOUNTED` when they disagree — so a dropped failure
+cannot be silent again.
 
 **A partial run is never reported as a pass** (`docs/decisions.md` §23.30), and once it could have been.
 The pass condition was "no failures" with nothing comparing how many tests ran against how many exist — so

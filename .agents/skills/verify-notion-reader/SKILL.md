@@ -31,7 +31,7 @@ record are described there.
 .\gradlew.bat :app:testDebugUnitTest
 ```
 
-Expect ~327 tests and 0 failures. The count is not the point; a *drop* is — it usually means a test
+Expect ~534 tests and 0 failures. The count is not the point; a *drop* is — it usually means a test
 class stopped being discovered rather than that tests were removed.
 
 For a **regression guard**, produce a failing-first proof before moving on: remove or disable exactly
@@ -51,6 +51,10 @@ scans `src/main` only. Never skip this after touching `app/src/androidTest/`.
 
 ## 3. Instrumented accessibility suite
 
+**Before you run this, ask whether it is the right instrument** (§24). It is 180 tests at **4.7 s each —
+~15 minutes** — and the cost is *fixed per-test setup*, identical for every class. A change about a semantics
+tree that a screen renders from state passed in does not need a device. Use `-Class` while iterating:
+
 ```powershell
 pwsh -File tools\run-accessibility-tests.ps1
 pwsh -File tools\run-accessibility-tests.ps1 -Class com.example.notionreader.ui.PlayerScreenAccessibilityTest
@@ -69,9 +73,31 @@ Never invoke `connectedDebugAndroidTest` directly:
   non-zero with every test passing.
 - **It retries only when every failure matches a known harness signature.** A mixed or unclassified
   result is red immediately. That refusal is correct: if the run retried, it would bury a real failure
-  inside a "flaky" verdict.
+  inside a "flaky" verdict. A failure recorded with **no message and no trace** counts as the harness
+  (§23.32) — an assertion always leaves a trace, so an empty record means the process never produced one.
+- **It reports `INCOMPLETE` rather than `PASSED` when fewer tests ran than the sources contain**, counted
+  from the `@Test` annotations rather than remembered, and it reports `UNACCOUNTED` when the failures the
+  reports counted outnumber the per-test records it read. Both exist because this suite's failure mode is a
+  *silently partial* run, and neither can be trusted to a green-looking number.
+- **There is no test orchestrator** (§23.32), so the suite is a single instrumentation process. That is
+  deliberate and it is a cost decision, not a reliability claim: the `system_server` deaths happen with or
+  without it, and it cost one process start per test. `app/build.gradle.kts` records how to restore it.
 
 Read the HTML report as the accurate source: `app/build/reports/androidTests/connected/debug/index.html`.
+
+After touching the wrapper, run all four of its checkers — every defect they cover was invisible while looking
+correct, and none was caught by the mechanism it broke:
+
+```powershell
+pwsh -File tools\check-wrapper-completeness.ps1
+pwsh -File tools\check-harness-signatures.ps1
+pwsh -File tools\check-classifier-on-real-output.ps1     # needs a run's XML to exist
+pwsh -File tools\check-empty-failure-is-classified.ps1
+```
+
+**For anything believed to be flaky, one run is not a verdict**: run it twice and report the ratio (§23.32).
+Also read the attempt list the runner prints — an unexpected number of attempts, or a blank one, was how a
+`Write-Output` polluting a function's return value was found.
 
 When a test fails, prefer to fix the *test's ability to see the mechanism* only if you can show the
 production code is right — and say how you showed it. `docs/decisions.md` §22.9 is the worked example

@@ -71,19 +71,39 @@ edit.
 ## Build and test
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest              # 534 JVM tests, no device, this is the default check
+.\gradlew.bat :app:testDebugUnitTest              # 534 JVM tests, ~3 s, no device, this is the default check
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:compileDebugAndroidTestKotlin  # REQUIRED after touching androidTest
 pwsh -File tools\run-accessibility-tests.ps1      # instrumented a11y suite; needs a device or emulator
 pwsh -File tools\setup-emulator.ps1              # installs/boots one, so a PIN is not on the path
 ```
 
+**The cost asymmetry is the single most important operational fact here** (§24): the instrumented suite is
+**180 tests in 873 s (4.7 s per test)**, and the JVM suite is **534 tests in 0.8 s (~1.5 ms per test)**. The
+instrumented cost is **flat across every class**, which means it is fixed per-test setup — Activity launch,
+instrumentation, Compose idle, teardown — and not the assertions. ~99% of a 15-minute run is therefore spent
+paying for a device to assert properties of a semantics tree that does not need one.
+
+Three consequences for how you work here:
+
+- **Default to `:app:testDebugUnitTest`.** Reach for the instrumented suite when the change is about
+  semantics, focus, Back dispatch, or something a real Android does — not as a general-purpose check.
+- **Use `-Class <fqcn>` while iterating.** One class is ~1 minute; the whole suite is ~15, and on this
+  emulator it can also die partway (§23.32).
+- **The plan is to move the pure-UI classes to Robolectric** (§24), keeping on the device only focus, Back
+dispatch, and one smoke test. That is a **spike first**, because Robolectric does not render and this
+suite's helper asserts geometry — see §24.3 before starting it, and note that a green run is not the
+acceptance criterion.
+
 - `:app:testDebugUnitTest` and `:app:assembleDebug` **do not compile `androidTest`**, so a broken
   instrumented suite can be committed behind a green run. Compile it explicitly.
 - Run the instrumented suite through the wrapper, never with raw Gradle. See [Skills](#skills).
 - Pins that are deliberate, not incidental: Ktor ≥ 3.6.0 (3.2.0 cannot be dexed for `minSdk 26`),
-  `espresso-core` 3.7.0 (compose's `ui-test-junit4` pulls 3.5.0, which fails on API 37),
-  `ANDROIDX_TEST_ORCHESTRATOR` (one process per test).
+  `espresso-core` 3.7.0 (compose's `ui-test-junit4` pulls 3.5.0, which fails on API 37).
+- **No `ANDROIDX_TEST_ORCHESTRATOR`, and that is a decision rather than an omission.** It was removed in
+  §23.32 after being added in §23.11: 180 process starts on an emulator that cannot afford them, for a
+  guarantee the completeness check now provides by name. `app/build.gradle.kts` records both halves and how
+  to put it back.
 - Gradle 9.6.0, AGP 9.4.0, Kotlin 2.3.21, `compileSdk` 37, `minSdk` 26.
 
 Use the **verify-notion-reader** skill when a change is ready to be called done — it encodes the
@@ -185,6 +205,59 @@ reasoning about it — `tools/setup-emulator.ps1` makes that a half-minute exper
 Do not delete, relax or `@Ignore` these assertions to get a green run; they name a real contract requirement,
 and they now pass on their own merits.
 
+## Verification discipline — a check that cannot fail is not evidence
+
+This repository has now been bitten three times by one shape, so it is a rule here rather than a judgement
+call. Each time a mechanism that *looked* correct could not see its own subject, and each returned a
+reassuring number:
+
+| Round | The mechanism | How it was blind | What it reported |
+|---|---|---|---|
+| §23.30 | the harness-failure classifier | read `$_.failure.'#text'`, which is empty for an attribute-less element | never matched anything; the retry had never fired once |
+| §23.31 | the two-line harness report | the first line used `Write-Output` inside a function, so it joined the *return value* | the failure's name vanished; only its continuation printed |
+| §23.32 | the failure filter | `$_.failure -or $_.error` is **falsy** for an empty `<failure></failure>` | the failure vanished entirely — no name, no text, no retry |
+
+Three consequences to internalise before writing any check here:
+
+- **Prove the check can fail for the right reason.** From the outside, a passing check and a broken one look
+  identical, and the broken one is the reassuring case. `tools/check-empty-failure-is-classified.ps1` asserts
+  that the filter it replaced saw **only 2 of 3** shapes — that is what makes it evidence rather than
+  decoration.
+- **Prefer an agreement between two independent counters to the absence of a complaint.** "No failures were
+  found" passes when the reader is blind; `UNACCOUNTED: the reports counted N failure(s), but only M named
+  test(s) could be read out of the XML` does not. That guard generalises: whatever shape a future drop takes,
+  the two numbers separate instead of both quietly deflating.
+- **Test the shipping code, not a copy of it.** This is why several scripts in `tools/` lift the wrapper's own
+  functions and patterns out of the wrapper by regex. A copy can drift, and a check that tests a copy passes
+  against something that is no longer deployed.
+
+### One green run is not a cure
+
+The orchestrator experiment (§23.32) is the worked example. Run 1 without it: 180/180, 0 failures, 7.5 min —
+recorded as a fix, that would have been wrong. Run 2 without it: dead at 14 of 180. The rate was unchanged; the
+first run simply did not reproduce it.
+
+So for anything believed to be flaky or racy, **N = 1 cannot distinguish "fixed" from "did not happen this
+time"** — and the confirming run is the one that arrives first. Run it twice and report the ratio honestly;
+"two of three passed" is a finding, not an embarrassment to smooth over.
+
+The mirror-image failure is older and cost three rounds: **three rounds blamed the device for focus failures
+that were in the app** (§23.29 — TalkBack, then touch exploration, then an API-37 interaction). "It is the
+environment" absolves the change under test, which is exactly why it is the hypothesis an agent reaches for
+first. When a mechanism fails, measure the primitive rather than reasoning about it: `requestFocus()` returning
+`false` is a definite answer, and `tools/setup-emulator.ps1` turns that measurement into a half-minute
+experiment rather than a device round.
+
+### Tooling belongs where it survives a clone
+
+Nine verification scripts were written into `app/build/`, which `.gitignore` excludes — so the checks that make
+the runner's verdicts trustworthy were the one part of two rounds that would not survive a clone. `.agents/` is
+untracked for the same reason. **A gitignored directory is indistinguishable from a tracked one until someone
+clones**, so check `git status --short` for `??` on new files instead of assuming they landed.
+
+This repeats a finding already in this file, and the tell is that it is pleasant: the tool works, the run is
+green, and nothing anywhere complains.
+
 ## Pitfalls
 
 **Device/harness**
@@ -277,7 +350,7 @@ and they now pass on their own merits.
 | Script | Purpose |
 |---|---|
 | `run-accessibility-tests.ps1` | The instrumented suite, with the device prepared. Use this, not Gradle. Derives its own verdict, and reports **INCOMPLETE** if fewer tests ran than the sources contain. |
-| `check-wrapper-completeness.ps1`, `check-harness-signatures.ps1`, `check-classifier-on-real-output.ps1` | Prove the wrapper's three claims above: that a truncated run cannot pass and a retry cannot degrade a complete attempt, that the retry classifier can read and match a failure at all, and that it matches on the XML Gradle **actually** writes. Each lifts the wrapper's own code out of the script rather than retyping it, so none of them can pass against a copy that has drifted. Run them after touching the wrapper. |
+| `check-wrapper-completeness.ps1`, `check-harness-signatures.ps1`, `check-classifier-on-real-output.ps1`, `check-empty-failure-is-classified.ps1` | Prove the wrapper's four claims: that a truncated run cannot pass and a retry cannot degrade a complete attempt, that the retry classifier can read and match a failure at all, that it matches on the XML Gradle **actually** writes, and that a failure recorded with no message and no trace is seen and classified as the harness. Three of the four lift the wrapper's own code out of the script rather than retyping it, so none can pass against a copy that has drifted. Run them after touching the wrapper — every one of these defects was invisible while looking correct, and none was caught by the mechanism it broke. |
 | `proof-*.ps1`, `probe-xml-text.ps1` | Failing-first proofs for a regression guard, and small one-off device probes. A proof edits production code, runs the JVM suite, prints the tests that noticed, and restores — asserting the text actually changed, because a `-replace` that silently does not apply makes an unguarded suite read as "this guard is not needed". |
 | `setup-emulator.ps1` | Installs the emulator + an API 36 image and creates/boots an AVD, so the suite can run without a phone and therefore without a PIN. Idempotent; `-Check` reports only, `-Stop` shuts it down and waits for it to go. |
 | `probe-player-back.ps1`, `probe-player-navigation.ps1`, `probe-history.ps1`, `probe-listening-tab.ps1`, `probe-config-change.ps1` | Drive the real UI over `adb` and read the accessibility dump back. They read tap targets from the dump rather than hard-coding coordinates — keep it that way, because a probe that misses reports a wrong answer with full confidence. |

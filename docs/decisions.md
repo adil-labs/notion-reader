@@ -4924,6 +4924,160 @@ yet — that is Phase 4's `Play`. So this phase is a type and persistence change
 what the spec's phase split intends: the part that reaches into working persistence lands on its own, verified
 by a wire-format test rather than by a screen.
 
+### 23.32 Dropping the orchestrator, and the third check that could not see its own subject
+
+**Date:** 2026-09-19. An experiment the previous round's cost justified: the instrumented runner, not the feature work, is where this project's time goes, so the highest-leverage change was to the runner.
+
+#### The hypothesis, and how it was tested
+
+`ANDROIDX_TEST_ORCHESTRATOR` starts **one process per test**. On a 4 GB emulator that is 180 process starts, competing for the same process budget as the `system_server` that kept dying. The half of its justification that mattered most — *a truncated run must not read as a clean one* — is now handled by the completeness check instead (§23.30), and nothing in this suite depends on process isolation: no test drives the real `MainActivity`, because they render `ComponentActivity` with in-memory doubles built by `ShellHarness`, so no on-disk session state is reachable from a test.
+
+So it was removed (`app/build.gradle.kts` records both halves, what is given up, and how to put it back), and the suite was run twice from a **freshly booted** emulator — because the previous emulator was found wedged, with adb's transport saying `device` while `adb shell` did not answer in 20 seconds, which is the state the orchestrator runs left behind.
+
+#### Run 1: a complete pass, and the hazard of believing it
+
+```
+HTML report: tests=180 failures=0
+gradle exit code: 0
+RESULT: PASSED - 180 tests, 0 failures (expected 180).
+```
+
+**All 15 classes, 180 tests, 0 failures, one attempt, no retry, 7.5 minutes.** For contrast: the orchestrator baseline was ~11 minutes, with runs reaching 39 minutes under thrash. And the single harness flake that had appeared in *every* previous full run — `Activity never becomes requested state` in `SavedQueueDetailsAccessibilityTest` — did not reproduce.
+
+That is a satisfying result, and **it is not evidence that the orchestrator was the cause.** One run cannot distinguish "fixed" from "did not happen this time" — which is precisely the distinction this file keeps having to make, and the reason a second run was run rather than a conclusion written.
+
+#### Run 2: it died anyway, so the orchestrator was not the cause
+
+```
+HTML report: tests=14 failures=1
+RESULT: FAILED - 1 failing test(s) out of 14.
+WARNING: This attempt is also incomplete: 14 of 180 tests ran, so some classes reported nothing at all.
+```
+
+Browse passed 13/13, then `CreateSavedQueueAccessibilityTest` reported **1 test, 1 failure**, and the run stopped — after 1.6 minutes. **The deaths persist without the orchestrator.** The measurement is therefore a *rejection*, not a confirmation: the orchestrator was not the proximate cause of the `system_server` deaths, whatever else it was costing.
+
+Had the experiment stopped at run 1, this file would have recorded a cure that does not exist. That is the same failure as the three rounds that blamed TalkBack, touch exploration, and API 37 for the focus assertions (§23.29) — an explanation that fits the evidence available, adopted because the first piece of evidence was good.
+
+What the second run *did* do was find a real defect.
+
+#### The defect run 2 exposed: `<failure></failure>` is invisible to a truthiness test
+
+The one failure in run 2 was reported by the suite counter and by nothing else:
+
+```
+com.example.notionreader.ui.BrowseScreenAccessibilityTest: tests=13 failures=0 errors=0 skipped=0
+com.example.notionreader.ui.CreateSavedQueueAccessibilityTest: tests=1 failures=1 errors=0 skipped=0
+
+HTML report: tests=14 failures=1
+```
+
+No `FAILED:` line. No `HARNESS FAILURE:` line. No name, no text, no retry. The XML said why:
+
+```xml
+<testcase name="createIsUnavailableUntilTheNameIsUsable"><failure></failure></testcase>
+```
+
+**An empty `<failure></failure>` deserialises to an empty String, and an empty String is falsy in PowerShell.** So the filter
+
+```powershell
+$suite.testcase | Where-Object { $_.failure -or $_.error } | ForEach-Object { ... }
+```
+
+**dropped the testcase entirely.** Measured rather than reasoned about, on the real output and on a synthetic one:
+
+| expression | `<failure></failure>` | `<failure message="x">y</failure>` |
+|---|---|---|
+| `$_.failure -or $_.error` | **false** — dropped | true |
+| `$null -ne $_.failure -or $null -ne $_.error` | true | true |
+
+The consequence is a specific and nasty shape: the suite counter still said `failures="1"`, so the run came out **red while the report said nothing at all**. And because `Test-IsRetryable` gates the retry on `HarnessFailures.Count -eq Failures`, a count that could not hold, the one failure in the run was **neither reported nor retried**.
+
+**Why it survived until now is the same reason the others did: every failure this runner had ever successfully handled carried a message.** The shape it could not see was the one with nothing inside it — and that is exactly the shape a device-side death leaves. The case it was blindest to was the case it most needed to recognise.
+
+#### The check written to prove the classifier works had the identical bug
+
+`tools/check-classifier-on-real-output.ps1` exists to prove the classifier can read the failures in a *real* run. It reports how many failures it found. On the file above — one failure, one empty element — it printed:
+
+```
+failures in this file     : 0
+read as EMPTY by the reader: 0   <-- must be 0
+```
+
+**Zero.** Its own loop had the same filter:
+
+```powershell
+if (-not ($case.failure -or $case.error)) { continue }
+```
+
+So the instrument built to detect that the classifier could not see its subject **could not see the subject either**, and reported the most reassuring number available. A check that cannot see what it is checking does not fail — it returns zero, and zero reads as "nothing wrong".
+
+After the fix, on the same file:
+
+```
+failures declared by the suites : 1
+failures with a per-test record : 1   <-- must equal the line above
+  ... empty, so the harness     : 1
+  ... matched a pattern         : 0
+  ... UNCLASSIFIED              : 0   <-- must be 0
+```
+
+#### The fix, in three parts
+
+1. **The filter tests presence, not truthiness** — `$null -ne $_.failure -or $null -ne $_.error`.
+2. **An empty failure is the harness, structurally.** An assertion failure always records a stack trace in the element's text, so *no message and no trace* means the process never produced a record at all. It is checked before the pattern list rather than added to it, because it is a property of the record rather than a string in one. This does not make a real defect retryable: the retry still has to pass to go green, and a genuine empty-text failure would reproduce and be reported from the second attempt.
+3. **An accountability guard.** `Invoke-TestAttempt` now compares the failures the suites declared against the per-test records it actually read, and prints `UNACCOUNTED` when they disagree. This is the part that generalises: whatever shape a future drop takes, the two numbers move apart instead of both quietly deflating.
+
+#### The proof, and it can fail for the right reason
+
+`tools/check-empty-failure-is-classified.ps1` **lifts the wrapper's own filter by regex** and executes it as a scriptblock, so it cannot pass against a drifted copy. It asserts that the current filter sees 3 of 3 shapes — and that **the expression it replaced saw only 2 of 3**, which is what makes the check capable of failing rather than merely capable of passing. It also asserts the anti-laundering property directly: an unrecognised message-bearing failure still matches no signature and stays red.
+
+#### The family this belongs to, now that there are three
+
+| Round | The mechanism | How it was blind | What it produced |
+|---|---|---|---|
+| §23.30 | the failure classifier | read `$_.failure.'#text'`, empty for an attribute-less element | never matched anything, ever; the retry had never fired |
+| §23.31 | the two-line harness report | the first line used `Write-Output` inside a function, the second `+=` to the report | the failure's *name* vanished; only its continuation line printed |
+| §23.32 | the failure filter | truthiness, and an empty element is falsy | the failure vanished entirely; no name, no text, no retry |
+
+Three mechanisms, one property: **each could not see its own subject while looking correct.** None was caught by the mechanism itself — the first was found by a checker, the second by a missing line in a report, the third by a second run that disagreed with the first. The pattern is worth stating in the form this project keeps arriving at: *a check that cannot distinguish anything still returns a number, and the number is usually reassuring.*
+
+#### What was decided
+
+**The orchestrator stays out.** It was removed for cost — 7.5 minutes against ~11, and no per-test process budget for the `system_server` to compete with — and the deaths happen either way, so reintroducing it would buy back nothing that was measured. This is a **cost** decision supported by two runs, not a reliability claim, and it is recorded as such: the emulator is simply less reliable than the phone was, and the mitigation is not a fix to the emulator but the completeness check plus the classifier — the runner now *says* when it is incomplete, and *says* when a death was a death.
+
+#### Run 3, and the measurement that ended the round
+
+Recorded after the classifier fix, on the same boot:
+
+```
+HTML report: tests=180 failures=0
+gradle exit code: 0
+RESULT: PASSED - 180 tests, 0 failures (expected 180).
+```
+
+**So the orchestrator-free suite is 2 clean runs of 3** — 180/180 in 7.5 min, a death at 14/180, then 180/180 in 15.0 min. The rate is unchanged from the orchestrator era, which is the finding: the deaths are the emulator's, and two of three runs are usable instead of none.
+
+Run 3 also produced the number this round should really be judged on. Reading the per-suite `time` attribute out of the XML:
+
+| | Tests | Test time | Per test |
+|---|---|---|---|
+| **Instrumented** | 180 | **873 s** (14.6 min) | **4,700 ms** |
+| **JVM** (`--no-build-cache`) | 534 | **0.8 s** | **~1.5 ms** |
+
+And the instrumented cost is **flat across every class** — 4.4 s for `HomeScreenAccessibilityTest`'s 9 tests, 5.6 s for `ReaderShellSavedQueueTest`'s 10, 4.4 s for `ReaderShellQueueBackTest`'s 2. A uniform cost per test regardless of what the test does is the signature of **fixed per-test setup** — Activity launch, instrumentation, Compose idle, teardown — and not of the assertions, which run in milliseconds.
+
+The consequence is stark and is the subject of §24: this suite spends ~99% of its time paying for a device, to make assertions that are properties of a semantics tree the JVM can build without one.
+
+#### Verification
+
+- **534 JVM tests, 0 failures.**
+- Run 1 without the orchestrator: **180/180, 0 failures, one attempt, 7.5 min, Gradle exit 0.**
+- Run 2 without the orchestrator: truncated at 14 of 180, which is the finding, not a failure of the round.
+- Run 3 without the orchestrator: **180/180, 0 failures, one attempt, 15.0 min, Gradle exit 0** — after the classifier fix, on the same boot.
+- `tools/check-empty-failure-is-classified.ps1`: 7 assertions, including that the replaced filter saw only 2 of 3.
+- `tools/check-classifier-on-real-output.ps1`: 1 declared, 1 read, 1 empty-as-harness, 0 unclassified — on the file that previously read as zero.
+- `tools/check-wrapper-completeness.ps1` and `tools/check-harness-signatures.ps1` still pass.
+
 ### 23.31 Slice 3 — Edit mode, and a proof that proved nothing
 
 **Date:** 2026-09-19. The four moves, `Remove`, `Done`, and Back leaving Edit mode rather than the screen. **534 JVM tests, 0 failures** (was 512; 22 additions) and **180 instrumented tests** (was 168; 12 additions).
@@ -5504,6 +5658,145 @@ raised `screen_off_timeout`, and the next run then captured that raised value as
 successful restore to a value that was itself the damage. The `finally` now re-reads each setting and
 **warns with the manual command** if the device does not match what was intended. A restore that is only
 announced is not a restore.
+
+---
+
+## 24. What the instrumented suite actually costs, and the five ways to make it cheaper
+
+**Date:** 2026-09-19. A question about testing cost, answered from measurement and from the official docs
+(`android docs search` / `android docs fetch`) rather than from recollection.
+
+### 24.1 The measurement, and it is not close
+
+| | Tests | Test time | Per test |
+|---|---|---|---|
+| **Instrumented** | 180 | **873 s** (14.6 min) | **4,700 ms** |
+| **JVM** (`--no-build-cache`) | 534 | **0.8 s** | **~1.5 ms** |
+
+The instrumented suite is **~3,000× more expensive per test**, and the cost is **flat across every class** —
+4.4 s for `HomeScreenAccessibilityTest`'s 9 tests, 5.6 s for `ReaderShellSavedQueueTest`'s 10, and 4.4 s for
+`ReaderShellQueueBackTest`'s **2**. A uniform cost regardless of what the test does is the signature of
+**fixed per-test setup** — Activity launch, instrumentation, Compose idle, teardown — rather than of the
+assertions, which are semantics-tree reads and take milliseconds.
+
+So roughly 99% of 15 minutes is spent paying for a device in order to assert properties of a tree that does
+not need one. That framing is what makes the options separable, because it tells you which ones attack the
+actual cost.
+
+### 24.2 The five options, with what the documentation says about each
+
+**1. Move the UI tests to Robolectric on the JVM — the only option that attacks the actual cost.**
+
+The docs are unusually direct, and the recommendation matches this suite's shape almost word for word:
+
+> Robolectric … lets you run tests in a simulated Android environment inside a JVM, without the overhead and
+> flakiness of an emulator … Many big projects use Robolectric to increase the speed and reliability of their
+> tests and reduce the expenses associated with running tests on real devices or emulators.
+> — `kb://android/training/testing/local-tests/robolectric`
+
+> **Use Robolectric for isolated UI behavior tests** for components, feature or application tests. In general
+> these tests check the state management and behavior of the UIs and don't interact with external
+> dependencies.
+> — same page, on choosing between Robolectric and device tests
+
+> …when a Compose test verifies that the UI has changed after clicking a button. You can run behavior tests on
+> Robolectric as the fidelity needed for it is more than enough.
+> — same page
+
+That is what this suite is: 15 of 15 classes render a screen (or the shell) with state passed in, and the
+shell tests use in-memory doubles built by `ShellHarness` precisely so that nothing external is involved. The
+setup is two lines — `unitTests { isIncludeAndroidResources = true }` and
+`testImplementation("org.robolectric:robolectric:4.13")` — and a UI test in the `test` source set runs under
+Robolectric automatically.
+
+**2. ATD images (Automated Test Device). Not available here, and worth saying so plainly.**
+ATD images are headless and cut CPU and memory use, which is exactly the shape of this problem:
+> [ATD] … is optimized to reduce CPU and memory resources when running your instrumented tests.
+> — `kb://android/studio/test/managed-devices`
+
+But the same page states the constraint three times: **"ATDs currently support only API level 30."** This
+project's emulator is API 36 and the real target is API 37. So ATD is a dead end here, and recording that is
+worth more than the options that are live, because "use an ATD image" is the recommendation an agent will
+reach for first and then spend time discovering it cannot apply.
+
+**3. Test sharding — parallel devices; multiplies the bill, does not reduce it.**
+> …split your test suite across a number of identical virtual device instances, called *shards*, that run in
+> parallel … **Warning:** Depending on the number of shards you specify, enabling this feature can be resource
+> intensive. If Gradle is unable to provision the devices requested, the test run might fail with a timeout
+> error.
+> — `kb://android/studio/test/managed-devices`
+
+Sharding divides **wall clock**, not cost, and it needs N devices alive at once. This machine starved a
+**single** 2 GB AVD until the low-memory killer took `system_server` (§23.31), and the deaths remain at 4 GB
+(§23.32). Running two or four instances to shorten a 15-minute run would trade a known cost for the exact
+failure this suite has spent two rounds learning to characterise. **Rejected on measured grounds, not on
+taste.**
+
+**4. Build-managed devices — good properties, wrong round.**
+> Build-managed devices improve consistency, performance, and reliability … uses emulator snapshots to improve
+> device startup time and memory usage and restore devices to a clean state between tests … **Caches test
+> results and reruns only tests that are likely to provide different results**
+> — `kb://android/studio/test/managed-devices`
+
+The snapshot restore and result caching are genuinely attractive, and this is the option to revisit **after**
+option 1, not instead of it. Two reasons to sequence it second: it moves device lifecycle into Gradle, which
+is a real change to how the project is run and worth doing once the suite is small enough to be worth
+managing; and its caching benefit lands on *re-runs*, so it short-circuits the inner loop without fixing the
+outer one.
+
+**5. Parallelise the JVM suite — free, and not yet done.**
+`maxParallelForks` is **unset**, so the 534 JVM tests already run in a single fork. This is not a fix for
+today's problem (the JVM suite is 3 seconds) but it is the multiplier that makes option 1 pay off more: after
+the move, ~160 additional JVM tests across the machine's cores cost a fraction of what they would serially.
+
+### 24.3 The recommendation, and the reason it is a spike rather than a decision
+
+**Move the 12 pure-UI classes to Robolectric, and leave on the device only what needs a device.**
+
+| Stay on device | Why |
+|---|---|
+| `FocusRestoreTest` (5) | It asserts the focus *mechanism* against a real window. §23.29 established that the failure it guards is a property of the real Compose/Android interaction, and a simulated window is precisely the fidelity Robolectric does not promise. |
+| `ReaderShellQueueBackTest` (2), `ReaderShellSavedQueueTest` (10) | Real `BackHandler`/Activity back-dispatch. |
+| A thin device smoke test | That the app still starts and renders on a real Android — the one claim a JVM cannot make. |
+
+| Move to the JVM | Why it is safe |
+|---|---|
+| The 12 screen/shell classes (~163 tests) | Each renders state passed in and asserts the semantics tree. That is the documented sweet spot. |
+
+Expected shape: **~15 device tests (~1.5 min) + ~163 JVM tests (seconds)**, replacing 180 device tests
+(14.6 min) — and the device suite small enough that a `system_server` death costs a re-run of a minute rather
+than fifteen.
+
+**But this is a spike before it is a decision**, because there is one honest risk and it is not small:
+**Robolectric does not render.** The docs say it "doesn't have a screen like an emulator does", and this
+suite's helper asserts *geometry* — `boundsInRoot`, `isPlaced`, and overlap with the surface root. Those
+may be degenerate without a real layout pass, and a geometry assertion that silently always passes is
+**exactly the failure mode §23.30–§23.32 spent three rounds on**: a check that cannot see its subject and
+returns a reassuring number.
+
+So the spike's acceptance criteria are about *detecting* that, not about the suite going green:
+
+1. Move **one** class — `SavedQueueEditModeAccessibilityTest`, because it is the one that already found a real
+   defect (`Remove` clipped to zero area) and whose assertions therefore have proven discriminating power.
+2. Prove the geometry assertions still discriminate on the JVM: **re-clip `Remove` into a `Row` and confirm
+   the moved tests fail there too.** A green run proves nothing; the regression must still be caught.
+3. If the geometry assertions do not discriminate under Robolectric, split `A11y` rather than abandoning the
+   move: keep the **tree facts** (`isPlaced`, non-blank name, an `OnClick` action, reading order — all
+   semantics-only) on the JVM, and leave the **geometry facts** (`overlapsSurface`, non-zero area) to the
+   device. §23.31 already found that "occupies area" and "overlaps the surface" are the two of
+   `assertIsReachable`'s four checks demonstrated non-deterministic on a real device, while the other three
+   are facts about the app — which is the same split, arrived at from the other direction.
+
+### 24.4 Verification
+
+- Instrumented baseline measured: **873 s of test time over 180 tests (4.7 s each), flat across all 15
+  classes**, against **0.8 s over 534 JVM tests**.
+- Run 3 without the orchestrator: **180/180, 0 failures, 15.0 min, Gradle exit 0.**
+- `maxParallelForks` confirmed unset; `isIncludeAndroidResources` confirmed absent.
+- ATD ruled out against the documented "API level 30" constraint; sharding rejected as resource-multiplying
+  on a machine that starved at 2 GB and still dies at 4 GB.
+- Doc sources: `kb://android/training/testing/local-tests/robolectric`,
+  `kb://android/studio/test/managed-devices`, `kb://android/develop/ui/compose/testing/index`.
 
 ---
 

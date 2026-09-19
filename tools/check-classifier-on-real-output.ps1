@@ -43,28 +43,57 @@ $doc = [xml](Get-Content -LiteralPath $file.FullName -Raw)
 
 $report = @("reading: $($file.Name)", '')
 
-$total = 0
+# ---------------------------------------------------------------------------------------------------
+# Three counts, and the check is that they agree.
+#
+# This file used to have exactly the defect it exists to detect: its own loop skipped a testcase with
+# `if (-not ($case.failure -or $case.error)) { continue }`, and an empty `<failure></failure>` is falsy, so
+# it reported `failures in this file : 0` while reading a file that contained one. A check that cannot see
+# the case in front of it reports the most reassuring number available, which is zero.
+#
+# So the filter is presence-based here too, AND the totals are compared. The comparison is the part that
+# matters: it is what makes a *future* drop loud, whatever shape it takes, because a dropped failure moves
+# `seen` away from `declared` instead of quietly deflating both.
+# ---------------------------------------------------------------------------------------------------
+
+$declared = 0
+foreach ($suite in $doc.testsuites.testsuite) {
+    $declared += [int]$suite.failures + [int]$suite.errors
+}
+
+$seen = 0
 $empties = 0
+$patternCases = 0
+$patternHits = 0
 $classified = @{}
 $samples = @()
 
 foreach ($suite in $doc.testsuites.testsuite) {
     foreach ($case in $suite.testcase) {
-        if (-not ($case.failure -or $case.error)) { continue }
-        $total++
+        # Presence, not truthiness. See the note above; this is the fix, not a style preference.
+        if ($null -eq $case.failure -and $null -eq $case.error) { continue }
+        $seen++
 
-        # `Get-FailureText` is total, so this cannot throw - but it CAN return nothing, and nothing is the
-        # failure this check is looking for.
+        # `Get-FailureText` is total, so this cannot throw - but it CAN return nothing, and nothing is
+        # meaningful rather than broken: it is the record a device-side death leaves.
         $text = [string](Get-FailureText $case.failure + Get-FailureText $case.error)
         if ($text.Length -eq 0) { $empties++ }
 
-        $matchedAny = $false
+        # The wrapper's rule, in the wrapper's order: empty is the harness structurally, and only a
+        # non-empty text is offered to the pattern list.
+        $matchedAny = [string]::IsNullOrWhiteSpace($text)
         foreach ($pattern in $patterns) {
             if ($text -like "*$pattern*") {
                 $classified[$pattern] = 1 + ($classified[$pattern] -as [int])
                 $matchedAny = $true
+                $patternHits++
             }
         }
+        # Counted per *testcase*, not per pattern: one failure can legitimately match two signatures (a
+        # crash trace containing both "Process crashed" and "Instrumentation run failed" is normal), and
+        # counting the matches instead of the cases would make the unclassified total go negative on a
+        # completely healthy run - a check that fails when nothing is wrong is worse than no check.
+        if ($matchedAny -and $text.Length -gt 0) { $patternCases++ }
         if (-not $matchedAny -and $samples.Count -lt 3) {
             # Truncated by *taking* rather than by index arithmetic, because the first line can be shorter
             # than the window and a bad `Substring` here would replace the report with a script error.
@@ -75,12 +104,19 @@ foreach ($suite in $doc.testsuites.testsuite) {
     }
 }
 
-$report += "failures in this file     : $total"
-$report += "read as EMPTY by the reader: $empties   <-- must be 0; a non-zero value means nothing can ever match"
+$unclassified = $seen - $empties - $patternCases
+
+$report += "failures declared by the suites : $declared"
+$report += "failures with a per-test record : $seen   <-- must equal the line above"
+$report += "  ... empty, so the harness     : $empties"
+$report += "  ... matched a pattern         : $patternCases"
+$report += "  ... UNCLASSIFIED              : $unclassified   <-- must be 0"
 $report += ''
-$report += 'Classified as harness signatures:'
+$report += 'Patterns that matched:'
 if ($classified.Count -eq 0) {
-    $report += '  (none)'
+    # Nothing matching is a legitimate outcome for a clean run, so it is stated as such rather than as a
+    # failure - but note that it is only legitimate when there were no failures to match either.
+    $report += '  (none - no pattern was needed on this run)'
 } else {
     foreach ($key in $classified.Keys) { $report += ("  {0,5}  {1}" -f $classified[$key], $key) }
 }
@@ -93,6 +129,20 @@ if ($samples.Count -gt 0) {
 
 $report | ForEach-Object { Write-Output $_ }
 
-if ($empties -gt 0) {
-    throw "$empties failure(s) read as empty, so no signature could match them."
+# ---------------------------------------------------------------------------------------------------
+# The verdict. Each condition is thrown by name, because the failure mode of a check like this is to look
+# like a clean result - so which condition fired has to be readable without re-deriving it.
+# ---------------------------------------------------------------------------------------------------
+
+if ($seen -ne $declared) {
+    throw ("The file declares $declared failure(s) but only $seen produced a per-test record. Something is " +
+        'being dropped between the XML and the reader - which is the defect this check was written to catch.')
 }
+
+if ($unclassified -ne 0) {
+    throw "$unclassified failure(s) matched no signature and were not empty records, so nothing could classify them."
+}
+
+Write-Output ''
+Write-Output ("OK: every failure the run declared was read and classified ({0} declared, {1} read, {2} empty-as-harness, {3} by pattern)." -f `
+        $declared, $seen, $empties, $patternCases)

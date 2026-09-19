@@ -307,12 +307,37 @@ function Invoke-TestAttempt {
         $attempt.Tests += [int]$suite.tests
         $attempt.Failures += [int]$suite.failures + [int]$suite.errors
 
-        $suite.testcase | Where-Object { $_.failure -or $_.error } | ForEach-Object {
-            $text = Get-FailureText ($_.failure) + Get-FailureText ($_.error)
+        # `$null -ne` rather than a truthiness test, and this is a defect fix rather than a style choice.
+        #
+        # A `<failure></failure>` with no attributes and no text deserialises to an **empty String**, which
+        # is falsy in PowerShell - so `Where-Object { $_.failure -or $_.error }` dropped the testcase
+        # entirely. Measured on the real output this was found from:
+        #
+        #     <failure></failure>   ->  String ''   truthy? False  ->  matches 0 of 1
+        #     $null -ne $_.failure  ->              presence? yes  ->  matches 1 of 1
+        #
+        # The suite counter still said `failures="1"`, so the run came out red while the report said nothing
+        # whatever: no failure name, no text, and - because `HarnessFailures.Count` stayed 0 while `Failures`
+        # was 1 - no retry either. Every failure the classifier had ever successfully handled carried a
+        # message, which is precisely why this went unnoticed: the one shape it could not see was the one
+        # with nothing inside it to see.
+        $suite.testcase | Where-Object { $null -ne $_.failure -or $null -ne $_.error } | ForEach-Object {
+            $text = (Get-FailureText ($_.failure) + Get-FailureText ($_.error)).Trim()
 
-            $isHarness = $false
-            foreach ($pattern in $HARNESS_FAILURE_PATTERNS) {
-                if ($text -like "*$pattern*") { $isHarness = $true; break }
+            # **An empty failure is the harness, not the app.** An assertion failure always records a stack
+            # trace in the element's text, so "no message and no trace" means the process never produced a
+            # record at all - which is what a device-side death mid-test leaves behind once it reaches the
+            # XML. Found from a run that stopped after 14 of 180 tests with exactly this shape.
+            #
+            # Checked before the pattern list rather than added to it, because it is a structural property of
+            # the record rather than a string inside one. A retry cannot launder a real defect through this:
+            # the retry still has to pass for the verdict to be green, and a genuine empty-text failure would
+            # reproduce on the second attempt and be reported from there.
+            $isHarness = [string]::IsNullOrWhiteSpace($text)
+            if (-not $isHarness) {
+                foreach ($pattern in $HARNESS_FAILURE_PATTERNS) {
+                    if ($text -like "*$pattern*") { $isHarness = $true; break }
+                }
             }
 
             if ($isHarness) {
@@ -326,8 +351,14 @@ function Invoke-TestAttempt {
                 # It went unnoticed because `$result` was an *array* — the object plus this stray string — and
                 # `$result.Report` still worked by PowerShell's member enumeration, which finds the property on
                 # whichever element has it. So everything looked correct except the missing name.
-                $attempt.Report += ("  HARNESS FAILURE: {0} - the device lost the test activity, so no" -f $_.name)
-                $attempt.Report += '                   assertion was reached. This is not a verdict on the app.'
+                if ([string]::IsNullOrWhiteSpace($text)) {
+                    $attempt.Report += ("  HARNESS FAILURE: {0} - recorded with NO message and NO trace, which" -f $_.name)
+                    $attempt.Report += '                   is what a device-side death leaves behind. Not a verdict on the app.'
+                }
+                else {
+                    $attempt.Report += ("  HARNESS FAILURE: {0} - the device lost the test activity, so no" -f $_.name)
+                    $attempt.Report += '                   assertion was reached. This is not a verdict on the app.'
+                }
             }
             else {
                 $attempt.AppFailures += [pscustomobject]@{ Name = $_.name; Text = $text }
@@ -342,6 +373,25 @@ function Invoke-TestAttempt {
                 if ($details.Count -gt 0) { $attempt.Report += $details }
             }
         }
+    }
+
+    # ---------------------------------------------------------------------------------------------------
+    # Accountability: every failure the reports counted must have produced a per-test record.
+    #
+    # This is the guard that would have made the empty-`<failure/>` defect loud instead of silent. It is
+    # deliberately placed here, comparing the two XML-derived numbers against each other, before the HTML
+    # report is consulted and before either is maximised - so it compares like with like.
+    #
+    # It is a *check*, not a classification: it does not decide what a failure means, only that no failure
+    # vanished between the suite counters and this report. A dropped failure is always a defect in this
+    # script, never a property of the app, so the wording says so.
+    # ---------------------------------------------------------------------------------------------------
+    $classified = $attempt.AppFailures.Count + $attempt.HarnessFailures.Count
+    if ($classified -ne $attempt.Failures) {
+        $attempt.Report += ''
+        $attempt.Report += ("  UNACCOUNTED: the reports counted {0} failure(s), but only {1} named test(s) could" -f `
+                $attempt.Failures, $classified)
+        $attempt.Report += '               be read out of the XML. Something was dropped on the way to this report.'
     }
 
     # The HTML report as a second opinion, guarded the same way as the XML so a stale report cannot be
