@@ -5800,6 +5800,194 @@ So the spike's acceptance criteria are about *detecting* that, not about the sui
 
 ---
 
+## 25. The instrumented suite's real cost is the emulator's own load, and four defects the investigation found
+
+**Date:** 2026-09-19. A follow-up to §24, which established that the instrumented suite costs ~4.7 s per test
+against ~1.5 ms on the JVM. This round asked where inside that 4.7 s the time goes, and found that almost all
+of it is the *device*, not the test.
+
+### 25.1 What was measured, and the doc-sourced options that were eliminated first
+
+Four candidate levers were checked against the official documentation before any experiment, and three are
+recorded as dead ends so they are not re-investigated:
+
+| Lever | Verdict | The documented reason |
+|---|---|---|
+| ATD (Automated Test Device) images | **Dead end** | "ATDs currently support only API level 30" — this project is API 36, targeting 37 (`kb://android/studio/test/managed-devices`) |
+| Test sharding | **Rejected** | Divides wall clock, not cost; needs N live devices; the docs warn it is "resource intensive", and this machine starved a single 2 GB AVD until `system_server` died (§23.31) |
+| Animation scales | **Tested: no effect** | `mainClock` is **virtual** in Compose tests, so `advanceTimeBy` is not wall clock (`kb://android/develop/ui/compose/animation/testing`) |
+| Emulator GPU mode | **Already optimal** | The AVD's `hw.gpu.mode=auto` resolved to the host GPU — `GLES: … NVIDIA GeForce RTX 5060`, not SwiftShader |
+
+The animation case is worth its own line because it is the recommendation everyone reaches for, and it was
+**measured rather than assumed**. Three runs of an 11-test class with all three scales set to `0.0`:
+
+| | Per test |
+|---|---|
+| Animations on (1.0) | 4.79, 4.38, 4.32 s → mean **4.50 s** |
+| Animations off (0.0) | 5.49, 3.57, 4.51 s → mean **4.52 s** |
+
+**No effect.** That is what the virtual-clock finding predicts, and it is why the doc was read first: the
+experiment cost nothing because the answer was already written down. The spread inside each group (±1 s) is
+larger than the difference between them, which is itself the next clue.
+
+### 25.2 The finding: the emulator's load, not the test
+
+The spread in those numbers pointed at the *device* rather than the tests. Measuring it directly, the same
+11-test class on the same emulator:
+
+| Emulator state | Load average | Per test |
+|---|---|---|
+| Just restarted | **0.06** | **1.03, 1.03**, 1.96 s |
+| After a period of use | **10.34** | 4.79, 4.38, 4.32 s |
+
+**A 4.3× difference in per-test cost, for byte-identical tests, decided by how long the emulator had been
+running.** And `system_server` was measured at **108% CPU while the device was completely idle**, with only
+448 MB of 4 GB free — a device burning a whole core doing nothing.
+
+The same effect on the **whole suite**, which is the number that matters:
+
+| | Test time | Per test | Wall clock | Verdict |
+|---|---|---|---|---|
+| Aged device | 873 s | 4.85 s | **14.6 min** | 180/180, 0 failures |
+| Fresh boot | **522 s** | **2.90 s** | **9.0 min** | 180/180, 0 failures |
+
+**1.6× on the full suite from a restart alone**, with no configuration change, no code change, and the same
+tests passing either way. And that 9.0 min is a **floor rather than a ceiling**: the run started at load
+**5.88** — left over from the three 11-test runs that preceded it — not at 0.06, and it finished at 11.59. The
+measured fresh rate was **1.03 s per test**, so a run that did not degrade would take about **3 minutes**, and
+the 2.90 s average is the degradation dragging the later tests upward.
+
+The load grows *within* a session, not just between them. Three consecutive 11-test runs took it from **0.06 to
+6.39**, and the full 180-test run pushed it from 5.88 to **11.59** — so a full suite cannot be run cheaply by
+restarting once and running it repeatedly. It is a restart per full run, not a restart per session.
+
+**This is the answer to "why is the suite slow", and it is not the tests.** It also explains why §24's
+`per class` costs looked so uniform: the cost is not a property of any class, it is a property of *how many
+tests have already run against this device*.
+
+### 25.3 The negative result that matters: it is not the app leaking
+
+Sixteen runnable tasks on four vCPUs has an obvious suspect in a test suite — leaked processes. Checked
+directly, mid-run, at load 16:
+
+```plain text
+process count                    : 379   (unchanged from idle)
+com.example.notionreader         : 1     (the current test's app process)
+com.example.notionreader.test    : 1     (the current test's instrumentation)
+```
+
+**One app process and one test process, exactly as there should be.** There is no accumulation, so this is
+**not** an app lifecycle defect and nothing in the app needs fixing for it. That distinction matters: the
+symptom was read as a plausible app leak, and had it been one, the fix would have been in production code
+rather than in how the suite is run.
+
+### 25.4 Four defects the investigation found, all in the runner
+
+Investigating the timing required using `-Class` repeatedly, and that is what exposed them. Each is the same
+family as §23.30–§23.32: **a report that could not describe the thing it was reporting on.**
+
+**1. `-Class` reported every filtered run as `INCOMPLETE`, and exited 1.** The completeness bar was the
+whole-suite `@Test` count, so a deliberately-filtered run could never reach it:
+
+```plain text
+pwsh -File tools\run-accessibility-tests.ps1 -Class ...SavedQueueEditModeAccessibilityTest
+RESULT: INCOMPLETE - only 11 of 180 tests ran, with 0 failures.
+```
+
+Eleven tests ran and all eleven passed. **`AGENTS.md` and the verification skill both recommend `-Class` as the
+way to iterate, so the documented workflow and the tool disagreed and the tool was wrong** about a run that had
+done exactly what it was asked. The bar is now counted from the sources for the filtered classes, and it
+accepts a comma-separated list — which is also how one *finds* that a comma-separated list is not supported by
+the underlying runner property, since a filtered run of four classes silently ran one.
+
+**2. `-f` binds tighter than `+`, so a warning could not name the attempt it was about.** The message ended
+`'…about why.' -f (...)`, which applied the format to the final string fragment — one with no `{0}` in it — and
+then concatenated. It printed `Attempt(s) {0} ran only part of the suite`. The format was a no-op on a string
+that was then assembled, which reads correctly on the page and fails silently.
+
+**3. The verdict fell back to the *last* attempt even when it had read less than an earlier one.** With no
+attempt complete, the rule was `$attempts[-1]`:
+
+```plain text
+Attempt 1: 7 test(s), 2 failure(s) - INCOMPLETE    <- both failures classified as the harness
+Attempt 2: 0 test(s), 0 failure(s) - INCOMPLETE    <- install failed; the device had died
+Verdict comes from attempt 2 of 2.
+RESULT: INCONCLUSIVE - no test counts were readable from either report.
+```
+
+Attempt 1 had done all the useful work and named both failures; the fallback discarded it and reported
+`INCONCLUSIVE`, which reads as "this run told us nothing" when it had in fact told us quite a lot. The rule is
+now: prefer the most recent **complete** attempt, else the one that read the **most** tests, else the last.
+
+**4. The restore path threw a PowerShell null-dereference when the device had died.** `system_server` died
+during collection, and `(& $adb shell settings get …).Trim()` then threw *"You cannot call a method on a
+null-valued expression"* at line 988 — **replacing the run's verdict with a script error**, and hiding the fact
+that the suite had already produced a usable result. This is the third instance of the same shape found in this
+repository (an unguarded read of a device that is not answering produces an error naming PowerShell). The
+restore now reads through a `Get-DeviceSetting` helper that treats three shapes as "no answer" — empty output,
+`cmd: Can't find service: …`, and the literal `null` — and says the settings were not verified rather than
+throwing.
+
+### 25.5 A flake that is real, and is being recorded rather than chased
+
+`SavedQueueEditModeAccessibilityTest.backInViewingIsNotConsumedByThisScreen` failed once in four runs:
+
+```plain text
+FAILED: backInViewingIsNotConsumedByThisScreen
+    java.lang.AssertionError: Failed to assert count of nodes.
+    Reason: Did not expect any node but found '1' node that satisfies: (… contains 'Edit queue' …)
+```
+
+The assertion is about Back **leaving** the screen when Back is not in edit mode. The observable is that
+`Edit queue` (the Viewing control) is gone. A back-pressure race explains it: with the device at load 15, the
+node can still be present when the assertion runs. Recorded as **real but only ~25% reproducible in four runs
+at high load**, and explicitly not treated as evidence about the app — §23.29's lesson is that "it is the
+environment" is the hypothesis an agent reaches for first, so it needs a rate rather than an assertion. Worth
+re-testing on a fresh device, where §25.2 predicts it will not reproduce.
+
+### 25.6 What to do, in order of measured value
+
+1. **Restart the emulator before a full run.** **14.6 min → 9.0 min** (1.6×) on the full suite, free, and worth
+   more than every flag in the documentation combined — and 4.3× on per-test cost for a class run against a
+   truly fresh device. `tools/setup-emulator.ps1 -Stop` then run the wrapper (which boots if needed). Do not
+   try to buy this by restarting once and reusing the device: the load climbs within a session, so it is a
+   restart per full run.
+2. **Use `-Class` while iterating** — now that it works, one class is ~20 s on a fresh device and ~70 s on a
+   stale one.
+3. **Move the pure-UI classes to Robolectric** (§24.3). Still the structural fix: it removes the device from
+   the loop entirely for ~163 of 180 tests, which makes the emulator's load irrelevant for them. The freshness
+   finding raises its value rather than replacing it — this round explains *why* removing the device is worth
+   so much, and adds "a suite of 15 device tests cannot accumulate much load" to the argument.
+
+**Explicitly not done:** giving the emulator more vCPUs. The AVD has 4 of the host's 24 cores and the guest load
+reaches 16, so `hw.cpu.ncore` is the obvious next lever and it is **untested** — recorded as the next
+experiment rather than claimed.
+
+### 25.7 Verification
+
+- Full suite on a **fresh boot**: **180/180, 0 failures, 9.0 min** (522 s of test time, 2.90 s per test),
+  Gradle exit 0 — against **14.6 min** (873 s, 4.85 s per test) on the aged device.
+- Per-test cost, same class, same emulator: **1.03 s immediately after a restart** (load 0.06) against
+  **4.79/4.38/4.32 s after use** (load 10.34).
+- Load trajectory: 0.06 → 6.39 over three 11-test runs; 5.88 → 11.59 across one full run.
+- Animation scales: **no effect** (4.50 s mean on, 4.52 s mean off, 3 runs each).
+- Renderer confirmed host-accelerated (`GLES: … NVIDIA GeForce RTX 5060`), not SwiftShader.
+- No process accumulation at load 16: 379 processes, 1 app process, 1 test process.
+- `-Class` now reports **PASSED - 11 tests, 0 failures (expected 11)** where it previously reported
+  `INCOMPLETE - only 11 of 180`.
+- `tools/check-wrapper-completeness.ps1` **now lifts the attempt-selection logic out of the wrapper by regex**
+  instead of reimplementing it, so it cannot pass against a drifted copy — and it covers the new
+  no-complete-attempt case. Proven failing-first: with the fix removed it throws at line 179 naming the
+  incorrect choice; restored, it passes. (Its own first `throw` message printed a literal `{0}` for the same
+  `-f` precedence reason as defect 2 — the same mistake, made again in the code written to test it.)
+- `tools/check-harness-signatures.ps1` and `tools/check-empty-failure-is-classified.ps1` still pass.
+- **Not measured, and stated as such:** `hw.cpu.ncore` (4 of the host's 24) was not varied, so the vCPU lever
+  is an untested hypothesis rather than a recommendation. The fresh rate of 1.03 s per test was measured on an
+  11-test class, so the ~3-minute projection for a non-degrading full run is arithmetic from that rate, not an
+  observation.
+
+---
+
 ## Still open
 
 - **The TalkBack listening gate** (§11, §14.6). The oldest outstanding item on the project, and the only

@@ -242,21 +242,73 @@ A green emulator run is not automatically evidence for behavior that is specific
 
 ### `android` CLI
 
-The Google `android` CLI is available on `PATH`. Useful commands include:
+The Google `android` CLI is available on `PATH`. **Use it before guessing and before searching the web** — it
+returns official Android documentation and reads the real device, which is what this project's rules already
+require ("prefer `android docs search` / `docs fetch` over memory for current Android API, Compose semantics,
+testing, and lifecycle behavior").
+
+#### The documentation loop: search, then fetch
+
+`search` returns a ranked list of `kb://` article URLs with one-line summaries; `fetch` returns the article.
+Two steps rather than one, and the first run downloads a ~19 MB index, so it is slow once and fast after.
 
 ```powershell
+# One topic per search. Keywords work; a question also works.
 android docs search "Compose semantics mergeDescendants live region"
+
+# Then fetch by the kb:// URL the search returned. This is the part that answers the question.
 android docs fetch kb://android/develop/ui/compose/accessibility/merging-clearing
-android describe --project_dir .
-android layout --flat --diff --pretty
+```
+
+Worked examples from §24, which is what this section exists to make repeatable:
+
+| Question | Search | What the docs actually said |
+|---|---|---|
+| Can these UI tests run without a device? | `"run Compose UI tests on the JVM with Robolectric"` | Yes — and the guidance named this suite's exact shape: "isolated UI behavior tests … don't interact with external dependencies" |
+| Is there a hardware-optimised test image? | `"Automated Test Device ATD image for instrumented tests performance"` | Yes, but **"ATDs currently support only API level 30"** — a disqualifier found in one fetch that would otherwise have cost a device round |
+| Is sharding worth it? | `"Scale your tests with build-managed devices"` | It divides wall clock, not cost, and the same page warns it is "resource intensive" |
+| Do animations cost real time in a Compose test? | `"Compose UI test performance speed up test execution time"` → `kb://android/develop/ui/compose/animation/testing` | No — `mainClock` is **virtual**, so `advanceTimeBy` is not wall clock. That killed an experiment before it was run |
+
+**Read the constraint sections, not just the capability.** Three of those four answers were decided by a
+single documented limitation, and the limitation is the sentence that saves the round.
+
+#### The device loop: look before you assert
+
+```powershell
+# Which app is actually focused? Not optional before interpreting a layout dump - with the keyguard up
+# this describes the LOCK SCREEN in the same JSON shape as the application.
+adb shell dumpsys window | Select-String mCurrentFocus
+
+android layout --flat --diff --pretty              # UI tree as JSON; --diff keeps context small
+android describe --project_dir .                   # prints the real APK path
 android run --apks=app\build\outputs\apk\debug\app-debug.apk --activity=.MainActivity
 ```
 
-Prefer `android docs search` / `docs fetch` over memory for current Android API, Compose semantics, testing, and lifecycle behavior.
+For a probe that must *find* a control, prefer `android layout`'s JSON to `uiautomator dump`, and read the
+target out of the dump rather than hard-coding coordinates — a probe that misses reports a wrong answer with
+full confidence, and that has already happened here.
 
-Before trusting `android layout`, verify which window/app is actually focused; the command can otherwise describe the lock screen in the same shape as the application.
+#### Measuring the device, which is where the time is
 
-Do not truncate these CLI pipelines with `Select-Object -First N`; an early pipeline close can create misleading failures.
+The instrumented suite's cost is dominated by the *device*, not the assertions (§24), so the useful CLI moves
+are the ones that describe the device. These are read-only and cheap, and they are how the §24 numbers were
+obtained:
+
+```powershell
+adb shell uptime                       # load average - the single best predictor of a slow run
+adb shell cat /proc/meminfo            # MemTotal AND MemAvailable; a starved device kills system_server
+adb shell top -b -n 1 -o %CPU,RES,ARGS # what is actually consuming the device
+adb shell dumpsys SurfaceFlinger | Select-String GLES:   # the renderer really in use
+adb shell wm size ; adb shell wm density                 # pixels composed per frame
+adb shell nproc                                          # vCPUs, to compare against the host's
+adb shell settings get global window_animation_scale     # and transition_/animator_
+```
+
+**The finding these produced (§25): the emulator ages, and it costs more than any configuration change.**
+The same 11-test class ran at **1.03 s per test immediately after a restart and 4.3–4.8 s per test on a device
+that had been used for a while**, with load average 0.06 against 10.34 and `system_server` burning 108% CPU
+while idle. Restarting the emulator before a full run is worth more than every flag in the docs combined.
+
 
 ### PowerShell traps worth keeping in working memory
 
