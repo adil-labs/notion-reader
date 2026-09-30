@@ -197,6 +197,7 @@ class ReaderSessionPlayer(
                     .setMediaMetadata(
                         MediaMetadata.Builder()
                             .setTitle(title)
+                            .setArtist("Notion Reader")
                             .setSubtitle(subtitle)
                             .setIsBrowsable(false)
                             .setIsPlayable(true)

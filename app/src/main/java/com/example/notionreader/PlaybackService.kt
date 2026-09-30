@@ -1,5 +1,6 @@
 package com.example.notionreader
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -104,7 +105,18 @@ class PlaybackService : MediaSessionService() {
         val sessionPlayer = ReaderSessionPlayer(host, mainLooper)
 
         player = sessionPlayer
-        val sessionInstance = MediaSession.Builder(this, sessionPlayer).build()
+        val sessionActivityIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val sessionActivityPendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            sessionActivityIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val sessionInstance = MediaSession.Builder(this, sessionPlayer)
+            .setSessionActivity(sessionActivityPendingIntent)
+            .build()
         session = sessionInstance
         addSession(sessionInstance)
 

@@ -6644,3 +6644,39 @@ Following the implementation of inter-note pause, data clearing, and navigation 
 
 2. **AndroidTest Compilation (`:app:compileDebugAndroidTestKotlin`):** Clean compilation.
 3. **Debug APK Build (`:app:assembleDebug`):** Clean assembly.
+
+## 35. MediaSession Transport Invariants, Lock Screen Notification Activity, and SystemUI Metadata Resolution
+
+### 35.1 Context and Real-Device Investigation
+
+Investigation on physical Android 15/16/17 devices (`Pixel 8 Pro`, API 37) with TalkBack touch exploration and media controls revealed two important platform integration findings:
+1. **Missing `sessionActivity` Intent on `MediaSession`:**
+   In `PlaybackService.kt`, `MediaSession.Builder(this, sessionPlayer).build()` did not configure `setSessionActivity()`. As a result, Android `dumpsys media_session` recorded `launchIntent=null`. Tapping on the system media notification card or lock-screen media widget failed to bring `MainActivity` to the foreground.
+2. **SystemUI Null Metadata Fallback:**
+   In `LockScreenProjection.kt`, for a queue of size 1 where section outline had not yet loaded or was unsegmented, `subtitle` resolved to `null`. In Android's SystemUI media notification card (`com.android.systemui:id/media_carousel`), the artist header (`com.android.systemui:id/header_artist`) fell back to formatting the null value literally, displaying `"Lessons from ... by null is playing from Notion Reader"`.
+3. **TalkBack Media Gesture / Play-Pause Routing:**
+   Under TalkBack with touch exploration, two-finger double-tap invokes `AudioManager.dispatchMediaKeyEvent(KeyEvent(ACTION_DOWN, KEYCODE_MEDIA_PLAY_PAUSE))` and `KeyEvent(ACTION_UP, KEYCODE_MEDIA_PLAY_PAUSE)`. Android routes this key event directly to the active media button session. Media3's `ReaderSessionPlayer.handleSetPlayWhenReady` funnels `play()` and `pause()` into `host.app.invoke(PlayerCommand.Play)` and `host.app.invoke(PlayerCommand.Pause)`, seamlessly toggling playback.
+
+### 35.2 Architectural Decisions and Implementation
+
+1. **Explicit Session Activity Routing:**
+   In `PlaybackService.onCreate()`:
+   - Configured `setSessionActivity` on `MediaSession.Builder` using a `PendingIntent.getActivity` targeting `MainActivity::class.java` with `Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP` and `PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT`.
+   - Tapping the lock screen widget or system media notification directly brings the existing reader task to the foreground without recreating the Activity.
+2. **Defensive Metadata Presentation for SystemUI:**
+   In `ReaderSessionPlayer.toMediaItemData()`:
+   - Explicitly configured `.setArtist("Notion Reader")` on `MediaMetadata.Builder`.
+   - When a note is solitary (`queue.size == 1`) and has no section subtitle, SystemUI presents `"Notion Reader"` as the artist label rather than converting a null subtitle to literal `"null"`.
+
+### 35.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 599 tests passing, 0 failures.
+   - `LayerRulesTest`: 0 violations.
+2. **AndroidTest Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation.
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly.
+4. **Device Layout & MediaSession Probe (`android layout --flat --pretty`, `dumpsys media_session`):**
+   - Verified on physical Pixel 8 Pro (API 37): `MediaSession` registered with package `com.example.notionreader`, `PlaybackService` running foreground with `types=0x00000002` (`mediaPlayback`), media carousel rendering active note title on lock screen.
+
