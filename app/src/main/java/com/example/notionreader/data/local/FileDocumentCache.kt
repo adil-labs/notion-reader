@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 class FileDocumentCache(
     private val directory: File,
     private val maxEntries: Int = 200,
+    private val maxBytes: Long = 50L * 1024 * 1024,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : DocumentCache {
 
@@ -114,7 +115,7 @@ class FileDocumentCache(
                 }
             }
 
-            pruneLru()
+            enforceBudgetLocked(emptySet())
         }
     }
 
@@ -237,19 +238,110 @@ class FileDocumentCache(
         prunedCount
     }
 
+    override suspend fun removeAll(pageIds: Set<String>): Int = withContext(ioDispatcher) {
+        if (pageIds.isEmpty()) return@withContext 0
+        val normalized = pageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+        var removedCount = 0
+
+        writeMutex.withLock {
+            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withLock
+            for (file in files) {
+                val nameWithoutExt = file.nameWithoutExtension.lowercase().replace("-", "")
+                if (nameWithoutExt in normalized) {
+                    if (file.delete()) {
+                        removedCount++
+                    }
+                } else {
+                    val cached = try {
+                        ReaderDocumentCodec.decode(file.readText())
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (cached != null) {
+                        val canonical = cached.document.pageId.trim().lowercase().replace("-", "")
+                        if (canonical in normalized) {
+                            if (file.delete()) {
+                                removedCount++
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        removedCount
+    }
+
     private fun fileFor(pageId: String): File {
         val safeName = pageId.trim().lowercase().replace(Regex("[^a-z0-9-]"), "_")
         return File(directory, "$safeName.json")
     }
 
-    private fun pruneLru() {
-        val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return
-        if (files.size <= maxEntries) return
-
-        val sorted = files.sortedBy { it.lastModified() }
-        val toRemove = files.size - maxEntries
-        for (i in 0 until toRemove) {
-            sorted[i].delete()
+    override suspend fun enforceBudget(preservePageIds: Set<String>): Int = withContext(ioDispatcher) {
+        writeMutex.withLock {
+            enforceBudgetLocked(preservePageIds)
         }
+    }
+
+    private fun enforceBudgetLocked(preservePageIds: Set<String>): Int {
+        val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return 0
+        var totalBytes = files.sumOf { it.length() }
+        var totalEntries = files.size
+        if (totalBytes <= maxBytes && totalEntries <= maxEntries) return 0
+
+        val normalizedPreserved = preservePageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+
+        data class FileMeta(
+            val file: File,
+            val size: Long,
+            val lastModified: Long,
+            val canonicalPageId: String,
+            val isPrefetch: Boolean
+        )
+
+        val metaList = files.mapNotNull { file ->
+            val cached = try {
+                ReaderDocumentCodec.decode(file.readText())
+            } catch (_: Exception) {
+                null
+            }
+            if (cached == null) {
+                val size = file.length()
+                if (file.delete()) {
+                    totalBytes -= size
+                    totalEntries--
+                }
+                null
+            } else {
+                val canonical = cached.document.pageId.trim().lowercase().replace("-", "")
+                FileMeta(
+                    file = file,
+                    size = file.length(),
+                    lastModified = file.lastModified(),
+                    canonicalPageId = canonical,
+                    isPrefetch = cached.origin == com.example.notionreader.domain.document.CacheOrigin.PREFETCH
+                )
+            }
+        }
+
+        if (totalBytes <= maxBytes && totalEntries <= maxEntries) return 0
+
+        val unpreserved = metaList.filter { it.canonicalPageId !in normalizedPreserved }
+        val prefetchCandidates = unpreserved.filter { it.isPrefetch }.sortedBy { it.lastModified }
+        val userCandidates = unpreserved.filter { !it.isPrefetch }.sortedBy { it.lastModified }
+
+        val evictionPlan = prefetchCandidates + userCandidates
+        var evictedCount = 0
+
+        for (candidate in evictionPlan) {
+            if (totalBytes <= maxBytes && totalEntries <= maxEntries) break
+            if (candidate.file.delete()) {
+                totalBytes -= candidate.size
+                totalEntries--
+                evictedCount++
+            }
+        }
+
+        return evictedCount
     }
 }

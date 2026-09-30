@@ -86,6 +86,20 @@ class ReaderIndexStartupTest {
     }
 
     @Test
+    fun emptyCachedIndexHydratesBrowseAsLoaded() = runBlocking {
+        val indexStore = InMemoryIndexStore(CachedReaderIndex(emptyList(), Instant.now()))
+
+        val app = createTestApp(indexStore = indexStore)
+        assertEquals(0, app.browse.state.value.entries.size)
+        assertEquals(BrowseIndexStatus.Loading, app.browse.state.value.index)
+
+        app.loadCachedIndex()
+
+        assertEquals(0, app.browse.state.value.entries.size)
+        assertEquals(BrowseIndexStatus.Loaded, app.browse.state.value.index)
+    }
+
+    @Test
     fun remoteIndexSuccessWritesToStore() = runBlocking {
         val indexStore = InMemoryIndexStore()
         val app = createTestApp(indexStore = indexStore)

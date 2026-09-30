@@ -148,12 +148,10 @@ class BrowseModel {
      * Transitions index status to Loaded if not already loaded with content.
      */
     fun setLoadedEntries(entries: List<ReaderIndexEntry>) {
-        if (entries.isNotEmpty()) {
-            _state.value = _state.value.copy(
-                entries = entries,
-                index = BrowseIndexStatus.Loaded
-            )
-        }
+        _state.value = _state.value.copy(
+            entries = entries,
+            index = BrowseIndexStatus.Loaded
+        )
     }
 
     /**

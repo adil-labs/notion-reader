@@ -15,4 +15,13 @@ data class CachedReaderIndex(
     val entries: List<ReaderIndexEntry>,
     val fetchedAt: Instant,
     val schemaVersion: Int = READER_INDEX_CACHE_SCHEMA_VERSION
-)
+) {
+    fun isFresh(now: Instant, ttlMillis: Long = DEFAULT_INDEX_TTL_MILLIS): Boolean {
+        val age = now.toEpochMilli() - fetchedAt.toEpochMilli()
+        return age in 0L until ttlMillis
+    }
+
+    companion object {
+        const val DEFAULT_INDEX_TTL_MILLIS = 60 * 60 * 1000L // 1 hour
+    }
+}

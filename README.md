@@ -84,7 +84,7 @@ interchangeable:
   dedicated controls, with Back cleanly restoring focus to the originating category. Customizations include default
   navigation unit (Section/Part/Note), continuing or pausing between notes, configurable inter-note pause durations,
   Android system vs app-specific speech rate and pitch, playback announcement verbosities (Minimal, Concise, Detailed),
-  offline caching policies (persistent discovery index caching, priority load preemption, declarative time-window auto-caching with guaranteed minimum 5-note fallback, and desired-set eviction reconciliation), and keeping screen awake.
+  offline caching policies (persistent discovery index caching with 1-hour TTL, priority load preemption, declarative time-window auto-caching with guaranteed minimum 5-note fallback, auto-managed state tracking with non-destructive reconciliation, storage-budget byte limits, and speculative prefetch eviction), and keeping screen awake.
 
 Queues ships **all three tabs**: **Listening**, **Saved**, and **Smart**. Settings is
 fully populated with the core customization preferences.
@@ -96,7 +96,7 @@ shows its members in order and offers `Play`, `Edit queue`, `Rename` and `Delete
 with the reason stated. A member row opens its Note and does not play it.
 
 The **Smart** tab lists the configured query-based queues, each with its current workspace match count,
-and offers `Create smart queue`. Activating a queue opens **Smart Queue Details**, previewing the
+and offers `Create smart queue`. Evaluates queries through a metadata-aware filter supporting structured tokens (`topic:`, `area:`, `project:`, `status:`, `kind:`, `title:`) and multi-field matching across all Notion metadata. Activating a queue opens **Smart Queue Details**, previewing the
 matching notes, offering `Play query` (snapshotting matching notes into a new session), `Rename`, and
 `Delete` (with confirmation dialogs).
 

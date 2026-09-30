@@ -5,7 +5,11 @@ import com.example.notionreader.domain.discovery.CachedReaderIndex
 import com.example.notionreader.domain.discovery.READER_INDEX_CACHE_SCHEMA_VERSION
 import com.example.notionreader.domain.discovery.ReaderIndexStore
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -118,28 +122,60 @@ class FileReaderIndexStore(
             val content = try {
                 indexFile.readText()
             } catch (_: Exception) {
+                indexFile.delete()
                 return@withLock null
             }
-            ReaderIndexCodec.decode(content)
+            val decoded = ReaderIndexCodec.decode(content)
+            if (decoded == null) {
+                indexFile.delete()
+            }
+            decoded
         }
     }
 
     override suspend fun write(index: CachedReaderIndex): Unit = withContext(ioDispatcher) {
+        val tempFile = File(directory, "reader_index.tmp.${UUID.randomUUID()}")
+        val json = ReaderIndexCodec.encode(index)
+
         mutex.withLock {
-            val json = ReaderIndexCodec.encode(index)
-            val tmpFile = File(directory, "reader_index.tmp")
+            if (!directory.exists()) {
+                directory.mkdirs()
+            }
+
             try {
-                tmpFile.writeText(json)
-                if (!tmpFile.renameTo(indexFile)) {
-                    indexFile.delete()
-                    if (!tmpFile.renameTo(indexFile)) {
-                        indexFile.writeText(json)
-                        tmpFile.delete()
+                FileOutputStream(tempFile).use { fos ->
+                    val bytes = json.toByteArray(Charsets.UTF_8)
+                    fos.write(bytes)
+                    fos.flush()
+                    try {
+                        fos.fd.sync()
+                    } catch (_: Exception) {
+                        // Ignored if sync not supported by test/virtual FS
                     }
                 }
-            } catch (e: Exception) {
-                tmpFile.delete()
-                throw e
+
+                try {
+                    Files.move(
+                        tempFile.toPath(),
+                        indexFile.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (_: Exception) {
+                    try {
+                        Files.move(
+                            tempFile.toPath(),
+                            indexFile.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING
+                        )
+                    } catch (_: Exception) {
+                        tempFile.renameTo(indexFile)
+                    }
+                }
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
             }
         }
     }
@@ -147,7 +183,7 @@ class FileReaderIndexStore(
     override suspend fun clear(): Unit = withContext(ioDispatcher) {
         mutex.withLock {
             indexFile.delete()
-            File(directory, "reader_index.tmp").delete()
+            directory.listFiles { file -> file.name.startsWith("reader_index.tmp") }?.forEach { it.delete() }
         }
     }
 }

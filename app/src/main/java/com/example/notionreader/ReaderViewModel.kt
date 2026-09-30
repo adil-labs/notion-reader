@@ -190,16 +190,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
      * Superseding cancels, for the same two reasons as [openNote]: `BrowseModel` drops a superseded
      * result, and a large workspace's index is not worth downloading twice.
      */
-    fun retryBrowseIndex() {
+    fun retryBrowseIndex(forceRefresh: Boolean = true) {
         browseLoadJob?.cancel()
-        browseLoadJob = viewModelScope.launch { app.loadBrowseIndex(::readBrowseIndex) }
+        browseLoadJob = viewModelScope.launch { app.loadBrowseIndex(forceRefresh = forceRefresh, loader = ::readBrowseIndex) }
     }
 
     /**
      * Refreshes the Browse index explicitly.
      */
     fun refreshBrowseIndex() {
-        retryBrowseIndex()
+        retryBrowseIndex(forceRefresh = true)
     }
 
     /**
@@ -278,7 +278,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private fun loadBrowseIndex() {
         if (BuildConfig.NOTION_TOKEN.isBlank()) return
 
-        browseLoadJob = viewModelScope.launch { app.loadBrowseIndex(::readBrowseIndex) }
+        browseLoadJob = viewModelScope.launch { app.loadBrowseIndex(forceRefresh = false, loader = ::readBrowseIndex) }
     }
 
     private suspend fun readBrowseIndex(): List<ReaderIndexEntry> {

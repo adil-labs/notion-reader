@@ -68,21 +68,24 @@ class FileReaderIndexStoreTest {
     }
 
     @Test
-    fun corruptedFileReturnsNullSafely() = runBlocking {
+    fun corruptedFileReturnsNullSafelyAndDeletesCorruptFile() = runBlocking {
         val dir = tempFolder.newFolder("index-cache-corrupt")
         val store = FileReaderIndexStore(dir)
+        val file = File(dir, "reader_index.json")
 
-        File(dir, "reader_index.json").writeText("{ bad json garbage")
+        file.writeText("{ bad json garbage")
 
         assertNull(store.read())
+        org.junit.Assert.assertFalse("Corrupt index file must be deleted on read failure", file.exists())
     }
 
     @Test
-    fun incompatibleSchemaVersionReturnsNull() = runBlocking {
+    fun incompatibleSchemaVersionReturnsNullAndDeletesFile() = runBlocking {
         val dir = tempFolder.newFolder("index-cache-schema")
         val store = FileReaderIndexStore(dir)
+        val file = File(dir, "reader_index.json")
 
-        File(dir, "reader_index.json").writeText("""
+        file.writeText("""
             {
                 "schemaVersion": 999,
                 "fetchedAt": "2026-09-30T12:00:00Z",
@@ -91,6 +94,7 @@ class FileReaderIndexStoreTest {
         """.trimIndent())
 
         assertNull(store.read())
+        org.junit.Assert.assertFalse("Incompatible schema index file must be deleted on read failure", file.exists())
     }
 
     @Test

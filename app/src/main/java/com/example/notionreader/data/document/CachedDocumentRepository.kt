@@ -4,6 +4,9 @@ import com.example.notionreader.data.notion.normalizeNotionPageId
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.domain.document.CacheOrigin
+import com.example.notionreader.domain.document.CacheTelemetry
+import com.example.notionreader.domain.document.DocumentLoadPurpose
 import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import java.time.Clock
 import java.time.Instant
@@ -19,7 +22,8 @@ class CachedDocumentRepository(
     private val cache: DocumentCache,
     private val clock: Clock = Clock.systemUTC(),
     private val isCachingEnabled: () -> Boolean = { true },
-    private val freshnessPolicy: () -> CacheFreshnessPolicy = { CacheFreshnessPolicy.ONE_HOUR }
+    private val freshnessPolicy: () -> CacheFreshnessPolicy = { CacheFreshnessPolicy.ONE_HOUR },
+    private val telemetry: CacheTelemetry? = null
 ) {
 
     /**
@@ -29,11 +33,13 @@ class CachedDocumentRepository(
      * @param knownRemoteLastEditedAt Optional timestamp hint from index/queue; if matching the cache,
      *                                network validation is bypassed completely for 0ms start.
      * @param forceRefresh When true, bypasses local TTL and forces revalidation/redownload from Notion.
+     * @param purpose Reason for load, mapping directly to cache provenance ([CacheOrigin]).
      */
     suspend fun loadDocument(
         pageReference: String = "",
         knownRemoteLastEditedAt: Instant? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        purpose: DocumentLoadPurpose = DocumentLoadPurpose.PLAYBACK
     ): DocumentLoad {
         val canonicalId = if (pageReference.isNotBlank()) {
             normalizeNotionPageId(pageReference) ?: pageReference.trim().lowercase()
@@ -41,11 +47,18 @@ class CachedDocumentRepository(
             null
         }
 
+        val targetOrigin = when (purpose) {
+            DocumentLoadPurpose.INTERACTIVE -> CacheOrigin.INTERACTIVE
+            DocumentLoadPurpose.PLAYBACK -> CacheOrigin.PLAYBACK
+            DocumentLoadPurpose.PREFETCH -> CacheOrigin.PREFETCH
+        }
+
         val cached = if (canonicalId != null) cache.get(canonicalId) else null
 
         if (!forceRefresh && cached != null) {
             val policy = freshnessPolicy()
             if (policy == CacheFreshnessPolicy.MANUAL_ONLY) {
+                telemetry?.recordHit()
                 return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
             }
 
@@ -55,6 +68,7 @@ class CachedDocumentRepository(
                 if (ageMillis in 0L until maxAgeMillis) {
                     // Within TTL: only bypass network if caller's hint does not declare a newer remote revision
                     if (knownRemoteLastEditedAt == null || cached.remoteLastEditedAt == null || !knownRemoteLastEditedAt.isAfter(cached.remoteLastEditedAt)) {
+                        telemetry?.recordHit()
                         return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
                     }
                 }
@@ -66,11 +80,13 @@ class CachedDocumentRepository(
         } catch (e: ReaderLoadException) {
             if (e.category == ReaderErrorCategory.NETWORK_UNAVAILABLE) {
                 if (cached != null) {
+                    telemetry?.recordStaleFallback()
                     return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
                 }
                 if (pageReference.isBlank()) {
                     val mostRecent = cache.getMostRecentlyUsed() ?: cache.getNewestCached()
                     if (mostRecent != null) {
+                        telemetry?.recordStaleFallback()
                         return DocumentLoad(mostRecent.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
                     }
                 }
@@ -94,8 +110,14 @@ class CachedDocumentRepository(
 
         // Cache Hit: remote timestamp matches cached timestamp -> no need to download blocks!
         if (cached != null && metadata.lastEditedAt != null && metadata.lastEditedAt == cached.remoteLastEditedAt) {
+            telemetry?.recordHit()
             if (isCachingEnabled()) {
-                cache.put(cached.copy(validatedAt = clock.instant()))
+                val effectiveOrigin = if (cached.origin == CacheOrigin.PREFETCH && targetOrigin != CacheOrigin.PREFETCH) {
+                    targetOrigin
+                } else {
+                    cached.origin
+                }
+                cache.put(cached.copy(validatedAt = clock.instant(), origin = effectiveOrigin))
             }
             return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
         }
@@ -105,6 +127,7 @@ class CachedDocumentRepository(
             remote.getDocument(metadata.pageId)
         } catch (e: ReaderLoadException) {
             if (e.category == ReaderErrorCategory.NETWORK_UNAVAILABLE && cached != null) {
+                telemetry?.recordStaleFallback()
                 return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
             } else if (e.category == ReaderErrorCategory.PAGE_NOT_FOUND || e.category == ReaderErrorCategory.PERMISSION_DENIED) {
                 if (canonicalId != null) {
@@ -114,6 +137,7 @@ class CachedDocumentRepository(
             throw e
         }
 
+        telemetry?.recordMiss()
         if (isCachingEnabled()) {
             val now = clock.instant()
             cache.put(
@@ -121,7 +145,8 @@ class CachedDocumentRepository(
                     document = fresh,
                     remoteLastEditedAt = metadata.lastEditedAt,
                     fetchedAt = now,
-                    validatedAt = now
+                    validatedAt = now,
+                    origin = targetOrigin
                 )
             )
         }
@@ -135,7 +160,8 @@ class CachedDocumentRepository(
     suspend fun getDocument(
         pageReference: String = "",
         knownRemoteLastEditedAt: Instant? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        purpose: DocumentLoadPurpose = DocumentLoadPurpose.PLAYBACK
     ): ReaderDocument =
-        loadDocument(pageReference, knownRemoteLastEditedAt, forceRefresh).document
+        loadDocument(pageReference, knownRemoteLastEditedAt, forceRefresh, purpose).document
 }

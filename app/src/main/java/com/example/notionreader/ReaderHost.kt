@@ -214,27 +214,36 @@ class ReaderHost(
 
                     if (notesToPrefetch.isEmpty() && plan.desiredPageIds.isEmpty()) return@collect
 
+                    val activeQueueIds = app.session.queueState.value.items.map { it.pageId }.toSet()
+                    val currentPlayingId = app.session.queueState.value.currentItem?.pageId
+                    val savedQueueMemberIds = app.savedQueues.value.flatMap { it.notes }.map { it.pageId }.toSet()
+                    val protectedIds = activeQueueIds + listOfNotNull(currentPlayingId) + savedQueueMemberIds
+
                     activeRecentPrefetchJob = launch {
-                        for (entry in notesToPrefetch) {
-                            try {
-                                if (!app.isNoteCached(entry.pageId)) {
-                                    app.prefetchNote(entry.pageId, entry.lastEditedAt)
-                                    kotlinx.coroutines.delay(350)
+                        val reconciler = app.autoCacheReconciler
+                        if (reconciler != null) {
+                            reconciler.reconcile(
+                                entries = entries,
+                                settings = settings,
+                                now = now,
+                                protectedPageIds = protectedIds,
+                                maxNotes = maxNotes
+                            )
+                        } else {
+                            for (entry in notesToPrefetch) {
+                                try {
+                                    if (!app.isNoteCached(entry.pageId)) {
+                                        app.prefetchNote(entry.pageId, entry.lastEditedAt)
+                                        kotlinx.coroutines.delay(350)
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    // Non-fatal background prefetch failure
                                 }
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (_: Exception) {
-                                // Non-fatal background prefetch failure
                             }
+                            app.pruneCacheExcept(plan.desiredPageIds + protectedIds)
                         }
-
-                        // Reconcile retention against desired set, active playback, and saved queues
-                        val activeQueueIds = app.session.queueState.value.items.map { it.pageId }.toSet()
-                        val currentPlayingId = app.session.queueState.value.currentItem?.pageId
-                        val savedQueueMemberIds = app.savedQueues.value.flatMap { it.notes }.map { it.pageId }.toSet()
-                        val protectedIds = plan.desiredPageIds + activeQueueIds + listOfNotNull(currentPlayingId) + savedQueueMemberIds
-
-                        app.pruneCacheExcept(protectedIds)
                     }
                 }
         }

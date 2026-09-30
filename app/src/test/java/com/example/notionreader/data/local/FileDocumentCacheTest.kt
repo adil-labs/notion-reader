@@ -264,5 +264,67 @@ class FileDocumentCacheTest {
         assertNotNull(cache.get("queue-old"))
         assertNull(cache.get("unwanted"))
     }
+
+    @Test
+    fun removeAllDeletesOnlySpecifiedPageIds() = runBlocking {
+        val doc1 = CachedDocument(ReaderDocument.fromChunkTexts("p-1", "P1", listOf("1")), null, Instant.now())
+        val doc2 = CachedDocument(ReaderDocument.fromChunkTexts("p-2", "P2", listOf("2")), null, Instant.now())
+        val doc3 = CachedDocument(ReaderDocument.fromChunkTexts("p-3", "P3", listOf("3")), null, Instant.now())
+
+        cache.put(doc1)
+        cache.put(doc2)
+        cache.put(doc3)
+        assertEquals(3, cache.count())
+
+        val removed = cache.removeAll(setOf("p-1", "p-3"))
+        assertEquals(2, removed)
+        assertEquals(1, cache.count())
+        assertNull(cache.get("p-1"))
+        assertNotNull(cache.get("p-2"))
+        assertNull(cache.get("p-3"))
+    }
+
+    @Test
+    fun enforceBudgetEvictsPrefetchNotesFirstAndPreservesProtected() = runBlocking {
+        // Create a cache with maxEntries = 2
+        val boundedCache = FileDocumentCache(
+            directory = File(tempDir, "bounded_cache").apply { mkdirs() },
+            maxEntries = 2
+        )
+
+        val prefetch1 = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("prefetch-1", "Prefetch 1", listOf("P1")),
+            remoteLastEditedAt = null,
+            cachedAt = Instant.now(),
+            origin = com.example.notionreader.domain.document.CacheOrigin.PREFETCH
+        )
+        val user1 = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("user-1", "User 1", listOf("U1")),
+            remoteLastEditedAt = null,
+            cachedAt = Instant.now(),
+            origin = com.example.notionreader.domain.document.CacheOrigin.INTERACTIVE
+        )
+        val prefetch2 = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("prefetch-2", "Prefetch 2", listOf("P2")),
+            remoteLastEditedAt = null,
+            cachedAt = Instant.now(),
+            origin = com.example.notionreader.domain.document.CacheOrigin.PREFETCH
+        )
+
+        boundedCache.put(prefetch1)
+        boundedCache.put(user1)
+        assertEquals(2, boundedCache.count())
+
+        // Putting a 3rd doc exceeds maxEntries = 2 -> budget enforcement triggers
+        boundedCache.put(prefetch2)
+
+        // Cache count should be constrained to 2 entries
+        assertEquals(2, boundedCache.count())
+        // user-1 should be preserved because it is INTERACTIVE
+        assertNotNull(boundedCache.get("user-1"))
+        // prefetch-1 (the older prefetch) should have been evicted first
+        assertNull(boundedCache.get("prefetch-1"))
+        assertNotNull(boundedCache.get("prefetch-2"))
+    }
 }
 

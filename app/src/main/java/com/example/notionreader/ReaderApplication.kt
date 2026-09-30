@@ -77,6 +77,10 @@ class ReaderApplication : Application() {
         DocumentLoadCoordinator()
     }
 
+    val cacheTelemetry: com.example.notionreader.domain.document.CacheTelemetry by lazy {
+        com.example.notionreader.domain.document.CacheTelemetry()
+    }
+
     val host: ReaderHost by lazy { buildHost() }
 
     private fun buildHost(): ReaderHost {
@@ -98,6 +102,10 @@ class ReaderApplication : Application() {
             directory = File(noBackupFilesDir, "index-cache")
         )
 
+        val autoCacheStateStore = com.example.notionreader.data.local.FileAutoCacheStateStore(
+            directory = File(noBackupFilesDir, "cache-metadata")
+        )
+
         val app = ReaderApp(
             session = ReaderSession(
                 ReaderEngineImpl(
@@ -114,7 +122,9 @@ class ReaderApplication : Application() {
             settingsRepository = settingsRepository,
             speechEngine = speechEngine,
             documentCache = documentCache,
-            indexStore = indexStore
+            indexStore = indexStore,
+            autoCacheStateStore = autoCacheStateStore,
+            cacheTelemetry = cacheTelemetry
         )
 
         return ReaderHost(
@@ -153,10 +163,11 @@ class ReaderApplication : Application() {
                 remote = remoteSource,
                 cache = documentCache,
                 isCachingEnabled = { settingsRepo.settings.value.cacheNotesForOffline },
-                freshnessPolicy = { settingsRepo.settings.value.cacheFreshnessPolicy }
+                freshnessPolicy = { settingsRepo.settings.value.cacheFreshnessPolicy },
+                telemetry = cacheTelemetry
             )
             try {
-                cachedRepository.getDocument(reference, knownRemoteLastEditedAt, forceRefresh)
+                cachedRepository.getDocument(reference, knownRemoteLastEditedAt, forceRefresh, purpose)
             } finally {
                 remoteSource.close()
             }

@@ -100,6 +100,8 @@ class ReaderApp(
     private val speechEngine: SpeechEngine? = null,
     private val documentCache: com.example.notionreader.domain.document.DocumentCache? = null,
     private val indexStore: com.example.notionreader.domain.discovery.ReaderIndexStore? = null,
+    val autoCacheStateStore: com.example.notionreader.domain.discovery.AutoCacheStateStore? = null,
+    val cacheTelemetry: com.example.notionreader.domain.document.CacheTelemetry? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
@@ -112,6 +114,16 @@ class ReaderApp(
     }
 
     private val queueLoader = QueueLoader(session, loadDocument)
+
+    val autoCacheReconciler: AutoCacheReconciler? = if (autoCacheStateStore != null && documentCache != null) {
+        AutoCacheReconciler(
+            autoCacheStateStore = autoCacheStateStore,
+            documentCache = documentCache,
+            prefetchNote = { pageId, lastEditedAt -> prefetchNote(pageId, lastEditedAt) },
+            isNoteCached = { pageId -> isNoteCached(pageId) },
+            telemetry = cacheTelemetry
+        )
+    } else null
 
     private val _cacheStats = MutableStateFlow(com.example.notionreader.domain.document.DocumentCacheStats())
     val cacheStats: StateFlow<com.example.notionreader.domain.document.DocumentCacheStats> = _cacheStats.asStateFlow()
@@ -130,6 +142,14 @@ class ReaderApp(
 
     suspend fun pruneCacheExcept(keepPageIds: Set<String>): Int {
         val count = documentCache?.pruneExcept(keepPageIds) ?: 0
+        if (count > 0) {
+            updateCacheStats()
+        }
+        return count
+    }
+
+    suspend fun removeCachedNotes(pageIds: Set<String>): Int {
+        val count = documentCache?.removeAll(pageIds) ?: 0
         if (count > 0) {
             updateCacheStats()
         }
@@ -388,7 +408,7 @@ class ReaderApp(
 
     suspend fun loadCachedIndex() {
         val cached = indexStore?.read() ?: return
-        if (cached.entries.isNotEmpty() && !browse.state.value.hasIndex) {
+        if (!browse.state.value.hasIndex) {
             browse.setLoadedEntries(cached.entries)
         }
     }
@@ -554,8 +574,20 @@ class ReaderApp(
         noteViewer.pageId.value?.let { noteViewer.load(it, loadDocument) }
     }
 
-    /** Loads the Browse index. Cancellation is the caller's business; see [BrowseModel.load]. */
-    suspend fun loadBrowseIndex(loader: suspend () -> List<ReaderIndexEntry>) {
+    /** Loads the Browse index. Respects 1-hour TTL when [forceRefresh] is false. */
+    suspend fun loadBrowseIndex(
+        forceRefresh: Boolean = true,
+        loader: suspend () -> List<ReaderIndexEntry>
+    ) {
+        if (!forceRefresh) {
+            val cached = indexStore?.read()
+            val now = java.time.Instant.ofEpochMilli(clock())
+            if (cached != null && cached.isFresh(now)) {
+                browse.setLoadedEntries(cached.entries)
+                return
+            }
+        }
+
         browse.load {
             val entries = loader()
             indexStore?.write(
@@ -1140,7 +1172,7 @@ class ReaderApp(
     fun smartQueueCards(): List<SmartQueueCard> {
         val entries = browse.state.value.entries
         return _smartQueues.value.map { queue ->
-            val count = entries.count { it.title.contains(queue.queryText, ignoreCase = true) }
+            val count = entries.count { com.example.notionreader.domain.queue.SmartQueueFilter.matches(it, queue.queryText) }
             val memberDesc = if (count == 1) "1 note" else "$count notes"
             SmartQueueCard(
                 queueId = queue.id,
@@ -1203,7 +1235,7 @@ class ReaderApp(
     fun playSmartQueue(queueId: String): Boolean {
         val queue = _smartQueues.value.firstOrNull { it.id == queueId } ?: return false
         val entries = browse.state.value.entries
-        val matching = entries.filter { it.title.contains(queue.queryText, ignoreCase = true) }
+        val matching = com.example.notionreader.domain.queue.SmartQueueFilter.filter(entries, queue.queryText)
         val notes = if (matching.isNotEmpty()) {
             matching.map { QueuedNote(it.pageId, it.title) }
         } else {

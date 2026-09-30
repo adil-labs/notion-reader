@@ -6906,6 +6906,69 @@ Following the auto-caching feature rollout, four architectural and behavioral ga
 3. **Debug APK Build (`:app:assembleDebug`):**
    - Clean assembly.
 
+## 40. Auto-Managed Cache Ownership, Failure-Safe Reconciler, Provenance, Storage Budget, and Metadata-Aware Smart Queues
+
+### 40.1 Context and Problems
+
+Following the introduction of the persistent discovery index and `AutoCachePlanner`, several critical operational and data management problems remained:
+1. **Destructive Auto-Eviction of User Notes:**
+   When `ReaderHost` reconciled the auto-cache set, it previously invoked `pruneExcept(desiredPageIds + protectedIds)`, evicting notes that the user had manually browsed, searched, or opened if they were not in the planner's recent set or active queues.
+2. **Fragile Partial Prefetch Failures:**
+   If network connectivity dropped during a background prefetch pass, previously cached candidates that failed revalidation were omitted from the retained set and dropped from offline availability.
+3. **No Storage Byte Budget:**
+   The cache was only bounded by entry count (`maxEntries`), with no byte budget enforcement (`maxBytes`), and had no concept of provenance: an expendable background prefetch had the same eviction priority as a document explicitly inspected by the listener.
+4. **Browse Index Redundant Network Requests:**
+   Cold-start index caching worked, but subsequent navigations or ViewModel reinitializations issued unneeded Notion network requests even when the local index was fresh.
+5. **Title-Only Smart Queue Queries:**
+   Smart Queues previously evaluated filters using only `entry.title.contains(queryText)`, preventing users from filtering across rich Notion metadata tags (topics, areas, projects, statuses, kinds).
+
+### 40.2 Implementation Across 9 Slices
+
+1. **Slice 1: Discovery Index Edge Cases & Durability:**
+   - Empty discovery index (`emptyList()`) now properly transitions `BrowseModel` to `BrowseIndexStatus.Loaded`.
+   - `FileReaderIndexStore.read()` safely deletes corrupt JSON or schema-incompatible cache files on read failure, preventing stuck states.
+   - `FileReaderIndexStore.write()` enforces atomic file writing: unique temp file, `flush()`, `fd.sync()`, `Files.move` with `ATOMIC_MOVE` and `REPLACE_EXISTING`, plus fallback.
+2. **Slice 2: Auto-Managed Document Separation:**
+   - Introduced `AutoCacheState(managedPageIds: Set<String>, lastReconciledAt: Instant?)` in `domain/discovery/AutoCacheState.kt`.
+   - Implemented `AutoCacheStateStore` and `FileAutoCacheStateStore` in `data/local/` with atomic persistence.
+   - Added `DocumentCache.removeAll(pageIds: Set<String>): Int` in `FileDocumentCache` to selectively delete specified obsolete items.
+3. **Slice 3 & 4: Transactional & Failure-Safe `AutoCacheReconciler`:**
+   - Extracted `AutoCacheReconciler` into `application/` to encapsulate declarative planning, polite paced prefetch (350ms delays), failure-safe candidate retention, and selective eviction.
+   - **Failure-Safe Rule:** When speculative prefetch fails for note X, if X is already present in cache (e.g. from prior runs), X remains managed and is not dropped from offline storage.
+   - **Selective Eviction:** Only `(previousManaged - currentlyManaged) - protectedPageIds` is evicted. Notes opened interactively or found via search are never in `previousManaged` and thus survive untouched.
+4. **Slice 5: Cache Provenance Metadata:**
+   - Added `CacheOrigin` enum (`INTERACTIVE`, `PLAYBACK`, `PREFETCH`) to `CachedDocument`.
+   - Updated `ReaderDocumentCodec` to serialize and deserialize `origin` with graceful fallback to `PLAYBACK`.
+   - In `CachedDocumentRepository`, mapped `DocumentLoadPurpose` to `CacheOrigin`, and dynamically promoted `PREFETCH` origin to `INTERACTIVE` or `PLAYBACK` upon user access.
+5. **Slice 6: Storage-Budget Eviction:**
+   - Added `maxBytes: Long = 50L * 1024 * 1024` (50 MB) and `enforceBudget(preservePageIds)` to `FileDocumentCache`.
+   - When total size exceeds `maxBytes` or `maxEntries`, `FileDocumentCache` evicts speculative `PREFETCH` origin notes first (by oldest modified), followed by user notes by LRU, never evicting `preservePageIds` (active playback/queue).
+6. **Slice 7: Discovery Index Freshness Semantics:**
+   - Added `DEFAULT_INDEX_TTL_MILLIS = 1 hour` and `isFresh(now, ttl)` to `CachedReaderIndex`.
+   - `ReaderApp.loadBrowseIndex(forceRefresh = true, loader)` and `ReaderViewModel` check index age; cold-start loads with `forceRefresh = false` reuse fresh cache without network round-trips.
+   - UI "Refresh" and "Retry" explicitly pass `forceRefresh = true` to force Notion re-synchronization.
+7. **Slice 8: Metadata-Aware Smart Queues:**
+   - Implemented `SmartQueueFilter` in `domain/queue/SmartQueueFilter.kt` supporting structured tokens (`topic:`, `area:`, `project:`, `status:`, `kind:`, `title:`) and multi-field substring matching across all metadata.
+   - Updated `ReaderApp.smartQueueCards()` and `playSmartQueue()` to evaluate queries via `SmartQueueFilter`.
+8. **Slice 9: Telemetry & Observability:**
+   - Created `CacheTelemetry` in `domain/document/CacheTelemetry.kt` tracking hits, misses, stale fallbacks, prefetch scheduling/completion/cancellation, and evictions with thread-safe atomic counters.
+   - Injected into `CachedDocumentRepository` and `AutoCacheReconciler`.
+
+### 40.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 654 tests executed across all modules, 0 failed.
+   - `FileAutoCacheStateStoreTest`: verified default read on missing file, atomic write/read roundtrip, corrupt JSON deletion, and schema mismatch safety.
+   - `AutoCacheReconcilerTest`: verified non-managed manual notes survive reconciliation, obsolete auto-managed notes are evicted, failure-safe candidate retention under network errors, and queue protection.
+   - `FileDocumentCacheTest`: verified `removeAll` deletes only specified page IDs, and `enforceBudget` evicts `PREFETCH` origin notes before `INTERACTIVE` notes while preserving active notes.
+   - `SmartQueueFilterTest`: verified multi-field matching across title, area, topics, project, status, and structured key-value tokens.
+   - `ReaderIndexStartupTest`: verified 1-hour TTL freshness check, cold-start cache hydration, and error resilience.
+   - `LayerRulesTest`: verified strict adherence to layer rules (`domain` depends on nothing, `player` on `domain`, `application` on `domain` and `player`, `data` on `domain`, `platform` on `player`, and `ui` on `domain`, `player`, and `application`).
+2. **AndroidTest Kotlin Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation with 0 errors.
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly.
+
 
 
 

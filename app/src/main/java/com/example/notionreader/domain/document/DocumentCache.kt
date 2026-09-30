@@ -43,4 +43,17 @@ interface DocumentCache {
      * Returns the count of deleted documents.
      */
     suspend fun pruneExcept(keepPageIds: Set<String>): Int = 0
+
+    /**
+     * Evicts cached documents whose canonical pageId is present in [pageIds].
+     * Returns the count of deleted documents.
+     */
+    suspend fun removeAll(pageIds: Set<String>): Int = 0
+
+    /**
+     * Enforces storage limits (both entry count and byte budget), evicting speculative [CacheOrigin.PREFETCH]
+     * notes first, followed by oldest-accessed user notes, never evicting [preservePageIds].
+     * Returns the count of deleted files.
+     */
+    suspend fun enforceBudget(preservePageIds: Set<String> = emptySet()): Int = 0
 }

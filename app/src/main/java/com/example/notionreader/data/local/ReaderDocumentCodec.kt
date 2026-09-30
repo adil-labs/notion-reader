@@ -36,6 +36,7 @@ internal object ReaderDocumentCodec {
             cachedAtEpochMilli = cachedDocument.validatedAt.toEpochMilli(),
             fetchedAtEpochMilli = cachedDocument.fetchedAt.toEpochMilli(),
             validatedAtEpochMilli = cachedDocument.validatedAt.toEpochMilli(),
+            origin = cachedDocument.origin.name,
             sections = cachedDocument.document.sections.map { section ->
                 ReaderSectionDto(
                     id = section.id,
@@ -114,12 +115,20 @@ internal object ReaderDocumentCodec {
         val validatedAt = dto.validatedAtEpochMilli?.let { Instant.ofEpochMilli(it) }
             ?: dto.cachedAtEpochMilli?.let { Instant.ofEpochMilli(it) }
             ?: fetchedAt
+        val origin = dto.origin?.let {
+            try {
+                com.example.notionreader.domain.document.CacheOrigin.valueOf(it)
+            } catch (_: IllegalArgumentException) {
+                com.example.notionreader.domain.document.CacheOrigin.PLAYBACK
+            }
+        } ?: com.example.notionreader.domain.document.CacheOrigin.PLAYBACK
 
         return CachedDocument(
             document = document,
             remoteLastEditedAt = dto.remoteLastEditedAtEpochMilli?.let { Instant.ofEpochMilli(it) },
             fetchedAt = fetchedAt,
             validatedAt = validatedAt,
+            origin = origin,
             schemaVersion = dto.schemaVersion
         )
     }
@@ -134,6 +143,7 @@ internal object ReaderDocumentCodec {
         val cachedAtEpochMilli: Long? = null,
         val fetchedAtEpochMilli: Long? = null,
         val validatedAtEpochMilli: Long? = null,
+        val origin: String? = null,
         val sections: List<ReaderSectionDto> = emptyList()
     )
 
