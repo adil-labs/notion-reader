@@ -62,6 +62,11 @@ enum class ReaderDestination {
     SavedQueueDetails,
 
     /**
+     * One Smart Queue: its query, preview of matching notes, and Play/Rename/Delete.
+     */
+    SmartQueueDetails,
+
+    /**
      * Choose which Saved Queue receives the Notes `Add to queue` or `Add all to queue` captured.
      *
      * Secondary, and reached from two different screens — the Note and Browse — which is why it is a
@@ -81,6 +86,11 @@ enum class ReaderDestination {
      * [com.example.notionreader.domain.queue.SavedQueueDraft] is for.
      */
     CreateSavedQueue,
+ 
+    /**
+     * Name and query for a new Smart Queue. Reached from the Smart tab's `Create smart queue`.
+     */
+    CreateSmartQueue,
 
     /** Manual reading and inspection. Reached from a Browse result, and later from a queue row. */
     Note,

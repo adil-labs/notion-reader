@@ -1,7 +1,10 @@
 package com.example.notionreader
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -71,6 +74,22 @@ class PlaybackService : MediaSessionService() {
     private var player: ReaderSessionPlayer? = null
 
     /**
+     * Pauses playback when headphones are disconnected.
+     *
+     * The Background Playback spec: "Becoming noisy stops the reader silently, and that is the one place this
+     * specification accepts silence. The listener's headphones have been unplugged; the alternative to silence
+     * is to speak through the loudspeaker, which broadcasts reading to everyone in the room."
+     */
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                val host = (application as? ReaderApplication)?.host
+                host?.app?.session?.pause()
+            }
+        }
+    }
+
+    /**
      * Built here rather than in the Application, because the media session's lifetime is the *service's*: it
      * exists while playback is active and goes away when the service stops.
      *
@@ -85,7 +104,12 @@ class PlaybackService : MediaSessionService() {
         val sessionPlayer = ReaderSessionPlayer(host, mainLooper)
 
         player = sessionPlayer
-        session = MediaSession.Builder(this, sessionPlayer).build()
+        val sessionInstance = MediaSession.Builder(this, sessionPlayer).build()
+        session = sessionInstance
+        addSession(sessionInstance)
+
+        val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        registerReceiver(noisyReceiver, noisyFilter)
     }
 
     /**
@@ -117,8 +141,14 @@ class PlaybackService : MediaSessionService() {
      * (`docs/decisions.md` §23.16).
      */
     override fun onDestroy() {
+        try {
+            unregisterReceiver(noisyReceiver)
+        } catch (_: Exception) {
+        }
+
         session?.run {
-            player?.release()
+            player.release()
+            removeSession(this)
             release()
         }
         session = null

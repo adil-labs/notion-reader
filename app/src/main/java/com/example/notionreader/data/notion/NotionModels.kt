@@ -30,10 +30,21 @@ data class NotionPage(
 }
 
 @Serializable
+data class NotionSelectOption(
+    val id: String? = null,
+    val name: String = "",
+    val color: String? = null
+)
+
+@Serializable
 data class NotionProperty(
     val id: String? = null,
     val type: String? = null,
-    val title: List<NotionRichText> = emptyList()
+    val title: List<NotionRichText> = emptyList(),
+    val select: NotionSelectOption? = null,
+    val status: NotionSelectOption? = null,
+    @SerialName("multi_select") val multiSelect: List<NotionSelectOption> = emptyList(),
+    @SerialName("rich_text") val richText: List<NotionRichText> = emptyList()
 )
 
 @Serializable

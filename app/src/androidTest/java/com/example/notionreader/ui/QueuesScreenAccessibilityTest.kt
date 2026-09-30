@@ -82,7 +82,10 @@ class QueuesScreenAccessibilityTest {
         onReplay: (String) -> Unit = { },
         savedQueues: List<SavedQueueCard> = emptyList(),
         onOpenSavedQueue: (String) -> Unit = { },
-        onCreateSavedQueue: () -> Unit = { }
+        onCreateSavedQueue: () -> Unit = { },
+        smartQueues: List<com.example.notionreader.application.SmartQueueCard> = emptyList(),
+        onOpenSmartQueue: (String) -> Unit = { },
+        onCreateSmartQueue: () -> Unit = { }
     ) {
         compose.setContent {
             QueuesScreen(
@@ -93,7 +96,10 @@ class QueuesScreenAccessibilityTest {
                 now = now,
                 savedQueues = savedQueues,
                 onOpenSavedQueue = onOpenSavedQueue,
-                onCreateSavedQueue = onCreateSavedQueue
+                onCreateSavedQueue = onCreateSavedQueue,
+                smartQueues = smartQueues,
+                onOpenSmartQueue = onOpenSmartQueue,
+                onCreateSmartQueue = onCreateSmartQueue
             )
         }
     }
@@ -248,26 +254,25 @@ class QueuesScreenAccessibilityTest {
     // ------------------------------------------------------------------------------------ the tab row
 
     @Test
-    fun theTabRowOffersListeningAndSavedAndNothingElse() {
-        // The contract's Queues screen is `Listening | Saved | Smart`. Two of the three exist, and the third's
-        // absence is the scoped deferral recorded in `docs/decisions.md` §18 rather than a redefinition: a
-        // Smart tab would be a permanently unusable control one tap from two populated surfaces.
+    fun theTabRowOffersListeningAndSavedAndSmart() {
+        // The contract's Queues screen is `Listening | Saved | Smart`. All three tabs are present.
         show(continueListening = listOf(unfinished()))
 
         compose.onNodeWithText("Listening").assertExists()
         compose.onNodeWithText("Saved").assertExists()
-        compose.onAllNodesWithText("Smart").assertCountEquals(0)
+        compose.onNodeWithText("Smart").assertExists()
     }
 
     @Test
-    fun bothTabsAreSelectableWithoutAnyGesture() {
+    fun allTabsAreSelectableWithoutAnyGesture() {
         // "Nothing in history may be reachable only by a gesture" is the Listening half of this, and the
         // general rule the specification states for every queue operation is the same: each is an ordinary
-        // named control. A tab reached by a swipe would be the one exception.
+        // named control.
         show(continueListening = listOf(unfinished()))
 
         compose.onNodeWithText("Listening").assertIsReachable()
         compose.onNodeWithText("Saved").assertIsReachable()
+        compose.onNodeWithText("Smart").assertIsReachable()
     }
 
     @Test
@@ -379,5 +384,33 @@ class QueuesScreenAccessibilityTest {
             compose.onAllNodesWithText("Android accessibility", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         )
+    }
+
+    @Test
+    fun theSmartTabReportsItsOwnEmptyStateWhenEmpty() {
+        show(continueListening = listOf(unfinished()))
+
+        compose.onNodeWithText("Smart").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("No smart queues yet.").assertExists()
+        compose.onNodeWithText("Create smart queue").assertExists()
+    }
+
+    @Test
+    fun theSmartTabDisplaysSmartQueuesAndButton() {
+        val sq = com.example.notionreader.application.SmartQueueCard(
+            queueId = "sq1",
+            name = "Research Notes",
+            queryText = "tag:research",
+            memberDescription = "5 notes",
+            lastEditedAt = now
+        )
+        show(smartQueues = listOf(sq))
+
+        compose.onNodeWithText("Smart").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("Smart queues").assertExists()
+        compose.onNodeWithText("Research Notes", substring = true).assertExists()
+        compose.onNodeWithText("Create smart queue").assertExists()
     }
 }

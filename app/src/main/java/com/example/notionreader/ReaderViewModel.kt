@@ -232,6 +232,24 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** `Create smart queue`, and then leave the Create screen if it succeeded. */
+    fun createSmartQueue(name: String, query: String) {
+        viewModelScope.launch {
+            val outcome = app.createSmartQueue(name, query)
+            if (outcome.effect is com.example.notionreader.domain.queue.SmartQueueEffect.Created) app.back()
+        }
+    }
+
+    /** `Rename` on a Smart Queue. */
+    fun renameSmartQueue(id: String, newName: String) {
+        viewModelScope.launch { app.renameSmartQueue(id, newName) }
+    }
+
+    /** `Delete` on a Smart Queue. */
+    fun deleteSmartQueue(id: String) {
+        viewModelScope.launch { app.deleteSmartQueue(id) }
+    }
+
     /**
      * Loads the Browse index.
      *
@@ -319,6 +337,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     /** Edit mode's `Remove`: take one member out of a Saved Queue. */
     fun removeQueueMember(queueId: String, pageId: String) {
         viewModelScope.launch { app.removeSavedQueueMember(queueId, pageId) }
+    }
+
+    /** `Rename`: rename a Saved Queue. */
+    fun renameSavedQueue(queueId: String, newName: String) {
+        viewModelScope.launch { app.renameSavedQueue(queueId, newName) }
+    }
+
+    /** `Delete`: remove a Saved Queue and return to previous destination. */
+    fun deleteSavedQueue(queueId: String) {
+        viewModelScope.launch {
+            val outcome = app.deleteSavedQueue(queueId)
+            if (outcome.effect is QueueEffect.Deleted) {
+                app.back()
+            }
+        }
     }
 
     /**

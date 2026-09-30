@@ -8,10 +8,14 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.example.notionreader.application.ContinueListeningCard
+import com.example.notionreader.application.ExploreCard
+import com.example.notionreader.application.SavedQueueCard
+import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.ui.A11y.assertIsReachable
 import com.example.notionreader.ui.A11y.assertIsReadable
 import com.example.notionreader.ui.A11y.hasHeading
 import com.example.notionreader.ui.A11y.hasPaneTitle
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -167,6 +171,122 @@ class HomeScreenAccessibilityTest {
         show()
 
         compose.onAllNodes(androidx.compose.ui.test.hasText("Continue listening")).assertCountEquals(0)
+    }
+
+    @Test
+    fun yourQueuesDisplaysWhenPresent() {
+        val q1 = SavedQueueCard(
+            queueId = "q1",
+            name = "Android accessibility",
+            members = listOf(QueuedNote("p1", "Note 1")),
+            lastEditedAt = now
+        )
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = listOf(q1),
+                onContinue = {},
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+
+        compose.onNodeWithText("Your queues").assert(hasHeading())
+        compose.onNodeWithText("Android accessibility", substring = true).assertIsReachable()
+        compose.onNodeWithText("Saved Queue · 1 note", substring = true).assertExists()
+        compose.onNodeWithText("See all queues").assertIsReachable()
+    }
+
+    @Test
+    fun activatingAQueueOpensIt() {
+        var openedId: String? = null
+        val q1 = SavedQueueCard(
+            queueId = "q1",
+            name = "Android accessibility",
+            members = listOf(QueuedNote("p1", "Note 1")),
+            lastEditedAt = now
+        )
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = listOf(q1),
+                onContinue = {},
+                onOpenQueue = { openedId = it },
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+
+        compose.onNodeWithText("Android accessibility", substring = true).performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals("q1", openedId)
+    }
+
+    @Test
+    fun seeAllQueuesNavigates() {
+        var navigated = false
+        val q1 = SavedQueueCard(
+            queueId = "q1",
+            name = "Android accessibility",
+            members = listOf(QueuedNote("p1", "Note 1")),
+            lastEditedAt = now
+        )
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = listOf(q1),
+                onContinue = {},
+                onSeeAllQueues = { navigated = true },
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+
+        compose.onNodeWithText("See all queues").performSemanticsAction(SemanticsActions.OnClick)
+        assertTrue(navigated)
+    }
+
+    @Test
+    fun showsExploreShortcutsWhenAvailable() {
+        val e1 = ExploreCard(title = "Mindfulness", noteCount = 12, queryText = "Mindfulness")
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = emptyList(),
+                exploreCards = listOf(e1),
+                onContinue = {},
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+
+        compose.onNodeWithText("Explore").assert(hasHeading())
+        compose.onNodeWithText("Mindfulness").assertIsReachable()
+        compose.onNodeWithText("12 notes").assertExists()
+    }
+
+    @Test
+    fun activatingExploreNavigatesWithQuery() {
+        var exploredQuery: String? = null
+        val e1 = ExploreCard(title = "Mindfulness", noteCount = 12, queryText = "Mindfulness")
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = emptyList(),
+                exploreCards = listOf(e1),
+                onContinue = {},
+                onExplore = { exploredQuery = it },
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+
+        compose.onNodeWithText("Mindfulness").performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals("Mindfulness", exploredQuery)
     }
 
     /** Matches a node whose merged text contains every fragment. */

@@ -10,6 +10,7 @@ import com.example.notionreader.application.ReaderNavigator
 import com.example.notionreader.application.ReaderSession
 import com.example.notionreader.data.local.DataStoreSavedQueueStore
 import com.example.notionreader.data.local.DataStoreSessionStore
+import com.example.notionreader.data.local.DataStoreSmartQueueStore
 import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.domain.ReaderDocument
@@ -80,7 +81,8 @@ class ReaderApplication : Application() {
             sessionStore = DataStoreSessionStore(this),
             // A second file, not a second key: the two records version independently, so a Saved Queue edit
             // rewriting the listening history's bytes for no benefit is exactly what a shared file would do.
-            savedQueueStore = DataStoreSavedQueueStore(this)
+            savedQueueStore = DataStoreSavedQueueStore(this),
+            smartQueueStore = DataStoreSmartQueueStore(this)
         )
 
         return ReaderHost(

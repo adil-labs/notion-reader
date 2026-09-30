@@ -105,10 +105,32 @@ class NotionRepository(
             val title = page.title().trim()
             if (title.isEmpty()) return@mapNotNull null
 
+            val kind = page.properties["Type"]?.select?.name
+                ?: page.properties["Kind"]?.select?.name
+                ?: page.properties.values.firstOrNull { it.type == "select" && (it.id?.contains("type", ignoreCase = true) == true) }?.select?.name
+
+            val area = page.properties["Area"]?.select?.name
+                ?: page.properties.values.firstOrNull { it.type == "select" && (it.id?.contains("area", ignoreCase = true) == true) }?.select?.name
+
+            val topics = (page.properties["Topics"]?.multiSelect?.map { it.name }
+                ?: page.properties["Tags"]?.multiSelect?.map { it.name }
+                ?: emptyList()).filter { it.isNotBlank() }.toSet()
+
+            val project = page.properties["Project"]?.richText?.joinToString("") { it.plainText }?.trim()?.ifEmpty { null }
+                ?: page.properties["Project"]?.select?.name
+
+            val status = page.properties["Status"]?.status?.name
+                ?: page.properties["Status"]?.select?.name
+
             ReaderIndexEntry(
                 pageId = page.id,
                 title = title,
-                lastEditedAt = page.lastEditedTime.toInstantOrNull()
+                lastEditedAt = page.lastEditedTime.toInstantOrNull(),
+                kind = kind,
+                area = area,
+                topics = topics,
+                project = project,
+                status = status
             )
         }
 

@@ -84,6 +84,16 @@ fun ReaderShell(
     onMoveQueueMember: (String, String, QueueMove) -> Unit = { _, _, _ -> },
     /** Edit mode's `Remove`, for one member of the queue the details screen is about. */
     onRemoveQueueMember: (String, String) -> Unit = { _, _ -> },
+    /** Rename a saved queue. */
+    onRenameQueue: (String, String) -> Unit = { _, _ -> },
+    /** Delete a saved queue. */
+    onDeleteQueue: (String) -> Unit = {},
+    /** Create a smart queue. */
+    onCreateSmartQueue: (String, String) -> Unit = { _, _ -> },
+    /** Rename a smart queue. */
+    onRenameSmartQueue: (String, String) -> Unit = { _, _ -> },
+    /** Delete a smart queue. */
+    onDeleteSmartQueue: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sessionState by app.session.state.collectAsState()
@@ -99,6 +109,7 @@ fun ReaderShell(
     // Collected for the same reason `history` is: the Saved tab's cards are a projection of the queue
     // records, and reading the flow here is what makes the tab recompose when one is created or edited.
     val savedQueueRecords by app.savedQueues.collectAsState()
+    val smartQueueRecords by app.smartQueues.collectAsState()
     // The pending set and its message, both of which Queue Destination and the Details screen it hands over
     // to need. Collected here because the shell is what decides when they are rendered and consumed.
     val queueMessage by app.queueMessage.collectAsState()
@@ -136,7 +147,12 @@ fun ReaderShell(
                         // cards themselves are derived from it and from the live session, so nothing here
                         // has to know which session is which.
                         continueListening = history.let { app.continueListeningCards() },
+                        yourQueues = savedQueueRecords.let { app.savedQueueCards().take(5) },
+                        exploreCards = app.exploreCards(),
                         onContinue = onContinueSession,
+                        onOpenQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
+                        onSeeAllQueues = app::openQueues,
+                        onExplore = app::openExplore,
                         onBrowse = app::openBrowse,
                         onPlayPause = app::togglePlayPause,
                         // Where focus goes when Back returns from the Player.
@@ -146,11 +162,19 @@ fun ReaderShell(
 
                     ReaderDestination.Browse -> BrowseScreen(
                         state = browseState.results,
+                        allEntries = browseState.entries,
                         isLoading = browseState.isLoading,
                         error = browseState.error,
                         queryText = browseState.query.text,
+                        query = browseState.query,
                         onQueryChange = app.browse::setText,
                         onSortChange = app.browse::setSort,
+                        onTypeFilterChange = app.browse::setTypeFilter,
+                        onAreaFilterChange = app.browse::setAreaFilter,
+                        onTopicFilterChange = app.browse::setTopicFilter,
+                        onProjectFilterChange = app.browse::setProjectFilter,
+                        onStatusFilterChange = app.browse::setStatusFilter,
+                        onClearFilters = app.browse::clearFilters,
                         onOpenNote = { entry -> onOpenNote(entry.pageId) },
                         onPlayAll = app::playAllVisibleResults,
                         onAddAllToQueue = onAddAllToQueue,
@@ -176,7 +200,10 @@ fun ReaderShell(
                         // is given and cannot disagree with Home's *Your queues* about which is newest.
                         savedQueues = savedQueueRecords.let { app.savedQueueCards() },
                         onOpenSavedQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
-                        onCreateSavedQueue = app::openCreateSavedQueue
+                        onCreateSavedQueue = app::openCreateSavedQueue,
+                        smartQueues = smartQueueRecords.let { app.smartQueueCards() },
+                        onOpenSmartQueue = { queueId -> app.openSmartQueueDetails(queueId, queueId) },
+                        onCreateSmartQueue = app::openCreateSmartQueue
                     )
 
                     ReaderDestination.SavedQueueDetails -> SavedQueueDetailsScreen(
@@ -196,6 +223,8 @@ fun ReaderShell(
                         onRemove = { pageId ->
                             navigation.currentSubjectId?.let { onRemoveQueueMember(it, pageId) }
                         },
+                        onRename = { queueId, newName -> onRenameQueue(queueId, newName) },
+                        onDelete = { queueId -> onDeleteQueue(queueId) },
                         // The operation's own message, which is read here because the Add navigates to this
                         // screen and a move or a remove happens on it.
                         report = queueMessage,
@@ -203,6 +232,22 @@ fun ReaderShell(
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )
+
+                    ReaderDestination.SmartQueueDetails -> {
+                        val smartQueue = navigation.currentSubjectId?.let { app.smartQueueCard(it) }
+                        SmartQueueDetailsScreen(
+                            queue = smartQueue,
+                            matchingNotes = smartQueue?.let { app.matchingNotesForSmartQueue(it.queryText) } ?: emptyList(),
+                            onOpenNote = { pageId -> onOpenNote(pageId) },
+                            onPlay = { queueId -> app.playSmartQueue(queueId) },
+                            onRename = { queueId, newName -> onRenameSmartQueue(queueId, newName) },
+                            onDelete = { queueId -> onDeleteSmartQueue(queueId) },
+                            report = queueMessage,
+                            onReportShown = app::consumeQueueMessage,
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled
+                        )
+                    }
 
                     ReaderDestination.QueueDestination -> QueueDestinationScreen(
                         queues = savedQueueRecords.let { app.savedQueueCards() },
@@ -216,6 +261,10 @@ fun ReaderShell(
 
                     ReaderDestination.CreateSavedQueue -> CreateSavedQueueScreen(
                         onCreate = onCreateSavedQueue
+                    )
+
+                    ReaderDestination.CreateSmartQueue -> CreateSmartQueueScreen(
+                        onCreate = onCreateSmartQueue
                     )
 
                     ReaderDestination.Note -> NoteScreen(
@@ -245,7 +294,8 @@ fun ReaderShell(
                         onCommand = { command, index -> app.invoke(command, index) },
                         statusMessage = speechMessage,
                         queueState = queueState,
-                        onRetryQueueNote = app::retryQueueNote
+                        onRetryQueueNote = app::retryQueueNote,
+                        onJumpToSection = app::jumpToSection
                     )
                 }
             }

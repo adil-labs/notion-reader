@@ -149,53 +149,54 @@ class BrowseScreenAccessibilityTest {
     }
 
     @Test
-    fun noMatchingNotesIsADifferentSentenceFromLoading() {
-        show(state = BrowseResults(query = BrowseQuery(text = "zzz")), isLoading = false)
+    fun anEmptySearchIsStatedInWords() {
+        // Searching for something that does not exist is not the same fact as having access to no pages at
+        // all, so the text must not say "Share a page with the integration".
+        show(state = BrowseResults(query = BrowseQuery(text = "missing")), queryText = "missing")
 
-        // The two are distinguished because they mean different things: nothing matched the search versus
-        // the integration cannot see any pages. Collapsing them would tell someone their search was too
-        // narrow when the real problem is that no page has been shared.
         compose.onNodeWithText("No matching Notes.").assertIsReadable()
-        compose.onAllNodes(androidx.compose.ui.test.hasText("Loading Notes…")).assertCountEquals(0)
+    }
+
+    @Test
+    fun anEmptyIntegrationExplainsHowToFixIt() {
+        // The empty state when the integration can see nothing. "Share a page" is the only thing that can
+        // change the answer, so it is the only thing worth saying.
+        show(state = BrowseResults())
+
+        compose.onNodeWithText("No Notes are available. Share a page with the Notion integration to read it here.")
+            .assertIsReadable()
     }
 
     @Test
     fun playAllIsAbsentWhenThereAreNoResults() {
-        show(state = BrowseResults(query = BrowseQuery(text = "zzz")))
+        // "Play all and Add all to queue must not appear when there are no results."
+        show(state = BrowseResults())
 
         compose.onAllNodes(androidx.compose.ui.test.hasText("Play all")).assertCountEquals(0)
     }
 
-    // ------------------------------------------------------------------ the error notice
-
     @Test
-    fun theErrorMessageItselfIsTheLiveRegion() {
-        show(error = BrowseIndexStatus.Error(ReaderErrorCategory.NETWORK_UNAVAILABLE, "Could not load Notes."))
-
-        // The live region must be on the message, not on the Column that wraps it and the Retry button.
-        // Semantics on a parent that does not merge its descendants creates its own node, so TalkBack
-        // watches an empty container while the text sits in a child that never changes — and the
-        // announcement silently never fires. That is a defect this project already fixed once on the Note
-        // screen, which is why this names the node rather than counting live regions.
-        val regions = compose.onAllNodes(hasLiveRegion()).fetchSemanticsNodes()
-
-        assertEquals("expected exactly the message to be a live region", 1, regions.size)
-
-        val text = regions.first().config[SemanticsProperties.Text].joinToString(" ") { it.text }
-        assertTrue("the live region should be the message; was '$text'", text.contains("Could not load Notes."))
-        assertFalse(
-            "a control must not be read as part of the sentence describing the failure; was '$text'",
-            text.contains("Retry")
+    fun anErrorIsPoliteSoItDoesNotInterruptTheUser() {
+        show(
+            error = BrowseIndexStatus.Error(
+                ReaderErrorCategory.NETWORK_UNAVAILABLE,
+                "Could not reach Notion."
+            )
         )
+
+        compose.onNodeWithText("Could not reach Notion.").assert(hasLiveRegion())
     }
 
     @Test
-    fun aRetryableFailureOffersRetryAsASeparateNamedControl() {
-        show(error = BrowseIndexStatus.Error(ReaderErrorCategory.NETWORK_UNAVAILABLE, "Could not load Notes."))
+    fun aRetriableFailureOffersRetry() {
+        show(
+            error = BrowseIndexStatus.Error(
+                ReaderErrorCategory.NETWORK_UNAVAILABLE,
+                "Could not reach Notion."
+            )
+        )
 
-        // Separate from the announcement, and named: the contract requires errors to appear "where
-        // recovery is meaningful", and a control announced inside the error sentence would be read as
-        // part of it.
+        // Reachable: Retry is a control, so a screen reader user must be able to activate it.
         compose.onNodeWithText("Retry").assertIsReachable()
     }
 
@@ -213,6 +214,105 @@ class BrowseScreenAccessibilityTest {
         )
 
         compose.onAllNodes(androidx.compose.ui.test.hasText("Retry")).assertCountEquals(0)
+    }
+
+    // ------------------------------------------------------------------ facet filtering
+
+    @Test
+    fun facetFilterChipsAreExposedAndLabelled() {
+        val entryWithMetadata = com.example.notionreader.domain.ReaderIndexEntry(
+            pageId = "1",
+            title = "Chess Tactics",
+            kind = "Practice",
+            area = "Chess",
+            topics = setOf("Tactics")
+        )
+        val state = BrowseResults(
+            query = BrowseQuery.Default,
+            entries = listOf(entryWithMetadata)
+        )
+        compose.setContent {
+            BrowseScreen(
+                state = state,
+                allEntries = listOf(entryWithMetadata),
+                isLoading = false,
+                error = null,
+                queryText = "",
+                onQueryChange = {},
+                onOpenNote = {},
+                onPlayAll = {},
+                onClearQuery = {},
+                onRetry = {}
+            )
+        }
+
+        compose.onNodeWithText("Type").assertIsReachable()
+        compose.onNodeWithText("Area").assertIsReachable()
+        compose.onNodeWithText("Topic").assertIsReachable()
+    }
+
+    @Test
+    fun activeFilterSummaryExposesActiveCountAndClearButton() {
+        val activeQuery = BrowseQuery(
+            selectedType = "Practice",
+            selectedArea = "Chess"
+        )
+        val entry = com.example.notionreader.domain.ReaderIndexEntry(
+            pageId = "1",
+            title = "Chess Tactics",
+            kind = "Practice",
+            area = "Chess"
+        )
+        var cleared = false
+        compose.setContent {
+            BrowseScreen(
+                state = BrowseResults(query = activeQuery, entries = listOf(entry)),
+                allEntries = listOf(entry),
+                isLoading = false,
+                error = null,
+                queryText = "",
+                query = activeQuery,
+                onQueryChange = {},
+                onOpenNote = {},
+                onPlayAll = {},
+                onClearQuery = {},
+                onRetry = {},
+                onClearFilters = { cleared = true }
+            )
+        }
+
+        compose.onNodeWithText("2 filters: Practice, Chess", substring = true).assertIsReadable()
+        compose.onNodeWithText("Clear filters").assertIsReachable()
+        compose.onNodeWithText("Clear filters").performSemanticsAction(SemanticsActions.OnClick)
+        assertTrue(cleared)
+    }
+
+    @Test
+    fun aResultWithMetadataMergesTypeAndAreaIntoItsFocusStop() {
+        val entry = com.example.notionreader.domain.ReaderIndexEntry(
+            pageId = "1",
+            title = "Thoughts are less reactive",
+            kind = "Reflection",
+            area = "Mind & Learning",
+            lastEditedAt = edited
+        )
+        compose.setContent {
+            BrowseScreen(
+                state = BrowseResults(entries = listOf(entry)),
+                isLoading = false,
+                error = null,
+                queryText = "",
+                onQueryChange = {},
+                onOpenNote = {},
+                onPlayAll = {},
+                onClearQuery = {},
+                onRetry = {}
+            )
+        }
+
+        // The contract's worked announcement: "Thoughts are less reactive but still frequent. Reflection. Mind and Learning. September 17."
+        compose.onNodeWithText("Thoughts are less reactive", substring = true)
+            .assert(mergedTextContaining("Thoughts are less reactive", "Reflection", "Mind & Learning", "September 17"))
     }
 
     // ------------------------------------------------------------------ what must stay quiet

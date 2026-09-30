@@ -161,6 +161,49 @@ class ReaderAppSavedQueuesTest {
         assertEquals(0, store.writeCount)
     }
 
+    // --- Renaming and Deleting ----------------------------------------------------------------------
+
+    @Test
+    fun renamingAQueueUpdatesNameAndPublishesNewCards() = runTest {
+        val store = InMemorySavedQueueStore(listOf(queue("q-1", name = "Old Name")))
+        val app = app(store, now = NOW)
+        app.loadSavedQueues()
+
+        val outcome = app.renameSavedQueue("q-1", "New Name")
+
+        assertTrue(outcome.effect is QueueEffect.Renamed)
+        assertEquals("New Name", app.savedQueueCard("q-1")?.name)
+        assertEquals("New Name", store.stored.single().name)
+    }
+
+    @Test
+    fun renamingAQueueWithBlankNameIsRefused() = runTest {
+        val store = InMemorySavedQueueStore(listOf(queue("q-1", name = "Old Name")))
+        val app = app(store, now = NOW)
+        app.loadSavedQueues()
+
+        val outcome = app.renameSavedQueue("q-1", "   ")
+
+        assertEquals(QueueEffect.Rejected(QueueRejection.BlankName), outcome.effect)
+        assertEquals("Old Name", app.savedQueueCard("q-1")?.name)
+    }
+
+    @Test
+    fun deletingAQueueRemovesItFromStoreAndPublishedListAndNavigatesBackIfOnDetails() = runTest {
+        val store = InMemorySavedQueueStore(listOf(queue("q-1"), queue("q-2")))
+        val app = app(store, now = NOW)
+        app.loadSavedQueues()
+        app.openSavedQueueDetails("q-1")
+        assertEquals(ReaderDestination.SavedQueueDetails, app.navigator.state.value.current)
+
+        val outcome = app.deleteSavedQueue("q-1")
+
+        assertTrue(outcome.effect is QueueEffect.Deleted)
+        assertEquals(listOf("q-2"), app.savedQueues.value.map { it.id })
+        assertEquals(listOf("q-2"), store.stored.map { it.id })
+        assertEquals(ReaderDestination.Queues, app.navigator.state.value.current)
+    }
+
     // --- Play ---------------------------------------------------------------------------------------
 
     @Test

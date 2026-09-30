@@ -241,4 +241,46 @@ class PlayerScreenAccessibilityTest {
         compose.onAllNodesWithText(":0", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("a11y:", substring = true).assertCountEquals(0)
     }
+
+    // ------------------------------------------------------------------ secondary controls & sections
+
+    @Test
+    fun morePlaybackControlsOpensSecondarySurfaceWithRestartAndPartNavigation() {
+        showPlayer(state = playerState(index = 2))
+
+        compose.onNodeWithText("More playback controls").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "More playback controls")
+        ).assertExists()
+
+        compose.onNodeWithText("Restart note").assertIsReachable()
+        compose.onNodeWithText("Previous part").assertIsReachable()
+        compose.onNodeWithText("Next part").assertIsReachable()
+        compose.onNodeWithText("Close controls").assertIsReachable()
+
+        compose.onNodeWithText("Close controls").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Player")
+        ).assertExists()
+    }
+
+    @Test
+    fun sectionsButtonOpensOutlineAndShowsAllSections() {
+        showPlayer(state = playerState(index = 0))
+
+        compose.onNodeWithText("Sections").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Sections")
+        ).assertExists()
+
+        compose.onNodeWithText("3 sections in this Note").assertExists()
+        compose.onNodeWithText("1. Introduction", substring = true).assertIsReachable()
+        compose.onNodeWithText("Close sections").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Player")
+        ).assertExists()
+    }
 }

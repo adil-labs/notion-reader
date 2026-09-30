@@ -94,12 +94,53 @@ class BrowseModel {
         _state.value = _state.value.copy(query = _state.value.query.copy(sort = sort))
     }
 
+    fun setQuery(query: BrowseQuery) {
+        _state.value = _state.value.copy(query = query)
+    }
+
+    fun setTypeFilter(type: String?) {
+        _state.value = _state.value.copy(query = _state.value.query.copy(selectedType = type))
+    }
+
+    fun setAreaFilter(area: String?) {
+        _state.value = _state.value.copy(query = _state.value.query.copy(selectedArea = area))
+    }
+
+    fun setTopicFilter(topic: String?) {
+        _state.value = _state.value.copy(query = _state.value.query.copy(selectedTopic = topic))
+    }
+
+    fun setProjectFilter(project: String?) {
+        _state.value = _state.value.copy(query = _state.value.query.copy(selectedProject = project))
+    }
+
+    fun setStatusFilter(status: String?) {
+        _state.value = _state.value.copy(query = _state.value.query.copy(selectedStatus = status))
+    }
+
+    /** Clears active metadata facet filters, preserving search text and sort. */
+    fun clearFilters() {
+        _state.value = _state.value.copy(
+            query = _state.value.query.copy(
+                selectedType = null,
+                selectedArea = null,
+                selectedTopic = null,
+                selectedProject = null,
+                selectedStatus = null
+            )
+        )
+    }
+
     /**
-     * Clears the search text, leaving the sort — the contract's "Clear filters" affordance, as far as the
-     * default state has anything to clear.
+     * Clears the search text, leaving the sort and filters.
      */
     fun clearQuery() {
         _state.value = _state.value.copy(query = _state.value.query.copy(text = ""))
+    }
+
+    /** Clears search text and all facet filters. */
+    fun clearAll() {
+        _state.value = _state.value.copy(query = BrowseQuery(sort = _state.value.query.sort))
     }
 
     /**

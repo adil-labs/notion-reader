@@ -3,6 +3,7 @@ package com.example.notionreader.domain.discovery
 import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.domain.ReaderIndexEntry
 import java.time.Instant
+
 /**
  * How a result set is ordered.
  *
@@ -28,9 +29,33 @@ enum class BrowseSort {
  */
 data class BrowseQuery(
     val text: String = "",
-    val sort: BrowseSort = BrowseSort.RECENTLY_UPDATED
+    val sort: BrowseSort = BrowseSort.RECENTLY_UPDATED,
+    val selectedType: String? = null,
+    val selectedArea: String? = null,
+    val selectedTopic: String? = null,
+    val selectedProject: String? = null,
+    val selectedStatus: String? = null
 ) {
     val hasText: Boolean get() = text.isNotBlank()
+
+    val hasFilters: Boolean
+        get() = selectedType != null ||
+            selectedArea != null ||
+            selectedTopic != null ||
+            selectedProject != null ||
+            selectedStatus != null
+
+    val activeFilterLabels: List<String>
+        get() = listOfNotNull(
+            selectedType,
+            selectedArea,
+            selectedTopic,
+            selectedProject,
+            selectedStatus
+        )
+
+    val activeFilterCount: Int
+        get() = activeFilterLabels.size
 
     companion object {
         /** The contract's default: "All Notes, Sort = Recently updated". Never empty. */
@@ -72,30 +97,45 @@ data class BrowseResults(
  * A pure function, deliberately: it is the whole of Browse's behaviour that is testable without a
  * device, an emulator or a network, and the contract's Browse rules are almost entirely about ordering
  * and matching rather than about rendering.
- *
- * **Matching is deliberately crude, and that is recorded rather than hidden.** The contract says search
- * "should conceptually match reader-useful fields such as Title, Summary, searchable normalized
- * content", and the Browse/Search implementation specification — which owns the real answer — does not
- * exist. So this matches on the title, case-insensitively, and says so. Two consequences worth being
- * explicit about: it cannot match a word that appears only in a Note's body, and it does not normalise
- * accents or treat synonyms as equivalent. Implementing either here would be inventing the contract that
- * is supposed to define them.
  */
 fun BrowseQuery.applyTo(entries: List<ReaderIndexEntry>): BrowseResults {
     val needle = text.trim()
 
-    val matched = if (needle.isEmpty()) {
-        entries
-    } else {
-        entries.filter { it.title.contains(needle, ignoreCase = true) }
+    var matched = entries
+
+    // 1. Text filter: matches title, kind, area, topics, project, status
+    if (needle.isNotEmpty()) {
+        matched = matched.filter { entry ->
+            entry.title.contains(needle, ignoreCase = true) ||
+                (entry.kind?.contains(needle, ignoreCase = true) == true) ||
+                (entry.area?.contains(needle, ignoreCase = true) == true) ||
+                entry.topics.any { it.contains(needle, ignoreCase = true) } ||
+                (entry.project?.contains(needle, ignoreCase = true) == true) ||
+                (entry.status?.contains(needle, ignoreCase = true) == true)
+        }
     }
 
+    // 2. Facet filters
+    if (selectedType != null) {
+        matched = matched.filter { it.kind.equals(selectedType, ignoreCase = true) }
+    }
+    if (selectedArea != null) {
+        matched = matched.filter { it.area.equals(selectedArea, ignoreCase = true) }
+    }
+    if (selectedTopic != null) {
+        matched = matched.filter { entry ->
+            entry.topics.any { it.equals(selectedTopic, ignoreCase = true) }
+        }
+    }
+    if (selectedProject != null) {
+        matched = matched.filter { it.project.equals(selectedProject, ignoreCase = true) }
+    }
+    if (selectedStatus != null) {
+        matched = matched.filter { it.status.equals(selectedStatus, ignoreCase = true) }
+    }
+
+    // 3. Sorting
     val ordered = when (sort) {
-        // Descending by edit time, with unknown dates LAST. Sorting on a nullable directly would put
-        // nulls first, which for "Recently updated" is the wrong answer for a row whose date is unknown:
-        // not knowing when something changed is not evidence that it changed just now. The first
-        // comparator splits known from unknown; the second orders only the known ones, because the
-        // unknown group is already collapsed to a single value.
         BrowseSort.RECENTLY_UPDATED -> matched.sortedWith(
             compareBy<ReaderIndexEntry> { it.lastEditedAt == null }
                 .thenByDescending { it.lastEditedAt ?: Instant.EPOCH }

@@ -6,13 +6,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -138,6 +141,10 @@ fun SavedQueueDetailsScreen(
     onMove: (String, QueueMove) -> Unit = { _, _ -> },
     /** `Remove`, for the member with this page identity. */
     onRemove: (String) -> Unit = { },
+    /** `Rename`: updates the name of the queue. */
+    onRename: (String, String) -> Unit = { _, _ -> },
+    /** `Delete`: removes this queue. */
+    onDelete: (String) -> Unit = { },
     /**
      * What the last queue operation did, when this screen is where the listener should hear it.
      *
@@ -160,6 +167,10 @@ fun SavedQueueDetailsScreen(
         GoneQueue(modifier = modifier)
         return
     }
+
+    var showRenameDialog by rememberSaveable { mutableStateOf(false) }
+    var renameText by rememberSaveable { mutableStateOf("") }
+    var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
 
     // Retained across a configuration change, because a listener halfway through reordering a queue should
     // not be returned to Viewing by a rotation — the same argument the shell makes for Browse's scroll
@@ -262,6 +273,35 @@ fun SavedQueueDetailsScreen(
             Text(if (state == SavedQueueDetailsState.Editing) "Done" else "Edit queue")
         }
 
+        if (state == SavedQueueDetailsState.Viewing) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        renameText = queue.name
+                        showRenameDialog = true
+                    },
+                    modifier = Modifier.restoreFocusOn(
+                        target = focusTarget,
+                        id = ReaderFocus.SavedQueueRename,
+                        onHandled = onFocusHandled
+                    )
+                ) {
+                    Text("Rename")
+                }
+
+                Button(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.restoreFocusOn(
+                        target = focusTarget,
+                        id = ReaderFocus.SavedQueueDelete,
+                        onHandled = onFocusHandled
+                    )
+                ) {
+                    Text("Delete")
+                }
+            }
+        }
+
         if (queue.members.isEmpty()) {
             return@Column
         }
@@ -302,6 +342,76 @@ fun SavedQueueDetailsScreen(
                 onRemove = { onRemove(member.pageId) }
             )
         }
+    }
+
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = {
+                Text(
+                    text = "Rename queue",
+                    modifier = Modifier.semantics { heading() }
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Queue name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = renameText.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onRename(queue.queueId, trimmed)
+                            showRenameDialog = false
+                        }
+                    },
+                    enabled = renameText.trim().isNotEmpty()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = {
+                Text(
+                    text = "Delete queue",
+                    modifier = Modifier.semantics { heading() }
+                )
+            },
+            text = {
+                Text("Delete \"${queue.name}\"? The notes in this queue will not be deleted.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDelete(queue.queueId)
+                        showDeleteDialog = false
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

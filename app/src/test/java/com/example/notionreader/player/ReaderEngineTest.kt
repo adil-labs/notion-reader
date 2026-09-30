@@ -148,6 +148,42 @@ class ReaderEngineTest {
     }
 
     @Test
+    fun jumpToParagraphMovesPositionAndSpeaksWhenPlaying() {
+        val engine = engine()
+        engine.play()
+
+        engine.jumpToParagraph(2)
+
+        assertEquals(2, engine.state.value.currentParagraphIndex)
+        assertTrue(engine.state.value.isPlaying)
+        assertEquals(1, speech.stopCount)
+        assertEquals(listOf("First paragraph.", "Third paragraph."), speech.spoken)
+    }
+
+    @Test
+    fun jumpToParagraphMovesPositionSilentlyWhenPaused() {
+        val engine = engine()
+
+        engine.jumpToParagraph(2)
+
+        assertEquals(2, engine.state.value.currentParagraphIndex)
+        assertFalse(engine.state.value.isPlaying)
+        assertEquals(0, speech.stopCount)
+        assertTrue(speech.spoken.isEmpty())
+    }
+
+    @Test
+    fun jumpToParagraphCoercesOutOfBoundsTarget() {
+        val engine = engine()
+
+        engine.jumpToParagraph(-5)
+        assertEquals(0, engine.state.value.currentParagraphIndex)
+
+        engine.jumpToParagraph(99)
+        assertEquals(2, engine.state.value.currentParagraphIndex)
+    }
+
+    @Test
     fun playAtEmptyDocumentDoesNotSpeak() {
         val engine = ReaderEngineImpl(
             speechEngine = speech,

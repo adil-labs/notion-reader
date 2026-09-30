@@ -1,6 +1,7 @@
 package com.example.notionreader.platform
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -80,7 +81,10 @@ class AndroidSpeechEngine(
     override fun stop() {
         pendingRequest = null
         completions.clear()
-        tts?.stop()
+        try {
+            tts?.stop()
+        } catch (_: Exception) {
+        }
     }
 
     override fun shutdown() {
@@ -91,15 +95,21 @@ class AndroidSpeechEngine(
 
         val engine = tts
         tts = null
-        engine?.stop()
-        engine?.shutdown()
+        try {
+            engine?.stop()
+            engine?.shutdown()
+        } catch (_: Exception) {
+        }
     }
 
     private fun onInitialized(status: Int) {
         val engine = tts ?: return
 
         if (isShutdown) {
-            engine.shutdown()
+            try {
+                engine.shutdown()
+            } catch (_: Exception) {
+            }
             return
         }
 
@@ -119,6 +129,12 @@ class AndroidSpeechEngine(
         ) {
             engine.language = Locale.US
         }
+
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        engine.setAudioAttributes(audioAttributes)
 
         engine.setOnUtteranceProgressListener(progressListener)
         isReady = true
@@ -140,7 +156,14 @@ class AndroidSpeechEngine(
             completions[utteranceId] = onComplete
         }
 
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        try {
+            val maxLength = TextToSpeech.getMaxSpeechInputLength()
+            val safeText = if (text.length > maxLength) text.take(maxLength) else text
+            engine.speak(safeText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        } catch (_: Exception) {
+            completions.remove(utteranceId)
+            onComplete?.invoke()
+        }
     }
 
     private data class PendingUtterance(

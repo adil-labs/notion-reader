@@ -119,6 +119,88 @@ class BrowseQueryTest {
 
         // The title is what "Note 3 of 8" and the between-Notes announcement use, at a point where no
         // document has been fetched.
-            assertEquals(all.map { it.title }.toSet(), notes.map { it.title }.toSet())
+        assertEquals(all.map { it.title }.toSet(), notes.map { it.title }.toSet())
+    }
+
+    // --- Facet Filters ----------------------------------------------------------------------------
+
+    private val facetEntries = listOf(
+        ReaderIndexEntry(
+            pageId = "1",
+            title = "Chess Opening Principles",
+            kind = "Practice",
+            area = "Chess",
+            topics = setOf("Sicilian Defense", "Opening"),
+            project = "Board Games",
+            status = "In Progress"
+        ),
+        ReaderIndexEntry(
+            pageId = "2",
+            title = "Mindfulness in Daily Life",
+            kind = "Reflection",
+            area = "Mind & Learning",
+            topics = setOf("mindfulness", "habits"),
+            status = "Done"
+        ),
+        ReaderIndexEntry(
+            pageId = "3",
+            title = "Endgame Tactics in Chess",
+            kind = "Practice",
+            area = "Chess",
+            topics = setOf("Endgame"),
+            project = "Board Games",
+            status = "Done"
+        )
+    )
+
+    @Test
+    fun filteringByTypeReturnsOnlyMatchingEntries() {
+        val results = BrowseQuery(selectedType = "Reflection").applyTo(facetEntries)
+        assertEquals(listOf("2"), results.entries.map { it.pageId })
+        assertEquals(1, results.size)
+    }
+
+    @Test
+    fun filteringByAreaReturnsOnlyMatchingEntries() {
+        val results = BrowseQuery(selectedArea = "Chess").applyTo(facetEntries)
+        assertEquals(listOf("1", "3"), results.entries.map { it.pageId })
+    }
+
+    @Test
+    fun filteringByTopicReturnsOnlyMatchingEntries() {
+        val results = BrowseQuery(selectedTopic = "Sicilian Defense").applyTo(facetEntries)
+        assertEquals(listOf("1"), results.entries.map { it.pageId })
+    }
+
+    @Test
+    fun combiningFiltersNarrowsConcurrently() {
+        // Spec example: Type = Practice, Area = Chess, Topic = Sicilian Defense
+        val query = BrowseQuery(
+            selectedType = "Practice",
+            selectedArea = "Chess",
+            selectedTopic = "Sicilian Defense"
+        )
+        val results = query.applyTo(facetEntries)
+        assertEquals(listOf("1"), results.entries.map { it.pageId })
+        assertTrue(query.hasFilters)
+        assertEquals(3, query.activeFilterCount)
+        assertEquals(listOf("Practice", "Chess", "Sicilian Defense"), query.activeFilterLabels)
+    }
+
+    @Test
+    fun combiningFiltersWithNoMatchesYieldsEmptyResultSet() {
+        val query = BrowseQuery(
+            selectedType = "Reflection",
+            selectedArea = "Chess"
+        )
+        val results = query.applyTo(facetEntries)
+        assertTrue(results.isEmpty)
+        assertTrue(query.hasFilters)
+    }
+
+    @Test
+    fun searchMatchesMetadataAsWellAsTitle() {
+        val results = BrowseQuery(text = "mindfulness").applyTo(facetEntries)
+        assertEquals(listOf("2"), results.entries.map { it.pageId })
     }
 }

@@ -6061,3 +6061,195 @@ experiment rather than claimed.
   migration will re-point the affected tests anyway.
 - `BuildConfig.NOTION_PAGE_ID` and the blank-reference auto-discovery path (§17.1).
 - An inexact restore has not been observed on a device; it is covered by unit tests only (§17.6).
+
+---
+
+## 26. Playback crash fix and UI/UX implementation: Saved Queue Rename, Delete, and Home "Your queues"
+
+**Date:** 2026-09-29. **Scope:** Fix playback crash (`ForegroundServiceDidNotStartInTimeException`) and implement missing UI/UX features from the governing contracts: Saved Queue `Rename` and `Delete`, and Home's *Your queues* section.
+
+### 26.1 Playback crash fix: Media3 `MediaSessionService.addSession`
+
+**The symptom:** On Android 14+ (API 34+), starting playback crashed after exactly 30 seconds with:
+`android.app.ForegroundServiceDidNotStartInTimeException: Context.startForegroundService() did not then call Service.startForeground(): ServiceRecord{... com.example.notionreader/.PlaybackService}`
+
+**The root cause:** In `PlaybackService.kt`, `MediaSession.Builder` instantiated a `MediaSession`, but never called `addSession(sessionInstance)`. Without `addSession()`, Media3's internal `MediaNotificationManager` did not know any session existed (`isSessionAdded` was false), never updated the notification, and never invoked `Service.startForeground()` while `PlaybackService` was active. After Android's 30-second foreground service start timeout, ActivityManager threw `ForegroundServiceDidNotStartInTimeException`.
+
+**The fix:**
+- In `PlaybackService.onCreate()`: invoked `addSession(sessionInstance)`.
+- In `PlaybackService.onDestroy()`: invoked `removeSession(this)`.
+
+**Verification:** Ran `probe-background-audio.ps1` on an API 36 emulator. Verified `PlaybackService running: True` and `...and foreground: True`. Logcat confirmed reading continued without `ForegroundServiceDidNotStartInTimeException`.
+
+### 26.2 Saved Queue Rename and Delete (Phase 8 of Queue Creation & Queue Management)
+
+**Contract:** `docs/queue-creation-and-queue-management-spec.md` (lines 354–360, 586–596).
+In Viewing mode on `SavedQueueDetailsScreen`:
+- Added `Rename` and `Delete` buttons next to `Edit queue`.
+- `Rename` opens an `AlertDialog` allowing the listener to update the queue's name. A blank or whitespace-only name is refused. If the trimmed name is unchanged, no write is performed.
+- `Delete` is destructive and requires an explicit confirmation naming the queue to prevent accidental deletion (`Delete "<name>"? The notes in this queue will not be deleted.`).
+- If the listener deletes the queue while viewing its details, `ReaderApp.deleteSavedQueue` automatically navigates back so the screen does not display a deleted queue.
+
+### 26.3 Home screen's "Your queues" section
+
+**Contract:** `docs/notion/ui-screens-and-navigation-contract.md` (lines 83, 266–300, 1505).
+- Displays "Your queues" below "Continue listening", showing up to 5 recently edited Saved Queues.
+- Each queue row merges descendants into a single focus stop announcing title and member description (e.g. `Android accessibility \n Saved Queue · 11 notes`). Activating an item opens `SavedQueueDetails` without starting playback.
+- A "See all queues" button at the bottom of the section navigates directly to the `Queues` tab.
+- Empty state: When both `continueListening` and `yourQueues` are empty, the "Nothing to continue yet" prompt and "Browse Notes" button are shown. When either has items, only the populated section(s) appear.
+
+### 26.4 Verification
+
+- JVM unit tests: All 537 tests pass (`:app:testDebugUnitTest`), including new test cases for `renameSavedQueue` and `deleteSavedQueue` in `ReaderAppSavedQueuesTest`.
+- Instrumented accessibility tests (via `tools/run-accessibility-tests.ps1`):
+  - `HomeScreenAccessibilityTest`: 12/12 passing.
+  - `SavedQueueDetailsAccessibilityTest`: 15/15 passing.
+  - `ReaderShellSavedQueueTest`: 10/10 passing.
+- `:app:compileDebugAndroidTestKotlin`: 0 errors.
+- `:app:assembleDebug`: clean build.
+- `tools/probe-background-audio.ps1`: verified foreground service lifecycle on device.
+
+---
+
+## 27. Player secondary controls & outline, Home spec alignment (Continue vs Play), Smart Queues end-to-end, and Audio Hardening
+
+**Date:** 2026-09-29. **Scope:** Implement missing UI/UX features from the governing specs: Player granular part navigation and section outline jumping; Home screen alignment with Material Design practices and Explore cards; Smart Queues end-to-end (domain, persistence, UI, accessibility); and playback stability hardening against crashes and audio route changes.
+
+### 27.1 Player secondary controls and section outline
+
+**Spec Authority:** `docs/notion/ui-screens-and-navigation-contract.md` (lines 351–385, 401–419) and `docs/notion/core-player-and-tts-playback-spec.md`.
+
+- **Granular Part Navigation:**
+  - Added `jumpToParagraph(paragraphIndex: Int)` to `ReaderEngine` and `ReaderEngineImpl`, enabling precise navigation across speakable chunks within the current note.
+  - Implemented state preservation: jumping while playing cancels current utterance and immediately begins speech at the new chunk; jumping while paused updates position without speaking.
+  - Tucked secondary controls inside an accessible expandable surface labeled `More playback controls` to preserve clean, uncluttered primary transport controls (`Previous section`, `Play/Pause`, `Next section`, `Queue`).
+  - Added `Restart note` (returns to paragraph 0, preserving playback state), `Previous part`, and `Next part`.
+- **Section Outline & Jumping:**
+  - Added `jumpToSection(span: ReaderSectionSpan)` to `ReaderSession` and `ReaderApp`.
+  - Added `Sections` outline sheet/view in `PlayerScreen.kt` listing all heading sections hierarchically with heading levels (`Heading 1`, `Heading 2`, `Heading 3`).
+  - Highlights the currently active section and allows activating any section to jump directly to its heading paragraph, announcing the target section.
+
+### 27.2 Home screen: Material Design "Play" vs "Continue" & Explore section
+
+**Spec Authority:** `docs/notion/ui-screens-and-navigation-contract.md` (lines 80–115, 260–295) and Google Material Design guidelines.
+
+- **"Play" vs "Continue" Decision:**
+  - For in-progress or paused reading sessions, user habit and anxiety around losing reading position dictate that the primary action must be labeled **"Continue"**. "Play" can imply starting over from the beginning, whereas "Continue" guarantees position continuity.
+  - The inline button retains the compact toggle action (`Play`/`Pause`) for quick in-place listening.
+- **Explore Section:**
+  - Added domain model `ExploreCard(title, noteCount, queryText)`.
+  - Added `Explore` section on Home displaying curated topic shortcuts with dynamic note counts.
+  - Each explore row merges descendants into a single accessible focus target announcing title and count (e.g. `Architecture · 8 notes`).
+  - Activating an Explore row navigates to `Browse` pre-filtered by that query topic.
+
+### 27.3 Smart Queues feature end-to-end
+
+**Spec Authority:** `docs/queue-creation-and-queue-management-spec.md` (lines 40–55, 600–625) and `docs/notion/ui-screens-and-navigation-contract.md`.
+
+- **Domain Model & Isolation:**
+  - Created `SmartQueue` model (`id`, `name`, `filterQuery`, `createdAt`, `updatedAt`, `schemaVersion = 1`).
+  - Created dedicated `SmartQueueEffect` and `SmartQueueEditOutcome` domain types rather than coupling to `SavedQueue`'s effect type, which strictly requires `SavedQueue` and `QueuedNote` instances.
+  - Implemented `SmartQueues` business logic for deterministic listing, creation, renaming, and deletion.
+- **Persistence & Codec:**
+  - Implemented `SmartQueueCodec` in `data/local` with robust element-by-element JSON parsing resilient against malformed items.
+  - Implemented `DataStoreSmartQueueStore` using Preferences DataStore, wired into `ReaderHost` and `ReaderApplication`.
+- **UI & Navigation:**
+  - Expanded `QueuesScreen` to render all 3 tabs: `Listening`, `Saved`, and `Smart`.
+  - `SmartTab` displays list of configured smart queues with live workspace match counts, or an accessible empty state when none exist.
+  - `CreateSmartQueueScreen` allows entering a queue name and query filter with validation.
+  - `SmartQueueDetailsScreen` evaluates matching notes in real-time against the workspace, provides `Play query` (which snapshots current matches into a new Active Queue session), `Rename`, and `Delete` (with accessible confirmation dialogs).
+  - Wired into `ReaderDestination` and `ReaderApp` with comprehensive polite live region status announcements.
+
+### 27.4 Audio Focus, Headset Unplug & Platform Crash Hardening
+
+**Spec Authority:** `docs/background-playback-and-media-controls-spec.md` (lines 325–335).
+
+- **Audio Attributes:** Set `AudioAttributes` (`USAGE_MEDIA`, `CONTENT_TYPE_SPEECH`) on the Android `TextToSpeech` engine, ensuring playback is routed to media audio streams and responds to system media volume controls.
+- **Becoming Noisy:** Registered a `BroadcastReceiver` for `AudioManager.ACTION_AUDIO_BECOMING_NOISY` in `PlaybackService` to immediately and quietly pause playback when headphones are disconnected.
+- **Speech Length Clamping & Exception Safety:**
+  - Clamped utterance text to `TextToSpeech.getMaxSpeechInputLength()` to avoid transaction failures on exceptionally large blocks.
+  - Added try-catch guards around platform TTS binder interactions (`speak`, `stop`, `shutdown`) to protect against dead binder exceptions and platform engine crashes.
+
+### 27.5 Verification Evidence
+
+- JVM unit tests: All 555+ unit tests pass cleanly (`:app:testDebugUnitTest`), including comprehensive test suites for `SmartQueuesTest`, `SmartQueueCodecTest`, and `ReaderEngineTest`.
+- Android test compilation: `:app:compileDebugAndroidTestKotlin` 0 errors.
+- Clean production build: `:app:assembleDebug` SUCCESS.
+- Instrumented accessibility tests (`tools/run-accessibility-tests.ps1 -Device emulator-5554`):
+  - `PlayerScreenAccessibilityTest`: 17/17 passing (verifying secondary controls, section outline, TalkBack reachability and actions).
+  - `HomeScreenAccessibilityTest`: 14/14 passing (verifying Continue action, Your queues, Explore section, and empty state).
+  - `SmartQueueDetailsAccessibilityTest`: 5/5 passing (verifying matching notes list, Play query, Rename, and Delete dialogs).
+  - `QueuesScreenAccessibilityTest`: 22/22 passing (verifying all 3 tabs: Listening, Saved, Smart, and tab transitions).
+
+---
+
+## 28. Browse Tab Multi-Facet Filtering, Metadata Search & TalkBack Accessibility
+
+**Date:** 2026-09-30. **Scope:** Implement the complete Browse tab filtering experience as specified in `docs/notion/ui-screens-and-navigation-contract.md` (lines 400–640), `docs/notion/notion-integration-implementation-spec.md` (lines 80–130), and `docs/decisions.md` §5.
+
+### 28.1 Facet Discovery and Domain Model
+
+**Spec Authority:** `docs/notion/ui-screens-and-navigation-contract.md` lines 434–485.
+
+- **ReaderIndexEntry Metadata:**
+  - Extended `ReaderIndexEntry` in the domain layer with optional metadata fields: `kind: String?`, `area: String?`, `topics: Set<String>`, `project: String?`, `status: String?` (all with default empty/null values for backward compatibility).
+- **Notion DTO & Repository Deserialization:**
+  - Widened `NotionProperty` in `NotionModels.kt` to parse `select`, `status`, `multi_select`, and `rich_text` property types from page representations returned by the Notion API.
+  - In `NotionRepository.getBrowseIndex()`, extracted `Type`/`Kind`, `Area`, `Topics`/`Topic`/`Tags`, `Project`, and `Status` properties safely, preserving layer decoupling (no Notion DTOs leak to domain).
+- **Dynamic Facet Discovery Rules (§5):**
+  - Rather than hardcoding taxonomy values, available facet options are dynamically discovered from indexed workspace entries.
+  - A facet chip is only shown if matching metadata exists in the workspace.
+  - `availableAreas` is dynamically scoped to the selected `Type` when a Type filter is active, reflecting the workspace's nested taxonomy.
+
+### 28.2 Query Filtering & Search Logic
+
+**Spec Authority:** `docs/notion/ui-screens-and-navigation-contract.md` lines 500–560.
+
+- **BrowseQuery & BrowseModel:**
+  - Added `selectedType`, `selectedArea`, `selectedTopic`, `selectedProject`, `selectedStatus` to `BrowseQuery`.
+  - Added query inspection helpers: `hasFilters`, `activeFilterLabels`, `activeFilterCount`.
+  - In `BrowseQuery.applyTo(entries)`:
+    - Text search matches concurrently across title, kind, area, topics, and project names.
+    - Facet filters apply conjunctively (AND logic), matching case-insensitively.
+    - Applied sort orders (`RecentlyEdited`, `AlphabeticalAsc`, `AlphabeticalDesc`, `CreatedAsc`, `CreatedDesc`) are strictly preserved.
+  - `BrowseModel` exposes discrete mutators (`setTypeFilter`, `setAreaFilter`, `setTopicFilter`, `setProjectFilter`, `setStatusFilter`, `clearFilters`, `clearAll`).
+
+### 28.3 User Experience & TalkBack Accessibility
+
+**Spec Authority:** `docs/notion/ui-screens-and-navigation-contract.md` lines 565–640.
+
+- **Horizontal Filter Chips:**
+  - Rendered a horizontal scrollable row of Material3 `FilterChip`s for Type, Area, Topic, Project, and Status above the note list.
+  - Activating a chip displays a clean `FacetSelectionDialog` (`AlertDialog`) allowing the user to select any discovered option or clear the facet.
+- **Active Filter Summary:**
+  - When filters are active, an accessible summary card appears displaying active filters and result count (e.g. `2 filters: Reflection, Mind & Learning · 3 results`).
+  - Includes a direct `Clear filters` button for immediate reset.
+  - Non-live-region discipline: summary is announced politely without intrusive live region churn during typing.
+- **Result Row Semantic Merging:**
+  - Each `BrowseResultRow` merges its descendants into a single focus stop (`mergeDescendants = true`).
+  - Subtitle displays formatted metadata (e.g. `Reflection · Mind & Learning · September 17`).
+  - Produces the exact TalkBack announcement mandated by the spec: *"Thoughts are less reactive but still frequent. Reflection. Mind & Learning. September 17."*
+- **Empty States:**
+  - Distinguishes between empty workspace, empty search, and empty facet filter combinations, providing appropriate contextual messages and one-tap clear buttons.
+
+### 28.4 Verification Evidence
+
+- **JVM Unit Tests:**
+  - All 562+ JVM tests pass (`:app:testDebugUnitTest`).
+  - `BrowseQueryTest`: 6 new tests covering facet filtering, multi-facet combinations, case insensitivity, and metadata search.
+  - `BrowseModelTest`: Added `facetFiltersNarrowTheResultsAndCanBeCleared`.
+  - `LayerRulesTest`: Clean pass (0 layer boundary violations).
+- **Instrumented Accessibility Suite:**
+  - Ran `BrowseScreenAccessibilityTest` via `tools/run-accessibility-tests.ps1`: **17/17 passing (100%)**.
+  - Verified:
+    - `facetFilterChipsAreExposedAndLabelled`: every chip has an accessible label and click action.
+    - `activeFilterSummaryExposesActiveCountAndClearButton`: active count and clear button are readable and reachable.
+    - `aResultWithMetadataMergesTypeAndAreaIntoItsFocusStop`: title, kind, area, and date are spoken as a single coherent announcement.
+    - `everyControlCanDescribeItselfRatherThanBeingAnnouncedAsABareButton`: every control passes accessibility description checks.
+- **Suite & Tooling Stability:**
+  - Identified emulator aging/load-average bottleneck on long sessions (ranchu graphics composer driver eating CPU); fresh daemon reboot resolved test turnaround to 30s.
+  - Added `-Device` argument support to `tools/run-accessibility-tests.ps1`.
+  - All 4 wrapper self-checks (`check-wrapper-completeness.ps1`, `check-classifier-on-real-output.ps1`, `check-empty-failure-is-classified.ps1`, `check-harness-signatures.ps1`) pass cleanly.
+
+
+

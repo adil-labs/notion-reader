@@ -10,6 +10,7 @@ import com.example.notionreader.domain.session.ResumeDecision
 import com.example.notionreader.domain.session.ResumePolicy
 import com.example.notionreader.domain.session.StoredSession
 import com.example.notionreader.player.ReaderEngine
+import com.example.notionreader.player.ReaderSectionSpan
 import com.example.notionreader.player.ReaderState
 import java.util.UUID
 import kotlinx.coroutines.flow.asStateFlow
@@ -620,6 +621,12 @@ class ReaderSession(val engine: ReaderEngine) {
      * not change queue membership or position — those are different operations with different names.
      */
     fun restartNote() = engine.restartNote()
+
+    /** Jumps to a specific section, preserving the playing state. */
+    fun jumpToSection(span: ReaderSectionSpan) = engine.jumpToParagraph(span.firstParagraphIndex)
+
+    /** Jumps to a specific paragraph index, preserving the playing state. */
+    fun jumpToParagraph(index: Int) = engine.jumpToParagraph(index)
 
     /** Releases speech resources. The session must not be used afterwards. */
     fun shutdown() = engine.shutdown()

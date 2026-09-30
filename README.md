@@ -5,7 +5,8 @@ experience. It behaves like an audio/document player rather than a Notion editor
 
 Implemented so far: reader state and navigation, reader engine, Android TTS speech engine, the Note
 and Player screens, Notion API/repository, **automatic section progression** (continuous hands-free
-reading), a typed load-error taxonomy, and block-derived stable identities proven to survive edits.
+reading), a typed load-error taxonomy, block-derived stable identities proven to survive edits,
+**Saved and Smart Queues**, **section outline and granular part controls**, and **audio lifecycle hardening**.
 
 ## Reading behaviour
 
@@ -26,6 +27,11 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
 - **Next section** goes to the start of the following section (the last part when already in the
   final one). **Previous section** returns to the start of the current section, or steps back a section
   when already there — so one press re-reads the section and two presses go back one.
+- **Previous part** / **Next part** (available under *More playback controls*) move granularly by
+  single speakable chunks (paragraph, heading, or list item), preserving playback state.
+- **Restart note** returns playback to the beginning of the current note, restarting speech if playing.
+- **Sections outline** (available under *Sections*) presents a hierarchical outline of all headings
+  in the Note, highlighting the active section and enabling direct jumping to any section.
 - Late completion callbacks from a cancelled utterance are discarded, so pause/next/previous can never
   cause an unexpected jump.
 - **Previous note** / **Next note** move a whole Note within the frozen queue, and appear only when there
@@ -34,6 +40,8 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
   reading (announcing the new Note's title, since an unannounced Note change is indistinguishable from
   the reader having stopped). They are also the only way past a Note that will not load, which otherwise
   stalls the queue with Retry as its only offer.
+- Audio focus and headset unplug events (`ACTION_AUDIO_BECOMING_NOISY`) are handled automatically,
+  pausing playback when audio is disconnected or interrupted, with TTS routed to `USAGE_MEDIA`.
 - The listening session survives a configuration change — rotating the phone, changing the font size, or
   the system switching to dark mode at dusk. Speech is not interrupted, and the queue, its position and
   its history entry are the same afterwards (`docs/decisions.md` §19.4).
@@ -47,32 +55,37 @@ reading), a typed load-error taxonomy, and block-derived stable identities prove
 The UI contract separates manual reading from continuous listening, so the screens are not
 interchangeable:
 
-- **Home** — Continue listening, as a list of listening sessions you have not finished.
-- **Browse** — the default result set (the pages the integration can see), search, sort, and `Play all`.
-- **Queues** — the Listening tab: Continue listening and Recently completed.
+- **Home** — Continue listening (unfinished listening sessions from history with prominent "Continue"
+  resumption and inline Play/Pause toggle), Your queues (recent Saved Queues, with "See all queues"),
+  and Explore (curated topic shortcuts with dynamic note counts).
+- **Browse** — the default result set, multi-facet filtering (Type, Area, Topics, Project, Status), search across titles and metadata, active filter summary, sort, and `Play all`.
+- **Queues** — the Listening tab: Continue listening and Recently completed; the Saved tab: Saved Queues;
+  the Smart tab: configured Smart Queues with live match counts.
 - **Note** — manual reading and inspection. Renders the whole document in reading order; opening it
   never starts playback and moving focus through it never changes playback progress.
 - **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
-  queue position, and the contract's full primary control set: Previous section / Play-Pause /
-  Next section / **Queue**. Back returns to the previous screen while playback continues.
+  queue position, and the contract's primary control set: Previous section / Play-Pause /
+  Next section / **Queue**. Secondary controls are accessible via **More playback controls** (Restart note,
+  Previous part, Next part) and **Sections** outline. Back returns to the previous screen while playback continues.
 - **Active Queue** — the Player's `Queue` control opens a read-only view of the session's frozen
   snapshot: every Note, in order, with the current one marked. Selecting a row moves the session to that
   Note. There is deliberately nothing to edit — an Active Queue's membership and order are fixed for the
   session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
   played" (`docs/decisions.md` §22).
 
-Queues ships **two of its three tabs**. **Listening** and **Saved** are built; **Smart** waits on the
-Queue Creation & Queue Management specification plus the Content Metadata & Workspace Schema Adapters
-specification — so Smart is deliberately out of scope for the coming work by decision
-(`docs/decisions.md` §23, D30). Two permanently unusable controls one tap from a populated surface would
-be the same problem as an empty screen, only better hidden (`docs/decisions.md` §18.4). Settings is
+Queues ships **all three tabs**: **Listening**, **Saved**, and **Smart**. Settings is
 absent for the same reason it always was — it has no content by definition.
 
 The **Saved** tab lists the queues the listener built, most recently edited first, each named with its
 member count, and offers `Create saved queue`. Activating a queue opens **Saved Queue Details**, which
-shows its members in order and offers `Play` — which snapshots the queue's current membership and order
-into a new session, and is unavailable on an empty queue with the reason stated. A member row opens its
-Note and does not play it.
+shows its members in order and offers `Play`, `Edit queue`, `Rename` and `Delete` (with confirmation dialogs).
+`Play` snapshots the queue's current membership and order into a new session, and is unavailable on an empty queue
+with the reason stated. A member row opens its Note and does not play it.
+
+The **Smart** tab lists the configured query-based queues, each with its current workspace match count,
+and offers `Create smart queue`. Activating a queue opens **Smart Queue Details**, previewing the
+matching notes, offering `Play query` (snapshotting matching notes into a new session), `Rename`, and
+`Delete` (with confirmation dialogs).
 
 A queue is filled through the contract's **Add** path: `Add to queue` on a Note and `Add all to queue` on
 Browse both open **Queue Destination**, which lists the Saved Queues and `Create new queue`. Choosing one
@@ -102,17 +115,7 @@ TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
 ## Not yet implemented
 
-- Queue **management** of Saved Queues — rename and delete, with their confirmations. Create, Add and Edit
-  mode ship; `Rename` and `Delete` are the remaining operations, and the model underneath them is done and
-  tested (`docs/decisions.md` §23.26), so each is a surface rather than a rule.
 - The mini-player's own screen. It renders today, but not as a destination with its own surface.
-- Queues' **Smart** tab. **Listening** and **Saved** are built. **Smart** waits on the Queue Creation &
-  Queue Management specification plus the Content Metadata & Workspace Schema Adapters specification, so it
-  is deliberately out of scope by decision (`docs/decisions.md` §23, D30) rather than left as an
-  open-ended gap.
-- Browse facets, and Home's Explore and Your queues sections, which all need the Content Metadata &
-  Workspace Schema Adapters specification. Browse itself is built (search, sort by most recently edited,
-  `Play all`).
 - Background/lock-screen playback and media buttons (Media3 `MediaSessionService`). The Player holds the
   screen awake with `keepScreenOn` as a stated workaround, so this is the largest gap in a listening app.
   It now has a **governing specification** (`docs/background-playback-and-media-controls-spec.md`) and is

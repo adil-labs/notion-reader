@@ -1,11 +1,14 @@
 package com.example.notionreader.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,45 +22,24 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.application.ContinueListeningCard
+import com.example.notionreader.application.ExploreCard
+import com.example.notionreader.application.ReaderFocus
+import com.example.notionreader.application.SavedQueueCard
 import com.example.notionreader.ui.describeLastActivity
 
 /**
  * Home: "useful starting points".
  *
- * ## What is here, and what is not yet
+ * ## Sections
  *
- * Only Continue listening. The contract gives Home three sections, and the other two are absent for
- * reasons that are recorded rather than accidental:
- *
- * - **Your queues** needs Saved and Smart Queues, which need two specifications that do not exist.
- * - **Explore** needs metadata to generate its entries from. The contract is explicit that Explore should
- *   be "generated transparently from metadata rather than opaque AI recommendations", and that metadata
- *   is the missing Content Metadata & Workspace Schema Adapters specification.
+ * - **Continue listening**: Resumable Active Queue snapshots from history.
+ * - **Your queues**: Persistent queues (Saved Queues, capped to recent entries, with "See all queues").
+ * - **Explore**: Absent pending Content Metadata & Workspace Schema Adapters specification.
  *
  * ## The empty state, which is not an empty result set
  *
- * With nothing to continue, Home has no sections at all — and a Home with none of its three sections is
- * an empty screen, which is the objection that removed Settings as a tab (`docs/decisions.md` §12.5). It
- * is kept anyway, for a reason that does not apply to Settings: Home has a real, useful route out. So the
- * empty state **explains itself and offers Browse** rather than rendering as a blank list, which is what
- * distinguishes it from the "empty result set" the contract warns about.
- *
- * ## History, not just the live session
- *
- * This section reads real listening history — the Active Queue & Reader Session spec's unfinished
- * sessions, most recently active first — so it is no longer a projection of whatever happens to be
- * playing. That is what makes it *history*: a session paused yesterday is still here after the process has
- * died, and Continue on it restores that session's own queue and position rather than the current one's.
- *
- * The list is capped by the caller: the contract says Home "should show only a small useful subset" and
- * that the full history lives under `Queues → Listening`.
- *
- * ## Accessibility
- *
- * One session is one focus stop: each entry merges its descendants so TalkBack reads the title, position,
- * state and recency as one item instead of four swipes, with Continue as an explicit control beside it.
- * The heading is a heading, so the screen can be skimmed by structure, and the screen names itself with a
- * pane title so entering it says where the user is.
+ * With nothing to continue and no queues, Home explains itself and offers Browse rather than
+ * rendering as a blank list.
  */
 @Composable
 fun HomeScreen(
@@ -66,37 +48,40 @@ fun HomeScreen(
     onBrowse: () -> Unit,
     onPlayPause: () -> Unit,
     modifier: Modifier = Modifier,
+    yourQueues: List<SavedQueueCard> = emptyList(),
+    onOpenQueue: (String) -> Unit = {},
+    onSeeAllQueues: () -> Unit = {},
+    exploreCards: List<ExploreCard> = emptyList(),
+    onExplore: (String) -> Unit = {},
     /**
      * The instant the relative times are relative to.
-     *
-     * A parameter rather than read inside, so the only time-dependent thing on this screen is an input.
-     * Reading the clock during composition would make the same session describe itself differently on two
-     * recompositions, and would put a clock in the middle of a display-only composable.
      */
     now: Long = System.currentTimeMillis(),
     /**
      * The element the listener activated before leaving this screen, if they came back with Back.
-     *
-     * Continue is the only control here that navigates — Play/Pause acts on the session in place — so it
-     * is the only one that can be restored.
      */
     focusTarget: String? = null,
     onFocusHandled: () -> Unit = {}
 ) {
-    // A hint for a session this list no longer shows is consumed rather than left pending, so it cannot
-    // fire later as focus moving on its own.
-    LaunchedEffect(focusTarget, continueListening) {
-        if (focusTarget != null && continueListening.none { it.sessionId == focusTarget }) onFocusHandled()
+    LaunchedEffect(focusTarget, continueListening, yourQueues) {
+        if (focusTarget != null &&
+            continueListening.none { it.sessionId == focusTarget } &&
+            yourQueues.none { it.queueId == focusTarget } &&
+            focusTarget != ReaderFocus.HomeSeeAllQueues
+        ) {
+            onFocusHandled()
+        }
     }
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp)
             .semantics { paneTitle = "Home" },
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        if (continueListening.isEmpty()) {
+        if (continueListening.isEmpty() && yourQueues.isEmpty() && exploreCards.isEmpty()) {
             Text(
                 text = "Nothing to continue yet.",
                 style = MaterialTheme.typography.titleMedium,
@@ -114,22 +99,93 @@ fun HomeScreen(
             return@Column
         }
 
+        if (continueListening.isNotEmpty()) {
+            Text(
+                text = "Continue listening",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() }
+            )
+
+            continueListening.forEach { session ->
+                ContinueListeningEntry(
+                    session = session,
+                    now = now,
+                    onContinue = { onContinue(session.sessionId) },
+                    onPlayPause = onPlayPause,
+                    focusTarget = focusTarget,
+                    onFocusHandled = onFocusHandled
+                )
+            }
+        }
+
+        if (yourQueues.isNotEmpty()) {
+            Text(
+                text = "Your queues",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() }
+            )
+
+            yourQueues.forEach { queue ->
+                HomeQueueEntry(
+                    queue = queue,
+                    onOpen = { onOpenQueue(queue.queueId) },
+                    focusTarget = focusTarget,
+                    onFocusHandled = onFocusHandled
+                )
+            }
+
+            Button(
+                onClick = onSeeAllQueues,
+                modifier = Modifier.restoreFocusOn(
+                    target = focusTarget,
+                    id = ReaderFocus.HomeSeeAllQueues,
+                    onHandled = onFocusHandled
+                )
+            ) {
+                Text("See all queues")
+            }
+        }
+
+        if (exploreCards.isNotEmpty()) {
+            Text(
+                text = "Explore",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() }
+            )
+
+            exploreCards.forEach { card ->
+                HomeExploreEntry(
+                    card = card,
+                    onSelect = { onExplore(card.queryText) }
+                )
+            }
+        }
+    }
+}
+
+/** One explore entry on Home: topic name and note count as a single announcement. */
+@Composable
+private fun HomeExploreEntry(
+    card: ExploreCard,
+    onSelect: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .semantics(mergeDescendants = true) {}
+            .padding(vertical = 12.dp)
+    ) {
         Text(
-            text = "Continue listening",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.semantics { heading() }
+            text = card.title,
+            style = MaterialTheme.typography.bodyLarge
         )
 
-        continueListening.forEach { session ->
-            ContinueListeningEntry(
-                session = session,
-                now = now,
-                onContinue = { onContinue(session.sessionId) },
-                onPlayPause = onPlayPause,
-                focusTarget = focusTarget,
-                onFocusHandled = onFocusHandled
-            )
-        }
+        Text(
+            text = "${card.noteCount} notes",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -192,3 +248,36 @@ private fun ContinueListeningEntry(
         }
     }
 }
+
+/** One queue entry on Home: its name and its membership as a single announcement. */
+@Composable
+private fun HomeQueueEntry(
+    queue: SavedQueueCard,
+    onOpen: () -> Unit,
+    focusTarget: String?,
+    onFocusHandled: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .restoreFocusOn(
+                target = focusTarget,
+                id = queue.queueId,
+                onHandled = onFocusHandled
+            )
+            .clickable(onClick = onOpen)
+            .semantics(mergeDescendants = true) {}
+            .padding(vertical = 12.dp)
+    ) {
+        Text(
+            text = queue.name,
+            style = MaterialTheme.typography.bodyLarge
+        )
+
+        Text(
+            text = "Saved Queue · ${queue.memberDescription}",
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+

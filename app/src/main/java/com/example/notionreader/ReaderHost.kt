@@ -102,6 +102,11 @@ class ReaderHost(
         recordHistory()
         recordResumeQuality()
         readSavedQueues()
+        readSmartQueues()
+    }
+
+    private fun readSmartQueues(): Job = scope.launch {
+        app.loadSmartQueues()
     }
 
     /**

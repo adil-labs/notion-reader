@@ -93,6 +93,9 @@ interface ReaderEngine {
      */
     fun restartNote()
 
+    /** Moves directly to [paragraphIndex], preserving the playing state. */
+    fun jumpToParagraph(paragraphIndex: Int)
+
     /** Replaces the current document and resets the reading position. */
     fun setDocument(document: ReaderDocument, startParagraphIndex: Int = 0)
 
@@ -198,6 +201,11 @@ class ReaderEngineImpl(
     override fun previousSection() = move { it.previousSection() }
 
     override fun restartNote() = move { it.movedToStart() }
+
+    override fun jumpToParagraph(paragraphIndex: Int) = move {
+        val target = paragraphIndex.coerceIn(0, it.paragraphs.size - 1)
+        it.copy(currentParagraphIndex = target, hasReachedEnd = false)
+    }
 
     override fun setDocument(document: ReaderDocument, startParagraphIndex: Int) {
         invalidateUtterance()

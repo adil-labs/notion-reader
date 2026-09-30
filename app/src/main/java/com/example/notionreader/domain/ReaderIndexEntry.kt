@@ -40,7 +40,12 @@ import java.time.Instant
 data class ReaderIndexEntry(
     val pageId: String,
     val title: String,
-    val lastEditedAt: Instant? = null
+    val lastEditedAt: Instant? = null,
+    val kind: String? = null,
+    val area: String? = null,
+    val topics: Set<String> = emptySet(),
+    val project: String? = null,
+    val status: String? = null
 ) {
     /** The queue identity for this page, so a result set can be snapshotted into a queue unchanged. */
     fun toQueuedNote(): QueuedNote = QueuedNote(pageId = pageId, title = title)

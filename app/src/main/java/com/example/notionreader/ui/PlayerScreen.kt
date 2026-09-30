@@ -37,6 +37,7 @@ import com.example.notionreader.domain.queue.QueueState
 import com.example.notionreader.domain.ReaderLoadException
 import com.example.notionreader.player.PlayerCommand
 import com.example.notionreader.player.playerCommandAvailability
+import com.example.notionreader.player.ReaderSectionSpan
 import com.example.notionreader.player.ReaderState
 
 /**
@@ -89,13 +90,16 @@ fun PlayerScreen(
     modifier: Modifier = Modifier,
     statusMessage: String? = null,
     queueState: QueueState = QueueState(),
-    onRetryQueueNote: () -> Unit = {}
+    onRetryQueueNote: () -> Unit = {},
+    onJumpToSection: (ReaderSectionSpan) -> Unit = {}
 ) {
     // One published answer, read by every control below. A disabled control and an unadvertised transport
     // command are therefore the same fact rather than two evaluations of it.
     val availability = playerCommandAvailability(state, queueState)
 
     var showQueue by rememberSaveable { mutableStateOf(false) }
+    var showSections by rememberSaveable { mutableStateOf(false) }
+    var showMoreControls by rememberSaveable { mutableStateOf(false) }
 
     // Reading is hands-free, so the display must not time out mid-paragraph. It is only held awake
     // while playing, so a paused reader still lets the device sleep. (A background playback service is
@@ -116,6 +120,30 @@ fun PlayerScreen(
                 onCommand(PlayerCommand.JumpToNote, index)
                 showQueue = false
             },
+            modifier = modifier
+        )
+        return
+    }
+
+    if (showSections) {
+        SectionOutlineView(
+            sections = state.sections,
+            currentSectionId = state.currentSection?.id,
+            onSelectSection = { span ->
+                onJumpToSection(span)
+                showSections = false
+            },
+            onClose = { showSections = false },
+            modifier = modifier
+        )
+        return
+    }
+
+    if (showMoreControls) {
+        MorePlaybackControlsView(
+            availability = availability,
+            onCommand = onCommand,
+            onClose = { showMoreControls = false },
             modifier = modifier
         )
         return
@@ -298,6 +326,212 @@ fun PlayerScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Next note")
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = { showSections = true },
+                enabled = state.sections.isNotEmpty() && !queueState.awaiting && !queueState.isStalled,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Sections")
+            }
+
+            Button(
+                onClick = {
+                    onCommand(PlayerCommand.OpenMorePlaybackControls, null)
+                    showMoreControls = true
+                },
+                enabled = availability.canOpenMorePlaybackControls,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("More playback controls")
+            }
+        }
+    }
+}
+
+/**
+ * Secondary playback controls surface.
+ *
+ * Exposes fine-grained part navigation and note restarting per Core Player & TTS Playback spec
+ * Phase 4, keeping the primary Player controls compact and listening-focused.
+ */
+@Composable
+private fun MorePlaybackControlsView(
+    availability: com.example.notionreader.player.PlayerCommandAvailability,
+    onCommand: (PlayerCommand, Int?) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BackHandler(onBack = onClose)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .semantics { paneTitle = "More playback controls" },
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "More playback controls",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.semantics { heading() }
+            )
+            Button(onClick = onClose) {
+                Text("Close controls")
+            }
+        }
+
+        Text(
+            text = "Fine-grained navigation and controls for the current Note.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Button(
+            onClick = {
+                onCommand(PlayerCommand.RestartNote, null)
+                onClose()
+            },
+            enabled = availability.canRestartNote,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Restart note")
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = { onCommand(PlayerCommand.PreviousPart, null) },
+                enabled = availability.canMoveToPreviousPart,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Previous part")
+            }
+
+            Button(
+                onClick = { onCommand(PlayerCommand.NextPart, null) },
+                enabled = availability.canMoveToNextPart,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Next part")
+            }
+        }
+    }
+}
+
+/**
+ * Section outline / Table of Contents view for the current Note.
+ *
+ * Allows inspecting the document's sections and jumping directly to any section.
+ * Selecting a section preserves the current playing state (continues reading if playing,
+ * updates position silently if paused).
+ */
+@Composable
+private fun SectionOutlineView(
+    sections: List<ReaderSectionSpan>,
+    currentSectionId: String?,
+    onSelectSection: (ReaderSectionSpan) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BackHandler(onBack = onClose)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .semantics { paneTitle = "Sections" }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Sections",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.semantics { heading() }
+            )
+            Button(onClick = onClose) {
+                Text("Close sections")
+            }
+        }
+
+        Text(
+            text = "${sections.size} sections in this Note",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(top = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            itemsIndexed(sections) { index, span ->
+                val isCurrent = span.id == currentSectionId
+                val status = if (isCurrent) "Now playing" else ""
+                val title = span.title ?: "Introduction"
+                val levelLabel = when (span.level) {
+                    1 -> "Heading 1"
+                    2 -> "Heading 2"
+                    3 -> "Heading 3"
+                    else -> "Section"
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectSection(span) }
+                        .padding(vertical = 12.dp, horizontal = 8.dp)
+                        .semantics(mergeDescendants = true) {
+                            if (status.isNotEmpty()) {
+                                stateDescription = status
+                            }
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "${index + 1}. $title",
+                            style = if (isCurrent) {
+                                MaterialTheme.typography.titleMedium
+                            } else {
+                                MaterialTheme.typography.bodyLarge
+                            }
+                        )
+                        Text(
+                            text = levelLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (isCurrent) {
+                        Text(
+                            text = "▶",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.clearAndSetSemantics {}
+                        )
+                    }
                 }
             }
         }

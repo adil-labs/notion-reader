@@ -82,6 +82,7 @@
 #>
 param(
     [string]$Class = '',
+    [string]$Device = '',
 
     <#
         Turns off `touch_exploration_enabled` for the run and restores it afterwards.
@@ -605,6 +606,13 @@ if (-not $adb) { throw 'adb not found.' }
 #>
 $deviceList = (& $adb devices) -split "`r?`n" | Where-Object { $_ -and $_ -notmatch '^List of devices' }
 $connected = @($deviceList | Where-Object { $_ -match '\sdevice$' })
+if (-not $Device -and $env:ANDROID_SERIAL) {
+    $Device = $env:ANDROID_SERIAL
+}
+if ($Device) {
+    $connected = @($connected | Where-Object { $_ -match "^$Device\s" })
+    $env:ANDROID_SERIAL = $Device
+}
 $unauthorized = @($deviceList | Where-Object { $_ -match '\sunauthorized$' })
 $offline = @($deviceList | Where-Object { $_ -match '\s(offline|no permissions)$' })
 

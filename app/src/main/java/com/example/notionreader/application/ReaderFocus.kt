@@ -67,4 +67,25 @@ object ReaderFocus {
      * focus on the other.
      */
     const val BrowseAddAllToQueue: String = "browse:addAllToQueue"
+
+    /** Saved Queue Details' `Rename`. */
+    const val SavedQueueRename: String = "savedQueue:rename"
+
+    /** Saved Queue Details' `Delete`. */
+    const val SavedQueueDelete: String = "savedQueue:delete"
+
+    /** Home screen's `See all queues`. */
+    const val HomeSeeAllQueues: String = "home:seeAllQueues"
+
+    /** The Smart tab's `Create smart queue`. */
+    const val SmartQueueCreate: String = "smartQueue:create"
+
+    /** Smart Queue Details' `Play`. */
+    const val SmartQueuePlay: String = "smartQueue:play"
+
+    /** Smart Queue Details' `Rename`. */
+    const val SmartQueueRename: String = "smartQueue:rename"
+
+    /** Smart Queue Details' `Delete`. */
+    const val SmartQueueDelete: String = "smartQueue:delete"
 }

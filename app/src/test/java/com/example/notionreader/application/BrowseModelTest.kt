@@ -99,6 +99,26 @@ class BrowseModelTest {
     }
 
     @Test
+    fun facetFiltersNarrowTheResultsAndCanBeCleared() = runTest {
+        val model = BrowseModel()
+        val richEntries = listOf(
+            ReaderIndexEntry("1", "Chess", kind = "Practice", area = "Games"),
+            ReaderIndexEntry("2", "Mind", kind = "Reflection", area = "Learning")
+        )
+        model.load { richEntries }
+
+        model.setTypeFilter("Practice")
+        assertEquals(listOf("1"), model.state.value.results.entries.map { it.pageId })
+
+        model.setAreaFilter("Games")
+        assertEquals(listOf("1"), model.state.value.results.entries.map { it.pageId })
+
+        model.clearFilters()
+        assertEquals(listOf("1", "2"), model.state.value.results.entries.map { it.pageId })
+        assertFalse(model.state.value.query.hasFilters)
+    }
+
+    @Test
     fun aFailedLoadReportsItsCategoryAndWhetherRetryIsWorthOffering() = runTest {
         val model = BrowseModel()
 

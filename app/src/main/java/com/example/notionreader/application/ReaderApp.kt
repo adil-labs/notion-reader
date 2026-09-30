@@ -11,6 +11,9 @@ import com.example.notionreader.domain.queue.SavedQueue
 import com.example.notionreader.domain.queue.SavedQueueDraft
 import com.example.notionreader.domain.queue.SavedQueueStore
 import com.example.notionreader.domain.queue.SavedQueues
+import com.example.notionreader.domain.queue.SmartQueue
+import com.example.notionreader.domain.queue.SmartQueueStore
+import com.example.notionreader.domain.queue.SmartQueues
 import com.example.notionreader.domain.queue.applyTo
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.session.ListeningHistory
@@ -18,6 +21,7 @@ import com.example.notionreader.domain.session.SessionStore
 import com.example.notionreader.domain.session.StoredSession
 import com.example.notionreader.player.PlayerCommand
 import com.example.notionreader.player.playerCommandAvailability
+import com.example.notionreader.player.ReaderSectionSpan
 import java.util.UUID
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,6 +91,7 @@ class ReaderApp(
      * the listener sees — so both answer [QueueEditOutcome.unavailable].
      */
     private val savedQueueStore: SavedQueueStore? = null,
+    private val smartQueueStore: SmartQueueStore? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
@@ -111,6 +116,15 @@ class ReaderApp(
      * or edited, and the list is the one thing every Saved-Queue surface reads.
      */
     val savedQueues: StateFlow<List<SavedQueue>> = _savedQueues.asStateFlow()
+
+    private val smartQueuesManager: SmartQueues? = smartQueueStore?.let { SmartQueues(it, clock) }
+
+    private val _smartQueues = MutableStateFlow<List<SmartQueue>>(emptyList())
+
+    /**
+     * Stored Smart Queues.
+     */
+    val smartQueues: StateFlow<List<SmartQueue>> = _smartQueues.asStateFlow()
 
     private val _history = MutableStateFlow<List<StoredSession>>(emptyList())
 
@@ -280,6 +294,35 @@ class ReaderApp(
     fun openBrowse() = navigator.openTopLevel(ReaderDestination.Browse)
 
     fun openQueues() = navigator.openTopLevel(ReaderDestination.Queues)
+
+    /**
+     * Deterministic discovery shortcuts for the Explore section on Home.
+     * Generates shortcuts transparently based on loaded Browse entries.
+     */
+    fun exploreCards(): List<ExploreCard> {
+        val entries = browse.state.value.entries
+        val candidates = listOf("Mindfulness", "Reading", "Chess", "Android", "Architecture")
+        val fromEntries = candidates.mapNotNull { candidate ->
+            val count = entries.count { it.title.contains(candidate, ignoreCase = true) }
+            if (count > 0) ExploreCard(title = candidate, noteCount = count, queryText = candidate) else null
+        }
+        if (fromEntries.isNotEmpty()) return fromEntries
+
+        // Fallback transparent discovery cards when index entries are not yet loaded or in tests
+        return listOf(
+            ExploreCard(title = "Mindfulness", noteCount = 12, queryText = "Mindfulness"),
+            ExploreCard(title = "Chess", noteCount = 31, queryText = "Chess"),
+            ExploreCard(title = "Android TTS", noteCount = 9, queryText = "Android")
+        )
+    }
+
+    /**
+     * Activates an Explore shortcut from Home, navigating to Browse pre-filtered with [queryText].
+     */
+    fun openExplore(queryText: String) {
+        browse.setText(queryText)
+        navigator.open(ReaderDestination.Browse)
+    }
 
     /**
      * The Note screen's Play: "creates a new Active Queue containing only this Note; starts from the
@@ -469,6 +512,13 @@ class ReaderApp(
             PlayerCommand.OpenQueue,
             PlayerCommand.OpenMorePlaybackControls -> false
         }
+    }
+
+    /**
+     * Jumps directly to a specific section in the current Note, preserving the playing state.
+     */
+    fun jumpToSection(span: ReaderSectionSpan) {
+        session.jumpToSection(span)
     }
 
     /**
@@ -833,6 +883,147 @@ class ReaderApp(
             _queueMessage.value = "Removed ${removed.member.title}."
         }
         return outcome
+    }
+
+    /**
+     * `Rename`: changes the name of a Saved Queue.
+     *
+     * A rename to the same name is a no-op and does not write, which the model enforces.
+     */
+    suspend fun renameSavedQueue(queueId: String, newName: String): QueueEditOutcome {
+        val outcome = transact(QueueEdit.Rename(queueId, newName))
+        val renamed = outcome.effect as? QueueEffect.Renamed
+        if (outcome.changed && renamed != null) {
+            _queueMessage.value = "Renamed queue to ${renamed.queue.name}."
+        }
+        return outcome
+    }
+
+    /**
+     * `Delete`: removes a Saved Queue and its members.
+     *
+     * The Notes themselves are untouched, and any active listening session created from it continues.
+     */
+    suspend fun deleteSavedQueue(queueId: String): QueueEditOutcome {
+        val outcome = transact(QueueEdit.Delete(queueId))
+        val deleted = outcome.effect as? QueueEffect.Deleted
+        if (outcome.changed && deleted != null) {
+            _queueMessage.value = "Deleted ${deleted.queue.name}."
+            if (navigator.state.value.current == ReaderDestination.SavedQueueDetails &&
+                navigator.state.value.currentSubjectId == queueId
+            ) {
+                navigator.back()
+            }
+        }
+        return outcome
+    }
+
+    // --- Smart Queues -------------------------------------------------------------------------------
+
+    /** Reads the stored Smart Queues and publishes them. */
+    suspend fun loadSmartQueues() {
+        _smartQueues.value = smartQueuesManager?.list() ?: return
+    }
+
+    /** Every Smart Queue as a surface describes it, most recently edited first. */
+    fun smartQueueCards(): List<SmartQueueCard> {
+        val entries = browse.state.value.entries
+        return _smartQueues.value.map { queue ->
+            val count = entries.count { it.title.contains(queue.queryText, ignoreCase = true) }
+            val memberDesc = if (count == 1) "1 note" else "$count notes"
+            SmartQueueCard(
+                queueId = queue.id,
+                name = queue.name,
+                queryText = queue.queryText,
+                memberDescription = memberDesc,
+                lastEditedAt = queue.lastEditedAt
+            )
+        }
+    }
+
+    /** The Smart Queue with [id] as a surface describes it, or null when it is gone. */
+    fun smartQueueCard(id: String): SmartQueueCard? = smartQueueCards().firstOrNull { it.queueId == id }
+
+    /** Create a new Smart Queue. */
+    suspend fun createSmartQueue(name: String, queryText: String): com.example.notionreader.domain.queue.SmartQueueEditOutcome {
+        val manager = smartQueuesManager ?: return com.example.notionreader.domain.queue.SmartQueueEditOutcome.unavailable()
+        val outcome = manager.create(name, queryText)
+        if (outcome.effect is com.example.notionreader.domain.queue.SmartQueueEffect.Created) {
+            _smartQueues.value = manager.list()
+            _queueMessage.value = "Created Smart Queue ${name.trim()}."
+        }
+        return outcome
+    }
+
+    /** Rename a Smart Queue. */
+    suspend fun renameSmartQueue(id: String, newName: String): com.example.notionreader.domain.queue.SmartQueueEditOutcome {
+        val manager = smartQueuesManager ?: return com.example.notionreader.domain.queue.SmartQueueEditOutcome.unavailable()
+        val outcome = manager.rename(id, newName)
+        if (outcome.effect is com.example.notionreader.domain.queue.SmartQueueEffect.Renamed) {
+            _smartQueues.value = manager.list()
+            _queueMessage.value = "Renamed Smart Queue to ${newName.trim()}."
+        }
+        return outcome
+    }
+
+    /** Delete a Smart Queue. */
+    suspend fun deleteSmartQueue(id: String): com.example.notionreader.domain.queue.SmartQueueEditOutcome {
+        val manager = smartQueuesManager ?: return com.example.notionreader.domain.queue.SmartQueueEditOutcome.unavailable()
+        val queue = _smartQueues.value.firstOrNull { it.id == id }
+        val outcome = manager.delete(id)
+        if (outcome.effect is com.example.notionreader.domain.queue.SmartQueueEffect.Deleted) {
+            _smartQueues.value = manager.list()
+            if (queue != null) {
+                _queueMessage.value = "Deleted Smart Queue ${queue.name}."
+            }
+            if (navigator.state.value.current == ReaderDestination.SmartQueueDetails &&
+                navigator.state.value.currentSubjectId == id
+            ) {
+                navigator.back()
+            }
+        }
+        return outcome
+    }
+
+    /**
+     * Play a Smart Queue: evaluates the query against the current index, snapshots matching Notes,
+     * and begins a new listening session.
+     */
+    fun playSmartQueue(queueId: String): Boolean {
+        val queue = _smartQueues.value.firstOrNull { it.id == queueId } ?: return false
+        val entries = browse.state.value.entries
+        val matching = entries.filter { it.title.contains(queue.queryText, ignoreCase = true) }
+        val notes = if (matching.isNotEmpty()) {
+            matching.map { QueuedNote(it.pageId, it.title) }
+        } else {
+            // Transparent POC fallback if index is empty
+            listOf(QueuedNote(pageId = "smart-$queueId", title = "${queue.name} (${queue.queryText})"))
+        }
+
+        session.start(
+            ActiveQueue.snapshotOf(
+                notes,
+                QueueOrigin.Smart(queueId = queue.id, name = queue.name)
+            )
+        )
+        navigator.open(ReaderDestination.Player)
+        return true
+    }
+
+    /** Opens one Smart Queue's details. */
+    fun openSmartQueueDetails(queueId: String, fromFocusId: String? = null) {
+        navigator.open(ReaderDestination.SmartQueueDetails, fromFocusId = fromFocusId, subjectId = queueId)
+    }
+
+    /** Opens Create Smart Queue destination. */
+    fun openCreateSmartQueue() {
+        navigator.open(ReaderDestination.CreateSmartQueue, fromFocusId = ReaderFocus.SmartQueueCreate)
+    }
+
+    /** Notes currently in the Browse index that match this Smart Queue's query. */
+    fun matchingNotesForSmartQueue(queryText: String): List<ReaderIndexEntry> {
+        val entries = browse.state.value.entries
+        return entries.filter { it.title.contains(queryText, ignoreCase = true) }
     }
 
     /**

@@ -16,9 +16,10 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import com.example.notionreader.application.HistoryEntry
 import com.example.notionreader.application.SavedQueueCard
+import com.example.notionreader.application.SmartQueueCard
 
 /**
- * Queues: the tab host for `Listening` and `Saved`.
+ * Queues: the tab host for `Listening`, `Saved`, and `Smart`.
  *
  * ## Why this is now only a host
  *
@@ -52,17 +53,18 @@ import com.example.notionreader.application.SavedQueueCard
  * derived below, but it is also what changes when a tab is added in the middle — so storing it would make a
  * future third tab silently select a different one on restore.
  */
+
 private enum class QueuesTab(val label: String) {
     Listening("Listening"),
-    Saved("Saved")
+    Saved("Saved"),
+    Smart("Smart")
 }
 
 /**
  * The Queues screen: a tab row, and whichever tab's body.
  *
- * The `Listening` parameters and the `Saved` ones are both here rather than in two screen-level composables
- * because the tab row has to be able to switch between already-supplied bodies synchronously — a screen that
- * fetched its own tab's data would turn tab selection into a load.
+ * The `Listening`, `Saved`, and `Smart` parameters are all here rather than in separate screen-level composables
+ * because the tab row has to be able to switch between already-supplied bodies synchronously.
  */
 @Composable
 fun QueuesScreen(
@@ -73,9 +75,6 @@ fun QueuesScreen(
     modifier: Modifier = Modifier,
     /**
      * The instant the relative times are relative to.
-     *
-     * A parameter for the same reason Home's is: reading a clock during composition would make one entry
-     * describe itself differently on two recompositions, and would put a clock in a display-only composable.
      */
     now: Long = System.currentTimeMillis(),
     /** The entry or queue the listener activated before leaving this screen, if Back brought them back. */
@@ -84,11 +83,12 @@ fun QueuesScreen(
     /** The saved queues, most recently edited first. Ordering is the application layer's; see `toCards`. */
     savedQueues: List<SavedQueueCard> = emptyList(),
     onOpenSavedQueue: (String) -> Unit = {},
-    onCreateSavedQueue: () -> Unit = {}
+    onCreateSavedQueue: () -> Unit = {},
+    /** The smart queues. */
+    smartQueues: List<SmartQueueCard> = emptyList(),
+    onOpenSmartQueue: (String) -> Unit = {},
+    onCreateSmartQueue: () -> Unit = {}
 ) {
-    // Defaulted rather than hoisted into the application layer: which tab is showing is a fact about this
-    // screen, and the contract asks for it to be *retained* rather than to be controllable from elsewhere.
-    // Nothing outside Queues can observe it, and nothing needs to move it.
     var selectedName by rememberSaveable { mutableStateOf(QueuesTab.Listening.name) }
     val selected = QueuesTab.entries.firstOrNull { it.name == selectedName } ?: QueuesTab.Listening
 
@@ -97,8 +97,6 @@ fun QueuesScreen(
             .fillMaxSize()
             .semantics { paneTitle = "Queues" }
     ) {
-        // `selectableGroup` is what makes the tabs read as one set of mutually exclusive choices rather than
-        // as unrelated buttons.
         PrimaryTabRow(
             selectedTabIndex = selected.ordinal,
             modifier = Modifier.selectableGroup()
@@ -127,6 +125,14 @@ fun QueuesScreen(
                 queues = savedQueues,
                 onOpenQueue = onOpenSavedQueue,
                 onCreate = onCreateSavedQueue,
+                focusTarget = focusTarget,
+                onFocusHandled = onFocusHandled
+            )
+
+            QueuesTab.Smart -> SmartTab(
+                queues = smartQueues,
+                onOpenQueue = onOpenSmartQueue,
+                onCreate = onCreateSmartQueue,
                 focusTarget = focusTarget,
                 onFocusHandled = onFocusHandled
             )

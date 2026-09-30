@@ -59,7 +59,9 @@ class SavedQueueDetailsAccessibilityTest {
         onOpenNote: (String) -> Unit = { },
         onPlay: (String) -> Unit = { },
         onMove: (String, QueueMove) -> Unit = { _, _ -> },
-        onRemove: (String) -> Unit = { }
+        onRemove: (String) -> Unit = { },
+        onRename: (String, String) -> Unit = { _, _ -> },
+        onDelete: (String) -> Unit = { }
     ) {
         compose.setContent {
             SavedQueueDetailsScreen(
@@ -67,7 +69,9 @@ class SavedQueueDetailsAccessibilityTest {
                 onOpenNote = onOpenNote,
                 onPlay = onPlay,
                 onMove = onMove,
-                onRemove = onRemove
+                onRemove = onRemove,
+                onRename = onRename,
+                onDelete = onDelete
             )
         }
     }
@@ -222,4 +226,41 @@ class SavedQueueDetailsAccessibilityTest {
         // Nothing to press: no Play, no retry, no repair.
         compose.onAllNodesWithText("Play").assertCountEquals(0)
     }
+
+    // ------------------------------------------------------------------------- Rename and Delete in Viewing
+
+    @Test
+    fun viewingExposesRenameAndDeleteControls() {
+        show()
+
+        compose.onNodeWithText("Rename").assertIsReachable()
+        compose.onNodeWithText("Delete").assertIsReachable()
+    }
+
+    @Test
+    fun activatingRenameOpensRenameDialog() {
+        show()
+
+        compose.onNodeWithText("Rename").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("Rename queue").assert(A11y.hasHeading())
+        compose.onNodeWithText("Cancel").assertIsReachable()
+        compose.onNodeWithText("Save").assertIsReachable()
+    }
+
+    @Test
+    fun activatingDeleteOpensConfirmationDialog() {
+        show(queue = queue(name = "Android accessibility"))
+
+        compose.onNodeWithText("Delete").performSemanticsAction(SemanticsActions.OnClick)
+
+        compose.onNodeWithText("Delete queue").assert(A11y.hasHeading())
+        compose.onNodeWithText("Delete \"Android accessibility\"?", substring = true)
+            .assertIsReadable()
+        compose.onNodeWithText("Cancel").assertIsReachable()
+        // There are now two Delete controls: the screen button and the dialog confirmation button.
+        compose.onAllNodesWithText("Delete").assertCountEquals(2)
+        compose.onAllNodesWithText("Delete")[1].assertIsReachable()
+    }
 }
+

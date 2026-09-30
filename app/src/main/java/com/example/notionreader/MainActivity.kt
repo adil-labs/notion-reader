@@ -104,7 +104,12 @@ class MainActivity : ComponentActivity() {
                         onAddAllToQueue = model::addAllToQueue,
                         onChooseQueueDestination = model::chooseQueueDestination,
                         onMoveQueueMember = model::moveQueueMember,
-                        onRemoveQueueMember = model::removeQueueMember
+                        onRemoveQueueMember = model::removeQueueMember,
+                        onRenameQueue = model::renameSavedQueue,
+                        onDeleteQueue = model::deleteSavedQueue,
+                        onCreateSmartQueue = model::createSmartQueue,
+                        onRenameSmartQueue = model::renameSmartQueue,
+                        onDeleteSmartQueue = model::deleteSmartQueue
                     )
                 }
             }
