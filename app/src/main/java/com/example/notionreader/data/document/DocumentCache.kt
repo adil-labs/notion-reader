@@ -16,8 +16,14 @@ interface DocumentCache {
     /** Clears all cached documents. */
     suspend fun clear()
 
-    /** Returns the most recently cached/edited document, or null if empty. */
-    suspend fun getMostRecent(): CachedDocument?
+    /** Returns the most recently accessed document in cache (LRU ordering based on last access). */
+    suspend fun getMostRecentlyUsed(): CachedDocument?
+
+    /** Returns the cached document with the newest remote last-edited timestamp (or cached timestamp). */
+    suspend fun getNewestCached(): CachedDocument?
+
+    /** Returns the most recently accessed document, defaulting to [getMostRecentlyUsed]. */
+    suspend fun getMostRecent(): CachedDocument? = getMostRecentlyUsed()
 
     /** Current count of cached documents. */
     suspend fun count(): Int

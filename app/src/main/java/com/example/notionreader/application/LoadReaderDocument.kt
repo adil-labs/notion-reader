@@ -21,7 +21,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * [ReaderLoadCancelledException] so that leaving a screen is not reported as a failure.
  */
 interface LoadReaderDocument {
-    suspend operator fun invoke(pageId: String): Result<ReaderDocument>
+    suspend operator fun invoke(
+        pageId: String,
+        knownRemoteLastEditedAt: java.time.Instant? = null
+    ): Result<ReaderDocument>
 }
 
 /**
@@ -31,11 +34,12 @@ interface LoadReaderDocument {
  * Notion API, for a fixture, or for a future cache, and it is testable with no HTTP at all.
  */
 class DefaultLoadReaderDocument(
-    private val load: suspend (String) -> ReaderDocument
+    private val load: suspend (String, java.time.Instant?) -> ReaderDocument
 ) : LoadReaderDocument {
+    constructor(simpleLoad: suspend (String) -> ReaderDocument) : this({ pageId, _ -> simpleLoad(pageId) })
 
-    override suspend operator fun invoke(pageId: String): Result<ReaderDocument> = try {
-        Result.success(load(pageId))
+    override suspend operator fun invoke(pageId: String, knownRemoteLastEditedAt: java.time.Instant?): Result<ReaderDocument> = try {
+        Result.success(load(pageId, knownRemoteLastEditedAt))
     } catch (e: CancellationException) {
         // `runCatching` would have swallowed this and the UI would have shown a network failure for a
         // screen the user simply left. Rethrowing keeps structured concurrency intact; the typed

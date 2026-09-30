@@ -77,29 +77,31 @@ internal object ReaderDocumentCodec {
             title = dto.title,
             lastEditedAt = dto.lastEditedAtEpochMilli?.let { Instant.ofEpochMilli(it) },
             sections = dto.sections.map { sectionDto ->
+                val chunks = sectionDto.chunks.map { chunkDto ->
+                    val kind = try {
+                        ReaderChunkKind.valueOf(chunkDto.kind)
+                    } catch (_: IllegalArgumentException) {
+                        return null
+                    }
+                    ReaderChunk(
+                        id = chunkDto.id,
+                        sourceBlockId = chunkDto.sourceBlockId,
+                        kind = kind,
+                        text = chunkDto.text,
+                        metadata = ChunkMetadata(
+                            checked = chunkDto.metadata.checked,
+                            language = chunkDto.metadata.language,
+                            linkTargets = chunkDto.metadata.linkTargets,
+                            hasInlineCode = chunkDto.metadata.hasInlineCode,
+                            headingLevel = chunkDto.metadata.headingLevel
+                        )
+                    )
+                }
                 ReaderSection(
                     id = sectionDto.id,
                     title = sectionDto.title,
                     level = sectionDto.level,
-                    chunks = sectionDto.chunks.map { chunkDto ->
-                        ReaderChunk(
-                            id = chunkDto.id,
-                            sourceBlockId = chunkDto.sourceBlockId,
-                            kind = try {
-                                ReaderChunkKind.valueOf(chunkDto.kind)
-                            } catch (_: IllegalArgumentException) {
-                                ReaderChunkKind.PARAGRAPH
-                            },
-                            text = chunkDto.text,
-                            metadata = ChunkMetadata(
-                                checked = chunkDto.metadata.checked,
-                                language = chunkDto.metadata.language,
-                                linkTargets = chunkDto.metadata.linkTargets,
-                                hasInlineCode = chunkDto.metadata.hasInlineCode,
-                                headingLevel = chunkDto.metadata.headingLevel
-                            )
-                        )
-                    }
+                    chunks = chunks
                 )
             }
         )

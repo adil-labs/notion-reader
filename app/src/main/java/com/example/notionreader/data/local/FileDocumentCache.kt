@@ -6,21 +6,27 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
  * File-backed atomic document cache storing each [CachedDocument] as a JSON file.
  *
- * Writes to a temporary `.tmp` file and performs an atomic rename to guarantee that
- * an uncompleted write never corrupts the cached document on disk.
+ * Writes to a uniquely named temporary `.tmp` file and performs an atomic rename to guarantee that
+ * an uncompleted write never corrupts the cached document on disk. All write mutations are serialized
+ * via a process-scoped [Mutex] to eliminate file collision between concurrent loads and prefetches.
  */
 class FileDocumentCache(
     private val directory: File,
     private val maxEntries: Int = 200,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : DocumentCache {
+
+    private val writeMutex = Mutex()
 
     init {
         if (!directory.exists()) {
@@ -41,7 +47,9 @@ class FileDocumentCache(
         val cached = ReaderDocumentCodec.decode(content)
         if (cached == null) {
             // Delete corrupt or incompatible cache file
-            file.delete()
+            writeMutex.withLock {
+                file.delete()
+            }
             return@withContext null
         }
 
@@ -56,60 +64,72 @@ class FileDocumentCache(
     }
 
     override suspend fun put(document: CachedDocument): Unit = withContext(ioDispatcher) {
-        if (!directory.exists()) {
-            directory.mkdirs()
-        }
-
         val pageId = document.document.pageId
         val targetFile = fileFor(pageId)
-        val tempFile = File(directory, "${targetFile.nameWithoutExtension}.tmp")
-
+        // Unique temporary file to avoid collisions between concurrent writes for the same page
+        val tempFile = File(directory, "${targetFile.nameWithoutExtension}-${UUID.randomUUID()}.tmp")
         val json = ReaderDocumentCodec.encode(document)
 
-        try {
-            FileOutputStream(tempFile).use { fos ->
-                val bytes = json.toByteArray(Charsets.UTF_8)
-                fos.write(bytes)
-                fos.flush()
-                try {
-                    fos.fd.sync()
-                } catch (_: Exception) {
-                    // Ignored if sync not supported by test/virtual FS
-                }
+        writeMutex.withLock {
+            if (!directory.exists()) {
+                directory.mkdirs()
             }
 
             try {
-                Files.move(
-                    tempFile.toPath(),
-                    targetFile.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-            } catch (_: Exception) {
-                // Fallback for filesystems that do not support ATOMIC_MOVE
-                if (!tempFile.renameTo(targetFile)) {
-                    targetFile.delete()
-                    tempFile.renameTo(targetFile)
+                FileOutputStream(tempFile).use { fos ->
+                    val bytes = json.toByteArray(Charsets.UTF_8)
+                    fos.write(bytes)
+                    fos.flush()
+                    try {
+                        fos.fd.sync()
+                    } catch (_: Exception) {
+                        // Ignored if sync not supported by test/virtual FS
+                    }
+                }
+
+                try {
+                    Files.move(
+                        tempFile.toPath(),
+                        targetFile.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (_: Exception) {
+                    // Fallback for filesystems that do not support ATOMIC_MOVE.
+                    // Replace existing directly without prematurely deleting targetFile.
+                    try {
+                        Files.move(
+                            tempFile.toPath(),
+                            targetFile.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING
+                        )
+                    } catch (_: Exception) {
+                        tempFile.renameTo(targetFile)
+                    }
+                }
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete()
                 }
             }
-        } finally {
-            if (tempFile.exists()) {
-                tempFile.delete()
-            }
-        }
 
-        pruneLru()
+            pruneLru()
+        }
     }
 
     override suspend fun remove(pageId: String): Unit = withContext(ioDispatcher) {
-        fileFor(pageId).delete()
+        writeMutex.withLock {
+            fileFor(pageId).delete()
+        }
     }
 
     override suspend fun clear(): Unit = withContext(ioDispatcher) {
-        directory.listFiles()?.forEach { it.delete() }
+        writeMutex.withLock {
+            directory.listFiles()?.forEach { it.delete() }
+        }
     }
 
-    override suspend fun getMostRecent(): CachedDocument? = withContext(ioDispatcher) {
+    override suspend fun getMostRecentlyUsed(): CachedDocument? = withContext(ioDispatcher) {
         val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withContext null
         val newest = files.maxByOrNull { it.lastModified() } ?: return@withContext null
         val content = try {
@@ -119,6 +139,20 @@ class FileDocumentCache(
         }
         ReaderDocumentCodec.decode(content)
     }
+
+    override suspend fun getNewestCached(): CachedDocument? = withContext(ioDispatcher) {
+        val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withContext null
+        val documents = files.mapNotNull { file ->
+            try {
+                ReaderDocumentCodec.decode(file.readText())
+            } catch (_: Exception) {
+                null
+            }
+        }
+        documents.maxByOrNull { it.remoteLastEditedAt ?: it.cachedAt }
+    }
+
+    override suspend fun getMostRecent(): CachedDocument? = getMostRecentlyUsed()
 
     override suspend fun count(): Int = withContext(ioDispatcher) {
         val files = directory.listFiles { file -> file.isFile && file.extension == "json" }

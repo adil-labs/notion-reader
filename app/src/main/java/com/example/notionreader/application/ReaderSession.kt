@@ -657,7 +657,8 @@ class ReaderSession(val engine: ReaderEngine) {
 data class PendingNoteRequest(
     val pageId: String,
     /** Opaque. Only equality against another request's token means anything. */
-    val token: Int
+    val token: Int,
+    val lastEditedAt: java.time.Instant? = null
 )
 
 /**
@@ -684,5 +685,5 @@ val QueueState.pendingRequest: PendingNoteRequest?
     get() = if (!awaiting) {
         null
     } else {
-        currentItem?.pageId?.let { PendingNoteRequest(pageId = it, token = requestToken) }
+        currentItem?.let { PendingNoteRequest(pageId = it.pageId, token = requestToken, lastEditedAt = it.lastEditedAt) }
     }

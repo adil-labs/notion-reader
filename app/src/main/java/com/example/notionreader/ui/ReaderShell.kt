@@ -54,6 +54,7 @@ fun ReaderShell(
     /** The one thing that comes from outside the application object: a device-level speech failure. */
     speechMessage: String?,
     onOpenNote: (String) -> Unit,
+    onOpenNoteWithHint: (String, java.time.Instant?) -> Unit = { id, _ -> onOpenNote(id) },
     onRetryNoteLoad: () -> Unit,
     onRetryBrowseIndex: () -> Unit,
     onContinueSession: (String) -> Unit,
@@ -175,7 +176,7 @@ fun ReaderShell(
                         onProjectFilterChange = app.browse::setProjectFilter,
                         onStatusFilterChange = app.browse::setStatusFilter,
                         onClearFilters = app.browse::clearFilters,
-                        onOpenNote = { entry -> onOpenNote(entry.pageId) },
+                        onOpenNote = { entry -> onOpenNoteWithHint(entry.pageId, entry.lastEditedAt) },
                         onPlayAll = app::playAllVisibleResults,
                         onAddAllToQueue = onAddAllToQueue,
                         onClearQuery = app.browse::clearQuery,

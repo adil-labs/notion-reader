@@ -4,6 +4,9 @@ import com.example.notionreader.data.document.CachedDocument
 import com.example.notionreader.domain.ReaderDocument
 import java.io.File
 import java.time.Instant
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -113,5 +116,60 @@ class FileDocumentCacheTest {
         assertNotNull(cache.get("page-2"))
         assertNotNull(cache.get("page-3"))
         assertNotNull(cache.get("page-4"))
+    }
+
+    @Test
+    fun concurrentWritesDoNotCorruptCacheOrCollideOnTempFiles() = runBlocking {
+        val pageId = "concurrent-page"
+        val jobs = (1..20).map { i ->
+            async(Dispatchers.IO) {
+                val doc = CachedDocument(
+                    document = ReaderDocument.fromChunkTexts(pageId, "Title $i", listOf("Chunk $i")),
+                    remoteLastEditedAt = Instant.ofEpochMilli(1000L + i),
+                    cachedAt = Instant.now()
+                )
+                cache.put(doc)
+                cache.get(pageId)
+            }
+        }
+        val results = jobs.awaitAll()
+        results.forEach { assertNotNull(it) }
+
+        // Final cache state must be valid
+        val finalDoc = cache.get(pageId)
+        assertNotNull(finalDoc)
+        assertEquals(pageId, finalDoc!!.document.pageId)
+
+        // No leftover .tmp files
+        val tmpFiles = tempDir.listFiles { _, name -> name.endsWith(".tmp") }
+        assertEquals(0, tmpFiles?.size ?: 0)
+    }
+
+    @Test
+    fun getMostRecentlyUsedAndGetNewestCachedDistinguishLruFromTimestamp() = runBlocking {
+        val olderDocNewerTime = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("page-a", "Page A", listOf("A")),
+            remoteLastEditedAt = Instant.parse("2026-09-30T12:00:00Z"),
+            cachedAt = Instant.parse("2026-09-30T10:00:00Z")
+        )
+        val newerDocOlderTime = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("page-b", "Page B", listOf("B")),
+            remoteLastEditedAt = Instant.parse("2026-09-30T08:00:00Z"),
+            cachedAt = Instant.parse("2026-09-30T11:00:00Z")
+        )
+
+        cache.put(olderDocNewerTime)
+        cache.put(newerDocOlderTime)
+
+        // Touch page-b so it is the most recently accessed
+        cache.get("page-b")
+
+        val mru = cache.getMostRecentlyUsed()
+        val newest = cache.getNewestCached()
+
+        assertNotNull(mru)
+        assertNotNull(newest)
+        assertEquals("page-b", mru!!.document.pageId)
+        assertEquals("page-a", newest!!.document.pageId)
     }
 }

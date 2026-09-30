@@ -309,12 +309,7 @@ class ReaderApp(
         }
         if (fromEntries.isNotEmpty()) return fromEntries
 
-        // Fallback transparent discovery cards when index entries are not yet loaded or in tests
-        return listOf(
-            ExploreCard(title = "Mindfulness", noteCount = 12, queryText = "Mindfulness"),
-            ExploreCard(title = "Chess", noteCount = 31, queryText = "Chess"),
-            ExploreCard(title = "Android TTS", noteCount = 9, queryText = "Android")
-        )
+        return emptyList()
     }
 
     /**
@@ -352,11 +347,11 @@ class ReaderApp(
      * playback" and "if playback is occurring while another Note is manually inspected, the existing
      * playback session remains unchanged".
      */
-    suspend fun openNote(pageId: String) {
+    suspend fun openNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null) {
         // The page id is the activated element: a Browse row is identified by the page it opens, which is
         // also its `key` in the list, so Back can find the row the listener actually left.
         navigator.open(ReaderDestination.Note, fromFocusId = pageId)
-        noteViewer.load(pageId, loadDocument)
+        noteViewer.load(pageId, loadDocument, knownRemoteLastEditedAt)
     }
 
     /**
@@ -602,7 +597,8 @@ class ReaderApp(
      * Prefetches a Note into cache if a loader is configured.
      * Non-destructive and safe for background execution.
      */
-    suspend fun prefetchNote(pageId: String): Result<ReaderDocument> = loadDocument(pageId)
+    suspend fun prefetchNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null): Result<ReaderDocument> =
+        loadDocument(pageId, knownRemoteLastEditedAt)
 
     // --- Saved Queues -------------------------------------------------------------------------------
 

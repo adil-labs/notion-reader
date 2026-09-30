@@ -15,7 +15,9 @@ import com.example.notionreader.data.local.DataStoreSessionStore
 import com.example.notionreader.data.local.DataStoreSmartQueueStore
 import com.example.notionreader.data.local.FileDocumentCache
 import com.example.notionreader.data.notion.KtorNotionApi
+import com.example.notionreader.data.notion.BuildConfigTokenProvider
 import com.example.notionreader.data.notion.NotionRepository
+import com.example.notionreader.data.notion.NotionTokenProvider
 import com.example.notionreader.domain.ReaderDocument
 import java.io.File
 import com.example.notionreader.domain.ReaderIndexEntry
@@ -58,8 +60,13 @@ class ReaderApplication : Application() {
      * TextToSpeech engine or a DataStore file. The first surface that reads it pays for it, and every later
      * one shares the same object — which is the point.
      */
+    val tokenProvider: NotionTokenProvider by lazy {
+        BuildConfigTokenProvider()
+    }
+
     val documentCache: DocumentCache by lazy {
-        FileDocumentCache(File(filesDir, "document-cache"))
+        migrateLegacyCacheDir()
+        FileDocumentCache(File(noBackupFilesDir, "document-cache"))
     }
 
     val host: ReaderHost by lazy { buildHost() }
@@ -114,14 +121,15 @@ class ReaderApplication : Application() {
      * bug that only appears on the failure path, and this is called once per Note in a multi-Note queue rather
      * than once per screen.
      */
-    private fun notionLoader(): LoadReaderDocument = DefaultLoadReaderDocument { reference ->
-        val remoteSource = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
+    private fun notionLoader(): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt ->
+        val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+        val remoteSource = NotionRepository(KtorNotionApi(token))
         val cachedRepository = CachedDocumentRepository(
             remote = remoteSource,
             cache = documentCache
         )
         try {
-            cachedRepository.getDocument(reference)
+            cachedRepository.getDocument(reference, knownRemoteLastEditedAt)
         } finally {
             remoteSource.close()
         }
@@ -129,7 +137,8 @@ class ReaderApplication : Application() {
 
     /** Also used by the Browse index, which is the same request with a different projection. */
     suspend fun readBrowseIndex(): List<ReaderIndexEntry> {
-        val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
+        val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+        val repository = NotionRepository(KtorNotionApi(token))
         return try {
             repository.getBrowseIndex()
         } finally {
@@ -144,6 +153,22 @@ class ReaderApplication : Application() {
      * process-scoped ownership means. Recorded rather than implied, because a reader who expects `onTerminate`
      * to be the teardown on a device would be wrong.
      */
+    private fun migrateLegacyCacheDir() {
+        try {
+            val legacyDir = File(filesDir, "document-cache")
+            if (legacyDir.exists()) {
+                val newDir = File(noBackupFilesDir, "document-cache")
+                if (!newDir.exists()) {
+                    legacyDir.renameTo(newDir)
+                } else {
+                    legacyDir.deleteRecursively()
+                }
+            }
+        } catch (_: Exception) {
+            // Non-fatal migration cleanup
+        }
+    }
+
     override fun onTerminate() {
         host.shutdown()
         super.onTerminate()

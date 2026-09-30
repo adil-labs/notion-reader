@@ -3,6 +3,7 @@ package com.example.notionreader
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.domain.PositionMatch
 import com.example.notionreader.application.pendingRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
@@ -144,7 +145,9 @@ class ReaderHost(
                         val upcoming = items.drop(currentIndex + 1).take(2)
                         for (queuedNote in upcoming) {
                             try {
-                                app.prefetchNote(queuedNote.pageId)
+                                app.prefetchNote(queuedNote.pageId, queuedNote.lastEditedAt)
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (_: Exception) {
                                 // Prefetch failure is non-fatal and silent
                             }

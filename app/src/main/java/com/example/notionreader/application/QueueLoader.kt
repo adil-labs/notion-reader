@@ -79,7 +79,7 @@ class QueueLoader(
         inFlight = request
 
         return try {
-            loadNote(request.pageId).fold(
+            loadNote(request.pageId, request.lastEditedAt).fold(
                 onSuccess = { document ->
                     // A Note the reader cannot speak is reported exactly like one that did not load, so
                     // the listener is told and the queue keeps its position. See [unplayable].

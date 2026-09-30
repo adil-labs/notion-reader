@@ -52,13 +52,13 @@ class CachedDocumentRepository(
                     return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
                 }
                 if (pageReference.isBlank()) {
-                    val mostRecent = cache.getMostRecent()
+                    val mostRecent = cache.getMostRecentlyUsed() ?: cache.getNewestCached()
                     if (mostRecent != null) {
                         return DocumentLoad(mostRecent.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
                     }
                 }
-            } else if (e.category == ReaderErrorCategory.PAGE_NOT_FOUND) {
-                // Invalidate deleted/trashed note from cache
+            } else if (e.category == ReaderErrorCategory.PAGE_NOT_FOUND || e.category == ReaderErrorCategory.PERMISSION_DENIED) {
+                // Invalidate deleted/trashed or unauthorized note from cache
                 if (canonicalId != null) {
                     cache.remove(canonicalId)
                 }
@@ -86,6 +86,10 @@ class CachedDocumentRepository(
         } catch (e: ReaderLoadException) {
             if (e.category == ReaderErrorCategory.NETWORK_UNAVAILABLE && cached != null) {
                 return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
+            } else if (e.category == ReaderErrorCategory.PAGE_NOT_FOUND || e.category == ReaderErrorCategory.PERMISSION_DENIED) {
+                if (canonicalId != null) {
+                    cache.remove(canonicalId)
+                }
             }
             throw e
         }
@@ -104,6 +108,9 @@ class CachedDocumentRepository(
     /**
      * Loads a document, returning just the [ReaderDocument] snapshot.
      */
-    suspend fun getDocument(pageReference: String = ""): ReaderDocument =
-        loadDocument(pageReference).document
+    suspend fun getDocument(
+        pageReference: String = "",
+        knownRemoteLastEditedAt: Instant? = null
+    ): ReaderDocument =
+        loadDocument(pageReference, knownRemoteLastEditedAt).document
 }

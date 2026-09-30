@@ -94,7 +94,8 @@ class MainActivity : ComponentActivity() {
                     ReaderShell(
                         app = app,
                         speechMessage = speech,
-                        onOpenNote = model::openNote,
+                        onOpenNote = { pageId -> model.openNote(pageId) },
+                        onOpenNoteWithHint = model::openNote,
                         onRetryNoteLoad = model::retryNoteLoad,
                         onRetryBrowseIndex = model::retryBrowseIndex,
                         onContinueSession = model::continueSession,

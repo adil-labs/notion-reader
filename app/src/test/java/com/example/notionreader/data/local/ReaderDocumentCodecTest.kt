@@ -134,4 +134,34 @@ class ReaderDocumentCodecTest {
         val decoded = ReaderDocumentCodec.decode(json)
         assertNull(decoded)
     }
+
+    @Test
+    fun returnsNullOnUnknownChunkKind() {
+        val json = """
+            {
+                "schemaVersion": 1,
+                "pageId": "some-id",
+                "title": "Title",
+                "cachedAtEpochMilli": 100000,
+                "sections": [
+                    {
+                        "id": "sec-1",
+                        "title": null,
+                        "level": 0,
+                        "chunks": [
+                            {
+                                "id": "c1",
+                                "sourceBlockId": "b1",
+                                "kind": "FUTURE_UNSUPPORTED_KIND_999",
+                                "text": "Some text",
+                                "metadata": {}
+                            }
+                        ]
+                    }
+                ]
+            }
+        """.trimIndent()
+        val decoded = ReaderDocumentCodec.decode(json)
+        assertNull(decoded)
+    }
 }

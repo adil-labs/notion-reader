@@ -172,10 +172,11 @@ action starts). Only the root may name `data`, `platform` and `application` toge
   `NoteViewer` (the inspected Note, deliberately separate), `QueueLoader`, `BrowseModel`,
   `LoadReaderDocument`, `ReaderNavigator`, and the read models `ContinueListeningCard` and
   `HistoryEntry`.
-- `data/notion/` — `NotionApi` (HTTP, retry, error mapping), `NotionModels` (JSON), `NotionRepository`.
+- `data/notion/` — `NotionApi` (HTTP, retry, error mapping), `NotionModels` (JSON), `NotionRepository`, `NotionTokenProvider` port.
 - `data/content/` — `NotionBlockNormalizer` (Notion block types → `NormalizedBlock`),
   `ReaderDocumentMapper`, `TextChunker`.
-- `data/local/` — `SessionCodec` (the versioned wire form) and `DataStoreSessionStore`.
+- `data/document/` — `CachedDocumentRepository` (stale-while-revalidate caching and offline playback orchestration), `DocumentCache` port.
+- `data/local/` — `SessionCodec` (the versioned wire form), `DataStoreSessionStore`, `FileDocumentCache` (concurrency-safe atomic cache in `noBackupFilesDir` with LRU pruning), and `ReaderDocumentCodec`.
 - `platform/` — `AndroidSpeechEngine`.
 - `ui/` — state and callbacks only, no business logic.
 
@@ -334,7 +335,7 @@ device's window.
 **What this suite costs, measured** (`docs/decisions.md` §24): **180 tests in 873 s — 4.7 s each**, against
 **534 JVM tests in 0.8 s (~1.5 ms each)**. The instrumented cost is *flat across every class*, which makes it
 fixed per-test setup — Activity launch, instrumentation, Compose idle, teardown — rather than the assertions.
-So the JVM suite is the default check, `-Class` is the way to iterate, and the plan is to move the pure-UI
+So the JVM suite is the default check (automated on PRs and pushes via GitHub Actions in `.github/workflows/ci.yml`), `-Class` is the way to iterate, and the plan is to move the pure-UI
 classes to Robolectric and leave only focus, Back dispatch and one smoke test on a device. That move is a
 **spike first**, because Robolectric does not render and these helpers assert geometry.
 

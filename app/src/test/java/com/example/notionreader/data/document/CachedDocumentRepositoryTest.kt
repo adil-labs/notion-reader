@@ -162,6 +162,29 @@ class CachedDocumentRepositoryTest {
             fail("Expected permission denied exception")
         } catch (e: ReaderLoadException) {
             assertEquals(ReaderErrorCategory.PERMISSION_DENIED, e.category)
+            assertNull(fakeCache.get(docV1.pageId)) // Cached copy invalidated
+        }
+    }
+
+    @Test
+    fun authorizationRequiredPreservesOfflineCache() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource().apply {
+            throwOnMetadata = ReaderLoadException(
+                category = ReaderErrorCategory.AUTHORIZATION_REQUIRED,
+                message = "Token expired"
+            )
+        }
+        val fakeCache = FakeDocumentCache().apply {
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = v1Time))
+        }
+
+        val repository = CachedDocumentRepository(fakeRemote, fakeCache, fixedClock)
+        try {
+            repository.loadDocument(docV1.pageId)
+            fail("Expected auth required exception")
+        } catch (e: ReaderLoadException) {
+            assertEquals(ReaderErrorCategory.AUTHORIZATION_REQUIRED, e.category)
+            assertNotNull(fakeCache.get(docV1.pageId)) // Global auth failure does NOT wipe user's offline notes
         }
     }
 
@@ -233,23 +256,43 @@ class CachedDocumentRepositoryTest {
 
     private class FakeDocumentCache : DocumentCache {
         private val storage = mutableMapOf<String, CachedDocument>()
+        private val accessOrder = mutableMapOf<String, Long>()
+        private var accessCounter = 0L
 
-        override suspend fun get(pageId: String): CachedDocument? = storage[pageId.lowercase()]
+        override suspend fun get(pageId: String): CachedDocument? {
+            val doc = storage[pageId.lowercase()]
+            if (doc != null) {
+                accessOrder[pageId.lowercase()] = ++accessCounter
+            }
+            return doc
+        }
 
         override suspend fun put(document: CachedDocument) {
-            storage[document.document.pageId.lowercase()] = document
+            val key = document.document.pageId.lowercase()
+            storage[key] = document
+            accessOrder[key] = ++accessCounter
         }
 
         override suspend fun remove(pageId: String) {
-            storage.remove(pageId.lowercase())
+            val key = pageId.lowercase()
+            storage.remove(key)
+            accessOrder.remove(key)
         }
 
         override suspend fun clear() {
             storage.clear()
+            accessOrder.clear()
         }
 
-        override suspend fun getMostRecent(): CachedDocument? =
-            storage.values.maxByOrNull { it.cachedAt }
+        override suspend fun getMostRecentlyUsed(): CachedDocument? {
+            val latestKey = accessOrder.maxByOrNull { it.value }?.key ?: return null
+            return storage[latestKey]
+        }
+
+        override suspend fun getNewestCached(): CachedDocument? =
+            storage.values.maxByOrNull { it.remoteLastEditedAt ?: it.cachedAt }
+
+        override suspend fun getMostRecent(): CachedDocument? = getMostRecentlyUsed() ?: getNewestCached()
 
         override suspend fun count(): Int = storage.size
     }

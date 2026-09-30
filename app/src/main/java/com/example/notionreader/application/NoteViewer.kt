@@ -84,12 +84,16 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
      * of content the user can already read should not blank the screen, and it is what the screen's
      * three-state notice is for.
      */
-    suspend fun load(pageId: String, loader: LoadReaderDocument) {
+    suspend fun load(
+        pageId: String,
+        loader: LoadReaderDocument,
+        knownRemoteLastEditedAt: java.time.Instant? = null
+    ) {
         val token = ++requestToken
         _pageId.value = pageId
         _loadState.value = DocumentLoadState.Loading
 
-        val result = loader(pageId)
+        val result = loader(pageId, knownRemoteLastEditedAt)
 
         // Requested first, answered second: a superseded load is dropped rather than applied.
         if (token != requestToken) return

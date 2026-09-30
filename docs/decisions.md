@@ -6313,5 +6313,42 @@ In Viewing mode on `SavedQueueDetailsScreen`:
   - `:app:compileDebugAndroidTestKotlin`: Clean.
   - `:app:assembleDebug`: Clean.
 
+---
+
+## 30. Codebase Audit Remediation: Cache Safety, Concurrency, SWR & CI
+
+### 30.1 Context & Findings Addressed
+
+Following a source-level architectural audit across the codebase through commit `072de219`, 10 findings and a codec durability improvement were identified and systematically resolved:
+
+1. **P0 — True Stale-While-Revalidate (SWR):** Previously, `CachedDocumentRepository` waited for remote metadata when `knownRemoteLastEditedAt == null`, which was always null because `LoadReaderDocument` only accepted `pageId`. `QueuedNote` now carries `lastEditedAtIso` (annotated `@Transient` to preserve stored session wire format compatibility), and `ReaderIndexEntry.toQueuedNote()`, `LoadReaderDocument`, `QueueLoader`, and `ReaderHost.startQueuePrefetch()` propagate this timestamp directly into `notionLoader()`. Cached notes start instantly (0ms network delay offline).
+2. **P0 — Concurrent Cache Write Safety:** `FileDocumentCache` is now guarded by an internal `Mutex` serializing all write mutations, evictions, and deletions. Unique temporary files (`"${canonicalId}-${UUID.randomUUID()}.tmp"`) prevent collisions between concurrent note loads and background prefetches.
+3. **P0 — Safe Atomic-Move Fallback:** The move fallback no longer calls `targetFile.delete()` prior to rename, preventing data destruction if the filesystem move fails.
+4. **P1 — Android Auto-Backup Exclusion:** Cache storage moved from `filesDir/document-cache` to `noBackupFilesDir/document-cache` to prevent private Notion content from leaking into Android cloud backups. A non-fatal migration utility clears any legacy directory.
+5. **P1 — Coroutine Cancellation Preservation:** `ReaderHost.startQueuePrefetch()` explicitly re-throws `CancellationException`, preserving structured concurrency during scope teardown.
+6. **P1 — Invalidation on Access Revocation:** `CachedDocumentRepository` evicts cache entries on `PERMISSION_DENIED` and `PAGE_NOT_FOUND`, but preserves offline content on transient/recoverable `AUTHORIZATION_REQUIRED`.
+7. **P1 — Explore Card Integrity:** `ReaderApp.exploreCards()` returns `emptyList()` when Browse entries are empty rather than fabricating dummy note counts (`Mindfulness — 12`, `Chess — 31`), preventing TalkBack from speaking false information.
+8. **P2 — Recency Disambiguation:** `DocumentCache` explicitly defines `getMostRecentlyUsed()` (LRU access order) and `getNewestCached()` (timestamp sort), aligning production `FileDocumentCache` with `FakeDocumentCache`.
+9. **P2 — Codec Strict Enum Rejection:** In `ReaderDocumentCodec`, unknown `ReaderChunkKind` values cause `decode()` to return `null` so corrupt or incompatible entries are cleanly deleted and re-fetched rather than silently coerced to `PARAGRAPH`.
+10. **P2 — GitHub Actions CI:** Added `.github/workflows/ci.yml` running JVM unit tests, androidTest compilation, and debug APK assembly on pushes and PRs.
+11. **Release — Authentication Seam:** Introduced `NotionTokenProvider` port and `BuildConfigTokenProvider` implementation, isolating token acquisition for future OAuth / Android Keystore integration.
+
+### 30.2 Verification Evidence
+
+- **JVM Unit Tests:**
+  - 581 tests executed and passed (`:app:testDebugUnitTest`).
+  - Added `concurrentWritesDoNotCorruptCacheOrCollideOnTempFiles()` and `getMostRecentlyUsedAndGetNewestCachedDistinguishLruFromTimestamp()` in `FileDocumentCacheTest`.
+  - Added `returnsNullOnUnknownChunkKind()` in `ReaderDocumentCodecTest`.
+  - Added `authorizationRequiredPreservesOfflineCache()` and verified eviction in `permissionDeniedDoesNotFallBackToStaleCache()` in `CachedDocumentRepositoryTest`.
+  - Verified frozen wire format preservation in `SessionWireFormatTest`.
+  - `LayerRulesTest`: 0 violations.
+- **Instrumented Accessibility Suite (Emulator):**
+  - `HomeScreenAccessibilityTest`: 14/14 passed (100%).
+  - `PlayerScreenAccessibilityTest`: 17/17 passed (100%).
+- **Android Compilation:**
+  - `:app:compileDebugAndroidTestKotlin`: Clean.
+  - `:app:assembleDebug`: Clean.
+
+
 
 

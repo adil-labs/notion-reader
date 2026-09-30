@@ -5,6 +5,7 @@ import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderLoadException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.Transient
 
 /**
  * One Note inside a queue.
@@ -33,11 +34,19 @@ import kotlinx.serialization.SerialName
 @Serializable
 data class QueuedNote(
     val pageId: String,
-    val title: String
+    val title: String,
+    @Transient val lastEditedAtIso: String? = null
 ) {
+    val lastEditedAt: java.time.Instant?
+        get() = lastEditedAtIso?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+
     /** The identity of the queued document, for asserting that a snapshot froze rather than aliased. */
     companion object {
-        fun of(document: ReaderDocument) = QueuedNote(document.pageId, document.title)
+        fun of(document: ReaderDocument) = QueuedNote(
+            pageId = document.pageId,
+            title = document.title,
+            lastEditedAtIso = document.lastEditedAt?.toString()
+        )
     }
 }
 

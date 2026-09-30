@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
+import com.example.notionreader.data.notion.NotionTokenProvider
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.queue.QueueEffect
 import com.example.notionreader.domain.queue.QueueMove
@@ -75,6 +76,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
      * playback that must not include the session, the queue, or the loop that fetches each Note in turn.
      */
     private val host: ReaderHost = (application as ReaderApplication).host
+    private val tokenProvider: NotionTokenProvider = (application as ReaderApplication).tokenProvider
 
     /** The application's state, and the object every surface reads. */
     val app: ReaderApp = host.app
@@ -156,9 +158,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
      * property (it holds however the caller behaves, including a caller with no job to cancel), and the
      * cancellation is the cost saving.
      */
-    fun openNote(pageId: String) {
+    fun openNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null) {
         noteLoadJob?.cancel()
-        noteLoadJob = viewModelScope.launch { app.openNote(pageId) }
+        noteLoadJob = viewModelScope.launch { app.openNote(pageId, knownRemoteLastEditedAt) }
     }
 
     /**
@@ -265,7 +267,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun readBrowseIndex(): List<ReaderIndexEntry> {
-        val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
+        val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+        val repository = NotionRepository(KtorNotionApi(token))
         return try {
             repository.getBrowseIndex()
         } finally {

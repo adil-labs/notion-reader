@@ -48,5 +48,9 @@ data class ReaderIndexEntry(
     val status: String? = null
 ) {
     /** The queue identity for this page, so a result set can be snapshotted into a queue unchanged. */
-    fun toQueuedNote(): QueuedNote = QueuedNote(pageId = pageId, title = title)
+    fun toQueuedNote(): QueuedNote = QueuedNote(
+        pageId = pageId,
+        title = title,
+        lastEditedAtIso = lastEditedAt?.toString()
+    )
 }
