@@ -57,7 +57,7 @@ The UI contract separates manual reading from continuous listening, so the scree
 interchangeable:
 
 - **Home** — Continue listening (unfinished listening sessions from history with prominent "Continue"
-  resumption and inline Play/Pause toggle), Your queues (recent Saved Queues, with "See all queues"),
+  resumption), Your queues (recent Saved Queues, with "See all queues"),
   and Explore (curated topic shortcuts with dynamic note counts).
 - **Browse** — the default result set, multi-facet filtering (Type, Area, Topics, Project, Status), search across titles and metadata, active filter summary, sort, and `Play all`.
 - **Queues** — the Listening tab: Continue listening and Recently completed; the Saved tab: Saved Queues;

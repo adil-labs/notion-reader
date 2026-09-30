@@ -154,7 +154,7 @@ class HomeScreenAccessibilityTest {
         // the same reason: a tappable title is an unlabelled gesture target to a screen reader.
         compose.onNodeWithText("Mindfulness reflections", substring = true).assertIsReadable()
         compose.onNodeWithText("Continue").assertIsReachable()
-        compose.onNodeWithText("Play").assertIsReachable()
+        compose.onAllNodes(androidx.compose.ui.test.hasText("Play")).assertCountEquals(0)
     }
 
     @Test

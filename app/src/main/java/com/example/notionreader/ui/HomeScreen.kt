@@ -225,27 +225,17 @@ private fun ContinueListeningEntry(
             )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Button(
+            onClick = onContinue,
+            modifier = Modifier.restoreFocusOn(
+                target = focusTarget,
+                // A history entry is identified by its session, never by its title — the same id the
+                // navigation layer was given when Continue opened the Player.
+                id = session.sessionId,
+                onHandled = onFocusHandled
+            )
         ) {
-            Button(
-                onClick = onContinue,
-                modifier = Modifier.restoreFocusOn(
-                    target = focusTarget,
-                    // A history entry is identified by its session, never by its title — the same id the
-                    // navigation layer was given when Continue opened the Player.
-                    id = session.sessionId,
-                    onHandled = onFocusHandled
-                )
-            ) {
-                Text("Continue")
-            }
-
-            TextButton(onClick = onPlayPause) {
-                Text(if (session.isPlaying) "Pause" else "Play")
-            }
+            Text("Continue")
         }
     }
 }

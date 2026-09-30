@@ -6294,7 +6294,7 @@ In Viewing mode on `SavedQueueDetailsScreen`:
 - **Bottom Navigation Bar & Mini-Player Polish:**
   - Bottom navigation bar is hidden on `PlayerScreen` for immersive full-screen playback.
   - Mini-player wrapped in Material 3 tonal elevation with click partitioning between open player and 48dp Play/Pause touch target.
-  - Home Screen `ContinueListeningCard` details column is directly clickable for instant resumption.
+  - Home Screen `ContinueListeningCard`: Removed the redundant inline Play/Pause button next to `Continue`. The session details card and prominent `Continue` button serve as the sole, unambiguous resumption action, matching the Listening tab pattern and eliminating duplicate playback triggers on Home.
 
 ### 29.4 Verification Evidence
 
