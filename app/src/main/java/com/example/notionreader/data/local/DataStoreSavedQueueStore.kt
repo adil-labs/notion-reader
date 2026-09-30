@@ -85,6 +85,15 @@ class DataStoreSavedQueueStore(private val context: Context) : SavedQueueStore {
         return decided ?: QueueEditOutcome.unavailable()
     }
 
+    override suspend fun clear() {
+        try {
+            context.savedQueues.edit { preferences ->
+                preferences.remove(QUEUES)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     private companion object {
         /**
          * `queues` rather than `savedQueues`, because the file is already named for what it holds — and a

@@ -41,7 +41,12 @@ class ReaderAppHistoryTest {
             texts = listOf("First.", "Second.", "Third.", "Fourth.")
         )
 
-    private fun app(store: SessionStore?): Pair<ReaderApp, FakeReaderEngine> {
+    private fun app(
+        store: SessionStore?,
+        savedQueueStore: com.example.notionreader.domain.queue.SavedQueueStore? = null,
+        smartQueueStore: com.example.notionreader.domain.queue.SmartQueueStore? = null,
+        settingsRepo: com.example.notionreader.domain.settings.SettingsRepository? = null
+    ): Pair<ReaderApp, FakeReaderEngine> {
         val engine = FakeReaderEngine(document("demo", "Demo"))
         val app = ReaderApp(
             session = ReaderSession(engine),
@@ -49,10 +54,14 @@ class ReaderAppHistoryTest {
             navigator = ReaderNavigator(ReaderNavigation(top = ReaderDestination.Home)),
             loadDocument = DefaultLoadReaderDocument { pageId -> document(pageId) },
             sessionStore = store,
+            savedQueueStore = savedQueueStore,
+            smartQueueStore = smartQueueStore,
+            settingsRepository = settingsRepo,
             clock = { now }
         )
         return app to engine
     }
+
 
     private fun finished(id: String, at: Long) =
         storedSession(id = id, notes = listOf(queuedNote("p1")), lastActivityAt = at)
@@ -292,4 +301,55 @@ class ReaderAppHistoryTest {
 
         assertTrue("an unreadable history is not an error state", engine.state.value.isPlaying)
     }
+
+    @Test
+    fun clearHistoryClearsInMemoryAndPersistentStateWithoutResurrection() = runTest {
+        val store = InMemorySessionStore(listOf(unfinished("s1", at = 10L), unfinished("s2", at = 20L)))
+        val (app, _) = app(store)
+        app.loadHistory()
+        assertEquals(2, app.resumableSessions.size)
+
+        app.clearHistory()
+
+        assertTrue(app.history.value.isEmpty())
+        assertTrue(app.resumableSessions.isEmpty())
+        assertTrue(store.read().isEmpty())
+
+        // Even if persistSession() is called afterwards (e.g. from session observer during playback change),
+        // it cannot resurrect the deleted history items!
+        app.persistSession()
+        assertTrue("Cleared history cannot be resurrected by persistSession()", store.read().isEmpty())
+    }
+
+    @Test
+    fun clearAllLocalDataClearsAllStoresAndResetsSettings() = runTest {
+        val sessionStore = InMemorySessionStore(listOf(unfinished("s1", at = 10L)))
+        val savedQueueStore = com.example.notionreader.domain.queue.InMemorySavedQueueStore(
+            listOf(com.example.notionreader.domain.queue.SavedQueue(id = "q1", name = "Queue 1", notes = emptyList(), lastEditedAt = 100L))
+        )
+        val settingsRepo = InMemorySettingsRepository()
+
+        settingsRepo.updateSettings { it.copy(continueToNextNote = false) }
+
+        val (app, _) = app(
+            store = sessionStore,
+            savedQueueStore = savedQueueStore,
+            settingsRepo = settingsRepo
+        )
+        app.loadHistory()
+        app.loadSavedQueues()
+
+        assertEquals(1, app.history.value.size)
+        assertEquals(1, app.savedQueues.value.size)
+        org.junit.Assert.assertFalse(app.settings.value.continueToNextNote)
+
+        app.clearAllLocalData()
+
+        assertTrue(app.history.value.isEmpty())
+        assertTrue(sessionStore.read().isEmpty())
+        assertTrue(app.savedQueues.value.isEmpty())
+        assertTrue(savedQueueStore.read().isEmpty())
+        assertTrue("Settings must be reset to defaults", app.settings.value.continueToNextNote)
+    }
 }
+

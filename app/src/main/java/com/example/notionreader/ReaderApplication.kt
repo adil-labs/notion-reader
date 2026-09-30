@@ -1,6 +1,7 @@
 package com.example.notionreader
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import com.example.notionreader.application.DefaultLoadReaderDocument
 import com.example.notionreader.application.LoadReaderDocument
@@ -86,19 +87,7 @@ class ReaderApplication : Application() {
         val sessionStore = DataStoreSessionStore(this)
         val savedQueueStore = DataStoreSavedQueueStore(this)
         val smartQueueStore = DataStoreSmartQueueStore(this)
-        val settingsRepository = DataStoreSettingsRepository(
-            context = this,
-            onClearHistoryCallback = {
-                sessionStore.write(emptyList())
-            },
-            onClearCacheCallback = {
-                documentCache.clear()
-            },
-            onClearAllCallback = {
-                sessionStore.write(emptyList())
-                documentCache.clear()
-            }
-        )
+        val settingsRepository = DataStoreSettingsRepository(context = this)
 
         val app = ReaderApp(
             session = ReaderSession(
@@ -114,21 +103,28 @@ class ReaderApplication : Application() {
             savedQueueStore = savedQueueStore,
             smartQueueStore = smartQueueStore,
             settingsRepository = settingsRepository,
-            speechEngine = speechEngine
+            speechEngine = speechEngine,
+            documentCache = documentCache
         )
 
         return ReaderHost(
             app = app,
-            // The process's scope. `SupervisorJob` so that a failure in one loop does not cancel the others:
-            // a history write that throws must not stop the queue being fed, which is the same rule the
-            // Active Queue & Reader Session spec states as "a failed write affects history only".
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            log = { message -> Log.i(TAG, message) }
+            log = { message -> Log.i(TAG, message) },
+            networkState = AndroidNetworkState(this)
         ).also { built ->
             host = built
             built.start()
             built.startQueuePrefetch()
         }
+    }
+
+    private class AndroidNetworkState(private val context: Context) : NetworkState {
+        override val isUnmetered: Boolean
+            get() {
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
+                return !cm.isActiveNetworkMetered
+            }
     }
 
     /**

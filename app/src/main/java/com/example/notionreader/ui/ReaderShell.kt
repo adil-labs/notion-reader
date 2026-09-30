@@ -17,7 +17,6 @@ import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
 import com.example.notionreader.domain.queue.QueueMove
 import com.example.notionreader.ui.settings.SettingsAboutScreen
-import com.example.notionreader.ui.settings.SettingsAccessibilityScreen
 import com.example.notionreader.ui.settings.SettingsAppearanceScreen
 import com.example.notionreader.ui.settings.SettingsNotionScreen
 import com.example.notionreader.ui.settings.SettingsOfflineScreen
@@ -126,6 +125,7 @@ fun ReaderShell(
     // to need. Collected here because the shell is what decides when they are rendered and consumed.
     val queueMessage by app.queueMessage.collectAsState()
     val settings by app.settings.collectAsState()
+    val cacheStats by app.cacheStats.collectAsState()
     val scope = rememberCoroutineScope()
     val current = navigation.current
 
@@ -321,11 +321,10 @@ fun ReaderShell(
 
                     ReaderDestination.Settings -> SettingsScreen(
                         settings = settings,
-                        cachedNotesCount = 37,
+                        cachedNotesCount = cacheStats.noteCount,
                         onOpenPlayback = app::openSettingsPlayback,
                         onOpenSpeech = app::openSettingsSpeech,
                         onOpenOffline = app::openSettingsOffline,
-                        onOpenAccessibility = app::openSettingsAccessibility,
                         onOpenAppearance = app::openSettingsAppearance,
                         onOpenNotion = app::openSettingsNotion,
                         onOpenPrivacy = app::openSettingsPrivacy,
@@ -342,21 +341,17 @@ fun ReaderShell(
 
                     ReaderDestination.SettingsSpeech -> SettingsSpeechScreen(
                         settings = settings,
+                        availableEngines = app.getAvailableSpeechEngines(),
                         onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
                         onBack = { app.back() }
                     )
 
                     ReaderDestination.SettingsOffline -> SettingsOfflineScreen(
                         settings = settings,
-                        cachedNotesCount = 37,
+                        cachedNotesCount = cacheStats.noteCount,
+                        cacheSizeBytes = cacheStats.totalBytes,
                         onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
-                        onClearCache = { scope.launch { app.settingsRepo.clearCache() } },
-                        onBack = { app.back() }
-                    )
-
-                    ReaderDestination.SettingsAccessibility -> SettingsAccessibilityScreen(
-                        settings = settings,
-                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                        onClearCache = { scope.launch { app.clearCache() } },
                         onBack = { app.back() }
                     )
 
@@ -372,10 +367,11 @@ fun ReaderShell(
 
                     ReaderDestination.SettingsPrivacy -> SettingsPrivacyScreen(
                         historyCount = history.size,
-                        cachedNotesCount = 37,
-                        onClearHistory = { scope.launch { app.settingsRepo.clearHistory() } },
-                        onClearCache = { scope.launch { app.settingsRepo.clearCache() } },
-                        onClearAllData = { scope.launch { app.settingsRepo.clearAllLocalData() } },
+                        cachedNotesCount = cacheStats.noteCount,
+                        cacheSizeBytes = cacheStats.totalBytes,
+                        onClearHistory = { scope.launch { app.clearHistory() } },
+                        onClearCache = { scope.launch { app.clearCache() } },
+                        onClearAllData = { scope.launch { app.clearAllLocalData() } },
                         onBack = { app.back() }
                     )
 
@@ -397,15 +393,16 @@ fun ReaderShell(
             }
         }
 
-        // Only the top-level destinations are tabs. The Note and the Player are reached from them, which
-        // is the UI contract's "the Player is not a fifth bottom-navigation destination" and "the Note
-        // screen is not a top-level destination".
-        NavigationBar {
+        // Bottom navigation is shown only while the currently rendered destination is a top-level
+        // destination (Home, Browse, Queues, Settings). Secondary destinations (Player, Note, Queue details,
+        // Settings subpages) hide the bottom navigation bar to provide clean TalkBack hierarchy and
+        // predictable Back navigation.
+        if (current.isTopLevel) {
+            NavigationBar {
                 NavigationBarItem(
                     selected = navigation.top == ReaderDestination.Home,
                     onClick = { app.openHome() },
                     icon = {},
-                    // Labels carry the accessible name, so no item is an unlabelled button.
                     label = { Text("Home") }
                 )
                 NavigationBarItem(
@@ -427,5 +424,6 @@ fun ReaderShell(
                     label = { Text("Settings") }
                 )
             }
+        }
     }
 }

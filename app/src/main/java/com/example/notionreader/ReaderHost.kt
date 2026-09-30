@@ -69,7 +69,8 @@ class ReaderHost(
      * direct `Log.i` call inside the ViewModel, which meant the one fact the Active Queue & Reader Session
      * spec requires to be recorded was untestable.
      */
-    private val log: (String) -> Unit = {}
+    private val log: (String) -> Unit = {},
+    private val networkState: NetworkState = UnmeteredNetworkState
 ) {
 
     private val _speechMessage = MutableStateFlow<String?>(null)
@@ -148,7 +149,12 @@ class ReaderHost(
                 .map { state -> Pair(state.items, state.index) }
                 .distinctUntilChanged()
                 .collect { (items, currentIndex) ->
-                    if (!app.settingsRepo.settings.value.prefetchUpcomingNotes) return@collect
+                    val settings = app.settingsRepo.settings.value
+                    if (!settings.prefetchUpcomingNotes) return@collect
+                    if (!settings.cacheNotesForOffline) return@collect
+                    if (settings.downloadNetworkPolicy == com.example.notionreader.domain.settings.DownloadNetworkPolicy.WIFI_ONLY && !networkState.isUnmetered) {
+                        return@collect
+                    }
                     if (items.isNotEmpty() && currentIndex >= 0) {
                         val upcoming = items.drop(currentIndex + 1).take(2)
                         for (queuedNote in upcoming) {
@@ -173,49 +179,74 @@ class ReaderHost(
      * here, and that is the whole correction.
      */
     fun shutdown() {
+        pendingAdvanceJob?.cancel()
         scope.cancel()
         app.shutdown()
     }
 
+    private var pendingAdvanceJob: Job? = null
+
     /**
      * Advances the session to the next Note when the engine finishes the current one.
      *
-     * This is the other half of feeding the queue, and it is the half that would have made the R10 finding
-     * look like an integration bug rather than an ownership one. Without it the session never *asks* for the
-     * next Note, so the fetcher below has nothing to fetch: playback would reach the end of the current Note
-     * and stop, with the queue still showing the Note it had just finished.
-     *
-     * `distinctUntilChanged` matters: the engine keeps reporting `hasReachedEnd` until a new document is set,
-     * and without it the queue would advance once per emission rather than once per Note.
+     * Honors the configured pause-between-notes delay. Manual navigation or session changes
+     * invalidate and cancel any scheduled automatic transition via identity token checks.
      */
     private fun advanceTheQueue() {
         scope.launch {
             app.session.state
                 .map { it.hasReachedEnd }
                 .distinctUntilChanged()
-                .collect { finished -> if (finished) app.onNoteFinished() }
+                .collect { finished ->
+                    if (finished) {
+                        scheduleQueueAdvance()
+                    }
+                }
+        }
+    }
+
+    private fun scheduleQueueAdvance() {
+        val settings = app.settingsRepo.settings.value
+        val queueState = app.session.queueState.value
+        val delayMs = settings.pauseBetweenNotes.delayMs
+
+        if (settings.continueToNextNote && queueState.hasNext && delayMs > 0) {
+            val pageId = queueState.currentItem?.pageId
+            val index = queueState.index
+            val token = queueState.requestToken
+
+            pendingAdvanceJob?.cancel()
+            pendingAdvanceJob = scope.launch {
+                kotlinx.coroutines.delay(delayMs)
+                val currentState = app.session.queueState.value
+                val isSameNote = currentState.currentItem?.pageId == pageId &&
+                    currentState.index == index &&
+                    currentState.requestToken == token
+                if (isSameNote && app.session.state.value.hasReachedEnd) {
+                    app.onNoteFinished()
+                }
+            }
+        } else {
+
+
+            app.onNoteFinished()
         }
     }
 
     /**
      * Fetches whatever Note the queue is waiting for, whenever that changes.
      *
-     * **The trigger is the request, not "is something awaited".** Those look equivalent and are not:
-     * `awaiting` stays true across a *superseding* transition, so mapping to the boolean and applying
-     * `distinctUntilChanged` meant that replacing an in-flight request produced no emission at all —
-     * nothing fetched the new Note, while the arrival of the superseded one was correctly refused by
-     * the session's identity check. The session then waited for a request no one had made: the Player showed
-     * "Loading…" with every control disabled, permanently, and the only way out was to leave and start again.
-     *
-     * It is reachable with two presses: `Next note` twice on a page that takes a few seconds to load, which
-     * on this integration is every page with more than a hundred blocks.
+     * Any new pending request (e.g. manual Next/Previous Note) cancels pending automatic advance delays.
      */
     private fun feedTheQueue() {
         scope.launch {
             app.session.queueState
                 .map { it.pendingRequest }
                 .distinctUntilChanged()
-                .collect { request -> if (request != null) app.loadPendingQueueNote() }
+                .collect { request ->
+                    pendingAdvanceJob?.cancel()
+                    if (request != null) app.loadPendingQueueNote()
+                }
         }
     }
 

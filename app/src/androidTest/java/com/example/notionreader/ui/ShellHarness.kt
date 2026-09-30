@@ -134,4 +134,8 @@ private class RecordingSavedQueueStore(initial: List<SavedQueue>) : SavedQueueSt
         if (next.changed) stored = next.queues
         return next
     }
+
+    override suspend fun clear() {
+        stored = emptyList()
+    }
 }

@@ -42,9 +42,13 @@ class InMemorySettingsRepository(
         onClearCache?.invoke()
     }
 
+    override suspend fun resetToDefaults() {
+        _settings.value = ReaderSettings()
+    }
+
     override suspend fun clearAllLocalData() {
         clearAllLocalDataCalls++
-        _settings.value = ReaderSettings()
+        resetToDefaults()
         onClearAll?.invoke()
     }
 }

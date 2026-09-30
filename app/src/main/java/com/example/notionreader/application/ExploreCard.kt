@@ -12,5 +12,7 @@ package com.example.notionreader.application
 data class ExploreCard(
     val title: String,
     val noteCount: Int,
-    val queryText: String
+    val queryText: String,
+    val topic: String? = null,
+    val area: String? = null
 )

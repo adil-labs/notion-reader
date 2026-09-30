@@ -156,13 +156,13 @@ class ReaderShellAccessibilityTest {
     fun thePlayerIsNotATabEvenWhileItIsOnScreen() {
         val app = harness.app(entries = listOf(harness.entry(1)), withSession = true)
 
-        // `Play all` opened the Player, so the assertion is made with the Player visible — which is the
-        // only state in which "is the Player a fourth tab?" is a real question. It is not, and the tab bar
-        // still offers four destinations.
+        // `Play all` opened the Player, so the assertion is made with the Player visible.
+        // Secondary screens hide the bottom navigation bar completely to provide a clean TalkBack
+        // hierarchy and predictable Back navigation.
         show(app)
 
         assertOnScreen("Player")
-        compose.onAllNodes(isATab()).assertCountEquals(4)
+        compose.onAllNodes(isATab()).assertCountEquals(0)
     }
 
     @Test
@@ -174,8 +174,9 @@ class ReaderShellAccessibilityTest {
         compose.onNodeWithText("Result 1").performSemanticsAction(SemanticsActions.OnClick)
 
         assertOnScreen("Note")
-        compose.onAllNodes(isATab()).assertCountEquals(4)
+        compose.onAllNodes(isATab()).assertCountEquals(0)
     }
+
 
     // ------------------------------------------------------------------ the mini-player
 

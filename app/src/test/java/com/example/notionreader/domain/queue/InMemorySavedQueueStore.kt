@@ -61,6 +61,10 @@ class InMemorySavedQueueStore(
         return next
     }
 
+    override suspend fun clear() {
+        stored = emptyList()
+    }
+
     /** The queue with [id], or null. A convenience for assertions, not a lookup the production code uses. */
     fun queue(id: String): SavedQueue? = stored.firstOrNull { it.id == id }
 }

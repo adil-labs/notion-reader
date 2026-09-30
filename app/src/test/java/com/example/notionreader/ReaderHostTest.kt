@@ -16,13 +16,17 @@ import com.example.notionreader.player.ReaderEngineImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+
 
 /**
  * The process-scoped host: the session and its feeding outlive the task.
@@ -66,16 +70,20 @@ class ReaderHostTest {
         scope: CoroutineScope,
         engine: FakeReaderEngine = FakeReaderEngine(alpha),
         loader: RecordingLoader = RecordingLoader(),
+        networkState: NetworkState = UnmeteredNetworkState,
+        settingsRepo: com.example.notionreader.domain.settings.SettingsRepository = com.example.notionreader.application.InMemorySettingsRepository(),
         log: (String) -> Unit = {}
     ): Pair<ReaderHost, RecordingLoader> {
         val app = ReaderApp(
             session = ReaderSession(engine),
             noteViewer = NoteViewer(alpha),
             navigator = ReaderNavigator(),
-            loadDocument = loader.asLoader()
+            loadDocument = loader.asLoader(),
+            settingsRepository = settingsRepo
         )
-        return ReaderHost(app = app, scope = scope, log = log) to loader
+        return ReaderHost(app = app, scope = scope, networkState = networkState, log = log) to loader
     }
+
 
     /**
      * The correction R10 makes, asserted directly.
@@ -251,4 +259,138 @@ class ReaderHostTest {
             lines.filter { it.startsWith("resume ") }
         )
     }
+
+    @Test
+    fun pauseBetweenNotesDelaysQueueAdvance() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings { it.copy(pauseBetweenNotes = com.example.notionreader.domain.settings.NotePauseDuration.ONE_SECOND) }
+
+            val fakeEngine = FakeReaderEngine(alpha)
+            val (host, _) = hostWith(hostScope, engine = fakeEngine, settingsRepo = repo)
+            host.start()
+
+            host.app.playAll(
+                listOf(QueuedNote(alpha.pageId, alpha.title), QueuedNote(beta.pageId, beta.title)),
+                QueueOrigin.BrowseResults
+            )
+            runCurrent()
+            assertFalse(host.app.session.queueState.value.awaiting)
+
+            // Simulate reaching end of alpha note
+            fakeEngine.reachEnd()
+            runCurrent()
+
+            // 500ms into the pause, queue has not advanced
+            advanceTimeBy(500)
+            runCurrent()
+            assertEquals(0, host.app.session.queueState.value.index)
+
+            // After full 1000ms delay, queue advances to beta
+            advanceTimeBy(600)
+            runCurrent()
+            assertEquals(1, host.app.session.queueState.value.index)
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun manualNavigationCancelsScheduledInterNotePause() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings { it.copy(pauseBetweenNotes = com.example.notionreader.domain.settings.NotePauseDuration.FIVE_SECONDS) }
+
+            val fakeEngine = FakeReaderEngine(alpha)
+            val (host, _) = hostWith(hostScope, engine = fakeEngine, settingsRepo = repo)
+            host.start()
+
+            val gamma = note("gamma", "Gamma")
+            host.app.playAll(
+                listOf(QueuedNote(alpha.pageId, alpha.title), QueuedNote(beta.pageId, beta.title), QueuedNote(gamma.pageId, gamma.title)),
+                QueueOrigin.BrowseResults
+            )
+            runCurrent()
+            assertFalse(host.app.session.queueState.value.awaiting)
+
+            fakeEngine.reachEnd()
+            runCurrent()
+
+            // 1 second into the 5-second pause, user manually presses next note
+            advanceTimeBy(1000)
+            runCurrent()
+            assertEquals(0, host.app.session.queueState.value.index)
+
+            host.app.nextNote()
+            assertEquals(1, host.app.session.queueState.value.index)
+
+            // Advance remaining 5 seconds; stale advance must not fire and skip to gamma!
+            advanceTimeBy(5000)
+            runCurrent()
+            assertEquals("Stale scheduled advance must not skip another note", 1, host.app.session.queueState.value.index)
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun prefetchIsGatedOnMeteredNetworkWhenPolicyIsWifiOnly() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings {
+                it.copy(
+                    prefetchUpcomingNotes = true,
+                    downloadNetworkPolicy = com.example.notionreader.domain.settings.DownloadNetworkPolicy.WIFI_ONLY
+                )
+            }
+
+            val meteredNetwork = object : NetworkState {
+                override val isUnmetered: Boolean = false
+            }
+
+            val (host, loader) = hostWith(hostScope, networkState = meteredNetwork, settingsRepo = repo)
+            host.startQueuePrefetch()
+
+            host.app.playAll(
+                listOf(QueuedNote(alpha.pageId, alpha.title), QueuedNote(beta.pageId, beta.title)),
+                QueueOrigin.BrowseResults
+            )
+
+            runCurrent()
+            assertFalse("Beta should not be prefetched over metered connection with WIFI_ONLY policy", loader.loaded.contains("beta"))
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun prefetchIsGatedWhenOfflineCacheIsDisabled() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings {
+                it.copy(
+                    cacheNotesForOffline = false,
+                    prefetchUpcomingNotes = true
+                )
+            }
+
+            val (host, loader) = hostWith(hostScope, settingsRepo = repo)
+            host.startQueuePrefetch()
+
+            host.app.playAll(
+                listOf(QueuedNote(alpha.pageId, alpha.title), QueuedNote(beta.pageId, beta.title)),
+                QueueOrigin.BrowseResults
+            )
+
+            runCurrent()
+            assertFalse("Beta should not be prefetched when offline cache is disabled", loader.loaded.contains("beta"))
+        } finally {
+            hostScope.cancel()
+        }
+    }
 }
+

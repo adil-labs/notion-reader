@@ -50,6 +50,19 @@ import com.example.notionreader.domain.settings.ReaderSettings
 import com.example.notionreader.domain.settings.ReaderSpacing
 import com.example.notionreader.domain.settings.SpeechRate
 import com.example.notionreader.domain.settings.VoicePitch
+import com.example.notionreader.player.SpeechEngineInfo
+import java.util.Locale
+
+internal fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 KB"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return if (mb >= 1.0) {
+        String.format(Locale.US, "%.1f MB", mb)
+    } else {
+        String.format(Locale.US, "%.1f KB", kb)
+    }
+}
 
 @Composable
 fun SettingsTopBar(
@@ -246,6 +259,7 @@ fun SettingsPlaybackScreen(
 @Composable
 fun SettingsSpeechScreen(
     settings: ReaderSettings,
+    availableEngines: List<SpeechEngineInfo> = emptyList(),
     onUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -262,10 +276,92 @@ fun SettingsSpeechScreen(
     ) {
         SettingsTopBar(title = "Speech", onBack = onBack)
 
+        // Text-to-speech engine selection
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Text-to-speech engine",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Speech synthesis provider installed on this device",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // System default engine option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = settings.ttsEnginePackage == null,
+                                onClick = { onUpdate { it.copy(ttsEnginePackage = null) } },
+                                role = Role.RadioButton
+                            )
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = settings.ttsEnginePackage == null,
+                            onClick = null
+                        )
+                        Column(modifier = Modifier.padding(start = 12.dp)) {
+                            Text(
+                                text = "System default engine",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Default engine selected in Android settings",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Available installed engines
+                    availableEngines.forEach { engine ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = settings.ttsEnginePackage == engine.packageName,
+                                    onClick = { onUpdate { it.copy(ttsEnginePackage = engine.packageName) } },
+                                    role = Role.RadioButton
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = settings.ttsEnginePackage == engine.packageName,
+                                onClick = null
+                            )
+                            Column(modifier = Modifier.padding(start = 12.dp)) {
+                                Text(
+                                    text = engine.label,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = engine.packageName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Use system speech settings
         SettingsToggleCard(
             title = "Use system speech settings",
-            subtitle = "Voice, pitch, and language come from Android's TTS configuration.",
+            subtitle = "Rate and pitch inherit from the active engine's Android configuration.",
             checked = settings.useSystemSpeechSettings,
             onCheckedChange = { checked -> onUpdate { it.copy(useSystemSpeechSettings = checked) } }
         )
@@ -274,13 +370,13 @@ fun SettingsSpeechScreen(
         OutlinedButton(
             onClick = {
                 try {
-                    context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS").apply {
-                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    context.startActivity(Intent("com.android.settings.TTS_SETTINGS").apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     })
                 } catch (_: Exception) {
                     try {
-                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS).apply {
-                            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         })
                     } catch (_: Exception) { }
                 }
@@ -393,23 +489,6 @@ fun SettingsSpeechScreen(
                 }
             }
         }
-
-        // Android TTS Settings Intent
-        OutlinedButton(
-            onClick = {
-                try {
-                    context.startActivity(Intent("com.android.settings.TTS_SETTINGS"))
-                } catch (_: Exception) {
-                    try {
-                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                    } catch (_: Exception) {
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-        ) {
-            Text("Open Android Text-to-Speech Settings")
-        }
     }
 }
 
@@ -421,6 +500,7 @@ fun SettingsSpeechScreen(
 fun SettingsOfflineScreen(
     settings: ReaderSettings,
     cachedNotesCount: Int,
+    cacheSizeBytes: Long = 0L,
     onUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit,
     onClearCache: () -> Unit,
     onBack: () -> Unit,
@@ -531,7 +611,7 @@ fun SettingsOfflineScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "$cachedNotesCount Notes currently cached offline",
+                    text = "$cachedNotesCount Notes (${formatBytes(cacheSizeBytes)}) currently cached offline",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -547,69 +627,7 @@ fun SettingsOfflineScreen(
 }
 
 // ----------------------------------------------------------------------------
-// 4. Accessibility Settings Screen
-// ----------------------------------------------------------------------------
-
-@Composable
-fun SettingsAccessibilityScreen(
-    settings: ReaderSettings,
-    onUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .semantics { paneTitle = "Accessibility settings" },
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        SettingsTopBar(title = "Accessibility", onBack = onBack)
-
-        SettingsToggleCard(
-            title = "Keep screen awake while playing",
-            subtitle = "Holds display active while speech is playing to prevent screen timeout.",
-            checked = settings.keepScreenAwake,
-            onCheckedChange = { checked -> onUpdate { it.copy(keepScreenAwake = checked) } }
-        )
-
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Reader spacing",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Visual paragraph spacing in the Note inspection screen",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth().selectableGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ReaderSpacing.values().forEach { spacing ->
-                        FilterChip(
-                            selected = settings.readerSpacing == spacing,
-                            onClick = { onUpdate { it.copy(readerSpacing = spacing) } },
-                            label = { Text(spacing.label) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// 5. Appearance Settings Screen
+// 4. Appearance Settings Screen
 // ----------------------------------------------------------------------------
 
 @Composable
@@ -699,7 +717,7 @@ fun SettingsAppearanceScreen(
 }
 
 // ----------------------------------------------------------------------------
-// 6. Notion Settings Screen
+// 5. Notion Settings Screen
 // ----------------------------------------------------------------------------
 
 @Composable
@@ -735,45 +753,44 @@ fun SettingsNotionScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "Connected and active",
+                    text = "Active Notion integration token configured",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        OutlinedButton(
-            onClick = { },
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            ),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Manage page access")
-        }
-
-        OutlinedButton(
-            onClick = { },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Reconnect")
-        }
-
-        Button(
-            onClick = { },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Disconnect Notion")
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Integration details",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Status: Connected\nCapabilities: Read blocks and search pages\nNote: In this POC, Notion credentials are provisioned securely via local configuration and BuildConfig. Modifying authentication is managed outside this interface.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
 
 // ----------------------------------------------------------------------------
-// 7. Privacy & Data Settings Screen
+// 6. Privacy & Data Settings Screen
 // ----------------------------------------------------------------------------
 
 @Composable
 fun SettingsPrivacyScreen(
     historyCount: Int,
     cachedNotesCount: Int,
+    cacheSizeBytes: Long = 0L,
     onClearHistory: () -> Unit,
     onClearCache: () -> Unit,
     onClearAllData: () -> Unit,
@@ -878,7 +895,7 @@ fun SettingsPrivacyScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "Offline content: $cachedNotesCount cached Notes",
+                    text = "Offline content: $cachedNotesCount cached Notes (${formatBytes(cacheSizeBytes)})",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

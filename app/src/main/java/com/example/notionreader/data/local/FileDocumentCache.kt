@@ -2,6 +2,7 @@ package com.example.notionreader.data.local
 
 import com.example.notionreader.data.document.CachedDocument
 import com.example.notionreader.data.document.DocumentCache
+import com.example.notionreader.domain.document.DocumentCacheStats
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -157,6 +158,12 @@ class FileDocumentCache(
     override suspend fun count(): Int = withContext(ioDispatcher) {
         val files = directory.listFiles { file -> file.isFile && file.extension == "json" }
         files?.size ?: 0
+    }
+
+    override suspend fun stats(): DocumentCacheStats = withContext(ioDispatcher) {
+        val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: emptyArray()
+        val totalBytes = files.sumOf { it.length() }
+        DocumentCacheStats(noteCount = files.size, totalBytes = totalBytes)
     }
 
     private fun fileFor(pageId: String): File {

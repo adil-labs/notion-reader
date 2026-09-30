@@ -16,4 +16,8 @@ class InMemorySmartQueueStore(initial: List<SmartQueue> = emptyList()) : SmartQu
         data = next
         return effect
     }
+
+    override suspend fun clear() {
+        data = emptyList()
+    }
 }

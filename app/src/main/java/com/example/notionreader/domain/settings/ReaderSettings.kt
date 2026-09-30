@@ -11,11 +11,13 @@ data class ReaderSettings(
     val defaultNavigationUnit: NavigationUnit = NavigationUnit.SECTION,
     val continueToNextNote: Boolean = true,
     val pauseBetweenNotes: NotePauseDuration = NotePauseDuration.NONE,
+    val keepScreenAwake: Boolean = true,
 
     // Speech
+    val ttsEnginePackage: String? = null,
     val useSystemSpeechSettings: Boolean = true,
     val speechRate: SpeechRate = SpeechRate.SYSTEM_DEFAULT,
-    val voicePitch: VoicePitch = VoicePitch.NORMAL,
+    val voicePitch: VoicePitch = VoicePitch.SYSTEM_DEFAULT,
     val playbackAnnouncements: AnnouncementVerbosity = AnnouncementVerbosity.CONCISE,
 
     // Offline & Storage
@@ -23,8 +25,7 @@ data class ReaderSettings(
     val prefetchUpcomingNotes: Boolean = true,
     val downloadNetworkPolicy: DownloadNetworkPolicy = DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
 
-    // Accessibility & Appearance
-    val keepScreenAwake: Boolean = true,
+    // Appearance
     val appTheme: AppTheme = AppTheme.SYSTEM_DEFAULT,
     val readerSpacing: ReaderSpacing = ReaderSpacing.COMFORTABLE
 )
@@ -53,6 +54,7 @@ enum class SpeechRate(val label: String, val factor: Float) {
 }
 
 enum class VoicePitch(val label: String, val factor: Float) {
+    SYSTEM_DEFAULT("System default", 1.0f),
     LOW("Low", 0.8f),
     NORMAL("Natural", 1.0f),
     HIGH("High", 1.2f)

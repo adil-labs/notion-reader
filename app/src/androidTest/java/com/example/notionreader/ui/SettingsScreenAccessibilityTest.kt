@@ -37,7 +37,6 @@ class SettingsScreenAccessibilityTest {
                 onOpenPlayback = {},
                 onOpenSpeech = {},
                 onOpenOffline = {},
-                onOpenAccessibility = {},
                 onOpenAppearance = {},
                 onOpenNotion = {},
                 onOpenPrivacy = {},
@@ -57,7 +56,6 @@ class SettingsScreenAccessibilityTest {
                 onOpenPlayback = {},
                 onOpenSpeech = {},
                 onOpenOffline = {},
-                onOpenAccessibility = {},
                 onOpenAppearance = {},
                 onOpenNotion = {},
                 onOpenPrivacy = {},
@@ -65,12 +63,12 @@ class SettingsScreenAccessibilityTest {
             )
         }
 
-        // 8 category buttons on root Settings
+        // 7 category buttons on root Settings
         val buttonMatcher = hasClickAction() and SemanticsMatcher.expectValue(
             SemanticsProperties.Role,
             Role.Button
         )
-        compose.onAllNodes(buttonMatcher).assertCountEquals(8)
+        compose.onAllNodes(buttonMatcher).assertCountEquals(7)
 
         // Assert Playback row is reachable
         compose.onNodeWithContentDescription("Playback. Default navigation: Section.").assertIsReachable()
@@ -86,13 +84,13 @@ class SettingsScreenAccessibilityTest {
                 onOpenPlayback = { opened = true },
                 onOpenSpeech = {},
                 onOpenOffline = {},
-                onOpenAccessibility = {},
                 onOpenAppearance = {},
                 onOpenNotion = {},
                 onOpenPrivacy = {},
                 onOpenAbout = {}
             )
         }
+
 
         compose.onNodeWithContentDescription("Playback. Default navigation: Section.")
             .performSemanticsAction(SemanticsActions.OnClick)

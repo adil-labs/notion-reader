@@ -48,6 +48,15 @@ class DataStoreSmartQueueStore(private val context: Context) : SmartQueueStore {
         return effect
     }
 
+    override suspend fun clear() {
+        try {
+            context.smartQueues.edit { preferences ->
+                preferences.remove(QUEUES)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     private companion object {
         val QUEUES = stringPreferencesKey("queues")
     }

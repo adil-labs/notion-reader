@@ -27,7 +27,6 @@ enum class ReaderDestination {
     SettingsPlayback,
     SettingsSpeech,
     SettingsOffline,
-    SettingsAccessibility,
     SettingsAppearance,
     SettingsNotion,
     SettingsPrivacy,

@@ -37,7 +37,6 @@ fun SettingsScreen(
     onOpenPlayback: () -> Unit,
     onOpenSpeech: () -> Unit,
     onOpenOffline: () -> Unit,
-    onOpenAccessibility: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenNotion: () -> Unit,
     onOpenPrivacy: () -> Unit,
@@ -103,20 +102,6 @@ fun SettingsScreen(
             onClick = onOpenOffline
         )
 
-        // 4. Accessibility
-        val a11ySummary = if (settings.keepScreenAwake) {
-            "Keep screen awake · ${settings.readerSpacing.label} spacing"
-        } else {
-            "System sleep · ${settings.readerSpacing.label} spacing"
-        }
-        SettingsCategoryRow(
-            title = "Accessibility",
-            summary = a11ySummary,
-            id = "settings_row_accessibility",
-            focusTarget = focusTarget,
-            onFocusHandled = onFocusHandled,
-            onClick = onOpenAccessibility
-        )
 
         // 5. Appearance
         SettingsCategoryRow(

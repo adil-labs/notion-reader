@@ -1,6 +1,7 @@
 package com.example.notionreader.data.local
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -18,114 +19,116 @@ import com.example.notionreader.domain.settings.VoicePitch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.runBlocking
 
 private val Context.userSettingsDataStore by preferencesDataStore(name = "user_settings")
 
 /**
  * Persistent [SettingsRepository] backed by Android DataStore preferences.
+ * Updates are serialized atomically through DataStore edit transactions,
+ * eliminating startup overwrite races and concurrent update out-of-order writes.
  */
 class DataStoreSettingsRepository(
     private val context: Context,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    private val onClearHistoryCallback: (suspend () -> Unit)? = null,
-    private val onClearCacheCallback: (suspend () -> Unit)? = null,
-    private val onClearAllCallback: (suspend () -> Unit)? = null
+    @Suppress("UNUSED_PARAMETER") onClearHistoryCallback: (suspend () -> Unit)? = null,
+    @Suppress("UNUSED_PARAMETER") onClearCacheCallback: (suspend () -> Unit)? = null,
+    @Suppress("UNUSED_PARAMETER") onClearAllCallback: (suspend () -> Unit)? = null
 ) : SettingsRepository {
 
-    private val _settings = MutableStateFlow(ReaderSettings())
-    override val settings: StateFlow<ReaderSettings> = _settings.asStateFlow()
+    override val settings: StateFlow<ReaderSettings> = context.userSettingsDataStore.data
+        .map { decode(it) }
+        .stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = runBlocking { readInitial() }
+        )
 
-    init {
-        scope.launch {
-            val loaded = readFromDisk()
-            _settings.value = loaded
+    override suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
+        try {
+            context.userSettingsDataStore.edit { prefs ->
+                val current = decode(prefs)
+                val next = transform(current)
+                encode(next, prefs)
+            }
+        } catch (_: Exception) {
         }
     }
 
-    override suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
-        val next = transform(_settings.value)
-        _settings.value = next
-        writeToDisk(next)
-    }
-
-    override suspend fun clearHistory() {
-        onClearHistoryCallback?.invoke()
-    }
-
-    override suspend fun clearCache() {
-        onClearCacheCallback?.invoke()
-    }
-
-    override suspend fun clearAllLocalData() {
+    override suspend fun resetToDefaults() {
         try {
             context.userSettingsDataStore.edit { it.clear() }
         } catch (_: Exception) {
         }
-        _settings.value = ReaderSettings()
-        onClearAllCallback?.invoke()
     }
 
-    private suspend fun readFromDisk(): ReaderSettings {
+    private suspend fun readInitial(): ReaderSettings {
         return try {
             val prefs = context.userSettingsDataStore.data.first()
-            ReaderSettings(
-                defaultNavigationUnit = prefs[KEY_NAV_UNIT]?.let { runCatching { NavigationUnit.valueOf(it) }.getOrNull() }
-                    ?: NavigationUnit.SECTION,
-                continueToNextNote = prefs[KEY_CONTINUE_NEXT] ?: true,
-                pauseBetweenNotes = prefs[KEY_PAUSE_NOTES]?.let { runCatching { NotePauseDuration.valueOf(it) }.getOrNull() }
-                    ?: NotePauseDuration.NONE,
-                useSystemSpeechSettings = prefs[KEY_USE_SYSTEM_SPEECH] ?: true,
-                speechRate = prefs[KEY_SPEECH_RATE]?.let { runCatching { SpeechRate.valueOf(it) }.getOrNull() }
-                    ?: SpeechRate.SYSTEM_DEFAULT,
-                voicePitch = prefs[KEY_VOICE_PITCH]?.let { runCatching { VoicePitch.valueOf(it) }.getOrNull() }
-                    ?: VoicePitch.NORMAL,
-                playbackAnnouncements = prefs[KEY_ANNOUNCEMENTS]?.let { runCatching { AnnouncementVerbosity.valueOf(it) }.getOrNull() }
-                    ?: AnnouncementVerbosity.CONCISE,
-                cacheNotesForOffline = prefs[KEY_CACHE_OFFLINE] ?: true,
-                prefetchUpcomingNotes = prefs[KEY_PREFETCH] ?: true,
-                downloadNetworkPolicy = prefs[KEY_DOWNLOAD_POLICY]?.let { runCatching { DownloadNetworkPolicy.valueOf(it) }.getOrNull() }
-                    ?: DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
-                keepScreenAwake = prefs[KEY_KEEP_AWAKE] ?: true,
-                appTheme = prefs[KEY_THEME]?.let { runCatching { AppTheme.valueOf(it) }.getOrNull() }
-                    ?: AppTheme.SYSTEM_DEFAULT,
-                readerSpacing = prefs[KEY_SPACING]?.let { runCatching { ReaderSpacing.valueOf(it) }.getOrNull() }
-                    ?: ReaderSpacing.COMFORTABLE
-            )
+            decode(prefs)
         } catch (_: Exception) {
             ReaderSettings()
         }
     }
 
-    private suspend fun writeToDisk(settings: ReaderSettings) {
-        try {
-            context.userSettingsDataStore.edit { prefs ->
-                prefs[KEY_NAV_UNIT] = settings.defaultNavigationUnit.name
-                prefs[KEY_CONTINUE_NEXT] = settings.continueToNextNote
-                prefs[KEY_PAUSE_NOTES] = settings.pauseBetweenNotes.name
-                prefs[KEY_USE_SYSTEM_SPEECH] = settings.useSystemSpeechSettings
-                prefs[KEY_SPEECH_RATE] = settings.speechRate.name
-                prefs[KEY_VOICE_PITCH] = settings.voicePitch.name
-                prefs[KEY_ANNOUNCEMENTS] = settings.playbackAnnouncements.name
-                prefs[KEY_CACHE_OFFLINE] = settings.cacheNotesForOffline
-                prefs[KEY_PREFETCH] = settings.prefetchUpcomingNotes
-                prefs[KEY_DOWNLOAD_POLICY] = settings.downloadNetworkPolicy.name
-                prefs[KEY_KEEP_AWAKE] = settings.keepScreenAwake
-                prefs[KEY_THEME] = settings.appTheme.name
-                prefs[KEY_SPACING] = settings.readerSpacing.name
-            }
-        } catch (_: Exception) {
+    private fun decode(prefs: Preferences): ReaderSettings {
+        return ReaderSettings(
+            defaultNavigationUnit = prefs[KEY_NAV_UNIT]?.let { runCatching { NavigationUnit.valueOf(it) }.getOrNull() }
+                ?: NavigationUnit.SECTION,
+            continueToNextNote = prefs[KEY_CONTINUE_NEXT] ?: true,
+            pauseBetweenNotes = prefs[KEY_PAUSE_NOTES]?.let { runCatching { NotePauseDuration.valueOf(it) }.getOrNull() }
+                ?: NotePauseDuration.NONE,
+            ttsEnginePackage = prefs[KEY_TTS_ENGINE_PKG],
+            useSystemSpeechSettings = prefs[KEY_USE_SYSTEM_SPEECH] ?: true,
+            speechRate = prefs[KEY_SPEECH_RATE]?.let { runCatching { SpeechRate.valueOf(it) }.getOrNull() }
+                ?: SpeechRate.SYSTEM_DEFAULT,
+            voicePitch = prefs[KEY_VOICE_PITCH]?.let { runCatching { VoicePitch.valueOf(it) }.getOrNull() }
+                ?: VoicePitch.SYSTEM_DEFAULT,
+            playbackAnnouncements = prefs[KEY_ANNOUNCEMENTS]?.let { runCatching { AnnouncementVerbosity.valueOf(it) }.getOrNull() }
+                ?: AnnouncementVerbosity.CONCISE,
+            cacheNotesForOffline = prefs[KEY_CACHE_OFFLINE] ?: true,
+            prefetchUpcomingNotes = prefs[KEY_PREFETCH] ?: true,
+            downloadNetworkPolicy = prefs[KEY_DOWNLOAD_POLICY]?.let { runCatching { DownloadNetworkPolicy.valueOf(it) }.getOrNull() }
+                ?: DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
+            keepScreenAwake = prefs[KEY_KEEP_AWAKE] ?: true,
+            appTheme = prefs[KEY_THEME]?.let { runCatching { AppTheme.valueOf(it) }.getOrNull() }
+                ?: AppTheme.SYSTEM_DEFAULT,
+            readerSpacing = prefs[KEY_SPACING]?.let { runCatching { ReaderSpacing.valueOf(it) }.getOrNull() }
+                ?: ReaderSpacing.COMFORTABLE
+        )
+    }
+
+    private fun encode(settings: ReaderSettings, prefs: androidx.datastore.preferences.core.MutablePreferences) {
+        prefs[KEY_NAV_UNIT] = settings.defaultNavigationUnit.name
+        prefs[KEY_CONTINUE_NEXT] = settings.continueToNextNote
+        prefs[KEY_PAUSE_NOTES] = settings.pauseBetweenNotes.name
+        if (settings.ttsEnginePackage != null) {
+            prefs[KEY_TTS_ENGINE_PKG] = settings.ttsEnginePackage
+        } else {
+            prefs.remove(KEY_TTS_ENGINE_PKG)
         }
+        prefs[KEY_USE_SYSTEM_SPEECH] = settings.useSystemSpeechSettings
+        prefs[KEY_SPEECH_RATE] = settings.speechRate.name
+        prefs[KEY_VOICE_PITCH] = settings.voicePitch.name
+        prefs[KEY_ANNOUNCEMENTS] = settings.playbackAnnouncements.name
+        prefs[KEY_CACHE_OFFLINE] = settings.cacheNotesForOffline
+        prefs[KEY_PREFETCH] = settings.prefetchUpcomingNotes
+        prefs[KEY_DOWNLOAD_POLICY] = settings.downloadNetworkPolicy.name
+        prefs[KEY_KEEP_AWAKE] = settings.keepScreenAwake
+        prefs[KEY_THEME] = settings.appTheme.name
+        prefs[KEY_SPACING] = settings.readerSpacing.name
     }
 
     private companion object {
         val KEY_NAV_UNIT = stringPreferencesKey("default_navigation_unit")
         val KEY_CONTINUE_NEXT = booleanPreferencesKey("continue_to_next_note")
         val KEY_PAUSE_NOTES = stringPreferencesKey("pause_between_notes")
+        val KEY_TTS_ENGINE_PKG = stringPreferencesKey("tts_engine_package")
         val KEY_USE_SYSTEM_SPEECH = booleanPreferencesKey("use_system_speech_settings")
         val KEY_SPEECH_RATE = stringPreferencesKey("speech_rate")
         val KEY_VOICE_PITCH = stringPreferencesKey("voice_pitch")

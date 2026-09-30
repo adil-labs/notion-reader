@@ -14,4 +14,6 @@ interface SmartQueueStore {
      * Reads stored queues, applies [decide], and persists the result atomically.
      */
     suspend fun transact(decide: (List<SmartQueue>) -> Pair<List<SmartQueue>, SmartQueueEffect>): SmartQueueEffect
+
+    suspend fun clear() {}
 }

@@ -3,7 +3,7 @@ package com.example.notionreader.domain.settings
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Storage and observation port for user settings and local state management.
+ * Storage and observation port for user settings.
  */
 interface SettingsRepository {
 
@@ -13,15 +13,20 @@ interface SettingsRepository {
     /** Updates current settings via an atomic transform. */
     suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings)
 
-    /** Clears session history while preserving saved queues and cached notes. */
-    suspend fun clearHistory()
+    /** Resets user preferences back to default values. */
+    suspend fun resetToDefaults()
 
-    /** Clears cached offline notes. */
-    suspend fun clearCache()
+    /** Deprecated: local data clearing belongs on ReaderApp orchestration boundary. */
+    @Deprecated("Use ReaderApp.clearHistory()")
+    suspend fun clearHistory() {}
 
-    /**
-     * Clears all local application state (history, queues, offline cache, preferences).
-     * Does not affect remote Notion content.
-     */
-    suspend fun clearAllLocalData()
+    /** Deprecated: local data clearing belongs on ReaderApp orchestration boundary. */
+    @Deprecated("Use ReaderApp.clearCache()")
+    suspend fun clearCache() {}
+
+    /** Deprecated: local data clearing belongs on ReaderApp orchestration boundary. */
+    @Deprecated("Use ReaderApp.clearAllLocalData()")
+    suspend fun clearAllLocalData() {
+        resetToDefaults()
+    }
 }

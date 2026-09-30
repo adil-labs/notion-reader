@@ -206,6 +206,13 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
         if (next.isPlaying) speakCount++
     }
 
+    fun reachEnd() {
+        _state.value = _state.value.copy(
+            currentParagraphIndex = (_state.value.paragraphs.size - 1).coerceAtLeast(0),
+            hasReachedEnd = true
+        )
+    }
+
     private fun stateFor(document: ReaderDocument, startParagraphIndex: Int): ReaderState {
         val paragraphs = document.chunkTexts
         return ReaderState(
@@ -215,3 +222,4 @@ class FakeReaderEngine(initialDocument: ReaderDocument = ReaderDocument.Empty) :
         )
     }
 }
+

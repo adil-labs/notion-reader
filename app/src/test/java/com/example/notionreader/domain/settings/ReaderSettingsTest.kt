@@ -17,9 +17,10 @@ class ReaderSettingsTest {
         assertEquals(NotePauseDuration.NONE, settings.pauseBetweenNotes)
 
         // Speech defaults
+        org.junit.Assert.assertNull(settings.ttsEnginePackage)
         assertTrue(settings.useSystemSpeechSettings)
         assertEquals(SpeechRate.SYSTEM_DEFAULT, settings.speechRate)
-        assertEquals(VoicePitch.NORMAL, settings.voicePitch)
+        assertEquals(VoicePitch.SYSTEM_DEFAULT, settings.voicePitch)
         assertEquals(AnnouncementVerbosity.CONCISE, settings.playbackAnnouncements)
 
         // Offline defaults

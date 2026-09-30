@@ -6502,6 +6502,90 @@ As features grew across Home, Browse, Player, and Queues, multiple surfaces accu
 5. **Offline Storage Customization:**
    - In `CachedDocumentRepository.kt`, wired `cacheNotesForOffline` via `isCachingEnabled: () -> Boolean`, bypassing cache writes when offline caching is disabled. Added unit test `whenCachingIsDisabledNewDocumentsAreNotWrittenToCache()`.
 
+## 33. Codebase Audit Remediation: Data Integrity, Runtime Player Wiring, Multi-Engine TTS, Cache Observability & Navigation Invariants
+
+### 33.1 Remediation Context & Specification Corrections
+
+A comprehensive codebase audit at commit `0fc5df5` revealed that while Settings had established structural subpages and initial preferences, critical gaps remained before the system could be considered sound end-to-end:
+1. **P0 Data Clearing Omission:** "Clear all local data" only cleared `sessionStore` and `documentCache`, leaving `saved_queues` and `smart_queues` DataStores and in-memory state intact.
+2. **P0 History Resurrection Bug:** Clearing history only cleared disk persistence while `_history` in `ReaderApp` retained in-memory sessions; any subsequent playback position update invoked `persistSession()` and re-persisted the cleared history.
+3. **P1 Inactive Pause Between Notes:** `NotePauseDuration` was stored in settings and copied to session, but no execution path performed a delay between notes.
+4. **P1 Unmetered Network Gating:** `DownloadNetworkPolicy.WIFI_ONLY` was defined but never evaluated against network connectivity during prefetch.
+5. **P1 TTS Engine Selection & Defaults:** The app always bound to the system default Android TTS engine without in-app selection or `<queries>` manifest declaration for `android.intent.action.TTS_SERVICE`.
+6. **P1 Fabricated Cache Count:** UI displayed a hard-coded "37" notes cached count.
+7. **P2 Duplicate Settings & Unimplemented UI:** Redundant `SettingsAccessibility` category duplicated "Keep screen awake" and "Reader spacing". Fake interactive buttons for Notion disconnection and page management performed no real operations.
+8. **Navigation Invariant (Bottom Bar on Secondary Screens):** The bottom `NavigationBar` remained visible across all secondary screens (Player, Note, Queue details, Settings subpages), polluting the TalkBack reading tree with redundant tabs and competing with Back navigation.
+
+### 33.2 Architecture & Implementation Remediations
+
+1. **Application-Orchestrated Data Clearing (P0):**
+   - Added `suspend fun clear()` to `SavedQueueStore` and `SmartQueueStore` ports, implemented in `DataStoreSavedQueueStore`, `DataStoreSmartQueueStore`, `InMemorySavedQueueStore`, and `InMemorySmartQueueStore`.
+   - Moved `DocumentCache` and `CachedDocument` to `domain.document` so `ReaderApp` can interact directly without violating `LayerRulesTest` (`application -> domain, player`).
+   - Added `DocumentCacheStats(noteCount, totalBytes)` to `DocumentCache` and `FileDocumentCache.stats()`.
+   - `ReaderApp` owns unified data clearing:
+     - `clearHistory()`: zeroes `_history` and `sessionStore.write(emptyList())`.
+     - `clearCache()`: invokes `documentCache.clear()` and refreshes `cacheStats`.
+     - `clearAllLocalData()`: wipes `_history`, `_savedQueues`, `_smartQueues`, `DocumentCache`, and resets settings to defaults via `settingsRepo.resetToDefaults()`.
+   - History resurrection eliminated: cleared state is updated across memory and disk before any playback persistence can trigger.
+
+2. **Non-Blocking Queue Advance Delay in ReaderHost (P1):**
+   - Kept `ReaderSession` synchronous and scope-free.
+   - Delay logic implemented in `ReaderHost.scheduleQueueAdvance()` using a non-blocking coroutine delay on the host application scope.
+   - Cancelled and guarded by request identity tokens `(currentItem?.pageId, index, token)`. If a manual navigation, note restart, or queue reset occurs during the inter-note pause, the pending advance job is cancelled, preventing stale automatic transitions from skipping notes.
+
+3. **Network Connectivity & Prefetch Policy Gating (P1):**
+   - Introduced `NetworkState` interface with `isUnmetered` check, implemented via `AndroidNetworkState(Context)` wrapping `ConnectivityManager.isActiveNetworkMetered`.
+   - `ReaderHost.startQueuePrefetch()` gates prefetching on:
+     `settings.prefetchUpcomingNotes && settings.cacheNotesForOffline && (settings.downloadNetworkPolicy != DownloadNetworkPolicy.WIFI_ONLY || networkState.isUnmetered)`
+   - Verified that prefetching does not download notes over metered connections when Wi-Fi only policy is set, or when offline caching is disabled.
+
+4. **Multi-Engine TTS Discovery, Switching & Generation Safety (P1):**
+   - Added `<queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>` to `AndroidManifest.xml` to allow discovering all installed TTS engines on Android 11+ (API 30+).
+   - Extended `SpeechEngine` with `SpeechEngineInfo(packageName, label)`, `getAvailableEngines()`, and `setEngine(packageName: String?)`.
+   - `AndroidSpeechEngine` implements generation-safe engine re-initialization: switching engines increments an internal generation counter; any late initialization callback from a previous or superseded engine is discarded immediately.
+   - Fallback protection: if a selected custom engine fails to initialize, the engine automatically falls back to the system default engine without crashing.
+   - System speech rate/pitch defaults: resolving `SYSTEM_DEFAULT` retrieves current rate/pitch values from the active Android TTS instance.
+
+5. **Settings UI Cleanup & Real Cache Observability (P2):**
+   - Eliminated hardcoded "37": UI now displays live `cacheStats.noteCount` and formatted storage bytes (e.g. `0 KB`, `1.2 MB`).
+   - Removed redundant `SettingsAccessibility` category (reduced to 7 clean root categories: Playback, Speech, Offline & storage, Appearance, Notion, Privacy & data, About).
+   - "Keep screen awake" is placed exclusively in Playback settings.
+   - "Reader spacing" is placed exclusively in Appearance settings.
+   - Replaced placeholder Notion buttons with an informative, read-only integration status card detailing token configuration and access scope.
+   - Dynamic Explore shortcuts: Home cards derived dynamically from normalized topics and areas in loaded Browse entries.
+
+6. **Navigation Hierarchy Invariant: Bottom Navigation Hidden on Secondary Screens:**
+   - Established the rule: **Bottom navigation is shown only while the currently rendered destination is a top-level destination (`current.isTopLevel`).**
+   - On top-level screens (`Home`, `Browse`, `Queues`, `Settings`), the `NavigationBar` renders the 4 primary tabs.
+   - On all secondary screens (`Player`, `Note`, `SavedQueueDetails`, `SmartQueueDetails`, `QueueDestination`, `CreateSavedQueue`, `CreateSmartQueue`, and all Settings subpages), the bottom bar is completely hidden.
+   - Mini-player presence invariant preserved: visible across secondary screens when a resumable session exists, but hidden on `Player`.
+   - TalkBack benefit: secondary screens present a clean, uninterrupted reading hierarchy with a single "Navigate back" action and no trailing bottom navigation tabs.
+
+### 33.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 596 tests executed, 0 failed.
+   - `ReaderAppHistoryTest`:
+     - `clearHistoryClearsInMemoryAndPersistentStateWithoutResurrection()`: Verifies in-memory and persistent deletion, and that subsequent `persistSession()` cannot resurrect deleted entries.
+     - `clearAllLocalDataClearsAllStoresAndResetsSettings()`: Verifies simultaneous clearance of history, saved queues, smart queues, document cache, and settings reset.
+   - `ReaderHostTest`:
+     - `pauseBetweenNotesDelaysQueueAdvance()`: Verifies that a 1-second pause delay prevents immediate queue progression until the delay window elapses.
+     - `manualNavigationCancelsScheduledInterNotePause()`: Verifies that manual navigation during a 5-second pause cancels the pending advance job and does not skip subsequent notes.
+     - `prefetchIsGatedOnMeteredNetworkWhenPolicyIsWifiOnly()`: Verifies that prefetch does not download on metered networks when `WIFI_ONLY` is configured.
+     - `prefetchIsGatedWhenOfflineCacheIsDisabled()`: Verifies that prefetch is disabled when `cacheNotesForOffline` is false.
+   - `LayerRulesTest`: 0 violations (`domain -> nothing`, `player -> domain`, `application -> domain, player`, `data -> domain`, `platform -> player`, `ui -> domain, player, application`).
+
+2. **AndroidTest Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation across all UI and accessibility test classes.
+
+3. **Android Application Assembly (`:app:assembleDebug`):**
+   - Clean build, APK packaged successfully.
+
+4. **Semantics & Accessibility Test Invariants:**
+   - `SettingsScreenAccessibilityTest`: Updated to expect 7 root category buttons (Role.Button) with correct accessible descriptions.
+   - `ReaderShellAccessibilityTest`: Updated tab assertions to expect 0 tabs on secondary screens (`Player`, `Note`) and 4 tabs on top-level screens (`Home`).
+
+
 
 
 

@@ -83,4 +83,5 @@ interface SavedQueueStore {
      * are defined, not repeated in every storage backend.
      */
     suspend fun transact(decide: (List<SavedQueue>) -> QueueEditOutcome): QueueEditOutcome
+    suspend fun clear() {}
 }

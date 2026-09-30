@@ -7,24 +7,18 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.example.notionreader.player.SpeechEngine
+import com.example.notionreader.player.SpeechEngineInfo
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 
 /**
- * [SpeechEngine] backed by [TextToSpeech].
+ * [SpeechEngine] backed by Android [TextToSpeech].
  *
- * Notes:
- * - TTS initialization is asynchronous, so a request that arrives before init completes is held in
- *   [pendingRequest] and spoken (or dropped, if a newer request replaces it) once ready.
- * - [UtteranceProgressListener] callbacks arrive on a TTS binder thread; the completion callback is
- *   therefore posted to the main thread before it is invoked.
- * - An utterance that is interrupted by [stop] never reports completion, so "reached the end" and
- *   "was stopped" stay distinguishable.
- * - When TTS is missing or unusable, [onUnavailable] is called instead of failing silently, because a
- *   reader that says nothing without explanation is unusable without sight.
+ * Supports in-app engine switching with generation tokens, safe fallback to system default
+ * if a selected package fails or is uninstalled, and explicit rate/pitch configuration.
  */
 class AndroidSpeechEngine(
-    context: Context,
+    private val context: Context,
     private val onUnavailable: ((String) -> Unit)? = null
 ) : SpeechEngine {
 
@@ -38,6 +32,8 @@ class AndroidSpeechEngine(
     private var utteranceCounter = 0
     private var currentSpeechRate: Float = 1.0f
     private var currentPitch: Float = 1.0f
+    private var currentEnginePackage: String? = null
+    private var engineGeneration = 0
 
     private val completions = ConcurrentHashMap<String, () -> Unit>()
 
@@ -52,8 +48,6 @@ class AndroidSpeechEngine(
             }
         }
 
-        // Overloads that add an error code / interruption flag are deprecated in favour of the single
-        // argument versions, but the deprecated ones are what report failures on older platform versions.
         @Suppress("OVERRIDE_DEPRECATION")
         override fun onError(utteranceId: String?) {
             if (utteranceId != null) completions.remove(utteranceId)
@@ -66,7 +60,55 @@ class AndroidSpeechEngine(
     }
 
     init {
-        tts = TextToSpeech(context.applicationContext, ::onInitialized)
+        initializeEngine(null, engineGeneration)
+    }
+
+    override fun getAvailableEngines(): List<SpeechEngineInfo> {
+        return try {
+            tts?.engines?.map { SpeechEngineInfo(it.name, it.label) } ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    override fun setEngine(packageName: String?) {
+        if (isShutdown) return
+        if (currentEnginePackage == packageName && isReady) return
+
+        val gen = ++engineGeneration
+        currentEnginePackage = packageName
+        isReady = false
+
+        val oldEngine = tts
+        tts = null
+        try {
+            oldEngine?.stop()
+            oldEngine?.shutdown()
+        } catch (_: Exception) {
+        }
+
+        initializeEngine(packageName, gen)
+    }
+
+    private fun initializeEngine(packageName: String?, generation: Int) {
+        try {
+            tts = if (packageName != null) {
+                TextToSpeech(context.applicationContext, { status ->
+                    onInitialized(status, generation, packageName)
+                }, packageName)
+            } else {
+                TextToSpeech(context.applicationContext) { status ->
+                    onInitialized(status, generation, null)
+                }
+            }
+        } catch (_: Exception) {
+            if (packageName != null) {
+                // Fall back immediately to system default if construction fails
+                initializeEngine(null, generation)
+            } else {
+                onUnavailable?.invoke("Text to speech is not available on this device.")
+            }
+        }
     }
 
     override fun setSpeechRate(rate: Float) {
@@ -82,6 +124,32 @@ class AndroidSpeechEngine(
         try {
             tts?.setPitch(pitch)
         } catch (_: Exception) {
+        }
+    }
+
+    fun resolveSystemSpeechRate(): Float {
+        return try {
+            val rateInt = android.provider.Settings.Secure.getInt(
+                context.contentResolver,
+                android.provider.Settings.Secure.TTS_DEFAULT_RATE,
+                100
+            )
+            rateInt / 100.0f
+        } catch (_: Exception) {
+            1.0f
+        }
+    }
+
+    fun resolveSystemPitch(): Float {
+        return try {
+            val pitchInt = android.provider.Settings.Secure.getInt(
+                context.contentResolver,
+                android.provider.Settings.Secure.TTS_DEFAULT_PITCH,
+                100
+            )
+            pitchInt / 100.0f
+        } catch (_: Exception) {
+            1.0f
         }
     }
 
@@ -120,18 +188,21 @@ class AndroidSpeechEngine(
         }
     }
 
-    private fun onInitialized(status: Int) {
-        val engine = tts ?: return
-
-        if (isShutdown) {
-            try {
-                engine.shutdown()
-            } catch (_: Exception) {
-            }
+    private fun onInitialized(status: Int, generation: Int, requestedPackage: String?) {
+        if (generation != engineGeneration || isShutdown) {
             return
         }
 
+        val engine = tts ?: return
+
         if (status != TextToSpeech.SUCCESS) {
+            if (requestedPackage != null) {
+                // Fall back to system default engine if explicit selection failed
+                currentEnginePackage = null
+                initializeEngine(null, generation)
+                return
+            }
+
             pendingRequest = null
             onUnavailable?.invoke(
                 "Text to speech is not available on this device. Check the system text-to-speech settings."
@@ -139,8 +210,6 @@ class AndroidSpeechEngine(
             return
         }
 
-        // The device language may have no installed voice. Fall back so that pressing play speaks
-        // something instead of nothing, which is the worst outcome for a reader used without sight.
         val localeResult = engine.setLanguage(Locale.getDefault())
         if (localeResult == TextToSpeech.LANG_MISSING_DATA ||
             localeResult == TextToSpeech.LANG_NOT_SUPPORTED

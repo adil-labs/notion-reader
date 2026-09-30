@@ -98,6 +98,7 @@ class ReaderApp(
     private val smartQueueStore: SmartQueueStore? = null,
     private val settingsRepository: SettingsRepository? = null,
     private val speechEngine: SpeechEngine? = null,
+    private val documentCache: com.example.notionreader.domain.document.DocumentCache? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
@@ -110,6 +111,13 @@ class ReaderApp(
     }
 
     private val queueLoader = QueueLoader(session, loadDocument)
+
+    private val _cacheStats = MutableStateFlow(com.example.notionreader.domain.document.DocumentCacheStats())
+    val cacheStats: StateFlow<com.example.notionreader.domain.document.DocumentCacheStats> = _cacheStats.asStateFlow()
+
+    suspend fun updateCacheStats() {
+        _cacheStats.value = documentCache?.stats() ?: com.example.notionreader.domain.document.DocumentCacheStats()
+    }
 
     /**
      * The queue operations, over the store — or null when there is no store.
@@ -153,6 +161,7 @@ class ReaderApp(
 
     /** Reads history and holds it. A store that cannot be read yields an empty history, by design. */
     suspend fun loadHistory() {
+        updateCacheStats()
         val stored = sessionStore?.read() ?: return
         _history.value = ListeningHistory.retain(stored, clock())
     }
@@ -319,9 +328,6 @@ class ReaderApp(
     fun openSettingsOffline(fromFocusId: String? = "settings_row_offline") =
         navigator.open(ReaderDestination.SettingsOffline, fromFocusId = fromFocusId)
 
-    fun openSettingsAccessibility(fromFocusId: String? = "settings_row_accessibility") =
-        navigator.open(ReaderDestination.SettingsAccessibility, fromFocusId = fromFocusId)
-
     fun openSettingsAppearance(fromFocusId: String? = "settings_row_appearance") =
         navigator.open(ReaderDestination.SettingsAppearance, fromFocusId = fromFocusId)
 
@@ -334,41 +340,113 @@ class ReaderApp(
     fun openSettingsAbout(fromFocusId: String? = "settings_row_about") =
         navigator.open(ReaderDestination.SettingsAbout, fromFocusId = fromFocusId)
 
+    suspend fun clearHistory() {
+        _history.value = emptyList()
+        sessionStore?.write(emptyList())
+    }
+
+    suspend fun clearCache() {
+        documentCache?.clear()
+        updateCacheStats()
+    }
+
+    suspend fun clearAllLocalData() {
+        _history.value = emptyList()
+        sessionStore?.write(emptyList())
+        _savedQueues.value = emptyList()
+        savedQueueStore?.clear()
+        _smartQueues.value = emptyList()
+        smartQueueStore?.clear()
+        documentCache?.clear()
+        settingsRepo.resetToDefaults()
+        updateCacheStats()
+    }
+
     suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
         settingsRepo.updateSettings(transform)
-        applySettings(settingsRepo.settings.value)
     }
 
     fun applySettings(current: ReaderSettings) {
         session.continueToNextNote = current.continueToNextNote
         session.pauseBetweenNotesMs = current.pauseBetweenNotes.delayMs
         session.announcementVerbosity = current.playbackAnnouncements
-        speechEngine?.setSpeechRate(if (current.useSystemSpeechSettings) 1.0f else current.speechRate.factor)
-        speechEngine?.setPitch(if (current.useSystemSpeechSettings) 1.0f else current.voicePitch.factor)
+        speechEngine?.setEngine(current.ttsEnginePackage)
+        speechEngine?.setSpeechRate(current.speechRate.factor)
+        speechEngine?.setPitch(current.voicePitch.factor)
     }
+
+    fun getAvailableSpeechEngines(): List<com.example.notionreader.player.SpeechEngineInfo> =
+        speechEngine?.getAvailableEngines() ?: emptyList()
+
 
     /**
      * Deterministic discovery shortcuts for the Explore section on Home.
-     * Generates shortcuts transparently based on loaded Browse entries.
+     * Derived dynamically from normalized topics and areas in loaded Browse entries.
      */
     fun exploreCards(): List<ExploreCard> {
         val entries = browse.state.value.entries
+        if (entries.isEmpty()) return emptyList()
+
+        val topicCards = entries
+            .flatMap { entry -> entry.topics.map { topic -> topic to entry } }
+            .groupBy({ it.first }, { it.second })
+            .map { (topic, notes) ->
+                ExploreCard(
+                    title = topic,
+                    noteCount = notes.distinctBy { it.pageId }.size,
+                    queryText = topic,
+                    topic = topic
+                )
+            }
+
+        val areaCards = entries
+            .filter { it.area != null }
+            .groupBy { it.area!! }
+            .map { (area, notes) ->
+                ExploreCard(
+                    title = area,
+                    noteCount = notes.size,
+                    queryText = area,
+                    area = area
+                )
+            }
+
+        val combined = (topicCards + areaCards)
+            .distinctBy { it.title.lowercase() }
+            .sortedByDescending { it.noteCount }
+            .take(6)
+
+        if (combined.isNotEmpty()) return combined
+
         val candidates = listOf("Mindfulness", "Reading", "Chess", "Android", "Architecture")
-        val fromEntries = candidates.mapNotNull { candidate ->
+        return candidates.mapNotNull { candidate ->
             val count = entries.count { it.title.contains(candidate, ignoreCase = true) }
             if (count > 0) ExploreCard(title = candidate, noteCount = count, queryText = candidate) else null
         }
-        if (fromEntries.isNotEmpty()) return fromEntries
+    }
 
-        return emptyList()
+    fun openExploreCard(card: ExploreCard) {
+        browse.clearFilters()
+        when {
+            card.topic != null -> browse.setTopicFilter(card.topic)
+            card.area != null -> browse.setAreaFilter(card.area)
+            else -> browse.setText(card.queryText)
+        }
+        navigator.open(ReaderDestination.Browse)
     }
 
     /**
      * Activates an Explore shortcut from Home, navigating to Browse pre-filtered with [queryText].
      */
     fun openExplore(queryText: String) {
-        browse.setText(queryText)
-        navigator.open(ReaderDestination.Browse)
+        val card = exploreCards().firstOrNull { it.queryText.equals(queryText, ignoreCase = true) || it.title.equals(queryText, ignoreCase = true) }
+        if (card != null) {
+            openExploreCard(card)
+        } else {
+            browse.clearFilters()
+            browse.setText(queryText)
+            navigator.open(ReaderDestination.Browse)
+        }
     }
 
     /**
@@ -612,7 +690,11 @@ class ReaderApp(
      * Exposed because the caller owns the coroutine scope — the session and the loader are both
      * scope-free, which is what keeps their logic synchronous and testable.
      */
-    suspend fun loadPendingQueueNote(): Boolean = queueLoader.loadPendingQueueNote()
+    suspend fun loadPendingQueueNote(): Boolean {
+        val loaded = queueLoader.loadPendingQueueNote()
+        updateCacheStats()
+        return loaded
+    }
 
     /**
      * Retry for a Note that failed to load mid-queue.
@@ -648,8 +730,11 @@ class ReaderApp(
      * Prefetches a Note into cache if a loader is configured.
      * Non-destructive and safe for background execution.
      */
-    suspend fun prefetchNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null): Result<ReaderDocument> =
-        loadDocument(pageId, knownRemoteLastEditedAt)
+    suspend fun prefetchNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null): Result<ReaderDocument> {
+        val result = loadDocument(pageId, knownRemoteLastEditedAt)
+        updateCacheStats()
+        return result
+    }
 
     // --- Saved Queues -------------------------------------------------------------------------------
 

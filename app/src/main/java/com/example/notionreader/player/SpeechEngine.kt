@@ -1,5 +1,10 @@
 package com.example.notionreader.player
 
+data class SpeechEngineInfo(
+    val packageName: String,
+    val label: String
+)
+
 /**
  * Abstraction over text-to-speech.
  *
@@ -28,4 +33,13 @@ interface SpeechEngine {
 
     /** Sets the speech pitch factor (e.g. 1.0f for normal, 0.8f for low, 1.2f for high). */
     fun setPitch(pitch: Float) {}
+
+    /** Returns all installed TTS engines discovered on the platform. */
+    fun getAvailableEngines(): List<SpeechEngineInfo> = emptyList()
+
+    /**
+     * Switches the active TTS engine by package name.
+     * Null indicates the system-default engine.
+     */
+    fun setEngine(packageName: String?) {}
 }
