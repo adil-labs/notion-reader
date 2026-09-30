@@ -3,6 +3,8 @@ package com.example.notionreader.data.notion
 import com.example.notionreader.data.content.BlockChildrenSource
 import com.example.notionreader.data.content.NotionBlockNormalizer
 import com.example.notionreader.data.content.ReaderDocumentMapper
+import com.example.notionreader.data.document.RemoteDocumentMetadata
+import com.example.notionreader.data.document.RemoteDocumentSource
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderIndexEntry
@@ -26,7 +28,20 @@ class NotionRepository(
     private val api: NotionApi,
     private val normalizer: NotionBlockNormalizer = NotionBlockNormalizer(),
     private val mapper: ReaderDocumentMapper = ReaderDocumentMapper()
-) {
+) : RemoteDocumentSource {
+
+    /**
+     * Resolves lightweight page metadata without fetching child blocks.
+     */
+    override suspend fun getMetadata(pageReference: String): RemoteDocumentMetadata {
+        val page = resolvePage(pageReference)
+        return RemoteDocumentMetadata(
+            pageId = page.id.ifBlank { pageReference },
+            title = page.title().ifBlank { "Untitled" },
+            lastEditedAt = page.lastEditedTime.toInstantOrNull(),
+            isTrashed = page.isTrashed
+        )
+    }
 
     /**
      * Loads a page as a readable document.
@@ -38,7 +53,7 @@ class NotionRepository(
      * The referenced value is never echoed back in an error message or diagnostic, because a mistyped
      * token would otherwise be shown and logged.
      */
-    suspend fun getDocument(pageReference: String = ""): ReaderDocument {
+    override suspend fun getDocument(pageReference: String): ReaderDocument {
         val page = resolvePage(pageReference)
 
         if (page.isTrashed) {
@@ -80,7 +95,7 @@ class NotionRepository(
         return document
     }
 
-    fun close() = api.close()
+    override fun close() = api.close()
 
     /**
      * Every page the integration can see, as Browse entries.

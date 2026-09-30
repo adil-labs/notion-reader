@@ -92,6 +92,10 @@ android {
         // If process deaths return, reinstate `execution = "ANDROIDX_TEST_ORCHESTRATOR"` (and the
         // `androidTestUtil` dependency below) rather than widening a timeout - §23.31 is what widening
         // a timeout instead of asking the question costs.
+
+        unitTests.all {
+            it.maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+        }
     }
 }
 

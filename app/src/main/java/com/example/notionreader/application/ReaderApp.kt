@@ -15,6 +15,7 @@ import com.example.notionreader.domain.queue.SmartQueue
 import com.example.notionreader.domain.queue.SmartQueueStore
 import com.example.notionreader.domain.queue.SmartQueues
 import com.example.notionreader.domain.queue.applyTo
+import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.session.ListeningHistory
 import com.example.notionreader.domain.session.SessionStore
@@ -596,6 +597,12 @@ class ReaderApp(
 
     /** Loads a Note for inspection. Never affects what is being read aloud. See [NoteViewer]. */
     suspend fun loadNote(pageId: String, loader: LoadReaderDocument) = noteViewer.load(pageId, loader)
+
+    /**
+     * Prefetches a Note into cache if a loader is configured.
+     * Non-destructive and safe for background execution.
+     */
+    suspend fun prefetchNote(pageId: String): Result<ReaderDocument> = loadDocument(pageId)
 
     // --- Saved Queues -------------------------------------------------------------------------------
 

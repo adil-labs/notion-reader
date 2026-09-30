@@ -6,7 +6,8 @@ experience. It behaves like an audio/document player rather than a Notion editor
 Implemented so far: reader state and navigation, reader engine, Android TTS speech engine, the Note
 and Player screens, Notion API/repository, **automatic section progression** (continuous hands-free
 reading), a typed load-error taxonomy, block-derived stable identities proven to survive edits,
-**Saved and Smart Queues**, **section outline and granular part controls**, and **audio lifecycle hardening**.
+**Saved and Smart Queues**, **section outline and granular part controls**, **audio lifecycle hardening**,
+**stale-while-revalidate document caching & offline playback**, and **adaptive Player navigation stepping**.
 
 ## Reading behaviour
 
@@ -64,8 +65,10 @@ interchangeable:
 - **Note** — manual reading and inspection. Renders the whole document in reading order; opening it
   never starts playback and moving focus through it never changes playback progress.
 - **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
-  queue position, and the contract's primary control set: Previous section / Play-Pause /
-  Next section / **Queue**. Secondary controls are accessible via **More playback controls** (Restart note,
+  queue position, and adaptive primary controls: Previous / prominent center Play-Pause / Next, governed by a
+  dynamic **Step granularity selector** (Section, Part, or Note), with polite TalkBack announcements and
+  the **Queue** snapshot button. The bottom navigation bar is hidden on this screen to ensure an uncluttered,
+  immersive listening interface. Secondary controls are accessible via **More playback controls** (Restart note,
   Previous part, Next part) and **Sections** outline. Back returns to the previous screen while playback continues.
 - **Active Queue** — the Player's `Queue` control opens a read-only view of the session's frozen
   snapshot: every Note, in order, with the current one marked. Selecting a row moves the session to that

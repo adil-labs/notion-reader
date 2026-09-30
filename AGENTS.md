@@ -168,6 +168,23 @@ pwsh -File tools/run-accessibility-tests.ps1
 pwsh -File tools/run-accessibility-tests.ps1 -Class com.example.notionreader.ui.PlayerScreenAccessibilityTest
 ```
 
+### Testing speed and efficiency strategy (docs/decisions.md §24 & §25)
+
+The instrumented suite is ~3,000× more expensive per test than the JVM suite (~4,700 ms vs ~1.5 ms per test). To keep development fast, reliable, and respectful of machine resources, follow these rules:
+
+1. **Default to the cheap JVM suite for your inner loop:**
+   `.\gradlew.bat :app:testDebugUnitTest` runs 560+ tests in ~2 seconds across parallel forks (`maxParallelForks`). Run this on every iteration.
+2. **Never run the full instrumented suite while iterating:**
+   Always target the specific affected class using `-Class` (e.g. `-Class com.example.notionreader.ui.PlayerScreenAccessibilityTest`). A single class finishes in **20–30 seconds**, compared to 10–15 minutes for the entire suite.
+3. **Guard against emulator aging (§25):**
+   The emulator's `android.hardware.graphics.composer3-service.ranchu` driver accumulates guest CPU load over extended sessions (load average climbing from 0.06 to 10+). This degrades per-test execution from 1.0s to 4.7s. Before a full instrumented suite run, restart the emulator cleanly:
+   ```powershell
+   pwsh -NoProfile -File tools/setup-emulator.ps1 -Stop
+   pwsh -NoProfile -File tools/setup-emulator.ps1
+   ```
+4. **Pure Compose UI tests belong on the JVM with Robolectric (§24.2):**
+   Compose UI semantics tests (`compose.setContent { ... }` with in-memory doubles) do not require real hardware sensors or Android kernel drivers. Moving pure UI tests to Robolectric drops per-test execution from 4,700 ms to ~50–100 ms on the JVM. Reserve device instrumentation for true platform integrations (MediaSession, Background Audio Service, and device life-cycle).
+
 The wrapper owns device preparation, completeness checks, harness classification, retries, and the final verdict. A partial run is never a pass.
 
 For flaky/racy behavior, **one green run is not proof of a fix**. Re-run enough to test the hypothesis and report the observed ratio honestly.

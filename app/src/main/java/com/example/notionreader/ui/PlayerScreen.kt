@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
@@ -72,6 +73,24 @@ import com.example.notionreader.player.ReaderState
  * - Controls that cannot do anything are disabled rather than silently inert.
  * - Nothing is force-focused, so TalkBack and the document TTS engine do not talk over each other.
  */
+
+/**
+ * Navigation granularity for the Player's adaptive stepping controls.
+ *
+ * The listener can choose to step by Section, by Part, or by Note in a multi-note queue.
+ */
+enum class NavigationGranularity(val label: String, val spokenLabel: String) {
+    SECTION("Section", "Stepping by section"),
+    PART("Part", "Stepping by part"),
+    NOTE("Note", "Stepping by note");
+
+    fun next(hasMultipleNotes: Boolean): NavigationGranularity = when (this) {
+        SECTION -> PART
+        PART -> if (hasMultipleNotes) NOTE else SECTION
+        NOTE -> SECTION
+    }
+}
+
 @Composable
 fun PlayerScreen(
     state: ReaderState,
@@ -100,6 +119,10 @@ fun PlayerScreen(
     var showQueue by rememberSaveable { mutableStateOf(false) }
     var showSections by rememberSaveable { mutableStateOf(false) }
     var showMoreControls by rememberSaveable { mutableStateOf(false) }
+    val defaultGranularity = if (queueState.size > 1) NavigationGranularity.NOTE else NavigationGranularity.SECTION
+    var userGranularity by rememberSaveable { mutableStateOf<NavigationGranularity?>(null) }
+    val granularity = userGranularity ?: defaultGranularity
+    var stepAnnouncement by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Reading is hands-free, so the display must not time out mid-paragraph. It is only held awake
     // while playing, so a paused reader still lets the device sleep. (A background playback service is
@@ -185,11 +208,16 @@ fun PlayerScreen(
                 onRetry = onRetryQueueNote
             )
         } else if (queueState.awaiting) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp)
+            )
             Text(
                 text = "Loading…",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier
-                    .padding(top = 16.dp)
+                    .padding(top = 8.dp)
                     .semantics { liveRegion = LiveRegionMode.Polite }
             )
         } else {
@@ -249,6 +277,42 @@ fun PlayerScreen(
             Spacer(modifier = Modifier.weight(1f))
         }
 
+        val (prevText, prevCommand, prevEnabled) = when (granularity) {
+            NavigationGranularity.SECTION -> Triple(
+                "Previous section",
+                PlayerCommand.PreviousSection,
+                availability.canMoveToPreviousSection
+            )
+            NavigationGranularity.PART -> Triple(
+                "Previous part",
+                PlayerCommand.PreviousPart,
+                availability.canMoveToPreviousPart
+            )
+            NavigationGranularity.NOTE -> Triple(
+                "Previous note",
+                PlayerCommand.PreviousNote,
+                availability.canMoveToPreviousNote
+            )
+        }
+
+        val (nextText, nextCommand, nextEnabled) = when (granularity) {
+            NavigationGranularity.SECTION -> Triple(
+                "Next section",
+                PlayerCommand.NextSection,
+                availability.canMoveToNextSection
+            )
+            NavigationGranularity.PART -> Triple(
+                "Next part",
+                PlayerCommand.NextPart,
+                availability.canMoveToNextPart
+            )
+            NavigationGranularity.NOTE -> Triple(
+                "Next note",
+                PlayerCommand.NextNote,
+                availability.canMoveToNextNote
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -257,11 +321,11 @@ fun PlayerScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Button(
-                onClick = { onCommand(PlayerCommand.PreviousSection, null) },
-                enabled = availability.canMoveToPreviousSection,
+                onClick = { onCommand(prevCommand, null) },
+                enabled = prevEnabled,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Previous section")
+                Text(prevText)
             }
 
             Button(
@@ -277,11 +341,11 @@ fun PlayerScreen(
             }
 
             Button(
-                onClick = { onCommand(PlayerCommand.NextSection, null) },
-                enabled = availability.canMoveToNextSection,
+                onClick = { onCommand(nextCommand, null) },
+                enabled = nextEnabled,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Next section")
+                Text(nextText)
             }
         }
 
@@ -292,20 +356,15 @@ fun PlayerScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (queueState.size > 1) {
-                Button(
-                    onClick = { onCommand(PlayerCommand.PreviousNote, null) },
-                    // Enabled while the queue is *stalled*, deliberately. A Note that will not load leaves
-                    // the session waiting with Retry as its only offer, and if moving on were also
-                    // forbidden the rest of the queue would be unreachable — one missing page would cost
-                    // the listener every Note after it. The spec's "it is never skipped" is about the app
-                    // never advancing past a failed Note on its own; this is a listener pressing a control
-                    // that says what it does, on a queue whose membership has not changed.
-                    enabled = availability.canMoveToPreviousNote,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Previous note")
-                }
+            Button(
+                onClick = {
+                    val nextMode = granularity.next(queueState.size > 1)
+                    userGranularity = nextMode
+                    stepAnnouncement = nextMode.spokenLabel
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Step: ${granularity.label}")
             }
 
             Button(
@@ -318,16 +377,16 @@ fun PlayerScreen(
             ) {
                 Text("Queue")
             }
+        }
 
-            if (queueState.size > 1) {
-                Button(
-                    onClick = { onCommand(PlayerCommand.NextNote, null) },
-                    enabled = availability.canMoveToNextNote,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Next note")
-                }
-            }
+        if (stepAnnouncement != null) {
+            Text(
+                text = stepAnnouncement ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
         }
 
         Row(

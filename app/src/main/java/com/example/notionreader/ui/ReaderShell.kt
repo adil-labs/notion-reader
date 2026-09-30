@@ -315,26 +315,30 @@ fun ReaderShell(
         // Only the top-level destinations are tabs. The Note and the Player are reached from them, which
         // is the UI contract's "the Player is not a fifth bottom-navigation destination" and "the Note
         // screen is not a top-level destination".
-        NavigationBar {
-            NavigationBarItem(
-                selected = navigation.top == ReaderDestination.Home,
-                onClick = { app.openHome() },
-                icon = {},
-                // Labels carry the accessible name, so no item is an unlabelled button.
-                label = { Text("Home") }
-            )
-            NavigationBarItem(
-                selected = navigation.top == ReaderDestination.Browse,
-                onClick = { app.openBrowse() },
-                icon = {},
-                label = { Text("Browse") }
-            )
-            NavigationBarItem(
-                selected = navigation.top == ReaderDestination.Queues,
-                onClick = { app.openQueues() },
-                icon = {},
-                label = { Text("Queues") }
-            )
+        //
+        // On PlayerScreen, the navigation bar is hidden to provide an uncluttered full-screen listening surface.
+        if (current != ReaderDestination.Player) {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = navigation.top == ReaderDestination.Home,
+                    onClick = { app.openHome() },
+                    icon = {},
+                    // Labels carry the accessible name, so no item is an unlabelled button.
+                    label = { Text("Home") }
+                )
+                NavigationBarItem(
+                    selected = navigation.top == ReaderDestination.Browse,
+                    onClick = { app.openBrowse() },
+                    icon = {},
+                    label = { Text("Browse") }
+                )
+                NavigationBarItem(
+                    selected = navigation.top == ReaderDestination.Queues,
+                    onClick = { app.openQueues() },
+                    icon = {},
+                    label = { Text("Queues") }
+                )
+            }
         }
     }
 }

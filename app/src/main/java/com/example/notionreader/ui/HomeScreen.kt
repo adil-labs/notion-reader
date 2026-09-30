@@ -203,6 +203,7 @@ private fun ContinueListeningEntry(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable(onClick = onContinue)
                 // One focus stop for the session, as with a Browse result row.
                 .semantics(mergeDescendants = true) {}
         ) {

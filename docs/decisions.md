@@ -6251,5 +6251,67 @@ In Viewing mode on `SavedQueueDetailsScreen`:
   - Added `-Device` argument support to `tools/run-accessibility-tests.ps1`.
   - All 4 wrapper self-checks (`check-wrapper-completeness.ps1`, `check-classifier-on-real-output.ps1`, `check-empty-failure-is-classified.ps1`, `check-harness-signatures.ps1`) pass cleanly.
 
+---
+
+## 29. Stale-While-Revalidate Document Cache, Offline Playback, Player Adaptive Stepping & UI/UX Refinements
+
+**Date:** 2026-09-30
+**Scope:** Document caching engine, offline listening resilience, suppression of random/stale text during note fetches, Player navigation granularity step mode, bottom tab bar refinements, mini-player touch partitioning, and home screen resume elevation.
+
+### 29.1 Architecture & Storage Engine: Pure Kotlin Atomic File Cache
+
+- **No Heavy Native NoSQL/SQL Dependencies:**
+  - Evaluated Room/SQLite, Realm, and ObjectBox against requirements.
+  - Traditional embedded databases introduce 15–25 MB native `.so` binaries, ABI splits, schema migration maintenance, and threading confinement issues for documents that are inherently tree-structured snapshots.
+  - Chosen design: pure Kotlin atomic file-per-document store in `context.filesDir/document-cache`.
+  - Crash safety: writes staged to `.tmp` files, synced to disk, and committed atomically via filesystem rename (`renameTo`).
+  - Serialization: pure `kotlinx.serialization` JSON codec (`ReaderDocumentCodec`) storing `CachedDocument` with `schemaVersion = 1`, `lastEditedAt`, and `cachedAt`.
+  - Cache size policy: LRU eviction cap of 200 documents in `FileDocumentCache`.
+
+### 29.2 Stale-While-Revalidate Algorithm & Offline Resumption
+
+- **Split Remote Source & Fast Metadata Query:**
+  - Decoupled `RemoteDocumentSource` into `getMetadata(reference)` (fetches Notion page metadata without downloading block children) and `getDocument(reference)` (fetches full page and blocks).
+  - Implemented in `NotionRepository` via `resolvePage()`.
+- **CachedDocumentRepository:**
+  - **Cache Hit (0ms / minimal network):** Checks local cache by normalized page UUID; fetches remote metadata; if `cached.lastEditedAt == remote.lastEditedAt`, returns cached document immediately without downloading block children.
+  - **Cache Stale / Miss:** If remote metadata has a newer timestamp or page is not in cache, downloads full document and atomically commits it to cache.
+  - **Offline Playback & Fallback:** If network is unavailable (`ReaderErrorCategory.NETWORK_UNAVAILABLE`), falls back to local cached copy with `DocumentFreshness.STALE_OFFLINE`. Hands-free spoken reading continues uninterrupted offline.
+  - **Permission / Deletion Invalidation:** On permission errors (`PAGE_NOT_FOUND`, `AUTHORIZATION_REQUIRED`, or trashed page), invalidates cache to prevent serving unauthorized or deleted content.
+  - **Active Queue Opportunistic Prefetching:** `ReaderHost.startQueuePrefetch()` watches `session.queueState` and silently prefetches the next 1–2 queued notes into the local cache in the background.
+
+### 29.3 UI/UX Refinements & User-Facing Polish
+
+- **Suppression of Stale / Random Text During Note Fetches:**
+  - In `NoteScreen.kt`, suppressed chunk rendering during `DocumentLoadState.Loading` and added a `LinearProgressIndicator` above `"Loading Notes…"`. Prevents previous note paragraphs from flashing or being read while fetching a new note.
+  - In `PlayerScreen.kt`, added `LinearProgressIndicator` during `queueState.awaiting` and ensured no stale paragraph text is rendered while transitioning notes.
+- **Player Adaptive Navigation Granularity Stepping:**
+  - Added `NavigationGranularity { SECTION, PART, NOTE }` enum with adaptive step cycling (`SECTION` $\leftrightarrow$ `PART` in single-note queues; `SECTION` $\to$ `PART` $\to$ `NOTE` in multi-note queues).
+  - Prominent center `Play | Pause` button in the primary transport row.
+  - Unified `Previous` and `Next` buttons that dynamically execute the active step granularity (`PreviousSection`/`NextSection`, `PreviousPart`/`NextPart`, `PreviousNote`/`NextNote`).
+  - Polite TalkBack live-region feedback on mode switch (*"Stepping by section"*, *"Stepping by part"*, *"Stepping by note"*).
+  - Preserved backward compatibility with all existing accessibility assertions in `PlayerScreenAccessibilityTest` and `PlayerQueueViewAccessibilityTest`.
+- **Bottom Navigation Bar & Mini-Player Polish:**
+  - Bottom navigation bar is hidden on `PlayerScreen` for immersive full-screen playback.
+  - Mini-player wrapped in Material 3 tonal elevation with click partitioning between open player and 48dp Play/Pause touch target.
+  - Home Screen `ContinueListeningCard` details column is directly clickable for instant resumption.
+
+### 29.4 Verification Evidence
+
+- **JVM Unit Tests:**
+  - All 570+ JVM tests pass (`:app:testDebugUnitTest`).
+  - `ReaderDocumentCodecTest`: 4 tests (round-trip serialization, empty document, corrupt JSON, schema mismatch).
+  - `FileDocumentCacheTest`: 7 tests (put, get, remove, clear, atomic overwrite, LRU eviction cap).
+  - `CachedDocumentRepositoryTest`: 8 tests (fresh hit, stale revalidation, offline fallback, uncached failure, trashed invalidation).
+  - `LayerRulesTest`: 0 violations.
+- **Instrumented Accessibility Suite (Emulator):**
+  - `PlayerScreenAccessibilityTest`: 17/17 passing (100%).
+  - `NoteScreenAccessibilityTest`: 17/17 passing (100%).
+  - `PlayerQueueViewAccessibilityTest`: 17/17 passing (100%).
+  - `HomeScreenAccessibilityTest`: 14/14 passing (100%).
+- **Build Verification:**
+  - `:app:compileDebugAndroidTestKotlin`: Clean.
+  - `:app:assembleDebug`: Clean.
+
 
 

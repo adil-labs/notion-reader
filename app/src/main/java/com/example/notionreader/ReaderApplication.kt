@@ -8,12 +8,16 @@ import com.example.notionreader.application.NoteViewer
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderNavigator
 import com.example.notionreader.application.ReaderSession
+import com.example.notionreader.data.document.CachedDocumentRepository
+import com.example.notionreader.data.document.DocumentCache
 import com.example.notionreader.data.local.DataStoreSavedQueueStore
 import com.example.notionreader.data.local.DataStoreSessionStore
 import com.example.notionreader.data.local.DataStoreSmartQueueStore
+import com.example.notionreader.data.local.FileDocumentCache
 import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.domain.ReaderDocument
+import java.io.File
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.platform.AndroidSpeechEngine
 import com.example.notionreader.player.ReaderEngineImpl
@@ -54,6 +58,10 @@ class ReaderApplication : Application() {
      * TextToSpeech engine or a DataStore file. The first surface that reads it pays for it, and every later
      * one shares the same object — which is the point.
      */
+    val documentCache: DocumentCache by lazy {
+        FileDocumentCache(File(filesDir, "document-cache"))
+    }
+
     val host: ReaderHost by lazy { buildHost() }
 
     private fun buildHost(): ReaderHost {
@@ -95,6 +103,7 @@ class ReaderApplication : Application() {
         ).also { built ->
             host = built
             built.start()
+            built.startQueuePrefetch()
         }
     }
 
@@ -106,11 +115,15 @@ class ReaderApplication : Application() {
      * than once per screen.
      */
     private fun notionLoader(): LoadReaderDocument = DefaultLoadReaderDocument { reference ->
-        val repository = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
+        val remoteSource = NotionRepository(KtorNotionApi(BuildConfig.NOTION_TOKEN))
+        val cachedRepository = CachedDocumentRepository(
+            remote = remoteSource,
+            cache = documentCache
+        )
         try {
-            repository.getDocument(reference)
+            cachedRepository.getDocument(reference)
         } finally {
-            repository.close()
+            remoteSource.close()
         }
     }
 

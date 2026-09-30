@@ -130,6 +130,31 @@ class ReaderHost(
     }
 
     /**
+     * Opportunistically prefetches upcoming Notes in the active queue into the document cache.
+     *
+     * Kept separate from [start] so unit tests that isolate queue feeds do not trigger background fetches.
+     */
+    fun startQueuePrefetch() {
+        scope.launch {
+            app.session.queueState
+                .map { state -> Pair(state.items, state.index) }
+                .distinctUntilChanged()
+                .collect { (items, currentIndex) ->
+                    if (items.isNotEmpty() && currentIndex >= 0) {
+                        val upcoming = items.drop(currentIndex + 1).take(2)
+                        for (queuedNote in upcoming) {
+                            try {
+                                app.prefetchNote(queuedNote.pageId)
+                            } catch (_: Exception) {
+                                // Prefetch failure is non-fatal and silent
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
+    /**
      * Ends the session and the scope.
      *
      * Called only when the process is going away, which is why nothing routine calls it: the point of this

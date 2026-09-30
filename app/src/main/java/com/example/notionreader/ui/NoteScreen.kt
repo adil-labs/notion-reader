@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -135,11 +136,13 @@ fun NoteScreen(
                 }
             }
 
-            for (section in document.sections) {
-                // Chunk ids are `sourceBlockId:part` (D7), so they are unique across the whole
-                // document and safe to use as list keys.
-                items(items = section.chunks, key = { it.id }) { chunk ->
-                    ChunkItem(chunk)
+            if (loadState !is DocumentLoadState.Loading) {
+                for (section in document.sections) {
+                    // Chunk ids are `sourceBlockId:part` (D7), so they are unique across the whole
+                    // document and safe to use as list keys.
+                    items(items = section.chunks, key = { it.id }) { chunk ->
+                        ChunkItem(chunk)
+                    }
                 }
             }
         }
@@ -194,11 +197,16 @@ fun NoteScreen(
 @Composable
 private fun LoadStateNotice(loadState: DocumentLoadState, onRetry: () -> Unit) {
     when (loadState) {
-        DocumentLoadState.Loading -> Text(
-            text = "Loading Notes…",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-        )
+        DocumentLoadState.Loading -> Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                text = "Loading Notes…",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
 
         is DocumentLoadState.Error -> Column(
             verticalArrangement = Arrangement.spacedBy(8.dp)

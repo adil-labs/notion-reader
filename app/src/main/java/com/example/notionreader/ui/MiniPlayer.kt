@@ -64,42 +64,49 @@ fun MiniPlayer(
     onPlayPause: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    androidx.compose.material3.Surface(
         modifier = modifier
             .fillMaxWidth()
-            .semantics { isTraversalGroup = true }
+            .semantics { isTraversalGroup = true },
+        tonalElevation = 3.dp,
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        HorizontalDivider()
+        Column(modifier = Modifier.fillMaxWidth()) {
+            HorizontalDivider()
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onOpenPlayer)
-                    .semantics(mergeDescendants = true) {},
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = session.title,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = onOpenPlayer)
+                        .semantics(mergeDescendants = true) {},
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = session.title,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
 
-                val detail = listOfNotNull(session.queuePosition, session.stateDescription)
-                    .joinToString(" · ")
-                Text(
-                    text = detail,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
+                    val detail = listOfNotNull(session.queuePosition, session.stateDescription)
+                        .joinToString(" · ")
+                    Text(
+                        text = detail,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
 
-            TextButton(onClick = onPlayPause) {
-                Text(if (session.isPlaying) "Pause" else "Play")
+                TextButton(
+                    onClick = onPlayPause,
+                    modifier = Modifier.padding(start = 4.dp)
+                ) {
+                    Text(if (session.isPlaying) "Pause" else "Play")
+                }
             }
         }
     }
