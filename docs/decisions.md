@@ -6483,6 +6483,26 @@ As features grew across Home, Browse, Player, and Queues, multiple surfaces accu
   - `:app:compileDebugAndroidTestKotlin`: Clean.
   - `:app:assembleDebug`: Clean.
 
+### 32.4 Live Setting Propagation & End-to-End Dynamic Wiring
+
+1. **Active Host Observer:**
+   - In `ReaderHost.kt`, added `observeSettings()` loop launched in host scope that observes `settingsRepo.settings` continuously and immediately invokes `app.applySettings(settings)`. Any preference change is immediately reflected in `ReaderSession` (`continueToNextNote`, `pauseBetweenNotesMs`, `announcementVerbosity`) and `AndroidSpeechEngine` (`setSpeechRate`, `setPitch`).
+
+2. **System TTS Launcher:**
+   - In `SettingsSubpages.kt` (`SettingsSpeechScreen`), added an accessible launcher button allowing direct navigation to Android system Text-To-Speech settings (`com.android.settings.TTS_SETTINGS` with fallback to `Settings.ACTION_SETTINGS`).
+
+3. **Playback Controls Gating:**
+   - In `SettingsSubpages.kt` (`SettingsPlaybackScreen`), added the `Keep screen awake while playing` toggle directly into Playback settings alongside default unit, auto-advance, and note pause duration.
+   - Gated `ReaderHost.startQueuePrefetch()` so queue prefetching is bypassed when `prefetchUpcomingNotes` is disabled.
+
+4. **Appearance & Note Document Customization:**
+   - In `MainActivity.kt`, dynamically applied `appTheme` (System default, Light, Dark) to root `MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme())`.
+   - In `NoteScreen.kt` and `ReaderShell.kt`, applied `readerSpacing` dynamically to the note body `LazyColumn` item spacing (Compact = 8dp, Comfortable = 16dp, Spacious = 24dp).
+
+5. **Offline Storage Customization:**
+   - In `CachedDocumentRepository.kt`, wired `cacheNotesForOffline` via `isCachingEnabled: () -> Boolean`, bypassing cache writes when offline caching is disabled. Added unit test `whenCachingIsDisabledNewDocumentsAreNotWrittenToCache()`.
+
+
 
 
 

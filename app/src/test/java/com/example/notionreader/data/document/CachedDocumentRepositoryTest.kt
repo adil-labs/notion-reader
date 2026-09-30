@@ -213,6 +213,32 @@ class CachedDocumentRepositoryTest {
     }
 
     @Test
+    fun whenCachingIsDisabledNewDocumentsAreNotWrittenToCache() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource().apply {
+            metadata = RemoteDocumentMetadata(
+                pageId = docV1.pageId,
+                title = docV1.title,
+                lastEditedAt = v1Time,
+                isTrashed = false
+            )
+            document = docV1
+        }
+        val fakeCache = FakeDocumentCache()
+
+        val repository = CachedDocumentRepository(
+            remote = fakeRemote,
+            cache = fakeCache,
+            clock = fixedClock,
+            isCachingEnabled = { false }
+        )
+        val load = repository.loadDocument(docV1.pageId)
+
+        assertEquals(DocumentSource.REMOTE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        assertNull(fakeCache.get(docV1.pageId))
+    }
+
+    @Test
     fun blankReferenceOfflineFallsBackToMostRecentCachedNote() = runBlocking {
         val fakeRemote = FakeRemoteDocumentSource().apply {
             throwOnMetadata = ReaderLoadException(

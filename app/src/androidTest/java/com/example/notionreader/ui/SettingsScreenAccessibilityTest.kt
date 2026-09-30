@@ -111,8 +111,10 @@ class SettingsScreenAccessibilityTest {
         }
 
         compose.onNode(hasPaneTitle("Playback settings")).assertExists()
-        // Switch for Continue to next Note
+        // Switches for Continue to next Note and Keep screen awake
         val switchMatcher = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch)
-        compose.onNode(switchMatcher).assertIsReachable()
+        compose.onAllNodes(switchMatcher).assertCountEquals(2)
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Continue to next Note", substring = true) and switchMatcher).assertIsReachable()
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Keep screen awake while playing", substring = true) and switchMatcher).assertIsReachable()
     }
 }

@@ -92,8 +92,15 @@ fun NoteScreen(
      * focus again rather than the screen starting at its top.
      */
     focusTarget: String? = null,
-    onFocusHandled: () -> Unit = {}
+    onFocusHandled: () -> Unit = {},
+    spacing: com.example.notionreader.domain.settings.ReaderSpacing = com.example.notionreader.domain.settings.ReaderSpacing.COMFORTABLE
 ) {
+    val paragraphSpacing = when (spacing) {
+        com.example.notionreader.domain.settings.ReaderSpacing.COMPACT -> 8.dp
+        com.example.notionreader.domain.settings.ReaderSpacing.COMFORTABLE -> 16.dp
+        com.example.notionreader.domain.settings.ReaderSpacing.SPACIOUS -> 24.dp
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -106,7 +113,7 @@ fun NoteScreen(
                 .fillMaxWidth()
                 .weight(1f),
             contentPadding = PaddingValues(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(paragraphSpacing)
         ) {
             item(key = "note-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

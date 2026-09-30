@@ -22,6 +22,7 @@ import com.example.notionreader.data.notion.NotionTokenProvider
 import com.example.notionreader.domain.ReaderDocument
 import java.io.File
 import com.example.notionreader.domain.ReaderIndexEntry
+import com.example.notionreader.domain.settings.SettingsRepository
 import com.example.notionreader.platform.AndroidSpeechEngine
 import com.example.notionreader.player.ReaderEngineImpl
 import kotlinx.coroutines.CoroutineScope
@@ -108,7 +109,7 @@ class ReaderApplication : Application() {
             ),
             noteViewer = NoteViewer(ReaderDocument.Demo),
             navigator = ReaderNavigator(),
-            loadDocument = notionLoader(),
+            loadDocument = notionLoader(settingsRepository),
             sessionStore = sessionStore,
             savedQueueStore = savedQueueStore,
             smartQueueStore = smartQueueStore,
@@ -137,12 +138,13 @@ class ReaderApplication : Application() {
      * bug that only appears on the failure path, and this is called once per Note in a multi-Note queue rather
      * than once per screen.
      */
-    private fun notionLoader(): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt ->
+    private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt ->
         val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
         val remoteSource = NotionRepository(KtorNotionApi(token))
         val cachedRepository = CachedDocumentRepository(
             remote = remoteSource,
-            cache = documentCache
+            cache = documentCache,
+            isCachingEnabled = { settingsRepo.settings.value.cacheNotesForOffline }
         )
         try {
             cachedRepository.getDocument(reference, knownRemoteLastEditedAt)

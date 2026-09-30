@@ -16,7 +16,8 @@ import java.time.Instant
 class CachedDocumentRepository(
     private val remote: RemoteDocumentSource,
     private val cache: DocumentCache,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val isCachingEnabled: () -> Boolean = { true }
 ) {
 
     /**
@@ -94,13 +95,15 @@ class CachedDocumentRepository(
             throw e
         }
 
-        cache.put(
-            CachedDocument(
-                document = fresh,
-                remoteLastEditedAt = metadata.lastEditedAt,
-                cachedAt = clock.instant()
+        if (isCachingEnabled()) {
+            cache.put(
+                CachedDocument(
+                    document = fresh,
+                    remoteLastEditedAt = metadata.lastEditedAt,
+                    cachedAt = clock.instant()
+                )
             )
-        )
+        }
 
         return DocumentLoad(fresh, DocumentSource.REMOTE, DocumentFreshness.FRESH)
     }

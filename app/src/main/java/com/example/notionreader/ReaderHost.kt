@@ -104,6 +104,13 @@ class ReaderHost(
         recordResumeQuality()
         readSavedQueues()
         readSmartQueues()
+        observeSettings()
+    }
+
+    private fun observeSettings() = scope.launch {
+        app.settingsRepo.settings.collect { settings ->
+            app.applySettings(settings)
+        }
     }
 
     private fun readSmartQueues(): Job = scope.launch {
@@ -141,6 +148,7 @@ class ReaderHost(
                 .map { state -> Pair(state.items, state.index) }
                 .distinctUntilChanged()
                 .collect { (items, currentIndex) ->
+                    if (!app.settingsRepo.settings.value.prefetchUpcomingNotes) return@collect
                     if (items.isNotEmpty() && currentIndex >= 0) {
                         val upcoming = items.drop(currentIndex + 1).take(2)
                         for (queuedNote in upcoming) {

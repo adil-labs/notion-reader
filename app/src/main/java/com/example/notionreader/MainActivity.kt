@@ -87,7 +87,17 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionOnFirstPlayback(app)
 
         setContent {
-            MaterialTheme {
+            val settings by app.settings.collectAsState()
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val darkTheme = when (settings.appTheme) {
+                com.example.notionreader.domain.settings.AppTheme.SYSTEM_DEFAULT -> systemDark
+                com.example.notionreader.domain.settings.AppTheme.LIGHT -> false
+                com.example.notionreader.domain.settings.AppTheme.DARK -> true
+            }
+
+            MaterialTheme(
+                colorScheme = if (darkTheme) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
+            ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val speech by model.speechMessage.collectAsState()
 

@@ -295,7 +295,8 @@ fun ReaderShell(
                         onAddToQueue = onAddNoteToQueue,
                         statusMessage = speechMessage,
                         focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
+                        onFocusHandled = app::focusHandled,
+                        spacing = settings.readerSpacing
                     )
 
                     ReaderDestination.Player -> PlayerScreen(

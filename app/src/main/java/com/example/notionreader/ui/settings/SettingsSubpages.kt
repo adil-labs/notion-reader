@@ -228,6 +228,14 @@ fun SettingsPlaybackScreen(
                 }
             }
         }
+
+        // Preference: Keep screen awake while playing
+        SettingsToggleCard(
+            title = "Keep screen awake while playing",
+            subtitle = "Prevents the device display from sleeping during active playback.",
+            checked = settings.keepScreenAwake,
+            onCheckedChange = { checked -> onUpdate { it.copy(keepScreenAwake = checked) } }
+        )
     }
 }
 
@@ -261,6 +269,26 @@ fun SettingsSpeechScreen(
             checked = settings.useSystemSpeechSettings,
             onCheckedChange = { checked -> onUpdate { it.copy(useSystemSpeechSettings = checked) } }
         )
+
+        // System TTS Launcher
+        OutlinedButton(
+            onClick = {
+                try {
+                    context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS").apply {
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                } catch (_: Exception) {
+                    try {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        })
+                    } catch (_: Exception) { }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Open Android Text-to-Speech settings")
+        }
 
         // Speech rate
         Card(
