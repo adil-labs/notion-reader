@@ -30,4 +30,11 @@ interface DocumentCache {
 
     /** Real cache statistics: document count and total byte size. */
     suspend fun stats(): DocumentCacheStats = DocumentCacheStats(noteCount = count())
+
+    /**
+     * Prunes cached notes older than [maxAgeMillis] based on their last-edited or validation timestamp.
+     * [preservePageIds] are protected from eviction (e.g. active playback note and queued notes).
+     * Returns the count of deleted files.
+     */
+    suspend fun pruneOlderThan(maxAgeMillis: Long, preservePageIds: Set<String> = emptySet()): Int = 0
 }

@@ -6802,5 +6802,54 @@ A comprehensive review of head `5cee4fb7` identified two high/medium priority ca
 3. **Debug APK Build (`:app:assembleDebug`):**
    - Clean assembly.
 
+## 38. Configurable Time-Window and Note-Count Auto-Caching with Background Pacing and Retention Pruning
+
+### 38.1 Context and Problem
+
+Following the initial auto-caching implementation, users needed fine-grained control over how notes are proactively downloaded and retained for offline listening:
+1. **Flexible Scope (Time Window vs. Count):**
+   Users with high-velocity workspaces prefer caching by time window (e.g., all notes edited in the last 7, 15, or 30 days), while users on limited storage or metered connections prefer caching a strict top count (e.g., 5, 10, 20, or 50 notes), or turning off background prefetching altogether.
+2. **Notion API Rate-Limit Compliance in Background:**
+   Background caching must run politely across app foreground usage and background media playback without bursting requests or causing HTTP 429 `RATE_LIMITED` responses.
+3. **Automated Retention Maintenance with Queue Protection:**
+   Notes falling outside the selected time window should be pruned to keep storage bounded, but notes in the `ActiveQueue` or currently being played must be strictly protected from eviction.
+
+### 38.2 Architectural Invariants and Implementation
+
+1. **Domain Settings Enums (`ReaderSettings`):**
+   - `AutoCacheMode`: `OFF`, `TIME_WINDOW`, `NOTE_COUNT`.
+   - `AutoCacheTimeWindow`: `DAYS_7` (7 days), `DAYS_15` (15 days), `DAYS_30` (30 days).
+   - `AutoCacheNoteCount`: `COUNT_5` (5 notes), `COUNT_10` (10 notes), `COUNT_20` (20 notes), `COUNT_50` (50 notes).
+   - Defaults: `autoCacheMode = TIME_WINDOW`, `autoCacheTimeWindow = DAYS_7`, `autoCacheNoteCount = COUNT_10`.
+2. **Persistence (`DataStoreSettingsRepository`):**
+   - Preferences keys: `KEY_AUTO_CACHE_MODE`, `KEY_AUTO_CACHE_WINDOW`, `KEY_AUTO_CACHE_COUNT`.
+3. **Cache Retention Pruning (`FileDocumentCache`):**
+   - Added `pruneOlderThan(maxAgeMillis: Long, preservePageIds: Set<String>): Int`:
+     - Compares document age against both `validatedAt` and `remoteLastEditedAt` under the file write mutex.
+     - Preserves any note in `preservePageIds` regardless of age.
+4. **Polite Background Prefetch Engine (`ReaderHost`):**
+   - Observes Browse index entries combined with settings.
+   - Filters notes according to selected strategy (`TIME_WINDOW` using `now - durationMillis`, or `NOTE_COUNT` using `take(count)`).
+   - Paces network calls at **350ms delay** per note to strictly respect Notion's 3 requests/sec rate limit.
+   - Cooperatively yields immediately upon playback requests.
+   - Runs retention pruning for the active time window, passing `activeQueueIds + currentPlayingId` as protected identifiers.
+5. **UI Controls (`SettingsOfflineScreen`):**
+   - Added dedicated card with TalkBack-accessible RadioButtons (`Role.RadioButton`) and `FilterChip` selectors.
+
+### 38.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 619 tests executed, 0 failed.
+   - Added `FileDocumentCacheTest.pruneOlderThanRemovesExpiredFilesWhilePreservingProtectedNotes`: verifies age-based pruning and queue note protection.
+   - Added `ReaderHostTest.recentNotesPrefetchFiltersByTimeWindowCutoff`: verifies filtering by 7-day and 15-day cutoffs.
+   - Added `ReaderHostTest.recentNotesPrefetchRespectsNoteCountMode`: verifies note count mode fetches exactly the configured count.
+   - Added `ReaderHostTest.recentNotesPrefetchDoesNothingWhenModeIsOff`: verifies `OFF` mode triggers zero background fetches.
+   - Added `SettingsRepositoryTest` assertions for auto-cache settings persistence and defaults.
+2. **AndroidTest Kotlin Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation.
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly.
+
+
 
 

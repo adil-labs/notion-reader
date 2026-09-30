@@ -24,13 +24,19 @@ class SettingsRepositoryTest {
         )
 
         assertEquals(NavigationUnit.SECTION, repository.settings.value.defaultNavigationUnit)
+        assertEquals(com.example.notionreader.domain.settings.AutoCacheMode.TIME_WINDOW, repository.settings.value.autoCacheMode)
+        assertEquals(com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_7, repository.settings.value.autoCacheTimeWindow)
+        assertEquals(com.example.notionreader.domain.settings.AutoCacheNoteCount.COUNT_10, repository.settings.value.autoCacheNoteCount)
 
         repository.updateSettings {
             it.copy(
                 defaultNavigationUnit = NavigationUnit.NOTE,
                 continueToNextNote = false,
                 speechRate = SpeechRate.RATE_1_25,
-                playbackAnnouncements = AnnouncementVerbosity.MINIMAL
+                playbackAnnouncements = AnnouncementVerbosity.MINIMAL,
+                autoCacheMode = com.example.notionreader.domain.settings.AutoCacheMode.NOTE_COUNT,
+                autoCacheTimeWindow = com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_30,
+                autoCacheNoteCount = com.example.notionreader.domain.settings.AutoCacheNoteCount.COUNT_50
             )
         }
 
@@ -39,6 +45,9 @@ class SettingsRepositoryTest {
         assertFalse(updated.continueToNextNote)
         assertEquals(SpeechRate.RATE_1_25, updated.speechRate)
         assertEquals(AnnouncementVerbosity.MINIMAL, updated.playbackAnnouncements)
+        assertEquals(com.example.notionreader.domain.settings.AutoCacheMode.NOTE_COUNT, updated.autoCacheMode)
+        assertEquals(com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_30, updated.autoCacheTimeWindow)
+        assertEquals(com.example.notionreader.domain.settings.AutoCacheNoteCount.COUNT_50, updated.autoCacheNoteCount)
 
         repository.clearHistory()
         assertEquals(1, clearHistoryCount)

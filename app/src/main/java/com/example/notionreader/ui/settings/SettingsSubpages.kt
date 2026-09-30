@@ -43,6 +43,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.domain.settings.AnnouncementVerbosity
 import com.example.notionreader.domain.settings.AppTheme
+import com.example.notionreader.domain.settings.AutoCacheMode
+import com.example.notionreader.domain.settings.AutoCacheNoteCount
+import com.example.notionreader.domain.settings.AutoCacheTimeWindow
 import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import com.example.notionreader.domain.settings.DownloadNetworkPolicy
 import com.example.notionreader.domain.settings.NavigationUnit
@@ -566,6 +569,83 @@ fun SettingsOfflineScreen(
             checked = settings.prefetchUpcomingNotes,
             onCheckedChange = { checked -> onUpdate { it.copy(prefetchUpcomingNotes = checked) } }
         )
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Auto-cache Notion Notes",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Pre-downloads recent Notes from Notion in the background for instant offline reading.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AutoCacheMode.values().forEach { mode ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = settings.autoCacheMode == mode,
+                                    onClick = { onUpdate { it.copy(autoCacheMode = mode) } },
+                                    role = Role.RadioButton
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = settings.autoCacheMode == mode,
+                                onClick = null
+                            )
+                            Text(
+                                text = mode.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(start = 12.dp)
+                            )
+                        }
+
+                        if (mode == AutoCacheMode.TIME_WINDOW && settings.autoCacheMode == AutoCacheMode.TIME_WINDOW) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 36.dp, bottom = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AutoCacheTimeWindow.values().forEach { window ->
+                                    FilterChip(
+                                        selected = settings.autoCacheTimeWindow == window,
+                                        onClick = { onUpdate { it.copy(autoCacheTimeWindow = window) } },
+                                        label = { Text(window.label) }
+                                    )
+                                }
+                            }
+                        } else if (mode == AutoCacheMode.NOTE_COUNT && settings.autoCacheMode == AutoCacheMode.NOTE_COUNT) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 36.dp, bottom = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AutoCacheNoteCount.values().forEach { countOption ->
+                                    FilterChip(
+                                        selected = settings.autoCacheNoteCount == countOption,
+                                        onClick = { onUpdate { it.copy(autoCacheNoteCount = countOption) } },
+                                        label = { Text(countOption.label) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Card(
             colors = CardDefaults.cardColors(

@@ -184,31 +184,60 @@ class ReaderHost(
     /**
      * Opportunistically pre-caches recent Notes from the Browse index upon app launch / index load,
      * ensuring immediate offline availability and zero-latency playback.
+     *
+     * Respects the user's configured auto-cache mode (by time window or by note count),
+     * applies polite Notion API pacing (350ms delay), and yields immediately to live playback.
      */
-    fun startRecentNotesPrefetch(maxNotes: Int = 3) {
+    fun startRecentNotesPrefetch(maxNotes: Int? = null) {
         recentPrefetchCollectorJob?.cancel()
         recentPrefetchCollectorJob = scope.launch {
-            app.browse.state
-                .map { it.entries }
-                .distinctUntilChanged()
-                .collect { entries ->
+            combine(
+                app.browse.state.map { it.entries }.distinctUntilChanged(),
+                app.settingsRepo.settings
+            ) { entries, settings -> Pair(entries, settings) }
+                .collect { (entries, settings) ->
                     activeRecentPrefetchJob?.cancel()
-                    val settings = app.settingsRepo.settings.value
                     if (!settings.cacheNotesForOffline) return@collect
+                    if (settings.autoCacheMode == com.example.notionreader.domain.settings.AutoCacheMode.OFF) return@collect
                     if (settings.downloadNetworkPolicy == com.example.notionreader.domain.settings.DownloadNetworkPolicy.WIFI_ONLY && !networkState.isUnmetered) {
                         return@collect
                     }
-                    val notesToPrefetch = entries.take(maxNotes)
+
+                    val notesToPrefetch = when (settings.autoCacheMode) {
+                        com.example.notionreader.domain.settings.AutoCacheMode.OFF -> emptyList()
+                        com.example.notionreader.domain.settings.AutoCacheMode.TIME_WINDOW -> {
+                            val cutoff = java.time.Instant.ofEpochMilli(app.currentTimeMillis() - settings.autoCacheTimeWindow.durationMillis)
+                            val filtered = entries.filter { entry ->
+                                entry.lastEditedAt == null || !entry.lastEditedAt.isBefore(cutoff)
+                            }
+                            if (maxNotes != null) filtered.take(maxNotes) else filtered.take(50)
+                        }
+                        com.example.notionreader.domain.settings.AutoCacheMode.NOTE_COUNT -> {
+                            val limit = maxNotes ?: settings.autoCacheNoteCount.count
+                            entries.take(limit)
+                        }
+                    }
+
+                    if (notesToPrefetch.isEmpty()) return@collect
+
                     activeRecentPrefetchJob = launch {
                         for (entry in notesToPrefetch) {
                             try {
                                 app.prefetchNote(entry.pageId, entry.lastEditedAt)
-                                kotlinx.coroutines.delay(250)
+                                kotlinx.coroutines.delay(350)
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (_: Exception) {
                                 // Non-fatal background prefetch failure
                             }
+                        }
+
+                        // Retention pruning when time-window mode is active
+                        if (settings.autoCacheMode == com.example.notionreader.domain.settings.AutoCacheMode.TIME_WINDOW) {
+                            val activeQueueIds = app.session.queueState.value.items.map { it.pageId }.toSet()
+                            val currentPlayingId = app.session.queueState.value.currentItem?.pageId
+                            val protectedIds = activeQueueIds + listOfNotNull(currentPlayingId)
+                            app.pruneCacheOlderThan(settings.autoCacheTimeWindow.durationMillis, protectedIds)
                         }
                     }
                 }

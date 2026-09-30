@@ -166,6 +166,47 @@ class FileDocumentCache(
         DocumentCacheStats(noteCount = files.size, totalBytes = totalBytes)
     }
 
+    override suspend fun pruneOlderThan(maxAgeMillis: Long, preservePageIds: Set<String>): Int = withContext(ioDispatcher) {
+        if (maxAgeMillis <= 0L) return@withContext 0
+        val now = System.currentTimeMillis()
+        val normalizedPreserved = preservePageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+        var prunedCount = 0
+
+        writeMutex.withLock {
+            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withLock
+            for (file in files) {
+                val cached = try {
+                    ReaderDocumentCodec.decode(file.readText())
+                } catch (_: Exception) {
+                    null
+                }
+
+                if (cached == null) {
+                    file.delete()
+                    prunedCount++
+                    continue
+                }
+
+                val canonicalPageId = cached.document.pageId.trim().lowercase().replace("-", "")
+                if (canonicalPageId in normalizedPreserved) {
+                    continue
+                }
+
+                val lastActivityEpoch = cached.validatedAt.toEpochMilli()
+                val remoteEditEpoch = cached.remoteLastEditedAt?.toEpochMilli() ?: lastActivityEpoch
+                val effectiveEpoch = maxOf(lastActivityEpoch, remoteEditEpoch)
+
+                if (now - effectiveEpoch > maxAgeMillis) {
+                    if (file.delete()) {
+                        prunedCount++
+                    }
+                }
+            }
+        }
+
+        prunedCount
+    }
+
     private fun fileFor(pageId: String): File {
         val safeName = pageId.trim().lowercase().replace(Regex("[^a-z0-9-]"), "_")
         return File(directory, "$safeName.json")

@@ -24,6 +24,9 @@ data class ReaderSettings(
     val prefetchUpcomingNotes: Boolean = true,
     val downloadNetworkPolicy: DownloadNetworkPolicy = DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
     val cacheFreshnessPolicy: CacheFreshnessPolicy = CacheFreshnessPolicy.ONE_HOUR,
+    val autoCacheMode: AutoCacheMode = AutoCacheMode.TIME_WINDOW,
+    val autoCacheTimeWindow: AutoCacheTimeWindow = AutoCacheTimeWindow.DAYS_7,
+    val autoCacheNoteCount: AutoCacheNoteCount = AutoCacheNoteCount.COUNT_10,
 
     // Appearance
     val appTheme: AppTheme = AppTheme.SYSTEM_DEFAULT,
@@ -77,6 +80,27 @@ enum class CacheFreshnessPolicy(val label: String, val maxAgeMillis: Long) {
     SIX_HOURS("6 hours", 6 * 3600 * 1000L),
     ONE_DAY("24 hours", 24 * 3600 * 1000L),
     MANUAL_ONLY("Manual refresh only", Long.MAX_VALUE)
+}
+
+enum class AutoCacheMode(val label: String) {
+    OFF("Off"),
+    TIME_WINDOW("By time window"),
+    NOTE_COUNT("By recent note count")
+}
+
+enum class AutoCacheTimeWindow(val label: String, val days: Int) {
+    DAYS_7("Last 7 days", 7),
+    DAYS_15("Last 15 days", 15),
+    DAYS_30("Last 30 days", 30);
+
+    val durationMillis: Long get() = days * 24L * 3600L * 1000L
+}
+
+enum class AutoCacheNoteCount(val label: String, val count: Int) {
+    COUNT_5("5 notes", 5),
+    COUNT_10("10 notes", 10),
+    COUNT_20("20 notes", 20),
+    COUNT_50("50 notes", 50)
 }
 
 enum class AppTheme(val label: String) {

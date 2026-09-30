@@ -172,4 +172,42 @@ class FileDocumentCacheTest {
         assertEquals("page-b", mru!!.document.pageId)
         assertEquals("page-a", newest!!.document.pageId)
     }
+
+    @Test
+    fun pruneOlderThanRemovesExpiredFilesWhilePreservingProtectedNotes() = runBlocking {
+        val now = System.currentTimeMillis()
+        val oldDoc = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("old-page", "Old", listOf("Old")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 10 * 24L * 3600L * 1000L), // 10 days ago
+            fetchedAt = Instant.ofEpochMilli(now - 10 * 24L * 3600L * 1000L),
+            validatedAt = Instant.ofEpochMilli(now - 10 * 24L * 3600L * 1000L)
+        )
+        val protectedOldDoc = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("protected-old-page", "Protected Old", listOf("Protected")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 10 * 24L * 3600L * 1000L), // 10 days ago
+            fetchedAt = Instant.ofEpochMilli(now - 10 * 24L * 3600L * 1000L),
+            validatedAt = Instant.ofEpochMilli(now - 10 * 24L * 3600L * 1000L)
+        )
+        val recentDoc = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("recent-page", "Recent", listOf("Recent")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 2 * 24L * 3600L * 1000L), // 2 days ago
+            fetchedAt = Instant.ofEpochMilli(now - 2 * 24L * 3600L * 1000L),
+            validatedAt = Instant.ofEpochMilli(now - 2 * 24L * 3600L * 1000L)
+        )
+
+        cache.put(oldDoc)
+        cache.put(protectedOldDoc)
+        cache.put(recentDoc)
+        assertEquals(3, cache.count())
+
+        // 7-day retention window
+        val sevenDaysMillis = 7 * 24L * 3600L * 1000L
+        val pruned = cache.pruneOlderThan(sevenDaysMillis, preservePageIds = setOf("protected-old-page"))
+
+        assertEquals(1, pruned)
+        assertEquals(2, cache.count())
+        assertNull(cache.get("old-page")) // pruned!
+        assertNotNull(cache.get("protected-old-page")) // preserved because it's in protectedPageIds!
+        assertNotNull(cache.get("recent-page")) // preserved because it's 2 days old (< 7 days)!
+    }
 }

@@ -72,6 +72,7 @@ class ReaderHostTest {
         loader: RecordingLoader = RecordingLoader(),
         networkState: NetworkState = UnmeteredNetworkState,
         settingsRepo: com.example.notionreader.domain.settings.SettingsRepository = com.example.notionreader.application.InMemorySettingsRepository(),
+        clock: () -> Long = { System.currentTimeMillis() },
         log: (String) -> Unit = {}
     ): Pair<ReaderHost, RecordingLoader> {
         val app = ReaderApp(
@@ -79,7 +80,8 @@ class ReaderHostTest {
             noteViewer = NoteViewer(alpha),
             navigator = ReaderNavigator(),
             loadDocument = loader.asLoader(),
-            settingsRepository = settingsRepo
+            settingsRepository = settingsRepo,
+            clock = clock
         )
         return ReaderHost(app = app, scope = scope, networkState = networkState, log = log) to loader
     }
@@ -481,6 +483,120 @@ class ReaderHostTest {
                 "Subsequent browse update should still be prefetched after playback occurred",
                 loader.loaded.contains("page-2")
             )
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun recentNotesPrefetchFiltersByTimeWindowCutoff() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val fixedNow = 1_700_000_000_000L
+            val dayMillis = 24L * 3600L * 1000L
+            val threeDaysAgo = java.time.Instant.ofEpochMilli(fixedNow - 3 * dayMillis)
+            val tenDaysAgo = java.time.Instant.ofEpochMilli(fixedNow - 10 * dayMillis)
+
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings {
+                it.copy(
+                    autoCacheMode = com.example.notionreader.domain.settings.AutoCacheMode.TIME_WINDOW,
+                    autoCacheTimeWindow = com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_7
+                )
+            }
+
+            val (host, loader) = hostWith(hostScope, settingsRepo = repo, clock = { fixedNow })
+            host.start()
+            host.startRecentNotesPrefetch()
+
+            val entryRecent = com.example.notionreader.domain.ReaderIndexEntry(
+                pageId = "page-recent",
+                title = "Recent Note",
+                lastEditedAt = threeDaysAgo
+            )
+            val entryOld = com.example.notionreader.domain.ReaderIndexEntry(
+                pageId = "page-old",
+                title = "Old Note",
+                lastEditedAt = tenDaysAgo
+            )
+
+            host.app.loadBrowseIndex { listOf(entryRecent, entryOld) }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertTrue("Note from 3 days ago should be prefetched under 7-day window", loader.loaded.contains("page-recent"))
+            assertFalse("Note from 10 days ago should NOT be prefetched under 7-day window", loader.loaded.contains("page-old"))
+
+            // Now update setting to 15-day window
+            repo.updateSettings {
+                it.copy(autoCacheTimeWindow = com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_15)
+            }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertTrue("Note from 10 days ago should now be prefetched under 15-day window", loader.loaded.contains("page-old"))
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun recentNotesPrefetchRespectsNoteCountMode() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings {
+                it.copy(
+                    autoCacheMode = com.example.notionreader.domain.settings.AutoCacheMode.NOTE_COUNT,
+                    autoCacheNoteCount = com.example.notionreader.domain.settings.AutoCacheNoteCount.COUNT_5
+                )
+            }
+
+            val (host, loader) = hostWith(hostScope, settingsRepo = repo)
+            host.start()
+            host.startRecentNotesPrefetch()
+
+            val entries = (1..8).map { i ->
+                com.example.notionreader.domain.ReaderIndexEntry(pageId = "page-$i", title = "Note $i")
+            }
+
+            host.app.loadBrowseIndex { entries }
+            runCurrent()
+            advanceTimeBy(3000)
+            runCurrent()
+
+            assertEquals(5, loader.loaded.size)
+            (1..5).forEach { i ->
+                assertTrue("Page $i should be prefetched", loader.loaded.contains("page-$i"))
+            }
+            assertFalse("Page 6 should not be prefetched", loader.loaded.contains("page-6"))
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun recentNotesPrefetchDoesNothingWhenModeIsOff() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings {
+                it.copy(autoCacheMode = com.example.notionreader.domain.settings.AutoCacheMode.OFF)
+            }
+
+            val (host, loader) = hostWith(hostScope, settingsRepo = repo)
+            host.start()
+            host.startRecentNotesPrefetch()
+
+            val entry = com.example.notionreader.domain.ReaderIndexEntry(pageId = "page-1", title = "Note 1")
+            host.app.loadBrowseIndex { listOf(entry) }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertEquals(0, loader.loaded.size)
         } finally {
             hostScope.cancel()
         }

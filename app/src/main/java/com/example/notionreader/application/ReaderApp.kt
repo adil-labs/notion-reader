@@ -119,6 +119,16 @@ class ReaderApp(
         _cacheStats.value = documentCache?.stats() ?: com.example.notionreader.domain.document.DocumentCacheStats()
     }
 
+    suspend fun pruneCacheOlderThan(maxAgeMillis: Long, preservePageIds: Set<String> = emptySet()): Int {
+        val count = documentCache?.pruneOlderThan(maxAgeMillis, preservePageIds) ?: 0
+        if (count > 0) {
+            updateCacheStats()
+        }
+        return count
+    }
+
+    fun currentTimeMillis(): Long = clock()
+
     /**
      * The queue operations, over the store — or null when there is no store.
      *

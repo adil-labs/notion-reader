@@ -9,6 +9,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.notionreader.domain.settings.SettingsRepository
 import com.example.notionreader.domain.settings.AnnouncementVerbosity
 import com.example.notionreader.domain.settings.AppTheme
+import com.example.notionreader.domain.settings.AutoCacheMode
+import com.example.notionreader.domain.settings.AutoCacheNoteCount
+import com.example.notionreader.domain.settings.AutoCacheTimeWindow
 import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import com.example.notionreader.domain.settings.DownloadNetworkPolicy
 import com.example.notionreader.domain.settings.NavigationUnit
@@ -86,6 +89,12 @@ class DataStoreSettingsRepository(
                 ?: DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
             cacheFreshnessPolicy = prefs[KEY_CACHE_FRESHNESS]?.let { runCatching { CacheFreshnessPolicy.valueOf(it) }.getOrNull() }
                 ?: CacheFreshnessPolicy.ONE_HOUR,
+            autoCacheMode = prefs[KEY_AUTO_CACHE_MODE]?.let { runCatching { AutoCacheMode.valueOf(it) }.getOrNull() }
+                ?: AutoCacheMode.TIME_WINDOW,
+            autoCacheTimeWindow = prefs[KEY_AUTO_CACHE_WINDOW]?.let { runCatching { AutoCacheTimeWindow.valueOf(it) }.getOrNull() }
+                ?: AutoCacheTimeWindow.DAYS_7,
+            autoCacheNoteCount = prefs[KEY_AUTO_CACHE_COUNT]?.let { runCatching { AutoCacheNoteCount.valueOf(it) }.getOrNull() }
+                ?: AutoCacheNoteCount.COUNT_10,
             keepScreenAwake = prefs[KEY_KEEP_AWAKE] ?: true,
             appTheme = prefs[KEY_THEME]?.let { runCatching { AppTheme.valueOf(it) }.getOrNull() }
                 ?: AppTheme.SYSTEM_DEFAULT,
@@ -110,6 +119,9 @@ class DataStoreSettingsRepository(
         prefs[KEY_PREFETCH] = settings.prefetchUpcomingNotes
         prefs[KEY_DOWNLOAD_POLICY] = settings.downloadNetworkPolicy.name
         prefs[KEY_CACHE_FRESHNESS] = settings.cacheFreshnessPolicy.name
+        prefs[KEY_AUTO_CACHE_MODE] = settings.autoCacheMode.name
+        prefs[KEY_AUTO_CACHE_WINDOW] = settings.autoCacheTimeWindow.name
+        prefs[KEY_AUTO_CACHE_COUNT] = settings.autoCacheNoteCount.name
         prefs[KEY_KEEP_AWAKE] = settings.keepScreenAwake
         prefs[KEY_THEME] = settings.appTheme.name
         prefs[KEY_SPACING] = settings.readerSpacing.name
@@ -127,6 +139,9 @@ class DataStoreSettingsRepository(
         val KEY_PREFETCH = booleanPreferencesKey("prefetch_upcoming_notes")
         val KEY_DOWNLOAD_POLICY = stringPreferencesKey("download_network_policy")
         val KEY_CACHE_FRESHNESS = stringPreferencesKey("cache_freshness_policy")
+        val KEY_AUTO_CACHE_MODE = stringPreferencesKey("auto_cache_mode")
+        val KEY_AUTO_CACHE_WINDOW = stringPreferencesKey("auto_cache_time_window")
+        val KEY_AUTO_CACHE_COUNT = stringPreferencesKey("auto_cache_note_count")
         val KEY_KEEP_AWAKE = booleanPreferencesKey("keep_screen_awake")
         val KEY_THEME = stringPreferencesKey("app_theme")
         val KEY_SPACING = stringPreferencesKey("reader_spacing")
