@@ -1,8 +1,18 @@
 package com.example.notionreader.player
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
 data class SpeechEngineInfo(
     val packageName: String,
     val label: String
+)
+
+data class SpeechEngineState(
+    val requestedPackage: String? = null,
+    val activePackage: String? = null,
+    val availableEngines: List<SpeechEngineInfo> = emptyList(),
+    val isFallback: Boolean = false
 )
 
 /**
@@ -33,6 +43,15 @@ interface SpeechEngine {
 
     /** Sets the speech pitch factor (e.g. 1.0f for normal, 0.8f for low, 1.2f for high). */
     fun setPitch(pitch: Float) {}
+
+    /** Observable runtime state of TTS engines, active selection, and fallback status. */
+    val engineState: StateFlow<SpeechEngineState> get() = MutableStateFlow(SpeechEngineState())
+
+    /** Returns the underlying platform's configured default speech rate factor. */
+    fun systemSpeechRate(): Float = 1.0f
+
+    /** Returns the underlying platform's configured default voice pitch factor. */
+    fun systemPitch(): Float = 1.0f
 
     /** Returns all installed TTS engines discovered on the platform. */
     fun getAvailableEngines(): List<SpeechEngineInfo> = emptyList()

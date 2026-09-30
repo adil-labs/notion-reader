@@ -24,6 +24,35 @@ class FakeSpeechEngine : SpeechEngine {
 
     var shutdownCount = 0
 
+    var lastConfiguredRate: Float? = null
+    var lastConfiguredPitch: Float? = null
+    var lastConfiguredEngine: String? = null
+    var systemRateToReturn: Float = 1.25f
+    var systemPitchToReturn: Float = 0.9f
+
+    private val _engineState = kotlinx.coroutines.flow.MutableStateFlow(SpeechEngineState())
+    override val engineState: kotlinx.coroutines.flow.StateFlow<SpeechEngineState> = _engineState
+
+    override fun systemSpeechRate(): Float = systemRateToReturn
+
+    override fun systemPitch(): Float = systemPitchToReturn
+
+    override fun setSpeechRate(rate: Float) {
+        lastConfiguredRate = rate
+    }
+
+    override fun setPitch(pitch: Float) {
+        lastConfiguredPitch = pitch
+    }
+
+    override fun setEngine(packageName: String?) {
+        lastConfiguredEngine = packageName
+    }
+
+    fun setAvailableEngines(engines: List<SpeechEngineInfo>) {
+        _engineState.value = _engineState.value.copy(availableEngines = engines)
+    }
+
     private var pendingIndex: Int? = null
 
     override fun speak(text: String, onComplete: (() -> Unit)?) {

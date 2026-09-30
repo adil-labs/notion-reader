@@ -51,6 +51,7 @@ import com.example.notionreader.domain.settings.ReaderSpacing
 import com.example.notionreader.domain.settings.SpeechRate
 import com.example.notionreader.domain.settings.VoicePitch
 import com.example.notionreader.player.SpeechEngineInfo
+import com.example.notionreader.player.SpeechEngineState
 import java.util.Locale
 
 internal fun formatBytes(bytes: Long): String {
@@ -259,7 +260,7 @@ fun SettingsPlaybackScreen(
 @Composable
 fun SettingsSpeechScreen(
     settings: ReaderSettings,
-    availableEngines: List<SpeechEngineInfo> = emptyList(),
+    engineState: SpeechEngineState = SpeechEngineState(),
     onUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -275,6 +276,23 @@ fun SettingsSpeechScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         SettingsTopBar(title = "Speech", onBack = onBack)
+
+        if (engineState.isFallback && engineState.requestedPackage != null) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "${engineState.requestedPackage} is unavailable. Using System default engine.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
 
         // Text-to-speech engine selection
         Card(
@@ -325,7 +343,7 @@ fun SettingsSpeechScreen(
                     }
 
                     // Available installed engines
-                    availableEngines.forEach { engine ->
+                    engineState.availableEngines.forEach { engine ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -357,14 +375,6 @@ fun SettingsSpeechScreen(
                 }
             }
         }
-
-        // Use system speech settings
-        SettingsToggleCard(
-            title = "Use system speech settings",
-            subtitle = "Rate and pitch inherit from the active engine's Android configuration.",
-            checked = settings.useSystemSpeechSettings,
-            onCheckedChange = { checked -> onUpdate { it.copy(useSystemSpeechSettings = checked) } }
-        )
 
         // System TTS Launcher
         OutlinedButton(
@@ -414,31 +424,29 @@ fun SettingsSpeechScreen(
             }
         }
 
-        // Custom pitch if system settings disabled
-        if (!settings.useSystemSpeechSettings) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Voice pitch",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().selectableGroup(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        VoicePitch.values().forEach { pitch ->
-                            FilterChip(
-                                selected = settings.voicePitch == pitch,
-                                onClick = { onUpdate { it.copy(voicePitch = pitch) } },
-                                label = { Text(pitch.label) }
-                            )
-                        }
+        // Voice pitch
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Voice pitch",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    VoicePitch.values().forEach { pitch ->
+                        FilterChip(
+                            selected = settings.voicePitch == pitch,
+                            onClick = { onUpdate { it.copy(voicePitch = pitch) } },
+                            label = { Text(pitch.label) }
+                        )
                     }
                 }
             }

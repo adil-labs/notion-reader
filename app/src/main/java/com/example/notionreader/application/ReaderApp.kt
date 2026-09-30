@@ -371,9 +371,23 @@ class ReaderApp(
         session.pauseBetweenNotesMs = current.pauseBetweenNotes.delayMs
         session.announcementVerbosity = current.playbackAnnouncements
         speechEngine?.setEngine(current.ttsEnginePackage)
-        speechEngine?.setSpeechRate(current.speechRate.factor)
-        speechEngine?.setPitch(current.voicePitch.factor)
+
+        val rate = when (current.speechRate) {
+            com.example.notionreader.domain.settings.SpeechRate.SYSTEM_DEFAULT ->
+                speechEngine?.systemSpeechRate() ?: 1.0f
+            else -> current.speechRate.factor
+        }
+        val pitch = when (current.voicePitch) {
+            com.example.notionreader.domain.settings.VoicePitch.SYSTEM_DEFAULT ->
+                speechEngine?.systemPitch() ?: 1.0f
+            else -> current.voicePitch.factor
+        }
+        speechEngine?.setSpeechRate(rate)
+        speechEngine?.setPitch(pitch)
     }
+
+    val speechEngineState: StateFlow<com.example.notionreader.player.SpeechEngineState> =
+        speechEngine?.engineState ?: kotlinx.coroutines.flow.MutableStateFlow(com.example.notionreader.player.SpeechEngineState())
 
     fun getAvailableSpeechEngines(): List<com.example.notionreader.player.SpeechEngineInfo> =
         speechEngine?.getAvailableEngines() ?: emptyList()

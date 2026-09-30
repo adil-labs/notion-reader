@@ -18,7 +18,6 @@ class ReaderSettingsTest {
 
         // Speech defaults
         org.junit.Assert.assertNull(settings.ttsEnginePackage)
-        assertTrue(settings.useSystemSpeechSettings)
         assertEquals(SpeechRate.SYSTEM_DEFAULT, settings.speechRate)
         assertEquals(VoicePitch.SYSTEM_DEFAULT, settings.voicePitch)
         assertEquals(AnnouncementVerbosity.CONCISE, settings.playbackAnnouncements)
@@ -49,7 +48,6 @@ class ReaderSettingsTest {
 
         // Other values untouched
         assertEquals(NavigationUnit.SECTION, modified.defaultNavigationUnit)
-        assertTrue(modified.useSystemSpeechSettings)
         assertTrue(modified.keepScreenAwake)
     }
 }

@@ -21,10 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.runBlocking
 
 private val Context.userSettingsDataStore by preferencesDataStore(name = "user_settings")
 
@@ -46,7 +44,7 @@ class DataStoreSettingsRepository(
         .stateIn(
             scope = scope,
             started = SharingStarted.Eagerly,
-            initialValue = runBlocking { readInitial() }
+            initialValue = ReaderSettings()
         )
 
     override suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
@@ -67,15 +65,6 @@ class DataStoreSettingsRepository(
         }
     }
 
-    private suspend fun readInitial(): ReaderSettings {
-        return try {
-            val prefs = context.userSettingsDataStore.data.first()
-            decode(prefs)
-        } catch (_: Exception) {
-            ReaderSettings()
-        }
-    }
-
     private fun decode(prefs: Preferences): ReaderSettings {
         return ReaderSettings(
             defaultNavigationUnit = prefs[KEY_NAV_UNIT]?.let { runCatching { NavigationUnit.valueOf(it) }.getOrNull() }
@@ -84,7 +73,6 @@ class DataStoreSettingsRepository(
             pauseBetweenNotes = prefs[KEY_PAUSE_NOTES]?.let { runCatching { NotePauseDuration.valueOf(it) }.getOrNull() }
                 ?: NotePauseDuration.NONE,
             ttsEnginePackage = prefs[KEY_TTS_ENGINE_PKG],
-            useSystemSpeechSettings = prefs[KEY_USE_SYSTEM_SPEECH] ?: true,
             speechRate = prefs[KEY_SPEECH_RATE]?.let { runCatching { SpeechRate.valueOf(it) }.getOrNull() }
                 ?: SpeechRate.SYSTEM_DEFAULT,
             voicePitch = prefs[KEY_VOICE_PITCH]?.let { runCatching { VoicePitch.valueOf(it) }.getOrNull() }
@@ -112,7 +100,6 @@ class DataStoreSettingsRepository(
         } else {
             prefs.remove(KEY_TTS_ENGINE_PKG)
         }
-        prefs[KEY_USE_SYSTEM_SPEECH] = settings.useSystemSpeechSettings
         prefs[KEY_SPEECH_RATE] = settings.speechRate.name
         prefs[KEY_VOICE_PITCH] = settings.voicePitch.name
         prefs[KEY_ANNOUNCEMENTS] = settings.playbackAnnouncements.name
@@ -129,7 +116,6 @@ class DataStoreSettingsRepository(
         val KEY_CONTINUE_NEXT = booleanPreferencesKey("continue_to_next_note")
         val KEY_PAUSE_NOTES = stringPreferencesKey("pause_between_notes")
         val KEY_TTS_ENGINE_PKG = stringPreferencesKey("tts_engine_package")
-        val KEY_USE_SYSTEM_SPEECH = booleanPreferencesKey("use_system_speech_settings")
         val KEY_SPEECH_RATE = stringPreferencesKey("speech_rate")
         val KEY_VOICE_PITCH = stringPreferencesKey("voice_pitch")
         val KEY_ANNOUNCEMENTS = stringPreferencesKey("playback_announcements")

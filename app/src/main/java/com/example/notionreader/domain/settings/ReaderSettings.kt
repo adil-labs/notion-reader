@@ -15,7 +15,6 @@ data class ReaderSettings(
 
     // Speech
     val ttsEnginePackage: String? = null,
-    val useSystemSpeechSettings: Boolean = true,
     val speechRate: SpeechRate = SpeechRate.SYSTEM_DEFAULT,
     val voicePitch: VoicePitch = VoicePitch.SYSTEM_DEFAULT,
     val playbackAnnouncements: AnnouncementVerbosity = AnnouncementVerbosity.CONCISE,

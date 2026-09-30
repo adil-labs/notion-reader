@@ -715,4 +715,102 @@ class ReaderAppTest {
         // the entry itself uses — so Continue and Back cannot disagree about which entry is which.
         assertEquals(sessionId, app.navigator.state.value.focusTarget)
     }
+
+    @Test
+    fun systemSpeechRateAndPitchAreResolvedWhenConfiguredAsSystemDefault() = runTest {
+        val fakeSpeech = com.example.notionreader.player.FakeSpeechEngine()
+        fakeSpeech.systemRateToReturn = 1.3f
+        fakeSpeech.systemPitchToReturn = 0.85f
+
+        val engine = FakeReaderEngine(demo)
+        val settingsRepo = InMemorySettingsRepository()
+        settingsRepo.updateSettings {
+            it.copy(
+                speechRate = com.example.notionreader.domain.settings.SpeechRate.SYSTEM_DEFAULT,
+                voicePitch = com.example.notionreader.domain.settings.VoicePitch.SYSTEM_DEFAULT
+            )
+        }
+
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(),
+            settingsRepository = settingsRepo,
+            loadDocument = DefaultLoadReaderDocument { pageId -> note(pageId, "Queued $pageId") },
+            speechEngine = fakeSpeech
+        )
+
+        app.applySettings(settingsRepo.settings.value)
+        assertEquals(1.3f, fakeSpeech.lastConfiguredRate)
+        assertEquals(0.85f, fakeSpeech.lastConfiguredPitch)
+    }
+
+    @Test
+    fun clearHistoryWhilePlayingKeepsPlaybackButOnlyCurrentSessionMayReappear() = runTest {
+        val now = 1_000_000L
+        val engine = FakeReaderEngine(demo)
+        val store = com.example.notionreader.domain.session.InMemorySessionStore()
+        val oldSession = com.example.notionreader.domain.session.StoredSession(
+            id = "historical-session-old",
+            notes = listOf(QueuedNote("old-1", "Old Note")),
+            origin = QueueOrigin.SingleNote,
+            index = 0,
+            position = null,
+            completed = true,
+            wasPlaying = false,
+            lastActivityAt = now - 5_000L
+        )
+        store.write(listOf(oldSession))
+
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(),
+            loadDocument = DefaultLoadReaderDocument { pageId -> note(pageId, "Queued $pageId") },
+            sessionStore = store,
+            clock = { now }
+        )
+
+        app.loadHistory()
+        assertEquals(1, app.completedSessions.size)
+
+        // Start a live playback session
+        app.playAll(listOf(QueuedNote(demo.pageId, demo.title)))
+        assertTrue(app.isSessionResumable)
+
+        // Clear history: old history is purged, live session playback remains untouched
+        app.clearHistory()
+        assertEquals(0, store.read().size)
+        assertTrue("Live session remains resumable/active", app.isSessionResumable)
+        assertEquals("Historical completed sessions are wiped", 0, app.completedSessions.size)
+
+        // Later persist of the live active session records only this session
+        app.persistSession()
+        val persisted = store.read()
+        assertEquals("Only the active session reappears in store", 1, persisted.size)
+        assertEquals(app.session.id!!, persisted.first().id)
+    }
+
+    @Test
+    fun openExploreCardAppliesFacetFiltersDirectly() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(),
+            loadDocument = DefaultLoadReaderDocument { pageId -> note(pageId, "Queued $pageId") }
+        )
+
+        val topicCard = ExploreCard(title = "Kotlin", noteCount = 5, queryText = "Kotlin", topic = "Kotlin")
+        app.openExploreCard(topicCard)
+        assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
+        assertEquals("Kotlin", app.browse.state.value.query.selectedTopic)
+        assertNull(app.browse.state.value.query.selectedArea)
+
+        val areaCard = ExploreCard(title = "Engineering", noteCount = 3, queryText = "Engineering", area = "Engineering")
+        app.openExploreCard(areaCard)
+        assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
+        assertEquals("Engineering", app.browse.state.value.query.selectedArea)
+        assertNull(app.browse.state.value.query.selectedTopic)
+    }
 }

@@ -73,11 +73,7 @@ fun SettingsScreen(
         )
 
         // 2. Speech
-        val speechSummary = if (settings.useSystemSpeechSettings) {
-            "System speech · ${settings.playbackAnnouncements.label} announcements"
-        } else {
-            "${settings.speechRate.label} · ${settings.playbackAnnouncements.label} announcements"
-        }
+        val speechSummary = "${settings.speechRate.label} rate · ${settings.playbackAnnouncements.label} announcements"
         SettingsCategoryRow(
             title = "Speech",
             summary = speechSummary,

@@ -6585,9 +6585,62 @@ A comprehensive codebase audit at commit `0fc5df5` revealed that while Settings 
    - `SettingsScreenAccessibilityTest`: Updated to expect 7 root category buttons (Role.Button) with correct accessible descriptions.
    - `ReaderShellAccessibilityTest`: Updated tab assertions to expect 0 tabs on secondary screens (`Player`, `Note`) and 4 tabs on top-level screens (`Home`).
 
+## 34. Platform Integration, Backup Rules, Observable Speech Engine, and History Clearing Semantics
 
+### 34.1 Context and Remaining Findings from Audit
 
+Following the implementation of inter-note pause, data clearing, and navigation hierarchy invariants in commit `f83c2ca`, an audit identified remaining platform integration and correctness gaps:
+1. **Network Permission**: `ConnectivityManager.isActiveNetworkMetered` was queried without declaring `android.permission.ACCESS_NETWORK_STATE` in `AndroidManifest.xml`.
+2. **Backup Rules**: The application relied on implicit Android backup behavior without explicit XML data extraction and transfer policies.
+3. **True System TTS Defaults**: `SpeechRate.SYSTEM_DEFAULT` and `VoicePitch.SYSTEM_DEFAULT` had hardcoded `1.0f` factors, and the Android resolver methods were never invoked by the application layer.
+4. **Contradictory Settings Toggle**: `useSystemSpeechSettings` was exposed as a separate boolean alongside independent `SYSTEM_DEFAULT` enum values, creating UI inconsistency where custom rate sliders could be active while the system switch was "On".
+5. **Observable TTS Runtime State & Unavailable Fallback**: Selected TTS engines that failed initialization fell back to system default, but the settings UI could not observe this state and still displayed the unavailable package name as selected.
+6. **DataStore Startup Block**: `DataStoreSettingsRepository` used `runBlocking` during construction to populate initial state.
+7. **Clear History Active-Session Semantics**: Clarified that clearing listening history wipes persisted records and retained in-memory completed history, while the currently playing session continues uninterrupted.
 
+### 34.2 Decisions and Architectural Invariants
 
+1. **Explicit Android Backup & Data Extraction Rules (`@xml/data_extraction_rules` & `@xml/backup_rules`):**
+   - Declared `data_extraction_rules.xml` (API 31+) and `backup_rules.xml` (API < 31).
+   - Rules explicitly include only DataStore preferences and queues (`datastore/user_settings.preferences_pb`, `datastore/listening_history.preferences_pb`, `datastore/saved_queues.preferences_pb`, `datastore/smart_queues.preferences_pb`).
+   - Caches (`no_backup`, document file cache, temporary network state) are explicitly excluded from both cloud backup and device-to-device transfers.
 
+2. **Network State Permission:**
+   - Declared `<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />` in `AndroidManifest.xml`.
 
+3. **Platform Default Speech Resolution through `SpeechEngine`:**
+   - Added `systemSpeechRate(): Float` and `systemPitch(): Float` to the `SpeechEngine` abstraction with default implementations (`1.0f`).
+   - In `AndroidSpeechEngine`, these methods read `Settings.Secure.TTS_DEFAULT_RATE` and `Settings.Secure.TTS_DEFAULT_PITCH` from the system content resolver.
+   - In `ReaderApp.applySettings()`, when `speechRate == SYSTEM_DEFAULT` or `voicePitch == SYSTEM_DEFAULT`, the engine's resolved system rate and pitch are applied dynamically.
+
+4. **Removal of Redundant `useSystemSpeechSettings` Toggle:**
+   - Removed `useSystemSpeechSettings` boolean from `ReaderSettings` and DataStore serialization.
+   - Users configure rate and pitch independently: selecting "System default" inherits the Android device preference, while selecting explicit multipliers (e.g. 1.25x, Low pitch) applies custom values.
+
+5. **Observable `StateFlow<SpeechEngineState>` & Fallback Reconciliation:**
+   - Introduced `SpeechEngineState(requestedPackage, activePackage, availableEngines, isFallback)`.
+   - Exposed `engineState: StateFlow<SpeechEngineState>` from `SpeechEngine` and `ReaderApp`.
+   - `AndroidSpeechEngine` cleans up failed `TextToSpeech` instances (`failedEngine.shutdown()`) before initializing fallback.
+   - In `SettingsSpeechScreen`, if `isFallback` is true, an accessible status card alerts the user that the requested engine is unavailable and the system default is active.
+
+6. **Non-blocking DataStore Settings Initialization:**
+   - Replaced `runBlocking { readInitial() }` with immediate default `initialValue = ReaderSettings()` and asynchronous `stateIn(SharingStarted.Eagerly)`.
+   - All mutations remain atomic and serial via `dataStore.edit`.
+
+7. **Active Session Clear History Semantics:**
+   - When a user triggers `clearHistory()` during active playback:
+     - Persisted history and in-memory completed/resumable history lists are cleared immediately.
+     - The active session remains playing hands-free without interruption.
+     - Subsequent playback persistence writes only the active session.
+
+### 34.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 599 tests executed, 0 failed.
+   - Added `ReaderAppTest.systemSpeechRateAndPitchAreResolvedWhenConfiguredAsSystemDefault()`: verifies that when settings specify `SYSTEM_DEFAULT`, `SpeechEngine.systemSpeechRate()` and `systemPitch()` are queried and applied.
+   - Added `ReaderAppTest.clearHistoryWhilePlayingKeepsPlaybackButOnlyCurrentSessionMayReappear()`: verifies that clearing history during playback purges all historical sessions while keeping live playback active, and subsequent persistence records only the active session.
+   - Added `ReaderAppTest.openExploreCardAppliesFacetFiltersDirectly()`: verifies that selecting an Explore card opens Browse with topic or area facet filters applied directly to the query.
+   - `LayerRulesTest`: 0 violations.
+
+2. **AndroidTest Compilation (`:app:compileDebugAndroidTestKotlin`):** Clean compilation.
+3. **Debug APK Build (`:app:assembleDebug`):** Clean assembly.

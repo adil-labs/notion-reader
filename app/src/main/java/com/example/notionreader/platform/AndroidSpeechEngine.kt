@@ -8,6 +8,10 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.example.notionreader.player.SpeechEngine
 import com.example.notionreader.player.SpeechEngineInfo
+import com.example.notionreader.player.SpeechEngineState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 
@@ -23,6 +27,9 @@ class AndroidSpeechEngine(
 ) : SpeechEngine {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val _engineState = MutableStateFlow(SpeechEngineState())
+    override val engineState: StateFlow<SpeechEngineState> = _engineState.asStateFlow()
 
     /** Only ever touched on the main thread. */
     private var tts: TextToSpeech? = null
@@ -64,11 +71,15 @@ class AndroidSpeechEngine(
     }
 
     override fun getAvailableEngines(): List<SpeechEngineInfo> {
-        return try {
+        val engines = try {
             tts?.engines?.map { SpeechEngineInfo(it.name, it.label) } ?: emptyList()
         } catch (_: Exception) {
             emptyList()
         }
+        if (engines.isNotEmpty() && _engineState.value.availableEngines != engines) {
+            _engineState.value = _engineState.value.copy(availableEngines = engines)
+        }
+        return engines
     }
 
     override fun setEngine(packageName: String?) {
@@ -78,6 +89,7 @@ class AndroidSpeechEngine(
         val gen = ++engineGeneration
         currentEnginePackage = packageName
         isReady = false
+        _engineState.value = _engineState.value.copy(requestedPackage = packageName)
 
         val oldEngine = tts
         tts = null
@@ -104,6 +116,15 @@ class AndroidSpeechEngine(
         } catch (_: Exception) {
             if (packageName != null) {
                 // Fall back immediately to system default if construction fails
+                val failed = tts
+                tts = null
+                try {
+                    failed?.shutdown()
+                } catch (_: Exception) {}
+                _engineState.value = _engineState.value.copy(
+                    requestedPackage = packageName,
+                    isFallback = true
+                )
                 initializeEngine(null, generation)
             } else {
                 onUnavailable?.invoke("Text to speech is not available on this device.")
@@ -126,6 +147,10 @@ class AndroidSpeechEngine(
         } catch (_: Exception) {
         }
     }
+
+    override fun systemSpeechRate(): Float = resolveSystemSpeechRate()
+
+    override fun systemPitch(): Float = resolveSystemPitch()
 
     fun resolveSystemSpeechRate(): Float {
         return try {
@@ -199,6 +224,16 @@ class AndroidSpeechEngine(
             if (requestedPackage != null) {
                 // Fall back to system default engine if explicit selection failed
                 currentEnginePackage = null
+                val failedEngine = tts
+                tts = null
+                try {
+                    failedEngine?.shutdown()
+                } catch (_: Exception) {}
+                _engineState.value = _engineState.value.copy(
+                    requestedPackage = requestedPackage,
+                    activePackage = null,
+                    isFallback = true
+                )
                 initializeEngine(null, generation)
                 return
             }
@@ -228,6 +263,16 @@ class AndroidSpeechEngine(
 
         engine.setOnUtteranceProgressListener(progressListener)
         isReady = true
+
+        val engines = getAvailableEngines()
+        val defaultPkg = try { engine.defaultEngine } catch (_: Exception) { null }
+        val activePkg = requestedPackage ?: defaultPkg ?: currentEnginePackage
+        _engineState.value = SpeechEngineState(
+            requestedPackage = requestedPackage,
+            activePackage = activePkg,
+            availableEngines = engines,
+            isFallback = requestedPackage != null && activePkg != requestedPackage
+        )
 
         val queued = pendingRequest
         pendingRequest = null

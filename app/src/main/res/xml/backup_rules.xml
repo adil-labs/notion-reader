@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="file" path="datastore/user_settings.preferences_pb" />
+    <include domain="file" path="datastore/listening_history.preferences_pb" />
+    <include domain="file" path="datastore/saved_queues.preferences_pb" />
+    <include domain="file" path="datastore/smart_queues.preferences_pb" />
+    <exclude domain="no_backup" path="." />
+</full-backup-content>

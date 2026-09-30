@@ -126,6 +126,7 @@ fun ReaderShell(
     val queueMessage by app.queueMessage.collectAsState()
     val settings by app.settings.collectAsState()
     val cacheStats by app.cacheStats.collectAsState()
+    val speechEngineState by app.speechEngineState.collectAsState()
     val scope = rememberCoroutineScope()
     val current = navigation.current
 
@@ -341,7 +342,7 @@ fun ReaderShell(
 
                     ReaderDestination.SettingsSpeech -> SettingsSpeechScreen(
                         settings = settings,
-                        availableEngines = app.getAvailableSpeechEngines(),
+                        engineState = speechEngineState,
                         onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
                         onBack = { app.back() }
                     )
