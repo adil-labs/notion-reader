@@ -36,6 +36,8 @@ class AndroidSpeechEngine(
     private var isShutdown = false
     private var pendingRequest: PendingUtterance? = null
     private var utteranceCounter = 0
+    private var currentSpeechRate: Float = 1.0f
+    private var currentPitch: Float = 1.0f
 
     private val completions = ConcurrentHashMap<String, () -> Unit>()
 
@@ -65,6 +67,22 @@ class AndroidSpeechEngine(
 
     init {
         tts = TextToSpeech(context.applicationContext, ::onInitialized)
+    }
+
+    override fun setSpeechRate(rate: Float) {
+        currentSpeechRate = rate
+        try {
+            tts?.setSpeechRate(rate)
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun setPitch(pitch: Float) {
+        currentPitch = pitch
+        try {
+            tts?.setPitch(pitch)
+        } catch (_: Exception) {
+        }
     }
 
     override fun speak(text: String, onComplete: (() -> Unit)?) {
@@ -135,6 +153,9 @@ class AndroidSpeechEngine(
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
         engine.setAudioAttributes(audioAttributes)
+
+        engine.setSpeechRate(currentSpeechRate)
+        engine.setPitch(currentPitch)
 
         engine.setOnUtteranceProgressListener(progressListener)
         isReady = true

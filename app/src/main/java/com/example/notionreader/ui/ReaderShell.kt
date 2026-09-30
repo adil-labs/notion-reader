@@ -10,11 +10,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
 import com.example.notionreader.domain.queue.QueueMove
+import com.example.notionreader.ui.settings.SettingsAboutScreen
+import com.example.notionreader.ui.settings.SettingsAccessibilityScreen
+import com.example.notionreader.ui.settings.SettingsAppearanceScreen
+import com.example.notionreader.ui.settings.SettingsNotionScreen
+import com.example.notionreader.ui.settings.SettingsOfflineScreen
+import com.example.notionreader.ui.settings.SettingsPlaybackScreen
+import com.example.notionreader.ui.settings.SettingsPrivacyScreen
+import com.example.notionreader.ui.settings.SettingsScreen
+import com.example.notionreader.ui.settings.SettingsSpeechScreen
+import kotlinx.coroutines.launch
 /**
  * The application shell: the destination the application is on, the mini-player, and the tab bar.
  *
@@ -114,6 +125,8 @@ fun ReaderShell(
     // The pending set and its message, both of which Queue Destination and the Details screen it hands over
     // to need. Collected here because the shell is what decides when they are rendered and consumed.
     val queueMessage by app.queueMessage.collectAsState()
+    val settings by app.settings.collectAsState()
+    val scope = rememberCoroutineScope()
     val current = navigation.current
 
     // Back is handled whenever it has somewhere visual to go, which is now most of the app rather than
@@ -295,8 +308,78 @@ fun ReaderShell(
                         onCommand = { command, index -> app.invoke(command, index) },
                         statusMessage = speechMessage,
                         queueState = queueState,
+                        keepScreenAwake = settings.keepScreenAwake,
+                        defaultGranularity = when (settings.defaultNavigationUnit) {
+                            com.example.notionreader.domain.settings.NavigationUnit.SECTION -> NavigationGranularity.SECTION
+                            com.example.notionreader.domain.settings.NavigationUnit.PART -> NavigationGranularity.PART
+                            com.example.notionreader.domain.settings.NavigationUnit.NOTE -> NavigationGranularity.NOTE
+                        },
                         onRetryQueueNote = app::retryQueueNote,
                         onJumpToSection = app::jumpToSection
+                    )
+
+                    ReaderDestination.Settings -> SettingsScreen(
+                        settings = settings,
+                        cachedNotesCount = 37,
+                        onOpenPlayback = app::openSettingsPlayback,
+                        onOpenSpeech = app::openSettingsSpeech,
+                        onOpenOffline = app::openSettingsOffline,
+                        onOpenAccessibility = app::openSettingsAccessibility,
+                        onOpenAppearance = app::openSettingsAppearance,
+                        onOpenNotion = app::openSettingsNotion,
+                        onOpenPrivacy = app::openSettingsPrivacy,
+                        onOpenAbout = app::openSettingsAbout,
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.SettingsPlayback -> SettingsPlaybackScreen(
+                        settings = settings,
+                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsSpeech -> SettingsSpeechScreen(
+                        settings = settings,
+                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsOffline -> SettingsOfflineScreen(
+                        settings = settings,
+                        cachedNotesCount = 37,
+                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                        onClearCache = { scope.launch { app.settingsRepo.clearCache() } },
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsAccessibility -> SettingsAccessibilityScreen(
+                        settings = settings,
+                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsAppearance -> SettingsAppearanceScreen(
+                        settings = settings,
+                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsNotion -> SettingsNotionScreen(
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsPrivacy -> SettingsPrivacyScreen(
+                        historyCount = history.size,
+                        cachedNotesCount = 37,
+                        onClearHistory = { scope.launch { app.settingsRepo.clearHistory() } },
+                        onClearCache = { scope.launch { app.settingsRepo.clearCache() } },
+                        onClearAllData = { scope.launch { app.settingsRepo.clearAllLocalData() } },
+                        onBack = { app.back() }
+                    )
+
+                    ReaderDestination.SettingsAbout -> SettingsAboutScreen(
+                        onBack = { app.back() }
                     )
                 }
             }
@@ -316,10 +399,7 @@ fun ReaderShell(
         // Only the top-level destinations are tabs. The Note and the Player are reached from them, which
         // is the UI contract's "the Player is not a fifth bottom-navigation destination" and "the Note
         // screen is not a top-level destination".
-        //
-        // On PlayerScreen, the navigation bar is hidden to provide an uncluttered full-screen listening surface.
-        if (current != ReaderDestination.Player) {
-            NavigationBar {
+        NavigationBar {
                 NavigationBarItem(
                     selected = navigation.top == ReaderDestination.Home,
                     onClick = { app.openHome() },
@@ -339,7 +419,12 @@ fun ReaderShell(
                     icon = {},
                     label = { Text("Queues") }
                 )
+                NavigationBarItem(
+                    selected = navigation.top == ReaderDestination.Settings,
+                    onClick = { app.openSettings() },
+                    icon = {},
+                    label = { Text("Settings") }
+                )
             }
-        }
     }
 }

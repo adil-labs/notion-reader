@@ -7,7 +7,8 @@ Implemented so far: reader state and navigation, reader engine, Android TTS spee
 and Player screens, Notion API/repository, **automatic section progression** (continuous hands-free
 reading), a typed load-error taxonomy, block-derived stable identities proven to survive edits,
 **Saved and Smart Queues**, **section outline and granular part controls**, **audio lifecycle hardening**,
-**stale-while-revalidate document caching & offline playback**, and **adaptive Player navigation stepping**.
+**stale-while-revalidate document caching & offline playback**, **adaptive Player navigation stepping**,
+and the **Settings hub & subpages with 10 core customization preferences**.
 
 ## Reading behaviour
 
@@ -67,17 +68,26 @@ interchangeable:
 - **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
   queue position, and adaptive primary controls: Previous / prominent center Play-Pause / Next, governed by a
   dynamic **Step granularity selector** (Section, Part, or Note), with polite TalkBack announcements and
-  the **Queue** snapshot button. The bottom navigation bar is hidden on this screen to ensure an uncluttered,
-  immersive listening interface. Secondary controls are accessible via **More playback controls** (Restart note,
-  Previous part, Next part) and **Sections** outline. Back returns to the previous screen while playback continues.
+- **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
+  queue position, and adaptive primary controls: Previous / prominent center Play-Pause / Next, governed by a
+  dynamic **Step granularity selector** (Section, Part, or Note), with polite TalkBack announcements and
+  the **Queue** snapshot button. Secondary controls are accessible via **More playback controls** (Restart note,
+  Sections outline). Back returns to the previous screen while playback continues.
 - **Active Queue** — the Player's `Queue` control opens a read-only view of the session's frozen
   snapshot: every Note, in order, with the current one marked. Selecting a row moves the session to that
   Note. There is deliberately nothing to edit — an Active Queue's membership and order are fixed for the
   session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
   played" (`docs/decisions.md` §22).
+- **Settings** — the 4th top-level tab: a TalkBack-first hub of 8 categories (`Playback`, `Speech`, `Offline & storage`,
+  `Accessibility`, `Appearance`, `Notion`, `Privacy & data`, `About`). Each category is a single accessibility focus
+  stop announcing its name and current summary. Selecting a category navigates to a focused secondary subpage with
+  dedicated controls, with Back cleanly restoring focus to the originating category. Customizations include default
+  navigation unit (Section/Part/Note), continuing or pausing between notes, configurable inter-note pause durations,
+  Android system vs app-specific speech rate and pitch, playback announcement verbosities (Minimal, Concise, Detailed),
+  offline caching policies, and keeping screen awake.
 
 Queues ships **all three tabs**: **Listening**, **Saved**, and **Smart**. Settings is
-absent for the same reason it always was — it has no content by definition.
+fully populated with the core customization preferences.
 
 The **Saved** tab lists the queues the listener built, most recently edited first, each named with its
 member count, and offers `Create saved queue`. Activating a queue opens **Saved Queue Details**, which

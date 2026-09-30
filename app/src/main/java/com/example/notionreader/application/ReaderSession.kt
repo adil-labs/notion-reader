@@ -9,6 +9,7 @@ import com.example.notionreader.domain.ReaderLoadException
 import com.example.notionreader.domain.session.ResumeDecision
 import com.example.notionreader.domain.session.ResumePolicy
 import com.example.notionreader.domain.session.StoredSession
+import com.example.notionreader.domain.settings.AnnouncementVerbosity
 import com.example.notionreader.player.ReaderEngine
 import com.example.notionreader.player.ReaderSectionSpan
 import com.example.notionreader.player.ReaderState
@@ -134,6 +135,10 @@ class ReaderSession(val engine: ReaderEngine) {
      * listener presses Play and hears nothing follow.
      */
     private var playWhenSupplied: Boolean = true
+
+    var continueToNextNote: Boolean = true
+    var pauseBetweenNotesMs: Long = 0L
+    var announcementVerbosity: AnnouncementVerbosity = AnnouncementVerbosity.CONCISE
 
     private val _lastResume = MutableStateFlow<ResumeDecision?>(null)
 
@@ -394,8 +399,15 @@ class ReaderSession(val engine: ReaderEngine) {
         // One announcement at most, and the resume decision outranks the Note title: a listener who is
         // being told "Section 4" because their paragraph moved does not also need the Note's name read to
         // them, and two announcements back to back before content is worse than one.
+        val noteTitle = current.currentItem?.title ?: document.title
+        val transitionAnnouncement = when (announcementVerbosity) {
+            AnnouncementVerbosity.MINIMAL -> null
+            AnnouncementVerbosity.CONCISE -> noteTitle
+            AnnouncementVerbosity.DETAILED -> "Next Note. Note ${current.index + 1} of ${current.size}. $noteTitle"
+        }
+
         val announcement = decision.announcement
-            ?: if (!wasRestoring && current.index > 0) current.currentItem?.title ?: document.title else null
+            ?: if (!wasRestoring && current.index > 0) transitionAnnouncement else null
 
         // Whether anything is spoken at all is decided by the intent the transition recorded, not by the
         // fact that a document arrived. `announceThenPlay` speaks and then reads on, so it is only reached
@@ -431,6 +443,11 @@ class ReaderSession(val engine: ReaderEngine) {
         val current = _queueState.value
         if (current.queue == null) return
         if (current.awaiting || current.isStalled || current.completed) return
+
+        if (!continueToNextNote && current.hasNext) {
+            engine.pause()
+            return
+        }
 
         _queueState.value = if (current.hasNext) {
             // Automatic progression is always a continue-reading transition: it happens because a Note was

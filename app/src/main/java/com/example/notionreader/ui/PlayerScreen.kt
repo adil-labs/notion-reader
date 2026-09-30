@@ -109,6 +109,8 @@ fun PlayerScreen(
     modifier: Modifier = Modifier,
     statusMessage: String? = null,
     queueState: QueueState = QueueState(),
+    keepScreenAwake: Boolean = true,
+    defaultGranularity: NavigationGranularity = NavigationGranularity.SECTION,
     onRetryQueueNote: () -> Unit = {},
     onJumpToSection: (ReaderSectionSpan) -> Unit = {}
 ) {
@@ -119,7 +121,6 @@ fun PlayerScreen(
     var showQueue by rememberSaveable { mutableStateOf(false) }
     var showSections by rememberSaveable { mutableStateOf(false) }
     var showMoreControls by rememberSaveable { mutableStateOf(false) }
-    val defaultGranularity = NavigationGranularity.SECTION
     var userGranularity by rememberSaveable { mutableStateOf<NavigationGranularity?>(null) }
     val granularity = userGranularity ?: defaultGranularity
     var stepAnnouncement by rememberSaveable { mutableStateOf<String?>(null) }
@@ -128,8 +129,8 @@ fun PlayerScreen(
     // while playing, so a paused reader still lets the device sleep. (A background playback service is
     // the real long-term answer; see the README.)
     val view = LocalView.current
-    DisposableEffect(view, state.isPlaying) {
-        view.keepScreenOn = state.isPlaying
+    DisposableEffect(view, state.isPlaying, keepScreenAwake) {
+        view.keepScreenOn = keepScreenAwake && state.isPlaying
         onDispose { view.keepScreenOn = false }
     }
 

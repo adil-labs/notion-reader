@@ -1,7 +1,5 @@
 package com.example.notionreader.player
 
-
-
 /**
  * Abstraction over text-to-speech.
  *
@@ -24,4 +22,10 @@ interface SpeechEngine {
 
     /** Releases the underlying TTS engine. Must be called when the owner is destroyed. */
     fun shutdown()
+
+    /** Sets the speech synthesis rate factor (e.g. 1.0f for normal, 1.5f for 1.5x). */
+    fun setSpeechRate(rate: Float) {}
+
+    /** Sets the speech pitch factor (e.g. 1.0f for normal, 0.8f for low, 1.2f for high). */
+    fun setPitch(pitch: Float) {}
 }

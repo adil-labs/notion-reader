@@ -133,11 +133,34 @@ class ReaderNavigatorTest {
         // to show. The list is asserted exactly, rather than by counting, because a destination silently
         // becoming a tab is what this test exists to notice.
         assertEquals(
-            listOf(ReaderDestination.Home, ReaderDestination.Browse, ReaderDestination.Queues),
+            listOf(ReaderDestination.Home, ReaderDestination.Browse, ReaderDestination.Queues, ReaderDestination.Settings),
             ReaderDestination.entries.filter { it.isTopLevel }
         )
         assertFalse(ReaderDestination.Note.isTopLevel)
         assertFalse(ReaderDestination.Player.isTopLevel)
+        assertFalse(ReaderDestination.SettingsPlayback.isTopLevel)
+    }
+
+    @Test
+    fun backFromSettingsReturnsHomeRatherThanFinishing() {
+        val navigator = ReaderNavigator()
+        navigator.openTopLevel(ReaderDestination.Settings)
+
+        assertTrue(navigator.back())
+        assertEquals(ReaderDestination.Home, navigator.state.value.current)
+    }
+
+    @Test
+    fun openingSettingsSubpagePushesSecondaryAndRestoresFocusIdOnBack() {
+        val navigator = ReaderNavigator()
+        navigator.openTopLevel(ReaderDestination.Settings)
+
+        navigator.open(ReaderDestination.SettingsPlayback, fromFocusId = "settings_row_playback")
+        assertEquals(ReaderDestination.SettingsPlayback, navigator.state.value.current)
+
+        assertTrue(navigator.back())
+        assertEquals(ReaderDestination.Settings, navigator.state.value.current)
+        assertEquals("settings_row_playback", navigator.state.value.focusTarget)
     }
 
     @Test

@@ -12,6 +12,7 @@ import com.example.notionreader.data.document.CachedDocumentRepository
 import com.example.notionreader.data.document.DocumentCache
 import com.example.notionreader.data.local.DataStoreSavedQueueStore
 import com.example.notionreader.data.local.DataStoreSessionStore
+import com.example.notionreader.data.local.DataStoreSettingsRepository
 import com.example.notionreader.data.local.DataStoreSmartQueueStore
 import com.example.notionreader.data.local.FileDocumentCache
 import com.example.notionreader.data.notion.KtorNotionApi
@@ -81,6 +82,23 @@ class ReaderApplication : Application() {
             host?.reportSpeechUnavailable(message)
         }
 
+        val sessionStore = DataStoreSessionStore(this)
+        val savedQueueStore = DataStoreSavedQueueStore(this)
+        val smartQueueStore = DataStoreSmartQueueStore(this)
+        val settingsRepository = DataStoreSettingsRepository(
+            context = this,
+            onClearHistoryCallback = {
+                sessionStore.write(emptyList())
+            },
+            onClearCacheCallback = {
+                documentCache.clear()
+            },
+            onClearAllCallback = {
+                sessionStore.write(emptyList())
+                documentCache.clear()
+            }
+        )
+
         val app = ReaderApp(
             session = ReaderSession(
                 ReaderEngineImpl(
@@ -90,14 +108,12 @@ class ReaderApplication : Application() {
             ),
             noteViewer = NoteViewer(ReaderDocument.Demo),
             navigator = ReaderNavigator(),
-            // One loader for every Note: the one the Note screen shows, and each Note in a queue, so queue
-            // loading inherits the error taxonomy rather than growing a second, thinner path.
             loadDocument = notionLoader(),
-            sessionStore = DataStoreSessionStore(this),
-            // A second file, not a second key: the two records version independently, so a Saved Queue edit
-            // rewriting the listening history's bytes for no benefit is exactly what a shared file would do.
-            savedQueueStore = DataStoreSavedQueueStore(this),
-            smartQueueStore = DataStoreSmartQueueStore(this)
+            sessionStore = sessionStore,
+            savedQueueStore = savedQueueStore,
+            smartQueueStore = smartQueueStore,
+            settingsRepository = settingsRepository,
+            speechEngine = speechEngine
         )
 
         return ReaderHost(

@@ -6409,6 +6409,81 @@ As features grew across Home, Browse, Player, and Queues, multiple surfaces accu
   - `:app:compileDebugAndroidTestKotlin`: Clean.
   - `:app:assembleDebug`: Clean.
 
+---
+
+## 32. Settings Hub, Subpages Architecture, and 10 Core Customization Preferences
+
+**Date:** 2026-09-30
+**Scope:** Settings tab as 4th top-level destination, focused subpages navigation model, domain/data/application layering, 10 v1 preferences, and full accessibility semantics.
+
+### 32.1 Requirements & UX Model
+
+1. **Top-Level Hub (8 Categories):**
+   - Populates the 4th top-level tab (`Home`, `Browse`, `Queues`, `Settings`) specified in `docs/notion/ui-screens-and-navigation-contract.md`.
+   - Each category is a single accessibility focus stop (`Role.Button`) announcing category title, current summary/setting values, and navigation hint (e.g., `"Playback, Default unit: Section · Continue: On · Pause: None, button. Double tap to open Playback settings"`).
+   - Categories: `Playback`, `Speech`, `Offline & storage`, `Accessibility`, `Appearance`, `Notion`, `Privacy & data`, `About`.
+
+2. **Dedicated Secondary Subpages:**
+   - Selecting a category pushes a secondary destination onto `ReaderNavigator` (`SettingsPlayback`, `SettingsSpeech`, etc.).
+   - Standard Back navigation pops the subpage and cleanly returns to `Settings`, restoring focus to the specific category row via `restoreFocusOn`.
+   - Hides nested complexity from the root list, avoiding visual and swipe clutter.
+
+3. **The 10 Core Customization Preferences (v1):**
+   - **Playback:**
+     - `defaultNavigationUnit`: `SECTION` (default), `PART`, `NOTE`. Controls initial transport stepping in Player.
+     - `continueToNextNote`: Boolean. When off, player pauses at note boundaries instead of automatically playing next note.
+     - `pauseBetweenNotes`: `NONE`, `SHORT_500MS`, `ONE_SECOND`, `TWO_SECONDS`, `FIVE_SECONDS`. Adds deliberate silence between queue notes.
+   - **Speech:**
+     - `useSystemSpeechSettings`: Boolean (default true). Uses Android system TTS settings for voice/pitch/rate.
+     - `speechRate`: `SYSTEM_DEFAULT`, `0.75x`, `1.0x`, `1.25x`, `1.5x`, `1.75x`, `2.0x`. Applied directly to `SpeechEngine`.
+     - `announcementVerbosity`: `MINIMAL`, `CONCISE` (default), `DETAILED`. Formats playback transition announcements.
+   - **Offline & Storage:**
+     - `cacheNotesForOffline`: Boolean. Controls document caching.
+     - `prefetchUpcomingNotes`: Boolean. Pre-fetches queue documents.
+     - `downloadNetworkPolicy`: `WIFI_AND_MOBILE` (default), `WIFI_ONLY`.
+   - **Accessibility & Appearance:**
+     - `keepScreenAwake`: Boolean. Sets `keepScreenOn` in `PlayerScreen`.
+     - `theme`: `SYSTEM`, `LIGHT`, `DARK`.
+     - `readerSpacing`: `COMPACT`, `COMFORTABLE`, `SPACIOUS`.
+   - **Explicit Non-Features / Guardrails:**
+     - No restart behavior setting (governed by Core Player spec).
+     - No app-level font size setting (respects Android system display scaling).
+     - No separate screen reader/TalkBack toggle (TalkBack accessibility is the primary mode of operation).
+
+### 32.2 Layering & Architecture Invariants
+
+- **Domain (`domain/settings`):**
+  - `ReaderSettings.kt`: Immutable data class with preference enums.
+  - `SettingsRepository.kt`: Interface exposing `val settings: Flow<ReaderSettings>`, `suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings)`, and clear actions. Placing the interface in `domain` satisfies `LayerRulesTest` (`data -> domain`).
+- **Data (`data/local`):**
+  - `DataStoreSettingsRepository.kt`: Production implementation using Jetpack DataStore Preferences with atomic updates.
+- **Application (`application`):**
+  - `InMemorySettingsRepository.kt`: High-speed memory double for testing and fast previews.
+  - `ReaderSession.kt`: Injected with `SettingsRepository`, dynamically observing `continueToNextNote`, `pauseBetweenNotesMs`, and `announcementVerbosity`.
+  - `ReaderApp.kt`: Exposes `settings: StateFlow<ReaderSettings>`, subpage navigation methods, and delegates data/cache clears.
+- **Platform (`platform`):**
+  - `AndroidSpeechEngine.kt`: Extended with `setSpeechRate(rate: Float)` and `setPitch(pitch: Float)` to apply configured speech parameters to Android `TextToSpeech`.
+- **UI (`ui/settings`):**
+  - `SettingsScreen.kt`: Root category list with TalkBack-optimized single-stop cards.
+  - `SettingsSubpages.kt`: Distinct screens for each of the 8 categories with clear controls, radio selections, and action buttons.
+
+### 32.3 Verification Evidence
+
+- **JVM Unit Tests:**
+  - `ReaderSettingsTest.kt`: Enums, serialization, and default value invariants.
+  - `SettingsRepositoryTest.kt`: State flow emissions, transforms, and persistence behaviors.
+  - `ReaderSessionSettingsTest.kt`: Playback pause at note boundaries, inter-note pauses, and announcement verbosities.
+  - `ReaderNavigatorTest.kt`: 4 top-level destinations, back to Home, and subpage push/pop focus targets.
+  - Total: 584 tests executed and passed (`:app:testDebugUnitTest`).
+  - `LayerRulesTest`: 0 violations.
+- **Instrumented Accessibility Suite (Emulator via `run-accessibility-tests.ps1`):**
+  - `SettingsScreenAccessibilityTest`: 4/4 passed (100%). Proves category rows are single focus stops, announce summary text, and open subpages.
+  - `ReaderShellAccessibilityTest`: 16/16 passed (100%). Proves all 4 tabs (`Home`, `Browse`, `Queues`, `Settings`) are rendered and persistent, back navigation returns to previous stops, and lazy scroll indices survive.
+- **Compilation & Assembly:**
+  - `:app:compileDebugAndroidTestKotlin`: Clean.
+  - `:app:assembleDebug`: Clean.
+
+
 
 
 

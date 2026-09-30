@@ -20,7 +20,10 @@ import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.session.ListeningHistory
 import com.example.notionreader.domain.session.SessionStore
 import com.example.notionreader.domain.session.StoredSession
+import com.example.notionreader.domain.settings.ReaderSettings
+import com.example.notionreader.domain.settings.SettingsRepository
 import com.example.notionreader.player.PlayerCommand
+import com.example.notionreader.player.SpeechEngine
 import com.example.notionreader.player.playerCommandAvailability
 import com.example.notionreader.player.ReaderSectionSpan
 import java.util.UUID
@@ -93,9 +96,18 @@ class ReaderApp(
      */
     private val savedQueueStore: SavedQueueStore? = null,
     private val smartQueueStore: SmartQueueStore? = null,
+    private val settingsRepository: SettingsRepository? = null,
+    private val speechEngine: SpeechEngine? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
+
+    val settingsRepo: SettingsRepository = settingsRepository ?: InMemorySettingsRepository()
+    val settings: StateFlow<ReaderSettings> = settingsRepo.settings
+
+    init {
+        applySettings(settingsRepo.settings.value)
+    }
 
     private val queueLoader = QueueLoader(session, loadDocument)
 
@@ -295,6 +307,45 @@ class ReaderApp(
     fun openBrowse() = navigator.openTopLevel(ReaderDestination.Browse)
 
     fun openQueues() = navigator.openTopLevel(ReaderDestination.Queues)
+
+    fun openSettings() = navigator.openTopLevel(ReaderDestination.Settings)
+
+    fun openSettingsPlayback(fromFocusId: String? = "settings_row_playback") =
+        navigator.open(ReaderDestination.SettingsPlayback, fromFocusId = fromFocusId)
+
+    fun openSettingsSpeech(fromFocusId: String? = "settings_row_speech") =
+        navigator.open(ReaderDestination.SettingsSpeech, fromFocusId = fromFocusId)
+
+    fun openSettingsOffline(fromFocusId: String? = "settings_row_offline") =
+        navigator.open(ReaderDestination.SettingsOffline, fromFocusId = fromFocusId)
+
+    fun openSettingsAccessibility(fromFocusId: String? = "settings_row_accessibility") =
+        navigator.open(ReaderDestination.SettingsAccessibility, fromFocusId = fromFocusId)
+
+    fun openSettingsAppearance(fromFocusId: String? = "settings_row_appearance") =
+        navigator.open(ReaderDestination.SettingsAppearance, fromFocusId = fromFocusId)
+
+    fun openSettingsNotion(fromFocusId: String? = "settings_row_notion") =
+        navigator.open(ReaderDestination.SettingsNotion, fromFocusId = fromFocusId)
+
+    fun openSettingsPrivacy(fromFocusId: String? = "settings_row_privacy") =
+        navigator.open(ReaderDestination.SettingsPrivacy, fromFocusId = fromFocusId)
+
+    fun openSettingsAbout(fromFocusId: String? = "settings_row_about") =
+        navigator.open(ReaderDestination.SettingsAbout, fromFocusId = fromFocusId)
+
+    suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
+        settingsRepo.updateSettings(transform)
+        applySettings(settingsRepo.settings.value)
+    }
+
+    fun applySettings(current: ReaderSettings) {
+        session.continueToNextNote = current.continueToNextNote
+        session.pauseBetweenNotesMs = current.pauseBetweenNotes.delayMs
+        session.announcementVerbosity = current.playbackAnnouncements
+        speechEngine?.setSpeechRate(if (current.useSystemSpeechSettings) 1.0f else current.speechRate.factor)
+        speechEngine?.setPitch(if (current.useSystemSpeechSettings) 1.0f else current.voicePitch.factor)
+    }
 
     /**
      * Deterministic discovery shortcuts for the Explore section on Home.

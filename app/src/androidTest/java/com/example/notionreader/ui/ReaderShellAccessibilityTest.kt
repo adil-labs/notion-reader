@@ -146,10 +146,10 @@ class ReaderShellAccessibilityTest {
     // ------------------------------------------------------------------ which surfaces are tabs
 
     @Test
-    fun theThreePopulatedDestinationsAreTabs() {
+    fun theFourPopulatedDestinationsAreTabs() {
         show(harness.app())
 
-        compose.onAllNodes(isATab()).assertCountEquals(3)
+        compose.onAllNodes(isATab()).assertCountEquals(4)
     }
 
     @Test
@@ -158,11 +158,11 @@ class ReaderShellAccessibilityTest {
 
         // `Play all` opened the Player, so the assertion is made with the Player visible — which is the
         // only state in which "is the Player a fourth tab?" is a real question. It is not, and the tab bar
-        // still offers three destinations.
+        // still offers four destinations.
         show(app)
 
         assertOnScreen("Player")
-        compose.onAllNodes(isATab()).assertCountEquals(3)
+        compose.onAllNodes(isATab()).assertCountEquals(4)
     }
 
     @Test
@@ -174,7 +174,7 @@ class ReaderShellAccessibilityTest {
         compose.onNodeWithText("Result 1").performSemanticsAction(SemanticsActions.OnClick)
 
         assertOnScreen("Note")
-        compose.onAllNodes(isATab()).assertCountEquals(3)
+        compose.onAllNodes(isATab()).assertCountEquals(4)
     }
 
     // ------------------------------------------------------------------ the mini-player
@@ -385,7 +385,7 @@ class ReaderShellAccessibilityTest {
         // Scroll to the foot of the list, so the first result is no longer composed. That is what makes
         // "did the position survive?" answerable without asking the device where anything is: a `LazyColumn`
         // disposes what is far outside its window, so a reset list would have Result 1 back in the tree.
-        compose.onNode(hasScrollAction()).performScrollToIndex(39)
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex)).performScrollToIndex(39)
         compose.onNodeWithText("Result 40").assertExists()
         compose.onNodeWithText("Result 1").assertDoesNotExist()
 
