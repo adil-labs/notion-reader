@@ -3,6 +3,7 @@ package com.example.notionreader.data.document
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -61,8 +62,9 @@ class CachedDocumentRepositoryTest {
     @Test
     fun knownTimestampHintBypassesNetworkEntirelyForZeroMsStart() = runBlocking {
         val fakeRemote = FakeRemoteDocumentSource()
+        val cachedTimeWithinTtl = Instant.parse("2026-09-30T11:30:00Z") // 30 mins before fixedClock (12:00)
         val fakeCache = FakeDocumentCache().apply {
-            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = v1Time))
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = cachedTimeWithinTtl))
         }
 
         val repository = CachedDocumentRepository(fakeRemote, fakeCache, fixedClock)
@@ -72,6 +74,74 @@ class CachedDocumentRepositoryTest {
         assertEquals(DocumentFreshness.FRESH, load.freshness)
         assertEquals(0, fakeRemote.getMetadataCalls) // Zero network requests!
         assertEquals(0, fakeRemote.getDocumentCalls)
+    }
+
+    @Test
+    fun newerTimestampHintBypassesTtlToTriggerRevalidation() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource().apply {
+            metadata = RemoteDocumentMetadata(
+                pageId = docV2.pageId,
+                title = docV2.title,
+                lastEditedAt = v2Time,
+                isTrashed = false
+            )
+            document = docV2
+        }
+        val cachedTimeWithinTtl = Instant.parse("2026-09-30T11:30:00Z")
+        val fakeCache = FakeDocumentCache().apply {
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = cachedTimeWithinTtl))
+        }
+
+        val repository = CachedDocumentRepository(fakeRemote, fakeCache, fixedClock)
+        // Hint declares v2Time, which is newer than docV1's v1Time in cache
+        val load = repository.loadDocument(docV1.pageId, knownRemoteLastEditedAt = v2Time)
+
+        assertEquals(DocumentSource.REMOTE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        assertEquals(1, fakeRemote.getMetadataCalls)
+        assertEquals(1, fakeRemote.getDocumentCalls)
+    }
+
+    @Test
+    fun expiredTtlRequiresRevalidationEvenWithKnownTimestampHint() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource().apply {
+            metadata = RemoteDocumentMetadata(
+                pageId = docV1.pageId,
+                title = docV1.title,
+                lastEditedAt = v1Time,
+                isTrashed = false
+            )
+            document = docV1
+        }
+        val fakeCache = FakeDocumentCache().apply {
+            put(CachedDocument(
+                document = docV1,
+                remoteLastEditedAt = v1Time,
+                fetchedAt = v1Time,
+                validatedAt = v1Time
+            ))
+        }
+
+        val repository = CachedDocumentRepository(
+            remote = fakeRemote,
+            cache = fakeCache,
+            clock = fixedClock, // 12:00:00Z (2 hours after v1Time)
+            freshnessPolicy = { CacheFreshnessPolicy.ONE_HOUR } // 1 hour TTL -> expired!
+        )
+
+        val load = repository.loadDocument(docV1.pageId, knownRemoteLastEditedAt = v1Time)
+
+        assertEquals(DocumentSource.CACHE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        // Must perform metadata check because TTL expired, despite the timestamp hint
+        assertEquals(1, fakeRemote.getMetadataCalls)
+        assertEquals(0, fakeRemote.getDocumentCalls) // Blocks still not downloaded because remote matches!
+
+        // And validatedAt should now be updated to fixedClock
+        val updatedCache = fakeCache.get(docV1.pageId)
+        assertNotNull(updatedCache)
+        assertEquals(v1Time, updatedCache!!.fetchedAt)
+        assertEquals(fixedClock.instant(), updatedCache.validatedAt)
     }
 
     @Test

@@ -449,5 +449,41 @@ class ReaderHostTest {
             hostScope.cancel()
         }
     }
+
+    @Test
+    fun recentNotesPrefetchStreamSurvivesPlaybackRequestAndPrefetchesFutureBrowseUpdates() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val (host, loader) = hostWith(hostScope)
+            host.start()
+            host.startRecentNotesPrefetch(maxNotes = 1)
+
+            val entry1 = com.example.notionreader.domain.ReaderIndexEntry(pageId = "page-1", title = "Note 1")
+            host.app.loadBrowseIndex { listOf(entry1) }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertTrue("Initial note should be prefetched", loader.loaded.contains("page-1"))
+
+            // Trigger a playback request (feedTheQueue request != null)
+            host.app.playAll(listOf(QueuedNote(alpha.pageId, alpha.title)), QueueOrigin.BrowseResults)
+            runCurrent()
+
+            // Subsequent browse index load should still trigger prefetching
+            val entry2 = com.example.notionreader.domain.ReaderIndexEntry(pageId = "page-2", title = "Note 2")
+            host.app.loadBrowseIndex { listOf(entry2) }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertTrue(
+                "Subsequent browse update should still be prefetched after playback occurred",
+                loader.loaded.contains("page-2")
+            )
+        } finally {
+            hostScope.cancel()
+        }
+    }
 }
 

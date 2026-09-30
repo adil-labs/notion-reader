@@ -555,7 +555,7 @@ fun SettingsOfflineScreen(
 
         SettingsToggleCard(
             title = "Cache Notes for offline playback",
-            subtitle = "A Note that has been read becomes available offline.",
+            subtitle = "New and viewed Notes will be saved locally. Existing cache remains available offline until cleared.",
             checked = settings.cacheNotesForOffline,
             onCheckedChange = { checked -> onUpdate { it.copy(cacheNotesForOffline = checked) } }
         )

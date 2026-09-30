@@ -33,7 +33,9 @@ internal object ReaderDocumentCodec {
             title = cachedDocument.document.title,
             lastEditedAtEpochMilli = cachedDocument.document.lastEditedAt?.toEpochMilli(),
             remoteLastEditedAtEpochMilli = cachedDocument.remoteLastEditedAt?.toEpochMilli(),
-            cachedAtEpochMilli = cachedDocument.cachedAt.toEpochMilli(),
+            cachedAtEpochMilli = cachedDocument.validatedAt.toEpochMilli(),
+            fetchedAtEpochMilli = cachedDocument.fetchedAt.toEpochMilli(),
+            validatedAtEpochMilli = cachedDocument.validatedAt.toEpochMilli(),
             sections = cachedDocument.document.sections.map { section ->
                 ReaderSectionDto(
                     id = section.id,
@@ -106,10 +108,18 @@ internal object ReaderDocumentCodec {
             }
         )
 
+        val fetchedAt = dto.fetchedAtEpochMilli?.let { Instant.ofEpochMilli(it) }
+            ?: dto.cachedAtEpochMilli?.let { Instant.ofEpochMilli(it) }
+            ?: Instant.EPOCH
+        val validatedAt = dto.validatedAtEpochMilli?.let { Instant.ofEpochMilli(it) }
+            ?: dto.cachedAtEpochMilli?.let { Instant.ofEpochMilli(it) }
+            ?: fetchedAt
+
         return CachedDocument(
             document = document,
             remoteLastEditedAt = dto.remoteLastEditedAtEpochMilli?.let { Instant.ofEpochMilli(it) },
-            cachedAt = Instant.ofEpochMilli(dto.cachedAtEpochMilli),
+            fetchedAt = fetchedAt,
+            validatedAt = validatedAt,
             schemaVersion = dto.schemaVersion
         )
     }
@@ -121,7 +131,9 @@ internal object ReaderDocumentCodec {
         val title: String,
         val lastEditedAtEpochMilli: Long? = null,
         val remoteLastEditedAtEpochMilli: Long? = null,
-        val cachedAtEpochMilli: Long,
+        val cachedAtEpochMilli: Long? = null,
+        val fetchedAtEpochMilli: Long? = null,
+        val validatedAtEpochMilli: Long? = null,
         val sections: List<ReaderSectionDto> = emptyList()
     )
 

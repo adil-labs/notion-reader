@@ -44,19 +44,19 @@ class CachedDocumentRepository(
         val cached = if (canonicalId != null) cache.get(canonicalId) else null
 
         if (!forceRefresh && cached != null) {
-            // 0ms Fast-path 1: if caller already knows the remote last edited timestamp from Browse/Queue
-            // and it matches the cached copy, return cached copy as fresh without any network call.
-            if (knownRemoteLastEditedAt != null && cached.remoteLastEditedAt == knownRemoteLastEditedAt) {
+            val policy = freshnessPolicy()
+            if (policy == CacheFreshnessPolicy.MANUAL_ONLY) {
                 return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
             }
 
-            // 0ms Fast-path 2: if document was cached/verified within the configured freshness TTL window,
-            // return cached copy as fresh without network call.
-            val maxAgeMillis = freshnessPolicy().maxAgeMillis
+            val maxAgeMillis = policy.maxAgeMillis
             if (maxAgeMillis > 0L) {
-                val ageMillis = clock.instant().toEpochMilli() - cached.cachedAt.toEpochMilli()
+                val ageMillis = clock.instant().toEpochMilli() - cached.validatedAt.toEpochMilli()
                 if (ageMillis in 0L until maxAgeMillis) {
-                    return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
+                    // Within TTL: only bypass network if caller's hint does not declare a newer remote revision
+                    if (knownRemoteLastEditedAt == null || cached.remoteLastEditedAt == null || !knownRemoteLastEditedAt.isAfter(cached.remoteLastEditedAt)) {
+                        return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
+                    }
                 }
             }
         }
@@ -95,7 +95,7 @@ class CachedDocumentRepository(
         // Cache Hit: remote timestamp matches cached timestamp -> no need to download blocks!
         if (cached != null && metadata.lastEditedAt != null && metadata.lastEditedAt == cached.remoteLastEditedAt) {
             if (isCachingEnabled()) {
-                cache.put(cached.copy(cachedAt = clock.instant()))
+                cache.put(cached.copy(validatedAt = clock.instant()))
             }
             return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
         }
@@ -115,11 +115,13 @@ class CachedDocumentRepository(
         }
 
         if (isCachingEnabled()) {
+            val now = clock.instant()
             cache.put(
                 CachedDocument(
                     document = fresh,
                     remoteLastEditedAt = metadata.lastEditedAt,
-                    cachedAt = clock.instant()
+                    fetchedAt = now,
+                    validatedAt = now
                 )
             )
         }

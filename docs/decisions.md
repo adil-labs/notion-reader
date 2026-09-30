@@ -6742,4 +6742,65 @@ Investigation on physical Android 15/16/17 devices (`Pixel 8 Pro`, API 37) with 
 3. **Debug APK Build (`:app:assembleDebug`):**
    - Clean assembly.
 
+## 37. Cache Refinement, Single-Flight Load Coordination, and Prefetch Contention Remediation
+
+### 37.1 Context and Problem
+
+A comprehensive review of head `5cee4fb7` identified two high/medium priority caching defects alongside several prefetch lifecycle and UI gaps:
+
+1. **Unqualified Timestamp Hints Defeating Configured Freshness TTL:**
+   In `CachedDocumentRepository`, when `knownRemoteLastEditedAt` matched `cached.remoteLastEditedAt`, the repository returned the cached document immediately without checking whether the entry had exceeded the user's configured cache TTL (e.g. 1 hour). An unqualified timestamp hint indicates that at some unknown observation time the remote revision was X, but does not guarantee it remains X hours later.
+2. **Ambiguous Cache Provenance:**
+   `CachedDocument` previously recorded only a single timestamp (`cachedAt`), conflating when the document blocks were actually fetched from Notion with when a lightweight metadata revalidation check occurred.
+3. **Absence of Shared Process-Wide Single-Flight Load Coordination:**
+   `ReaderApplication.notionLoader()` instantiates a fresh `CachedDocumentRepository` per load invocation. Concurrent requests for the same page (e.g. Note screen inspection, foreground playback, queue prefetch, and recent-notes prefetch) could issue duplicate network queries and redundant block downloads.
+4. **Prefetch Collector Stream Termination on Playback:**
+   In `ReaderHost.feedTheQueue()`, when a playback request arrived (`request != null`), calling `recentNotesPrefetchJob?.cancel()` permanently killed the outer coroutine collecting `app.browse.state`. Subsequent updates to the Browse index never triggered recent-note prefetching again.
+5. **Prefetch Contention with Live Playback Buffering:**
+   Queue prefetch I/O (`startQueuePrefetch`) was not cancelled when playback started, allowing background prefetch network/disk calls to compete with foreground document loading for live playback.
+6. **Ambiguous Offline Cache Toggle Subtitle:**
+   The offline caching toggle subtitle in `SettingsSubpages.kt` did not clarify that disabling the setting stops new downloads while preserving existing cached content until explicitly cleared.
+
+### 37.2 Architectural Invariants and Implementation
+
+1. **Authoritative TTL and Guarded Timestamp Hints:**
+   - In `CachedDocumentRepository.loadDocument()`, local freshness TTL is authoritative:
+     - If the cache age exceeds `freshnessPolicy().maxAgeMillis`, revalidation against Notion metadata is mandatory, even if `knownRemoteLastEditedAt` matches `cached.remoteLastEditedAt`.
+     - Within the TTL window, cache is returned immediately unless `knownRemoteLastEditedAt` is strictly newer than `cached.remoteLastEditedAt` (`isAfter`), which immediately triggers revalidation.
+2. **Two-Timestamp Provenance (`CachedDocument`):**
+   - Updated `CachedDocument` domain entity:
+     - `fetchedAt: Instant`: Timestamp when document blocks were downloaded and normalized.
+     - `validatedAt: Instant`: Timestamp when document was downloaded or last verified against Notion metadata.
+     - `cachedAt: Instant`: Accessor returning `validatedAt` for backwards compatibility.
+   - Updated `ReaderDocumentCodec` and `CachedDocumentDto` with backward compatibility falling back to `cachedAtEpochMilli`.
+3. **Process-Wide Single-Flight Coordination (`DocumentLoadCoordinator`):**
+   - Implemented `DocumentLoadCoordinator` in the `application` layer:
+     - Deduplicates concurrent loads keyed by canonical page ID (normalizing UUIDs, dashes, and URL fragments).
+     - Joins concurrent callers to an existing in-flight `Deferred<ReaderDocument>`.
+     - Ensures `forceRefresh = true` supersedes non-force in-flight requests and starts a fresh fetch.
+     - Caller cancellation isolation: If an awaiting caller (e.g. prefetch coroutine) is cancelled, the leader job running in the coordinator's scope continues to completion, safely caching the document and serving any remaining or future callers.
+   - Wired as a process-level singleton in `ReaderApplication.loadCoordinator`, wrapping `notionLoader`.
+4. **Resilient Prefetch Stream Lifecycle & Contention Relief:**
+   - In `ReaderHost.kt`:
+     - Decoupled long-running stream collectors (`recentPrefetchCollectorJob`, `queuePrefetchCollectorJob`) from cancellable per-emission fetch jobs (`activeRecentPrefetchJob`, `activeQueuePrefetchJob`).
+     - In `feedTheQueue()`, when playback begins (`request != null`), any active prefetch I/O jobs (`activeRecentPrefetchJob`, `activeQueuePrefetchJob`) are cancelled immediately, granting 100% network and disk I/O to live playback.
+     - The outer collection of `browse.state` remains intact, ensuring future index updates automatically prefetch new notes.
+5. **Settings UI Clarification:**
+   - Updated `SettingsOfflineScreen` card subtitle: `"New and viewed Notes will be saved locally. Existing cache remains available offline until cleared."`
+
+### 37.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 614 tests executed, 0 failed.
+   - `LayerRulesTest`: 0 violations (`domain -> nothing`, `player -> domain`, `application -> domain, player`, `data -> domain`, `platform -> player`, `ui -> domain, player, application`).
+   - Added `CachedDocumentRepositoryTest.expiredTtlRequiresRevalidationEvenWithKnownTimestampHint`: proves expired TTL enforces metadata revalidation despite matching hint.
+   - Added `CachedDocumentRepositoryTest.newerTimestampHintBypassesTtlToTriggerRevalidation`: proves a newer remote timestamp hint immediately triggers revalidation even within TTL.
+   - Added `DocumentLoadCoordinatorTest` suite (6 test cases covering deduplication, cancellation isolation, force-refresh supersession, URL normalization, and retry after failure).
+   - Added `ReaderHostTest.recentNotesPrefetchStreamSurvivesPlaybackRequestAndPrefetchesFutureBrowseUpdates`: proves browse prefetch collector stays active across playback transitions.
+2. **AndroidTest Kotlin Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation with 0 errors.
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly.
+
+
 

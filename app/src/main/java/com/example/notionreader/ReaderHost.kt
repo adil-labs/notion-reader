@@ -138,17 +138,22 @@ class ReaderHost(
         scope.launch { app.loadSavedQueues() }
     }
 
+    private var queuePrefetchCollectorJob: Job? = null
+    private var activeQueuePrefetchJob: Job? = null
+
     /**
      * Opportunistically prefetches upcoming Notes in the active queue into the document cache.
      *
      * Kept separate from [start] so unit tests that isolate queue feeds do not trigger background fetches.
      */
     fun startQueuePrefetch() {
-        scope.launch {
+        queuePrefetchCollectorJob?.cancel()
+        queuePrefetchCollectorJob = scope.launch {
             app.session.queueState
                 .map { state -> Pair(state.items, state.index) }
                 .distinctUntilChanged()
                 .collect { (items, currentIndex) ->
+                    activeQueuePrefetchJob?.cancel()
                     val settings = app.settingsRepo.settings.value
                     if (!settings.prefetchUpcomingNotes) return@collect
                     if (!settings.cacheNotesForOffline) return@collect
@@ -157,13 +162,15 @@ class ReaderHost(
                     }
                     if (items.isNotEmpty() && currentIndex >= 0) {
                         val upcoming = items.drop(currentIndex + 1).take(2)
-                        for (queuedNote in upcoming) {
-                            try {
-                                app.prefetchNote(queuedNote.pageId, queuedNote.lastEditedAt)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (_: Exception) {
-                                // Prefetch failure is non-fatal and silent
+                        activeQueuePrefetchJob = launch {
+                            for (queuedNote in upcoming) {
+                                try {
+                                    app.prefetchNote(queuedNote.pageId, queuedNote.lastEditedAt)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    // Prefetch failure is non-fatal and silent
+                                }
                             }
                         }
                     }
@@ -171,33 +178,37 @@ class ReaderHost(
         }
     }
 
-    private var recentNotesPrefetchJob: Job? = null
+    private var recentPrefetchCollectorJob: Job? = null
+    private var activeRecentPrefetchJob: Job? = null
 
     /**
      * Opportunistically pre-caches recent Notes from the Browse index upon app launch / index load,
      * ensuring immediate offline availability and zero-latency playback.
      */
     fun startRecentNotesPrefetch(maxNotes: Int = 3) {
-        recentNotesPrefetchJob?.cancel()
-        recentNotesPrefetchJob = scope.launch {
+        recentPrefetchCollectorJob?.cancel()
+        recentPrefetchCollectorJob = scope.launch {
             app.browse.state
                 .map { it.entries }
                 .distinctUntilChanged()
                 .collect { entries ->
+                    activeRecentPrefetchJob?.cancel()
                     val settings = app.settingsRepo.settings.value
                     if (!settings.cacheNotesForOffline) return@collect
                     if (settings.downloadNetworkPolicy == com.example.notionreader.domain.settings.DownloadNetworkPolicy.WIFI_ONLY && !networkState.isUnmetered) {
                         return@collect
                     }
                     val notesToPrefetch = entries.take(maxNotes)
-                    for (entry in notesToPrefetch) {
-                        try {
-                            app.prefetchNote(entry.pageId, entry.lastEditedAt)
-                            kotlinx.coroutines.delay(250)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            // Non-fatal background prefetch failure
+                    activeRecentPrefetchJob = launch {
+                        for (entry in notesToPrefetch) {
+                            try {
+                                app.prefetchNote(entry.pageId, entry.lastEditedAt)
+                                kotlinx.coroutines.delay(250)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                // Non-fatal background prefetch failure
+                            }
                         }
                     }
                 }
@@ -213,7 +224,10 @@ class ReaderHost(
      */
     fun shutdown() {
         pendingAdvanceJob?.cancel()
-        recentNotesPrefetchJob?.cancel()
+        activeRecentPrefetchJob?.cancel()
+        activeQueuePrefetchJob?.cancel()
+        recentPrefetchCollectorJob?.cancel()
+        queuePrefetchCollectorJob?.cancel()
         scope.cancel()
         app.shutdown()
     }
@@ -280,7 +294,9 @@ class ReaderHost(
                 .collect { request ->
                     pendingAdvanceJob?.cancel()
                     if (request != null) {
-                        recentNotesPrefetchJob?.cancel()
+                        // Playback takes priority: cancel running prefetch I/O so bandwidth is fully dedicated
+                        activeRecentPrefetchJob?.cancel()
+                        activeQueuePrefetchJob?.cancel()
                         app.loadPendingQueueNote()
                     }
                 }

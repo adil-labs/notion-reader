@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.example.notionreader.application.DefaultLoadReaderDocument
+import com.example.notionreader.application.DocumentLoadCoordinator
 import com.example.notionreader.application.LoadReaderDocument
 import com.example.notionreader.application.NoteViewer
 import com.example.notionreader.application.ReaderApp
@@ -72,6 +73,10 @@ class ReaderApplication : Application() {
         FileDocumentCache(File(noBackupFilesDir, "document-cache"))
     }
 
+    val loadCoordinator: DocumentLoadCoordinator by lazy {
+        DocumentLoadCoordinator()
+    }
+
     val host: ReaderHost by lazy { buildHost() }
 
     private fun buildHost(): ReaderHost {
@@ -136,18 +141,20 @@ class ReaderApplication : Application() {
      * than once per screen.
      */
     private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt, forceRefresh ->
-        val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
-        val remoteSource = NotionRepository(KtorNotionApi(token))
-        val cachedRepository = CachedDocumentRepository(
-            remote = remoteSource,
-            cache = documentCache,
-            isCachingEnabled = { settingsRepo.settings.value.cacheNotesForOffline },
-            freshnessPolicy = { settingsRepo.settings.value.cacheFreshnessPolicy }
-        )
-        try {
-            cachedRepository.getDocument(reference, knownRemoteLastEditedAt, forceRefresh)
-        } finally {
-            remoteSource.close()
+        loadCoordinator.load(reference, forceRefresh) {
+            val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+            val remoteSource = NotionRepository(KtorNotionApi(token))
+            val cachedRepository = CachedDocumentRepository(
+                remote = remoteSource,
+                cache = documentCache,
+                isCachingEnabled = { settingsRepo.settings.value.cacheNotesForOffline },
+                freshnessPolicy = { settingsRepo.settings.value.cacheFreshnessPolicy }
+            )
+            try {
+                cachedRepository.getDocument(reference, knownRemoteLastEditedAt, forceRefresh)
+            } finally {
+                remoteSource.close()
+            }
         }
     }
 
