@@ -110,8 +110,13 @@ fun NoteScreen(
         ) {
             item(key = "note-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val displayTitle = if (loadState is DocumentLoadState.Loading) {
+                        "Loading note…"
+                    } else {
+                        document.title
+                    }
                     Text(
-                        text = document.title,
+                        text = displayTitle,
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.semantics { heading() }
                     )

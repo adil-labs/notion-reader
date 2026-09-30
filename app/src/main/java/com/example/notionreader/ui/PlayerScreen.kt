@@ -119,7 +119,7 @@ fun PlayerScreen(
     var showQueue by rememberSaveable { mutableStateOf(false) }
     var showSections by rememberSaveable { mutableStateOf(false) }
     var showMoreControls by rememberSaveable { mutableStateOf(false) }
-    val defaultGranularity = if (queueState.size > 1) NavigationGranularity.NOTE else NavigationGranularity.SECTION
+    val defaultGranularity = NavigationGranularity.SECTION
     var userGranularity by rememberSaveable { mutableStateOf<NavigationGranularity?>(null) }
     val granularity = userGranularity ?: defaultGranularity
     var stepAnnouncement by rememberSaveable { mutableStateOf<String?>(null) }
@@ -165,7 +165,12 @@ fun PlayerScreen(
     if (showMoreControls) {
         MorePlaybackControlsView(
             availability = availability,
+            hasSections = state.sections.isNotEmpty() && !queueState.awaiting && !queueState.isStalled,
             onCommand = onCommand,
+            onOpenSections = {
+                showMoreControls = false
+                showSections = true
+            },
             onClose = { showMoreControls = false },
             modifier = modifier
         )
@@ -364,7 +369,7 @@ fun PlayerScreen(
                 },
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Step: ${granularity.label}")
+                Text("Navigation: ${granularity.label}")
             }
 
             Button(
@@ -421,13 +426,16 @@ fun PlayerScreen(
 /**
  * Secondary playback controls surface.
  *
- * Exposes fine-grained part navigation and note restarting per Core Player & TTS Playback spec
- * Phase 4, keeping the primary Player controls compact and listening-focused.
+ * Exposes note restarting and sections outline navigation per Core Player & TTS Playback spec,
+ * keeping the primary Player controls compact and listening-focused. Fine-grained stepping
+ * is controlled via the primary Navigation granularity selector.
  */
 @Composable
 private fun MorePlaybackControlsView(
     availability: com.example.notionreader.player.PlayerCommandAvailability,
+    hasSections: Boolean,
     onCommand: (PlayerCommand, Int?) -> Unit,
+    onOpenSections: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -471,25 +479,12 @@ private fun MorePlaybackControlsView(
             Text("Restart note")
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Button(
+            onClick = onOpenSections,
+            enabled = hasSections,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Button(
-                onClick = { onCommand(PlayerCommand.PreviousPart, null) },
-                enabled = availability.canMoveToPreviousPart,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Previous part")
-            }
-
-            Button(
-                onClick = { onCommand(PlayerCommand.NextPart, null) },
-                enabled = availability.canMoveToNextPart,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Next part")
-            }
+            Text("Sections outline")
         }
     }
 }

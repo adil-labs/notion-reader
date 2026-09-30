@@ -111,7 +111,6 @@ fun HomeScreen(
                     session = session,
                     now = now,
                     onContinue = { onContinue(session.sessionId) },
-                    onPlayPause = onPlayPause,
                     focusTarget = focusTarget,
                     onFocusHandled = onFocusHandled
                 )
@@ -189,54 +188,53 @@ private fun HomeExploreEntry(
     }
 }
 
-/** One history entry: the session, then Continue, then Play/Pause for the live one. */
+/**
+ * One unfinished listening session on Home: title, queue position, state and relative recency as
+ * a single accessible focus stop.
+ */
 @Composable
 private fun ContinueListeningEntry(
     session: ContinueListeningCard,
     now: Long,
     onContinue: () -> Unit,
-    onPlayPause: () -> Unit,
     focusTarget: String?,
     onFocusHandled: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onContinue)
-                // One focus stop for the session, as with a Browse result row.
-                .semantics(mergeDescendants = true) {}
-        ) {
-            Text(
-                text = session.title,
-                style = MaterialTheme.typography.bodyLarge
-            )
-
-            if (session.queuePosition != null) {
-                Text(
-                    text = session.queuePosition,
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-
-            Text(
-                text = "${session.stateDescription} · ${describeLastActivity(now - session.lastActivityAt)}",
-                style = MaterialTheme.typography.labelMedium
-            )
-        }
-
-        Button(
-            onClick = onContinue,
-            modifier = Modifier.restoreFocusOn(
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .restoreFocusOn(
                 target = focusTarget,
                 // A history entry is identified by its session, never by its title — the same id the
                 // navigation layer was given when Continue opened the Player.
                 id = session.sessionId,
                 onHandled = onFocusHandled
             )
-        ) {
-            Text("Continue")
+            .clickable(
+                onClick = onContinue,
+                onClickLabel = "Continue listening"
+            )
+            // One focus stop for the session, as with a Browse result row.
+            .semantics(mergeDescendants = true) {}
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = session.title,
+            style = MaterialTheme.typography.bodyLarge
+        )
+
+        if (session.queuePosition != null) {
+            Text(
+                text = session.queuePosition,
+                style = MaterialTheme.typography.labelMedium
+            )
         }
+
+        Text(
+            text = "${session.stateDescription} · ${describeLastActivity(now - session.lastActivityAt)}",
+            style = MaterialTheme.typography.labelMedium
+        )
     }
 }
 

@@ -194,6 +194,14 @@ class NoteScreenAccessibilityTest {
     }
 
     @Test
+    fun showsLoadingHeadlineInsteadOfStaleTitleWhileLoading() {
+        showNote(loadState = DocumentLoadState.Loading)
+
+        compose.onNodeWithText("Loading note…").assert(A11y.hasHeading())
+        compose.onAllNodesWithText("Accessibility Fixture").assertCountEquals(0)
+    }
+
+    @Test
     fun anEmptyNoteSaysSoInsteadOfRenderingNothing() {
         val empty = ReaderDocument(pageId = "empty", title = "Empty Note")
 

@@ -30,17 +30,15 @@ import com.example.notionreader.application.SmartQueueCard
  * tests go on asserting Listening without a Saved tab in the tree, and it is the shape that makes a third
  * tab an addition rather than a rewrite.
  *
- * ## Two tabs, and why not three
+ * ## Three distinct queue tabs
  *
- * The UI contract's Queues screen is `Listening | Saved | Smart`. **Smart is not here**, and that is the
- * scoped deferral `docs/decisions.md` §18 records rather than a redefinition: Smart Queues are query-defined
- * persistent queues owned by the Content Metadata & Workspace Schema Adapters spec, which does not exist.
- * Shipping the tab would put a permanently unusable control one tap from two populated surfaces, which is
- * the objection §12.5 already resolved for a whole destination.
+ * The UI contract's Queues screen provides `Listening | Saved | Smart`:
+ * - `Listening`: frozen Active Queue playback history (unfinished and completed sessions).
+ * - `Saved`: manually curated playlists of Notes.
+ * - `Smart`: query-defined dynamic playlists evaluated at playback time.
  *
- * The consequence is visible and worth stating plainly: TalkBack announces "1 of 2" where the contract's
- * example says "1 of 3". The ordinal counts the tabs that exist, and the third arrives with the tab it
- * counts — the same relationship the single-tab version documented when it announced "1 of 1".
+ * Splitting them allows each tab to manage its own distinct read model, empty states, and lifecycle
+ * without cross-tab interference. TalkBack announces each tab's ordinal cleanly ("1 of 3", etc.).
  *
  * ## The selected tab is retained, because the contract requires it
  *

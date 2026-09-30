@@ -245,7 +245,7 @@ class PlayerScreenAccessibilityTest {
     // ------------------------------------------------------------------ secondary controls & sections
 
     @Test
-    fun morePlaybackControlsOpensSecondarySurfaceWithRestartAndPartNavigation() {
+    fun morePlaybackControlsOpensSecondarySurfaceWithRestartAndSections() {
         showPlayer(state = playerState(index = 2))
 
         compose.onNodeWithText("More playback controls").performSemanticsAction(SemanticsActions.OnClick)
@@ -255,14 +255,36 @@ class PlayerScreenAccessibilityTest {
         ).assertExists()
 
         compose.onNodeWithText("Restart note").assertIsReachable()
-        compose.onNodeWithText("Previous part").assertIsReachable()
-        compose.onNodeWithText("Next part").assertIsReachable()
+        compose.onNodeWithText("Sections outline").assertIsReachable()
         compose.onNodeWithText("Close controls").assertIsReachable()
 
         compose.onNodeWithText("Close controls").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNode(
             SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Player")
         ).assertExists()
+    }
+
+    @Test
+    fun defaultsToSectionNavigationGranularityEvenWithMultipleNotes() {
+        compose.setContent {
+            PlayerScreen(
+                state = playerState(),
+                documentTitle = "Multi-note Queue",
+                queueState = com.example.notionreader.domain.queue.QueueState(
+                    queue = com.example.notionreader.domain.queue.ActiveQueue.snapshotOf(
+                        listOf(
+                            com.example.notionreader.domain.queue.QueuedNote("p1", "Note 1"),
+                            com.example.notionreader.domain.queue.QueuedNote("p2", "Note 2")
+                        ),
+                        com.example.notionreader.domain.queue.QueueOrigin.BrowseResults
+                    )
+                )
+            )
+        }
+
+        compose.onNodeWithText("Navigation: Section").assertIsReachable()
+        compose.onNodeWithText("Previous section").assertExists()
+        compose.onNodeWithText("Next section").assertExists()
     }
 
     @Test

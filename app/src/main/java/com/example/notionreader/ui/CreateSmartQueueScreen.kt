@@ -49,7 +49,7 @@ fun CreateSmartQueueScreen(
         )
 
         Text(
-            text = "Give the queue a name and search query. Notes in your workspace that match the query will automatically be included in this queue.",
+            text = "Give the queue a name and filter query. Matches against note titles, kinds, areas, and topics in your workspace will automatically be included when this queue is played.",
             style = MaterialTheme.typography.bodyMedium
         )
 

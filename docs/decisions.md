@@ -6349,6 +6349,66 @@ Following a source-level architectural audit across the codebase through commit 
   - `:app:compileDebugAndroidTestKotlin`: Clean.
   - `:app:assembleDebug`: Clean.
 
+---
+
+## 31. UI/UX Interaction Density & Duplication Consolidation
+
+**Date:** 2026-09-30
+**Scope:** Reduction of redundant controls, consolidation to single focus stops, stable Player section stepping defaults, accessible semantic selection for sort and facet dialogs, suppression of stale note titles during loading, and documentation accuracy.
+
+### 31.1 Guiding Principle: One User Intent → One Primary Control → One Focus Stop
+
+As features grew across Home, Browse, Player, and Queues, multiple surfaces accumulated redundant actions and extra accessibility swipe stops. For TalkBack users, redundant focus stops double swipe fatigue; for sighted users with large system fonts, duplicate controls waste scarce vertical viewport space. This round enforces strict interaction consolidation across all primary surfaces.
+
+### 31.2 Changes Implemented
+
+1. **Home Screen Continue Consolidation (Single Focus Stop):**
+   - In `HomeScreen.kt`, `ContinueListeningEntry` previously had a clickable `Column` followed immediately by a separate `Button("Continue")`, both firing `onContinue(session.sessionId)`. TalkBack announced the card details, followed by another swipe to a bare "Continue" button.
+   - Refactored `ContinueListeningEntry` into a single, merged clickable card with `onClickLabel = "Continue listening"`. The entire entry is now a single focus stop reading:
+     `"Mindfulness reflections, Note 3 of 8, Paused, 2 hours ago. Double tap to Continue listening."`
+   - Removed the redundant second button and removed unused `onPlayPause` parameter.
+   - Updated `HomeScreenAccessibilityTest` to verify the single reachable focus stop and execution of `onContinue`.
+
+2. **Player Navigation Granularity Defaults to Section:**
+   - In `PlayerScreen.kt`, `defaultGranularity` previously defaulted to `NOTE` when `queueState.size > 1`, which made `Previous`/`Next` skip entire documents by default.
+   - Set `defaultGranularity = NavigationGranularity.SECTION` unconditionally across all session types, providing safe, predictable paragraph/section navigation by default. Note stepping is enabled only when explicitly cycled by the listener.
+   - Updated button label from `"Step: ${granularity.label}"` to `"Navigation: ${granularity.label}"` for unambiguous clarity.
+
+3. **Player Secondary Surface Navigation Consolidation:**
+   - In `MorePlaybackControlsView`, removed redundant `Previous part` and `Next part` buttons (which duplicated stepping now handled by the primary transport row via `Navigation: Part`).
+   - Retained `Restart note` and added a direct shortcut to `Sections outline`.
+   - Updated `PlayerScreenAccessibilityTest` to verify `Restart note`, `Sections outline`, and `Close controls`.
+
+4. **Browse Sort Selection Semantics:**
+   - In `BrowseScreen.kt`, replaced disabled buttons (`Button(enabled = state.query.sort != ...)`) with `FilterChip(selected = state.query.sort == ...)` containing proper selection semantics.
+   - TalkBack now correctly announces `"Recently updated, selected"` or `"not selected"`, avoiding the disabled-button anti-pattern that implied the sort was unavailable.
+
+5. **Facet Filter Dialog Semantic Radio Selection:**
+   - In `BrowseScreen.kt`, `FacetSelectionDialog` previously appended `"(selected)"` as a string suffix to the text of selected options.
+   - Refactored dialog items to use `Modifier.selectable(selected = isSelected, role = Role.RadioButton)` with explicit `RadioButton(selected = isSelected, onClick = null)`. TalkBack announces true radio button state natively without string concatenation hacks.
+
+6. **NoteScreen Stale Identity Suppression:**
+   - In `NoteScreen.kt`, when `loadState is DocumentLoadState.Loading`, the headline now renders `"Loading note…"` instead of displaying the stale title of the previously loaded or cached document.
+
+7. **Documentation & Copy Polish:**
+   - In `QueuesScreen.kt`, updated stale KDoc that referenced "Two tabs, and why not three" to accurately document all three active tabs (`Listening`, `Saved`, `Smart`).
+   - In `CreateSmartQueueScreen.kt`, clarified description copy to explain that query matches against note titles, kinds, areas, and topics in the workspace.
+
+### 31.3 Verification Evidence
+
+- **JVM Unit Tests:**
+  - 581 tests executed and passed (`:app:testDebugUnitTest`).
+  - `LayerRulesTest`: 0 violations.
+- **Instrumented Accessibility Suite (Tested on Emulator via `run-accessibility-tests.ps1`):**
+  - `HomeScreenAccessibilityTest`: 14/14 passed (100%).
+  - `PlayerScreenAccessibilityTest`: 18/18 passed (100%).
+  - `NoteScreenAccessibilityTest`: 18/18 passed (100%).
+  - `BrowseScreenAccessibilityTest`: 17/17 passed (100%).
+  - Total: 67/67 instrumented tests passed with 0 failures across all affected screens.
+- **Android Compilation & Assembly:**
+  - `:app:compileDebugAndroidTestKotlin`: Clean.
+  - `:app:assembleDebug`: Clean.
+
 
 
 

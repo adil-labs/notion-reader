@@ -147,14 +147,18 @@ class HomeScreenAccessibilityTest {
     }
 
     @Test
-    fun continueIsASeparateNamedControlRatherThanPartOfTheSessionAnnouncement() {
-        show(continueListening = listOf(card()))
+    fun aSessionIsASingleFocusStopThatCanBeActivatedToContinue() {
+        var continuedSessionId: String? = null
+        show(continueListening = listOf(card(id = "s1")), onContinue = { continuedSessionId = it })
 
-        // The entry is readable and not itself a control — the same split the Listening tab makes, and for
-        // the same reason: a tappable title is an unlabelled gesture target to a screen reader.
-        compose.onNodeWithText("Mindfulness reflections", substring = true).assertIsReadable()
-        compose.onNodeWithText("Continue").assertIsReachable()
+        // One focus stop for the session: merges title, position, state and recency into a single
+        // reachable control that activates to continue, avoiding duplicate controls for the same action.
+        compose.onNodeWithText("Mindfulness reflections", substring = true).assertIsReachable()
         compose.onAllNodes(androidx.compose.ui.test.hasText("Play")).assertCountEquals(0)
+
+        compose.onNodeWithText("Mindfulness reflections", substring = true)
+            .performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals("s1", continuedSessionId)
     }
 
     @Test
