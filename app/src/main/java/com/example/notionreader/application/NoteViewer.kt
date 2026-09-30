@@ -87,13 +87,14 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
     suspend fun load(
         pageId: String,
         loader: LoadReaderDocument,
-        knownRemoteLastEditedAt: java.time.Instant? = null
+        knownRemoteLastEditedAt: java.time.Instant? = null,
+        forceRefresh: Boolean = false
     ) {
         val token = ++requestToken
         _pageId.value = pageId
         _loadState.value = DocumentLoadState.Loading
 
-        val result = loader(pageId, knownRemoteLastEditedAt)
+        val result = loader(pageId, knownRemoteLastEditedAt, forceRefresh)
 
         // Requested first, answered second: a superseded load is dropped rather than applied.
         if (token != requestToken) return

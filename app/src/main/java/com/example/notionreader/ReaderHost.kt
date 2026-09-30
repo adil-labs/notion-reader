@@ -171,6 +171,39 @@ class ReaderHost(
         }
     }
 
+    private var recentNotesPrefetchJob: Job? = null
+
+    /**
+     * Opportunistically pre-caches recent Notes from the Browse index upon app launch / index load,
+     * ensuring immediate offline availability and zero-latency playback.
+     */
+    fun startRecentNotesPrefetch(maxNotes: Int = 3) {
+        recentNotesPrefetchJob?.cancel()
+        recentNotesPrefetchJob = scope.launch {
+            app.browse.state
+                .map { it.entries }
+                .distinctUntilChanged()
+                .collect { entries ->
+                    val settings = app.settingsRepo.settings.value
+                    if (!settings.cacheNotesForOffline) return@collect
+                    if (settings.downloadNetworkPolicy == com.example.notionreader.domain.settings.DownloadNetworkPolicy.WIFI_ONLY && !networkState.isUnmetered) {
+                        return@collect
+                    }
+                    val notesToPrefetch = entries.take(maxNotes)
+                    for (entry in notesToPrefetch) {
+                        try {
+                            app.prefetchNote(entry.pageId, entry.lastEditedAt)
+                            kotlinx.coroutines.delay(250)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Non-fatal background prefetch failure
+                        }
+                    }
+                }
+        }
+    }
+
     /**
      * Ends the session and the scope.
      *
@@ -180,6 +213,7 @@ class ReaderHost(
      */
     fun shutdown() {
         pendingAdvanceJob?.cancel()
+        recentNotesPrefetchJob?.cancel()
         scope.cancel()
         app.shutdown()
     }
@@ -245,7 +279,10 @@ class ReaderHost(
                 .distinctUntilChanged()
                 .collect { request ->
                     pendingAdvanceJob?.cancel()
-                    if (request != null) app.loadPendingQueueNote()
+                    if (request != null) {
+                        recentNotesPrefetchJob?.cancel()
+                        app.loadPendingQueueNote()
+                    }
                 }
         }
     }

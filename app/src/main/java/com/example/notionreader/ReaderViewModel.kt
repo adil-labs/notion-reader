@@ -177,6 +177,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
+     * Retries or explicitly refreshes the Note screen by bypassing cache TTL.
+     */
+    fun refreshCurrentNote() {
+        noteLoadJob?.cancel()
+        noteLoadJob = viewModelScope.launch { app.refreshCurrentNote() }
+    }
+
+    /**
      * Retries the Browse index.
      *
      * Superseding cancels, for the same two reasons as [openNote]: `BrowseModel` drops a superseded
@@ -185,6 +193,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun retryBrowseIndex() {
         browseLoadJob?.cancel()
         browseLoadJob = viewModelScope.launch { app.loadBrowseIndex(::readBrowseIndex) }
+    }
+
+    /**
+     * Refreshes the Browse index explicitly.
+     */
+    fun refreshBrowseIndex() {
+        retryBrowseIndex()
     }
 
     /**

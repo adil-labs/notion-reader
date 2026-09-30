@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.domain.settings.AnnouncementVerbosity
 import com.example.notionreader.domain.settings.AppTheme
+import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import com.example.notionreader.domain.settings.DownloadNetworkPolicy
 import com.example.notionreader.domain.settings.NavigationUnit
 import com.example.notionreader.domain.settings.NotePauseDuration
@@ -593,6 +594,51 @@ fun SettingsOfflineScreen(
                         ) {
                             RadioButton(
                                 selected = settings.downloadNetworkPolicy == policy,
+                                onClick = null
+                            )
+                            Text(
+                                text = policy.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(start = 12.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Cache freshness",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "How frequently cached Notes are revalidated against Notion before opening.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CacheFreshnessPolicy.values().forEach { policy ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = settings.cacheFreshnessPolicy == policy,
+                                    onClick = { onUpdate { it.copy(cacheFreshnessPolicy = policy) } },
+                                    role = Role.RadioButton
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = settings.cacheFreshnessPolicy == policy,
                                 onClick = null
                             )
                             Text(

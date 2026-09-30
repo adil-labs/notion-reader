@@ -392,5 +392,62 @@ class ReaderHostTest {
             hostScope.cancel()
         }
     }
+
+    @Test
+    fun recentNotesPrefetchLoadsTopEntriesFromBrowseIndex() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val (host, loader) = hostWith(hostScope)
+            host.start()
+            host.startRecentNotesPrefetch(maxNotes = 2)
+
+            val entry1 = com.example.notionreader.domain.ReaderIndexEntry(
+                pageId = "page-1",
+                title = "Note 1"
+            )
+            val entry2 = com.example.notionreader.domain.ReaderIndexEntry(
+                pageId = "page-2",
+                title = "Note 2"
+            )
+            val entry3 = com.example.notionreader.domain.ReaderIndexEntry(
+                pageId = "page-3",
+                title = "Note 3"
+            )
+
+            host.app.loadBrowseIndex { listOf(entry1, entry2, entry3) }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertTrue("Top note 1 should be prefetched", loader.loaded.contains("page-1"))
+            assertTrue("Top note 2 should be prefetched", loader.loaded.contains("page-2"))
+            assertFalse("Note beyond maxNotes should not be prefetched", loader.loaded.contains("page-3"))
+        } finally {
+            hostScope.cancel()
+        }
+    }
+
+    @Test
+    fun recentNotesPrefetchIsGatedWhenCacheDisabled() = runTest {
+        val hostScope = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = com.example.notionreader.application.InMemorySettingsRepository()
+            repo.updateSettings { it.copy(cacheNotesForOffline = false) }
+
+            val (host, loader) = hostWith(hostScope, settingsRepo = repo)
+            host.start()
+            host.startRecentNotesPrefetch(maxNotes = 2)
+
+            val entry1 = com.example.notionreader.domain.ReaderIndexEntry(pageId = "page-1", title = "Note 1")
+            host.app.loadBrowseIndex { listOf(entry1) }
+            runCurrent()
+            advanceTimeBy(1000)
+            runCurrent()
+
+            assertFalse("Should not prefetch when cacheNotesForOffline is false", loader.loaded.contains("page-1"))
+        } finally {
+            hostScope.cancel()
+        }
+    }
 }
 

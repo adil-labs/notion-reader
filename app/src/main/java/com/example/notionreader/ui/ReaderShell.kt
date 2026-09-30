@@ -67,6 +67,8 @@ fun ReaderShell(
     onOpenNoteWithHint: (String, java.time.Instant?) -> Unit = { id, _ -> onOpenNote(id) },
     onRetryNoteLoad: () -> Unit,
     onRetryBrowseIndex: () -> Unit,
+    onRefreshNote: () -> Unit = onRetryNoteLoad,
+    onRefreshBrowseIndex: () -> Unit = onRetryBrowseIndex,
     onContinueSession: (String) -> Unit,
     onReplayCompleted: (String) -> Unit,
     /**
@@ -195,6 +197,7 @@ fun ReaderShell(
                         onAddAllToQueue = onAddAllToQueue,
                         onClearQuery = app.browse::clearQuery,
                         onRetry = onRetryBrowseIndex,
+                        onRefresh = onRefreshBrowseIndex,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )
@@ -292,6 +295,7 @@ fun ReaderShell(
                         // is a named action rather than a side effect of loading.
                         onPlay = app::playNote,
                         onRetry = onRetryNoteLoad,
+                        onRefresh = onRefreshNote,
                         // The Note's own `Add to queue`, which captures this one Note.
                         onAddToQueue = onAddNoteToQueue,
                         statusMessage = speechMessage,

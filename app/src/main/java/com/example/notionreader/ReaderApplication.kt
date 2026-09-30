@@ -116,6 +116,7 @@ class ReaderApplication : Application() {
             host = built
             built.start()
             built.startQueuePrefetch()
+            built.startRecentNotesPrefetch()
         }
     }
 
@@ -134,16 +135,17 @@ class ReaderApplication : Application() {
      * bug that only appears on the failure path, and this is called once per Note in a multi-Note queue rather
      * than once per screen.
      */
-    private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt ->
+    private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt, forceRefresh ->
         val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
         val remoteSource = NotionRepository(KtorNotionApi(token))
         val cachedRepository = CachedDocumentRepository(
             remote = remoteSource,
             cache = documentCache,
-            isCachingEnabled = { settingsRepo.settings.value.cacheNotesForOffline }
+            isCachingEnabled = { settingsRepo.settings.value.cacheNotesForOffline },
+            freshnessPolicy = { settingsRepo.settings.value.cacheFreshnessPolicy }
         )
         try {
-            cachedRepository.getDocument(reference, knownRemoteLastEditedAt)
+            cachedRepository.getDocument(reference, knownRemoteLastEditedAt, forceRefresh)
         } finally {
             remoteSource.close()
         }

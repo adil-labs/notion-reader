@@ -23,6 +23,7 @@ data class ReaderSettings(
     val cacheNotesForOffline: Boolean = true,
     val prefetchUpcomingNotes: Boolean = true,
     val downloadNetworkPolicy: DownloadNetworkPolicy = DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
+    val cacheFreshnessPolicy: CacheFreshnessPolicy = CacheFreshnessPolicy.ONE_HOUR,
 
     // Appearance
     val appTheme: AppTheme = AppTheme.SYSTEM_DEFAULT,
@@ -68,6 +69,14 @@ enum class AnnouncementVerbosity(val label: String) {
 enum class DownloadNetworkPolicy(val label: String) {
     WIFI_AND_MOBILE_DATA("Wi-Fi and mobile data"),
     WIFI_ONLY("Wi-Fi only")
+}
+
+enum class CacheFreshnessPolicy(val label: String, val maxAgeMillis: Long) {
+    ALWAYS_CHECK("Always check Notion", 0L),
+    ONE_HOUR("1 hour", 1 * 3600 * 1000L),
+    SIX_HOURS("6 hours", 6 * 3600 * 1000L),
+    ONE_DAY("24 hours", 24 * 3600 * 1000L),
+    MANUAL_ONLY("Manual refresh only", Long.MAX_VALUE)
 }
 
 enum class AppTheme(val label: String) {

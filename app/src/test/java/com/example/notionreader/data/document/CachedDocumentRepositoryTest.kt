@@ -258,6 +258,109 @@ class CachedDocumentRepositoryTest {
         assertEquals(docV1.pageId, load.document.pageId)
     }
 
+    @Test
+    fun freshnessPolicyTtlWindowAvoidsRemoteCheckWhenWithinWindow() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource()
+        val fakeCache = FakeDocumentCache().apply {
+            // Cached 30 minutes before fixedClock (12:00:00Z)
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = Instant.parse("2026-09-30T11:30:00Z")))
+        }
+
+        val repository = CachedDocumentRepository(
+            remote = fakeRemote,
+            cache = fakeCache,
+            clock = fixedClock,
+            freshnessPolicy = { com.example.notionreader.domain.settings.CacheFreshnessPolicy.ONE_HOUR }
+        )
+        val load = repository.loadDocument(docV1.pageId)
+
+        assertEquals(DocumentSource.CACHE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        assertEquals(0, fakeRemote.getMetadataCalls)
+        assertEquals(0, fakeRemote.getDocumentCalls)
+    }
+
+    @Test
+    fun expiredTtlWindowTriggersRevalidation() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource().apply {
+            metadata = RemoteDocumentMetadata(
+                pageId = docV1.pageId,
+                title = docV1.title,
+                lastEditedAt = v1Time,
+                isTrashed = false
+            )
+        }
+        val fakeCache = FakeDocumentCache().apply {
+            // Cached 2 hours before fixedClock (12:00:00Z), exceeding ONE_HOUR TTL
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = Instant.parse("2026-09-30T10:00:00Z")))
+        }
+
+        val repository = CachedDocumentRepository(
+            remote = fakeRemote,
+            cache = fakeCache,
+            clock = fixedClock,
+            freshnessPolicy = { com.example.notionreader.domain.settings.CacheFreshnessPolicy.ONE_HOUR }
+        )
+        val load = repository.loadDocument(docV1.pageId)
+
+        assertEquals(DocumentSource.CACHE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        assertEquals(1, fakeRemote.getMetadataCalls) // Revalidated!
+        assertEquals(0, fakeRemote.getDocumentCalls)
+    }
+
+    @Test
+    fun forceRefreshBypassesTtlAndFetchesFreshDocument() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource().apply {
+            metadata = RemoteDocumentMetadata(
+                pageId = docV2.pageId,
+                title = docV2.title,
+                lastEditedAt = v2Time,
+                isTrashed = false
+            )
+            document = docV2
+        }
+        val fakeCache = FakeDocumentCache().apply {
+            // Freshly cached 5 minutes ago
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = Instant.parse("2026-09-30T11:55:00Z")))
+        }
+
+        val repository = CachedDocumentRepository(
+            remote = fakeRemote,
+            cache = fakeCache,
+            clock = fixedClock,
+            freshnessPolicy = { com.example.notionreader.domain.settings.CacheFreshnessPolicy.ONE_HOUR }
+        )
+        val load = repository.loadDocument(docV1.pageId, forceRefresh = true)
+
+        assertEquals(DocumentSource.REMOTE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        assertEquals("Architecture v2", load.document.title)
+        assertEquals(1, fakeRemote.getMetadataCalls)
+        assertEquals(1, fakeRemote.getDocumentCalls)
+    }
+
+    @Test
+    fun manualOnlyPolicyNeverAutoRevalidates() = runBlocking {
+        val fakeRemote = FakeRemoteDocumentSource()
+        val fakeCache = FakeDocumentCache().apply {
+            // Cached 7 days ago
+            put(CachedDocument(docV1, remoteLastEditedAt = v1Time, cachedAt = Instant.parse("2026-09-23T12:00:00Z")))
+        }
+
+        val repository = CachedDocumentRepository(
+            remote = fakeRemote,
+            cache = fakeCache,
+            clock = fixedClock,
+            freshnessPolicy = { com.example.notionreader.domain.settings.CacheFreshnessPolicy.MANUAL_ONLY }
+        )
+        val load = repository.loadDocument(docV1.pageId)
+
+        assertEquals(DocumentSource.CACHE, load.source)
+        assertEquals(DocumentFreshness.FRESH, load.freshness)
+        assertEquals(0, fakeRemote.getMetadataCalls)
+    }
+
     private class FakeRemoteDocumentSource : RemoteDocumentSource {
         var metadata: RemoteDocumentMetadata? = null
         var document: ReaderDocument? = null

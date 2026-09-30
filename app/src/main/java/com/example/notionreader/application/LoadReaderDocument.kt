@@ -23,7 +23,8 @@ import kotlin.coroutines.cancellation.CancellationException
 interface LoadReaderDocument {
     suspend operator fun invoke(
         pageId: String,
-        knownRemoteLastEditedAt: java.time.Instant? = null
+        knownRemoteLastEditedAt: java.time.Instant? = null,
+        forceRefresh: Boolean = false
     ): Result<ReaderDocument>
 }
 
@@ -34,12 +35,19 @@ interface LoadReaderDocument {
  * Notion API, for a fixture, or for a future cache, and it is testable with no HTTP at all.
  */
 class DefaultLoadReaderDocument(
-    private val load: suspend (String, java.time.Instant?) -> ReaderDocument
+    private val load: suspend (String, java.time.Instant?, Boolean) -> ReaderDocument
 ) : LoadReaderDocument {
-    constructor(simpleLoad: suspend (String) -> ReaderDocument) : this({ pageId, _ -> simpleLoad(pageId) })
+    constructor(loadWithTimestamp: suspend (String, java.time.Instant?) -> ReaderDocument) :
+        this({ pageId, ts, _ -> loadWithTimestamp(pageId, ts) })
+    constructor(simpleLoad: suspend (String) -> ReaderDocument) :
+        this({ pageId, _, _ -> simpleLoad(pageId) })
 
-    override suspend operator fun invoke(pageId: String, knownRemoteLastEditedAt: java.time.Instant?): Result<ReaderDocument> = try {
-        Result.success(load(pageId, knownRemoteLastEditedAt))
+    override suspend operator fun invoke(
+        pageId: String,
+        knownRemoteLastEditedAt: java.time.Instant?,
+        forceRefresh: Boolean
+    ): Result<ReaderDocument> = try {
+        Result.success(load(pageId, knownRemoteLastEditedAt, forceRefresh))
     } catch (e: CancellationException) {
         // `runCatching` would have swallowed this and the UI would have shown a network failure for a
         // screen the user simply left. Rethrowing keeps structured concurrency intact; the typed

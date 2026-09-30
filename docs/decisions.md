@@ -6680,3 +6680,66 @@ Investigation on physical Android 15/16/17 devices (`Pixel 8 Pro`, API 37) with 
 4. **Device Layout & MediaSession Probe (`android layout --flat --pretty`, `dumpsys media_session`):**
    - Verified on physical Pixel 8 Pro (API 37): `MediaSession` registered with package `com.example.notionreader`, `PlaybackService` running foreground with `types=0x00000002` (`mediaPlayback`), media carousel rendering active note title on lock screen.
 
+## 36. Auto-Caching for Recent Notes, Configurable Freshness Policy, Launch Pre-validation, and Explicit Refresh Controls
+
+### 36.1 Problem and Product Requirements
+
+1. **Cold-Load Latency During Playback Transitions:**
+   Playing or inspecting a note that was not yet cached incurred full Notion block download latency (~1–3s depending on note size). For continuous hands-free reading, any mid-queue delay detracts from the audio player illusion.
+2. **Stale Cache vs. Network Round-Trip Trade-off:**
+   Hard-coded cache revalidation required a remote metadata check for every note load unless an exact `knownRemoteLastEditedAt` match occurred. Users with stable workspaces preferred immediate 0ms loads, while users actively editing Notion needed explicit control over how frequently notes are refreshed.
+3. **Absence of User-Facing Refresh Controls:**
+   If a note was cached, there was no accessible way on `NoteScreen` or `BrowseScreen` to force an in-place refresh from Notion without clearing the entire app cache.
+
+### 36.2 Architectural Invariants and Implementation
+
+1. **Configurable Cache Freshness TTL Policy (`CacheFreshnessPolicy`):**
+   - Added `CacheFreshnessPolicy` enum to `ReaderSettings`:
+     - `ALWAYS_CHECK` (0ms TTL — always revalidates metadata against Notion).
+     - `ONE_HOUR` (default — 1 hour TTL window).
+     - `SIX_HOURS` (6 hours TTL window).
+     - `ONE_DAY` (24 hours TTL window).
+     - `MANUAL_ONLY` (infinite TTL — never revalidates unless explicitly refreshed).
+   - Serialized in `DataStoreSettingsRepository` under `KEY_CACHE_FRESHNESS`.
+   - Exposed in `SettingsOfflineScreen` with accessible radio button group and descriptions.
+
+2. **0ms Fast-Path 2 in `CachedDocumentRepository`:**
+   - In `loadDocument(pageReference, knownRemoteLastEditedAt, forceRefresh)`:
+     - If `forceRefresh == false`, document exists in cache, and `(now - cachedAt) < freshnessPolicy().maxAgeMillis`, the repository returns `DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)` with **0 network requests**.
+     - When remote metadata is revalidated and matches `remoteLastEditedAt`, `cachedAt` timestamp is updated to `clock.instant()`, extending the freshness window.
+
+3. **Background Auto-Caching on App Launch & Index Ingestion (`startRecentNotesPrefetch`):**
+   - In `ReaderHost`, added `startRecentNotesPrefetch(maxNotes = 3)`:
+     - Observes `app.browse.state.entries`.
+     - Gates on `settings.cacheNotesForOffline` and `downloadNetworkPolicy` (checking `networkState.isUnmetered` when set to `WIFI_ONLY`).
+     - Sequentially downloads the top recent workspace notes with polite pacing (`delay(250ms)`) to strictly prevent Notion API rate-limiting (429).
+     - Wire-connected in `ReaderApplication.buildHost()` on launch.
+
+4. **Absolute Playback Priority over Background Prefetching:**
+   - In `ReaderHost.feedTheQueue()`: when an active playback request begins (`pendingRequest != null`), any active `recentNotesPrefetchJob` is cancelled immediately so that background I/O never competes with live TTS speech buffering.
+   - Cancelled on `ReaderHost.shutdown()`.
+
+5. **Explicit Refresh UI Controls with TalkBack Semantics:**
+   - `NoteScreen`: Added `IconButton` in header with `contentDescription = "Refresh note from Notion"`, invoking `refreshCurrentNote()` with `forceRefresh = true`.
+   - `BrowseScreen`: Added `IconButton` adjacent to search with `contentDescription = "Refresh Notes from Notion"`, invoking `refreshBrowseIndex()`.
+   - Accessible roles (`Role.Button`), minimum touch targets, and disabled state while loading.
+
+### 36.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 603 tests executed, 0 failed.
+   - Added `CachedDocumentRepositoryTest.freshnessPolicyTtlWindowAvoidsRemoteCheckWhenWithinWindow`: verifies 0 network calls when cached within TTL.
+   - Added `CachedDocumentRepositoryTest.expiredTtlWindowTriggersRevalidation`: verifies remote metadata revalidation once TTL expires.
+   - Added `CachedDocumentRepositoryTest.forceRefreshBypassesTtlAndFetchesFreshDocument`: verifies `forceRefresh = true` bypasses cache and updates document from remote.
+   - Added `CachedDocumentRepositoryTest.manualOnlyPolicyNeverAutoRevalidates`: verifies `MANUAL_ONLY` mode does not query Notion automatically.
+   - Added `ReaderHostTest.recentNotesPrefetchLoadsTopEntriesFromBrowseIndex`: verifies background prefetch fetches top notes from browse index.
+   - Added `ReaderHostTest.recentNotesPrefetchIsGatedWhenCacheDisabled`: verifies prefetching respects offline cache settings.
+   - `LayerRulesTest`: 0 violations.
+
+2. **AndroidTest Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation.
+
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly.
+
+

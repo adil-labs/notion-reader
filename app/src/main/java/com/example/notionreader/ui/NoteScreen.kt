@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
@@ -85,6 +87,7 @@ fun NoteScreen(
      */
     onAddToQueue: () -> Unit = {},
     onRetry: () -> Unit,
+    onRefresh: () -> Unit = onRetry,
     modifier: Modifier = Modifier,
     statusMessage: String? = null,
     /**
@@ -117,16 +120,33 @@ fun NoteScreen(
         ) {
             item(key = "note-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val displayTitle = if (loadState is DocumentLoadState.Loading) {
-                        "Loading note…"
-                    } else {
-                        document.title
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val displayTitle = if (loadState is DocumentLoadState.Loading) {
+                            "Loading note…"
+                        } else {
+                            document.title
+                        }
+                        Text(
+                            text = displayTitle,
+                            style = MaterialTheme.typography.headlineSmall,
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { heading() }
+                        )
+                        IconButton(
+                            onClick = onRefresh,
+                            enabled = loadState !is DocumentLoadState.Loading,
+                            modifier = Modifier.semantics {
+                                contentDescription = "Refresh note from Notion"
+                            }
+                        ) {
+                            Text("↻", style = MaterialTheme.typography.titleLarge)
+                        }
                     }
-                    Text(
-                        text = displayTitle,
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.semantics { heading() }
-                    )
 
                     if (statusMessage != null) {
                         Text(

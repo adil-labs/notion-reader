@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.notionreader.domain.settings.SettingsRepository
 import com.example.notionreader.domain.settings.AnnouncementVerbosity
 import com.example.notionreader.domain.settings.AppTheme
+import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import com.example.notionreader.domain.settings.DownloadNetworkPolicy
 import com.example.notionreader.domain.settings.NavigationUnit
 import com.example.notionreader.domain.settings.NotePauseDuration
@@ -83,6 +84,8 @@ class DataStoreSettingsRepository(
             prefetchUpcomingNotes = prefs[KEY_PREFETCH] ?: true,
             downloadNetworkPolicy = prefs[KEY_DOWNLOAD_POLICY]?.let { runCatching { DownloadNetworkPolicy.valueOf(it) }.getOrNull() }
                 ?: DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
+            cacheFreshnessPolicy = prefs[KEY_CACHE_FRESHNESS]?.let { runCatching { CacheFreshnessPolicy.valueOf(it) }.getOrNull() }
+                ?: CacheFreshnessPolicy.ONE_HOUR,
             keepScreenAwake = prefs[KEY_KEEP_AWAKE] ?: true,
             appTheme = prefs[KEY_THEME]?.let { runCatching { AppTheme.valueOf(it) }.getOrNull() }
                 ?: AppTheme.SYSTEM_DEFAULT,
@@ -106,6 +109,7 @@ class DataStoreSettingsRepository(
         prefs[KEY_CACHE_OFFLINE] = settings.cacheNotesForOffline
         prefs[KEY_PREFETCH] = settings.prefetchUpcomingNotes
         prefs[KEY_DOWNLOAD_POLICY] = settings.downloadNetworkPolicy.name
+        prefs[KEY_CACHE_FRESHNESS] = settings.cacheFreshnessPolicy.name
         prefs[KEY_KEEP_AWAKE] = settings.keepScreenAwake
         prefs[KEY_THEME] = settings.appTheme.name
         prefs[KEY_SPACING] = settings.readerSpacing.name
@@ -122,6 +126,7 @@ class DataStoreSettingsRepository(
         val KEY_CACHE_OFFLINE = booleanPreferencesKey("cache_notes_for_offline")
         val KEY_PREFETCH = booleanPreferencesKey("prefetch_upcoming_notes")
         val KEY_DOWNLOAD_POLICY = stringPreferencesKey("download_network_policy")
+        val KEY_CACHE_FRESHNESS = stringPreferencesKey("cache_freshness_policy")
         val KEY_KEEP_AWAKE = booleanPreferencesKey("keep_screen_awake")
         val KEY_THEME = stringPreferencesKey("app_theme")
         val KEY_SPACING = stringPreferencesKey("reader_spacing")

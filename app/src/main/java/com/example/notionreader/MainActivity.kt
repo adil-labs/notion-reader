@@ -108,6 +108,8 @@ class MainActivity : ComponentActivity() {
                         onOpenNoteWithHint = model::openNote,
                         onRetryNoteLoad = model::retryNoteLoad,
                         onRetryBrowseIndex = model::retryBrowseIndex,
+                        onRefreshNote = model::refreshCurrentNote,
+                        onRefreshBrowseIndex = model::refreshBrowseIndex,
                         onContinueSession = model::continueSession,
                         onReplayCompleted = model::replayCompleted,
                         onCreateSavedQueue = model::createSavedQueue,

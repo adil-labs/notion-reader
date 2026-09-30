@@ -18,6 +18,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
@@ -75,6 +77,7 @@ fun BrowseScreen(
     onAddAllToQueue: () -> Unit = {},
     onClearQuery: () -> Unit,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit = onRetry,
     onSortChange: (BrowseSort) -> Unit = {},
     modifier: Modifier = Modifier,
     focusTarget: String? = null,
@@ -131,13 +134,28 @@ fun BrowseScreen(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedTextField(
-                value = queryText,
-                onValueChange = onQueryChange,
-                label = { Text("Search notes") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = queryText,
+                    onValueChange = onQueryChange,
+                    label = { Text("Search notes") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onRefresh,
+                    enabled = !isLoading,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Refresh Notes from Notion"
+                    }
+                ) {
+                    Text("↻", style = MaterialTheme.typography.titleLarge)
+                }
+            }
 
             // Facet Filter Chips (scrollable row)
             Row(

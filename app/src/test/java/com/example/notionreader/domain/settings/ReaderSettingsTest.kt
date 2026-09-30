@@ -26,6 +26,7 @@ class ReaderSettingsTest {
         assertTrue(settings.cacheNotesForOffline)
         assertTrue(settings.prefetchUpcomingNotes)
         assertEquals(DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA, settings.downloadNetworkPolicy)
+        assertEquals(CacheFreshnessPolicy.ONE_HOUR, settings.cacheFreshnessPolicy)
 
         // Accessibility & Appearance defaults
         assertTrue(settings.keepScreenAwake)

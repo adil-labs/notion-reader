@@ -4,6 +4,7 @@ import com.example.notionreader.data.notion.normalizeNotionPageId
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.domain.settings.CacheFreshnessPolicy
 import java.time.Clock
 import java.time.Instant
 
@@ -17,7 +18,8 @@ class CachedDocumentRepository(
     private val remote: RemoteDocumentSource,
     private val cache: DocumentCache,
     private val clock: Clock = Clock.systemUTC(),
-    private val isCachingEnabled: () -> Boolean = { true }
+    private val isCachingEnabled: () -> Boolean = { true },
+    private val freshnessPolicy: () -> CacheFreshnessPolicy = { CacheFreshnessPolicy.ONE_HOUR }
 ) {
 
     /**
@@ -26,10 +28,12 @@ class CachedDocumentRepository(
      * @param pageReference Page UUID or URL, or blank for auto-discovered most recent page.
      * @param knownRemoteLastEditedAt Optional timestamp hint from index/queue; if matching the cache,
      *                                network validation is bypassed completely for 0ms start.
+     * @param forceRefresh When true, bypasses local TTL and forces revalidation/redownload from Notion.
      */
     suspend fun loadDocument(
         pageReference: String = "",
-        knownRemoteLastEditedAt: Instant? = null
+        knownRemoteLastEditedAt: Instant? = null,
+        forceRefresh: Boolean = false
     ): DocumentLoad {
         val canonicalId = if (pageReference.isNotBlank()) {
             normalizeNotionPageId(pageReference) ?: pageReference.trim().lowercase()
@@ -39,10 +43,22 @@ class CachedDocumentRepository(
 
         val cached = if (canonicalId != null) cache.get(canonicalId) else null
 
-        // 0ms Fast-path: if caller already knows the remote last edited timestamp from Browse/Queue
-        // and it matches the cached copy, return cached copy as fresh without any network call.
-        if (cached != null && knownRemoteLastEditedAt != null && cached.remoteLastEditedAt == knownRemoteLastEditedAt) {
-            return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
+        if (!forceRefresh && cached != null) {
+            // 0ms Fast-path 1: if caller already knows the remote last edited timestamp from Browse/Queue
+            // and it matches the cached copy, return cached copy as fresh without any network call.
+            if (knownRemoteLastEditedAt != null && cached.remoteLastEditedAt == knownRemoteLastEditedAt) {
+                return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
+            }
+
+            // 0ms Fast-path 2: if document was cached/verified within the configured freshness TTL window,
+            // return cached copy as fresh without network call.
+            val maxAgeMillis = freshnessPolicy().maxAgeMillis
+            if (maxAgeMillis > 0L) {
+                val ageMillis = clock.instant().toEpochMilli() - cached.cachedAt.toEpochMilli()
+                if (ageMillis in 0L until maxAgeMillis) {
+                    return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
+                }
+            }
         }
 
         val metadata = try {
@@ -78,6 +94,9 @@ class CachedDocumentRepository(
 
         // Cache Hit: remote timestamp matches cached timestamp -> no need to download blocks!
         if (cached != null && metadata.lastEditedAt != null && metadata.lastEditedAt == cached.remoteLastEditedAt) {
+            if (isCachingEnabled()) {
+                cache.put(cached.copy(cachedAt = clock.instant()))
+            }
             return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
         }
 
@@ -113,7 +132,8 @@ class CachedDocumentRepository(
      */
     suspend fun getDocument(
         pageReference: String = "",
-        knownRemoteLastEditedAt: Instant? = null
+        knownRemoteLastEditedAt: Instant? = null,
+        forceRefresh: Boolean = false
     ): ReaderDocument =
-        loadDocument(pageReference, knownRemoteLastEditedAt).document
+        loadDocument(pageReference, knownRemoteLastEditedAt, forceRefresh).document
 }

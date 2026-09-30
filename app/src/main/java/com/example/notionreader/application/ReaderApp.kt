@@ -490,11 +490,25 @@ class ReaderApp(
      * playback" and "if playback is occurring while another Note is manually inspected, the existing
      * playback session remains unchanged".
      */
-    suspend fun openNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null) {
+    suspend fun openNote(
+        pageId: String,
+        knownRemoteLastEditedAt: java.time.Instant? = null,
+        forceRefresh: Boolean = false
+    ) {
         // The page id is the activated element: a Browse row is identified by the page it opens, which is
         // also its `key` in the list, so Back can find the row the listener actually left.
         navigator.open(ReaderDestination.Note, fromFocusId = pageId)
-        noteViewer.load(pageId, loadDocument, knownRemoteLastEditedAt)
+        noteViewer.load(pageId, loadDocument, knownRemoteLastEditedAt, forceRefresh)
+    }
+
+    /**
+     * Refreshes the currently active note in the viewer by bypassing the cache TTL window.
+     */
+    suspend fun refreshCurrentNote() {
+        noteViewer.pageId.value?.let { pageId ->
+            noteViewer.load(pageId, loadDocument, knownRemoteLastEditedAt = null, forceRefresh = true)
+            updateCacheStats()
+        }
     }
 
     /**
@@ -744,8 +758,12 @@ class ReaderApp(
      * Prefetches a Note into cache if a loader is configured.
      * Non-destructive and safe for background execution.
      */
-    suspend fun prefetchNote(pageId: String, knownRemoteLastEditedAt: java.time.Instant? = null): Result<ReaderDocument> {
-        val result = loadDocument(pageId, knownRemoteLastEditedAt)
+    suspend fun prefetchNote(
+        pageId: String,
+        knownRemoteLastEditedAt: java.time.Instant? = null,
+        forceRefresh: Boolean = false
+    ): Result<ReaderDocument> {
+        val result = loadDocument(pageId, knownRemoteLastEditedAt, forceRefresh)
         updateCacheStats()
         return result
     }
