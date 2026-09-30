@@ -4,6 +4,7 @@ import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadCancelledException
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.domain.document.DocumentLoadPurpose
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -24,7 +25,8 @@ interface LoadReaderDocument {
     suspend operator fun invoke(
         pageId: String,
         knownRemoteLastEditedAt: java.time.Instant? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        purpose: DocumentLoadPurpose = DocumentLoadPurpose.PLAYBACK
     ): Result<ReaderDocument>
 }
 
@@ -35,19 +37,22 @@ interface LoadReaderDocument {
  * Notion API, for a fixture, or for a future cache, and it is testable with no HTTP at all.
  */
 class DefaultLoadReaderDocument(
-    private val load: suspend (String, java.time.Instant?, Boolean) -> ReaderDocument
+    private val load: suspend (String, java.time.Instant?, Boolean, DocumentLoadPurpose) -> ReaderDocument
 ) : LoadReaderDocument {
+    constructor(loadWithoutPurpose: suspend (String, java.time.Instant?, Boolean) -> ReaderDocument) :
+        this({ pageId, ts, refresh, _ -> loadWithoutPurpose(pageId, ts, refresh) })
     constructor(loadWithTimestamp: suspend (String, java.time.Instant?) -> ReaderDocument) :
-        this({ pageId, ts, _ -> loadWithTimestamp(pageId, ts) })
+        this({ pageId, ts, _, _ -> loadWithTimestamp(pageId, ts) })
     constructor(simpleLoad: suspend (String) -> ReaderDocument) :
-        this({ pageId, _, _ -> simpleLoad(pageId) })
+        this({ pageId, _, _, _ -> simpleLoad(pageId) })
 
     override suspend operator fun invoke(
         pageId: String,
         knownRemoteLastEditedAt: java.time.Instant?,
-        forceRefresh: Boolean
+        forceRefresh: Boolean,
+        purpose: DocumentLoadPurpose
     ): Result<ReaderDocument> = try {
-        Result.success(load(pageId, knownRemoteLastEditedAt, forceRefresh))
+        Result.success(load(pageId, knownRemoteLastEditedAt, forceRefresh, purpose))
     } catch (e: CancellationException) {
         // `runCatching` would have swallowed this and the UI would have shown a network failure for a
         // screen the user simply left. Rethrowing keeps structured concurrency intact; the typed

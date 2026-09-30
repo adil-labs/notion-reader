@@ -207,4 +207,93 @@ class DocumentLoadCoordinatorTest {
         }
         assertEquals(sampleDoc.title, caller2.title)
     }
+
+    @Test
+    fun prefetchLoadIsPreemptedWhenPlaybackLoadArrivesForDifferentPage() = runBlocking {
+        val coordinator = DocumentLoadCoordinator()
+        val prefetchStarted = CompletableDeferred<Unit>()
+        var prefetchCancelled = false
+
+        val prefetchJob = async(Dispatchers.Default) {
+            try {
+                coordinator.load(
+                    pageId = "page-prefetch-1",
+                    purpose = com.example.notionreader.domain.document.DocumentLoadPurpose.PREFETCH
+                ) {
+                    prefetchStarted.complete(Unit)
+                    delay(5000) // Simulating long slow background fetch
+                    sampleDoc.copy(pageId = "page-prefetch-1")
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                prefetchCancelled = true
+                throw e
+            }
+        }
+
+        prefetchStarted.await()
+        assertEquals(1, coordinator.prefetchInFlightCount)
+
+        // Foreground playback load arrives for a different page
+        val playbackResult = coordinator.load(
+            pageId = "page-playback-2",
+            purpose = com.example.notionreader.domain.document.DocumentLoadPurpose.PLAYBACK
+        ) {
+            sampleDoc.copy(pageId = "page-playback-2", title = "Playback Note")
+        }
+
+        assertEquals("Playback Note", playbackResult.title)
+        // Background prefetch load must have been preempted
+        try {
+            prefetchJob.await()
+            fail("Prefetch job should have been cancelled by playback load")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            assertTrue(prefetchCancelled)
+        }
+        assertEquals(0, coordinator.prefetchInFlightCount)
+    }
+
+    @Test
+    fun prefetchLoadIsPromotedAndJoinedWhenPlaybackLoadArrivesForSamePage() = runBlocking {
+        val coordinator = DocumentLoadCoordinator()
+        val executions = AtomicInteger(0)
+        val gate = CompletableDeferred<Unit>()
+
+        // Background prefetch begins for page A
+        val prefetchCaller = async(Dispatchers.Default) {
+            coordinator.load(
+                pageId = sampleDoc.pageId,
+                purpose = com.example.notionreader.domain.document.DocumentLoadPurpose.PREFETCH
+            ) {
+                executions.incrementAndGet()
+                gate.await()
+                sampleDoc
+            }
+        }
+
+        delay(30)
+        // Foreground playback arrives for the exact same page A
+        val playbackCaller = async(Dispatchers.Default) {
+            coordinator.load(
+                pageId = sampleDoc.pageId,
+                purpose = com.example.notionreader.domain.document.DocumentLoadPurpose.PLAYBACK
+            ) {
+                fail("Playback should join the in-flight prefetch instead of re-fetching")
+                sampleDoc
+            }
+        }
+
+        delay(30)
+        // Now trigger preemption of prefetch loads for an unrelated page - sampleDoc load must NOT be cancelled
+        // because it was promoted to PLAYBACK!
+        coordinator.cancelPrefetchLoadsExcept("unrelated-page")
+
+        gate.complete(Unit)
+        val prefetchDoc = prefetchCaller.await()
+        val playbackDoc = playbackCaller.await()
+
+        assertEquals(sampleDoc.title, prefetchDoc.title)
+        assertEquals(sampleDoc.title, playbackDoc.title)
+        assertEquals(1, executions.get())
+    }
 }
+

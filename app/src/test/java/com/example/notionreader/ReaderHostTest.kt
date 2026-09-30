@@ -509,31 +509,33 @@ class ReaderHostTest {
             host.start()
             host.startRecentNotesPrefetch()
 
-            val entryRecent = com.example.notionreader.domain.ReaderIndexEntry(
-                pageId = "page-recent",
-                title = "Recent Note",
-                lastEditedAt = threeDaysAgo
-            )
+            val recentNotes = (1..5).map { i ->
+                com.example.notionreader.domain.ReaderIndexEntry(
+                    pageId = "page-recent-$i",
+                    title = "Recent Note $i",
+                    lastEditedAt = java.time.Instant.ofEpochMilli(fixedNow - i * dayMillis)
+                )
+            }
             val entryOld = com.example.notionreader.domain.ReaderIndexEntry(
                 pageId = "page-old",
                 title = "Old Note",
                 lastEditedAt = tenDaysAgo
             )
 
-            host.app.loadBrowseIndex { listOf(entryRecent, entryOld) }
+            host.app.loadBrowseIndex { recentNotes + listOf(entryOld) }
             runCurrent()
-            advanceTimeBy(1000)
+            advanceTimeBy(3000)
             runCurrent()
 
-            assertTrue("Note from 3 days ago should be prefetched under 7-day window", loader.loaded.contains("page-recent"))
-            assertFalse("Note from 10 days ago should NOT be prefetched under 7-day window", loader.loaded.contains("page-old"))
+            assertTrue("Notes within 7 days should be prefetched", loader.loaded.contains("page-recent-1"))
+            assertFalse("Note from 10 days ago should NOT be prefetched under 7-day window when minimum 5 is satisfied", loader.loaded.contains("page-old"))
 
             // Now update setting to 15-day window
             repo.updateSettings {
                 it.copy(autoCacheTimeWindow = com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_15)
             }
             runCurrent()
-            advanceTimeBy(1000)
+            advanceTimeBy(3000)
             runCurrent()
 
             assertTrue("Note from 10 days ago should now be prefetched under 15-day window", loader.loaded.contains("page-old"))

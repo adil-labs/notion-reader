@@ -210,4 +210,59 @@ class FileDocumentCacheTest {
         assertNotNull(cache.get("protected-old-page")) // preserved because it's in protectedPageIds!
         assertNotNull(cache.get("recent-page")) // preserved because it's 2 days old (< 7 days)!
     }
+
+    @Test
+    fun oldRemoteEditWithRecentValidationIsPrunedByPruneOlderThan() = runBlocking {
+        val now = System.currentTimeMillis()
+        val oldDocRecentlyValidated = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("old-validated-page", "Old but checked recently", listOf("Text")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 60 * 24L * 3600L * 1000L), // 60 days ago
+            fetchedAt = Instant.ofEpochMilli(now - 60 * 24L * 3600L * 1000L),
+            validatedAt = Instant.ofEpochMilli(now - 5 * 60 * 1000L) // Validated 5 mins ago!
+        )
+
+        cache.put(oldDocRecentlyValidated)
+        assertEquals(1, cache.count())
+
+        val sevenDaysMillis = 7 * 24L * 3600L * 1000L
+        val pruned = cache.pruneOlderThan(sevenDaysMillis)
+
+        // Retention must use content age (remoteLastEditedAt), so it gets pruned despite recent validation!
+        assertEquals(1, pruned)
+        assertEquals(0, cache.count())
+        assertNull(cache.get("old-validated-page"))
+    }
+
+    @Test
+    fun pruneExceptRetainsDesiredAndProtectedNotesAndEvictsUnwanted() = runBlocking {
+        val now = System.currentTimeMillis()
+        val desiredOld = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("desired-old", "Desired Old", listOf("D")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 150 * 24L * 3600L * 1000L),
+            cachedAt = Instant.now()
+        )
+        val queueOld = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("queue-old", "Queue Old", listOf("Q")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 200 * 24L * 3600L * 1000L),
+            cachedAt = Instant.now()
+        )
+        val unwantedRecent = CachedDocument(
+            document = ReaderDocument.fromChunkTexts("unwanted", "Unwanted Note", listOf("U")),
+            remoteLastEditedAt = Instant.ofEpochMilli(now - 1 * 24L * 3600L * 1000L),
+            cachedAt = Instant.now()
+        )
+
+        cache.put(desiredOld)
+        cache.put(queueOld)
+        cache.put(unwantedRecent)
+        assertEquals(3, cache.count())
+
+        val pruned = cache.pruneExcept(setOf("desired-old", "queue-old"))
+        assertEquals(1, pruned)
+        assertEquals(2, cache.count())
+        assertNotNull(cache.get("desired-old"))
+        assertNotNull(cache.get("queue-old"))
+        assertNull(cache.get("unwanted"))
+    }
 }
+

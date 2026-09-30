@@ -192,11 +192,41 @@ class FileDocumentCache(
                     continue
                 }
 
-                val lastActivityEpoch = cached.validatedAt.toEpochMilli()
-                val remoteEditEpoch = cached.remoteLastEditedAt?.toEpochMilli() ?: lastActivityEpoch
-                val effectiveEpoch = maxOf(lastActivityEpoch, remoteEditEpoch)
+                val retentionInstant = cached.remoteLastEditedAt ?: cached.fetchedAt
+                val effectiveEpoch = retentionInstant.toEpochMilli()
 
                 if (now - effectiveEpoch > maxAgeMillis) {
+                    if (file.delete()) {
+                        prunedCount++
+                    }
+                }
+            }
+        }
+
+        prunedCount
+    }
+
+    override suspend fun pruneExcept(keepPageIds: Set<String>): Int = withContext(ioDispatcher) {
+        val normalizedKeep = keepPageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+        var prunedCount = 0
+
+        writeMutex.withLock {
+            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withLock
+            for (file in files) {
+                val cached = try {
+                    ReaderDocumentCodec.decode(file.readText())
+                } catch (_: Exception) {
+                    null
+                }
+
+                if (cached == null) {
+                    file.delete()
+                    prunedCount++
+                    continue
+                }
+
+                val canonicalPageId = cached.document.pageId.trim().lowercase().replace("-", "")
+                if (canonicalPageId !in normalizedKeep) {
                     if (file.delete()) {
                         prunedCount++
                     }

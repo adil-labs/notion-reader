@@ -94,7 +94,7 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
         _pageId.value = pageId
         _loadState.value = DocumentLoadState.Loading
 
-        val result = loader(pageId, knownRemoteLastEditedAt, forceRefresh)
+        val result = loader(pageId, knownRemoteLastEditedAt, forceRefresh, com.example.notionreader.domain.document.DocumentLoadPurpose.INTERACTIVE)
 
         // Requested first, answered second: a superseded load is dropped rather than applied.
         if (token != requestToken) return

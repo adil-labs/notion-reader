@@ -144,6 +144,19 @@ class BrowseModel {
     }
 
     /**
+     * Immediately hydrates the model with pre-existing or cached entries.
+     * Transitions index status to Loaded if not already loaded with content.
+     */
+    fun setLoadedEntries(entries: List<ReaderIndexEntry>) {
+        if (entries.isNotEmpty()) {
+            _state.value = _state.value.copy(
+                entries = entries,
+                index = BrowseIndexStatus.Loaded
+            )
+        }
+    }
+
+    /**
      * Loads the index.
      *
      * **The newest request is the only one allowed to publish.** Browse is loaded once at launch, on

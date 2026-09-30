@@ -99,6 +99,7 @@ class ReaderHost(
         // opposite responses — so the fact that this line appears tells us which process we are looking at.
         log("host: starting the session's loops")
 
+        loadCachedIndex()
         advanceTheQueue()
         feedTheQueue()
         recordHistory()
@@ -106,6 +107,10 @@ class ReaderHost(
         readSavedQueues()
         readSmartQueues()
         observeSettings()
+    }
+
+    private fun loadCachedIndex(): Job = scope.launch {
+        app.loadCachedIndex()
     }
 
     private fun observeSettings() = scope.launch {
@@ -203,28 +208,19 @@ class ReaderHost(
                         return@collect
                     }
 
-                    val notesToPrefetch = when (settings.autoCacheMode) {
-                        com.example.notionreader.domain.settings.AutoCacheMode.OFF -> emptyList()
-                        com.example.notionreader.domain.settings.AutoCacheMode.TIME_WINDOW -> {
-                            val cutoff = java.time.Instant.ofEpochMilli(app.currentTimeMillis() - settings.autoCacheTimeWindow.durationMillis)
-                            val filtered = entries.filter { entry ->
-                                entry.lastEditedAt == null || !entry.lastEditedAt.isBefore(cutoff)
-                            }
-                            if (maxNotes != null) filtered.take(maxNotes) else filtered.take(50)
-                        }
-                        com.example.notionreader.domain.settings.AutoCacheMode.NOTE_COUNT -> {
-                            val limit = maxNotes ?: settings.autoCacheNoteCount.count
-                            entries.take(limit)
-                        }
-                    }
+                    val now = java.time.Instant.ofEpochMilli(app.currentTimeMillis())
+                    val plan = com.example.notionreader.domain.discovery.AutoCachePlanner.plan(entries, settings, now)
+                    val notesToPrefetch = if (maxNotes != null) plan.notesToPrefetch.take(maxNotes) else plan.notesToPrefetch
 
-                    if (notesToPrefetch.isEmpty()) return@collect
+                    if (notesToPrefetch.isEmpty() && plan.desiredPageIds.isEmpty()) return@collect
 
                     activeRecentPrefetchJob = launch {
                         for (entry in notesToPrefetch) {
                             try {
-                                app.prefetchNote(entry.pageId, entry.lastEditedAt)
-                                kotlinx.coroutines.delay(350)
+                                if (!app.isNoteCached(entry.pageId)) {
+                                    app.prefetchNote(entry.pageId, entry.lastEditedAt)
+                                    kotlinx.coroutines.delay(350)
+                                }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (_: Exception) {
@@ -232,13 +228,13 @@ class ReaderHost(
                             }
                         }
 
-                        // Retention pruning when time-window mode is active
-                        if (settings.autoCacheMode == com.example.notionreader.domain.settings.AutoCacheMode.TIME_WINDOW) {
-                            val activeQueueIds = app.session.queueState.value.items.map { it.pageId }.toSet()
-                            val currentPlayingId = app.session.queueState.value.currentItem?.pageId
-                            val protectedIds = activeQueueIds + listOfNotNull(currentPlayingId)
-                            app.pruneCacheOlderThan(settings.autoCacheTimeWindow.durationMillis, protectedIds)
-                        }
+                        // Reconcile retention against desired set, active playback, and saved queues
+                        val activeQueueIds = app.session.queueState.value.items.map { it.pageId }.toSet()
+                        val currentPlayingId = app.session.queueState.value.currentItem?.pageId
+                        val savedQueueMemberIds = app.savedQueues.value.flatMap { it.notes }.map { it.pageId }.toSet()
+                        val protectedIds = plan.desiredPageIds + activeQueueIds + listOfNotNull(currentPlayingId) + savedQueueMemberIds
+
+                        app.pruneCacheExcept(protectedIds)
                     }
                 }
         }

@@ -99,6 +99,7 @@ class ReaderApp(
     private val settingsRepository: SettingsRepository? = null,
     private val speechEngine: SpeechEngine? = null,
     private val documentCache: com.example.notionreader.domain.document.DocumentCache? = null,
+    private val indexStore: com.example.notionreader.domain.discovery.ReaderIndexStore? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
@@ -125,6 +126,18 @@ class ReaderApp(
             updateCacheStats()
         }
         return count
+    }
+
+    suspend fun pruneCacheExcept(keepPageIds: Set<String>): Int {
+        val count = documentCache?.pruneExcept(keepPageIds) ?: 0
+        if (count > 0) {
+            updateCacheStats()
+        }
+        return count
+    }
+
+    suspend fun isNoteCached(pageId: String): Boolean {
+        return documentCache?.get(pageId) != null
     }
 
     fun currentTimeMillis(): Long = clock()
@@ -368,8 +381,16 @@ class ReaderApp(
         _smartQueues.value = emptyList()
         smartQueueStore?.clear()
         documentCache?.clear()
+        indexStore?.clear()
         settingsRepo.resetToDefaults()
         updateCacheStats()
+    }
+
+    suspend fun loadCachedIndex() {
+        val cached = indexStore?.read() ?: return
+        if (cached.entries.isNotEmpty() && !browse.state.value.hasIndex) {
+            browse.setLoadedEntries(cached.entries)
+        }
     }
 
     suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
@@ -535,7 +556,16 @@ class ReaderApp(
 
     /** Loads the Browse index. Cancellation is the caller's business; see [BrowseModel.load]. */
     suspend fun loadBrowseIndex(loader: suspend () -> List<ReaderIndexEntry>) {
-        browse.load(loader)
+        browse.load {
+            val entries = loader()
+            indexStore?.write(
+                com.example.notionreader.domain.discovery.CachedReaderIndex(
+                    entries = entries,
+                    fetchedAt = java.time.Instant.ofEpochMilli(clock())
+                )
+            )
+            entries
+        }
     }
 
     /**
@@ -773,7 +803,7 @@ class ReaderApp(
         knownRemoteLastEditedAt: java.time.Instant? = null,
         forceRefresh: Boolean = false
     ): Result<ReaderDocument> {
-        val result = loadDocument(pageId, knownRemoteLastEditedAt, forceRefresh)
+        val result = loadDocument(pageId, knownRemoteLastEditedAt, forceRefresh, com.example.notionreader.domain.document.DocumentLoadPurpose.PREFETCH)
         updateCacheStats()
         return result
     }

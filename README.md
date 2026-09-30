@@ -84,7 +84,7 @@ interchangeable:
   dedicated controls, with Back cleanly restoring focus to the originating category. Customizations include default
   navigation unit (Section/Part/Note), continuing or pausing between notes, configurable inter-note pause durations,
   Android system vs app-specific speech rate and pitch, playback announcement verbosities (Minimal, Concise, Detailed),
-  offline caching policies, and keeping screen awake.
+  offline caching policies (persistent discovery index caching, priority load preemption, declarative time-window auto-caching with guaranteed minimum 5-note fallback, and desired-set eviction reconciliation), and keeping screen awake.
 
 Queues ships **all three tabs**: **Listening**, **Saved**, and **Smart**. Settings is
 fully populated with the core customization preferences.

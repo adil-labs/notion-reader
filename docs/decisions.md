@@ -6850,6 +6850,63 @@ Following the initial auto-caching implementation, users needed fine-grained con
 3. **Debug APK Build (`:app:assembleDebug`):**
    - Clean assembly.
 
+## 39. Persistent Discovery Index, Load Preemption, and Declarative AutoCachePlanner Reconciliation
+
+### 39.1 Context and Problems
+
+Following the auto-caching feature rollout, four architectural and behavioral gaps were identified:
+1. **Background Prefetch Competed with Live Playback:**
+   When the user initiated playback or opened a Note interactively, `ReaderHost` cancelled its awaiting prefetch job, but the underlying `Deferred` in `DocumentLoadCoordinator` continued running inside its supervisor scope, saturating network bandwidth and Notion API limits while the foreground request stalled.
+2. **Missing Discovery Index Cache:**
+   The app previously only cached document contents (`ReaderDocument`). Browse, Explore, Smart Queues, and auto-cache planning were unavailable offline upon app startup until Notion's remote index was retrieved over the network.
+3. **Time-Window Starvation in Sparse Workspaces:**
+   A strict "last 30 days" auto-cache filter on an infrequently edited workspace produced an empty offline set. The policy needed a primary window selector paired with a guaranteed minimum fallback (5 notes) so an offline reader is never left with an empty library.
+4. **Destructive Pruning and Content Age Miscalculation:**
+   `FileDocumentCache.pruneOlderThan` previously used `maxOf(validatedAt, remoteLastEditedAt)`, meaning an old note validated recently stayed forever. Conversely, raw timestamp pruning would evict 60-day-old notes that were intentionally selected as part of the fallback-5 set.
+
+### 39.2 Architectural Invariants and Implementation
+
+1. **Purpose-Aware Load Coordination (`DocumentLoadCoordinator`):**
+   - Introduced `DocumentLoadPurpose`: `PLAYBACK` (highest priority), `INTERACTIVE` (manual screen inspection), `PREFETCH` (expendable background caching).
+   - In `DocumentLoadCoordinator.load()`:
+     - Foreground requests (`PLAYBACK` or `INTERACTIVE`) preempt and cancel any in-flight `PREFETCH` loads for unrelated pages via `cancelPrefetchLoadsExcept()`.
+     - When a foreground request joins an in-flight `PREFETCH` load for the *same* page, its purpose is dynamically promoted to protect it from subsequent cancellations and deduplicate network work.
+   - Wired across `QueueLoader` (`PLAYBACK`), `NoteViewer` (`INTERACTIVE`), and `ReaderApp.prefetchNote()` (`PREFETCH`).
+2. **Persistent Discovery Index (`ReaderIndexStore` & `FileReaderIndexStore`):**
+   - Created `CachedReaderIndex` (`entries: List<ReaderIndexEntry>`, `fetchedAt: Instant`, `schemaVersion = 1`).
+   - Implemented `FileReaderIndexStore` in `data/local` with atomic JSON writes to `noBackupFilesDir/index-cache/reader_index.json`.
+   - On app startup, `ReaderHost.start()` immediately reads `ReaderIndexStore` and hydrates `BrowseModel` with status `Loaded`, making Browse, Explore, and Smart Queues usable offline with zero latency.
+   - Remote index fetches update `ReaderIndexStore` upon success, and preserve cached entries upon network failure without blanking the screen.
+3. **Declarative AutoCachePlanner (`AutoCachePlanner`):**
+   - Declarative planning function `AutoCachePlanner.plan(entries, settings, now): AutoCachePlan`:
+     - **Mode TIME_WINDOW:** Primary selection filters notes within window (up to 50 notes). If fewer than 5 notes qualify, fills remainder with the most recently edited older notes.
+     - Notes with unknown timestamps (`lastEditedAt == null`) are sorted into the fallback pool *after* known timestamps, never blindly assumed recent.
+     - **Mode NOTE_COUNT:** Takes newest N notes.
+     - **Mode OFF:** Returns empty desired set.
+4. **Desired-Set Cache Reconciliation & Eviction:**
+   - Added `DocumentCache.pruneExcept(keepPageIds: Set<String>): Int` in `FileDocumentCache`.
+   - Fixed `pruneOlderThan` retention instant to strictly use `cached.remoteLastEditedAt ?: cached.fetchedAt` (never `validatedAt`).
+   - `ReaderHost` reconciles cache storage against `plan.desiredPageIds + activeQueueIds + playingId + savedQueueMemberIds`, ensuring intentional fallback notes (even if 150 days old) are never evicted while obsolete notes are cleaned up.
+5. **Settings Lifecycle Separation:**
+   - "Clear downloaded notes" (`DocumentCache.clear()`): Clears downloaded documents while keeping `ReaderIndexStore` intact for offline browsing.
+   - "Clear all local data" (`clearAllLocalData()`): Clears both document and index caches along with queues and history.
+
+### 39.3 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 636 tests executed across all modules, 0 failed.
+   - `DocumentLoadCoordinatorTest`: verified prefetch preemption by playback loads, prefetch promotion on join, and cancellation safety.
+   - `FileReaderIndexStoreTest`: verified atomic serialization round-trip, corrupted JSON safety, schema mismatch handling, and clear.
+   - `AutoCachePlannerTest`: verified 30-day window with 0 recent notes falling back to 5 newest older notes, sparse window filling, and unknown timestamp placement.
+   - `FileDocumentCacheTest`: verified `pruneExcept` preserves desired fallback notes regardless of age, and verified `pruneOlderThan` uses content age rather than `validatedAt`.
+   - `ReaderIndexStartupTest`: verified immediate offline index hydration, remote refresh writing to store, failure resilience, and clear cache boundaries.
+   - `LayerRulesTest`: verified 0 architecture boundary violations across domain, data, application, and player layers.
+2. **AndroidTest Kotlin Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation with 0 errors.
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly.
+
+
 
 
 

@@ -37,4 +37,10 @@ interface DocumentCache {
      * Returns the count of deleted files.
      */
     suspend fun pruneOlderThan(maxAgeMillis: Long, preservePageIds: Set<String> = emptySet()): Int = 0
+
+    /**
+     * Evicts cached documents whose canonical pageId is not present in [keepPageIds].
+     * Returns the count of deleted documents.
+     */
+    suspend fun pruneExcept(keepPageIds: Set<String>): Int = 0
 }

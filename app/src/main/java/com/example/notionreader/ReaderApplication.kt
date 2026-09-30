@@ -94,6 +94,10 @@ class ReaderApplication : Application() {
         val smartQueueStore = DataStoreSmartQueueStore(this)
         val settingsRepository = DataStoreSettingsRepository(context = this)
 
+        val indexStore = com.example.notionreader.data.local.FileReaderIndexStore(
+            directory = File(noBackupFilesDir, "index-cache")
+        )
+
         val app = ReaderApp(
             session = ReaderSession(
                 ReaderEngineImpl(
@@ -109,7 +113,8 @@ class ReaderApplication : Application() {
             smartQueueStore = smartQueueStore,
             settingsRepository = settingsRepository,
             speechEngine = speechEngine,
-            documentCache = documentCache
+            documentCache = documentCache,
+            indexStore = indexStore
         )
 
         return ReaderHost(
@@ -140,8 +145,8 @@ class ReaderApplication : Application() {
      * bug that only appears on the failure path, and this is called once per Note in a multi-Note queue rather
      * than once per screen.
      */
-    private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt, forceRefresh ->
-        loadCoordinator.load(reference, forceRefresh) {
+    private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt, forceRefresh, purpose ->
+        loadCoordinator.load(reference, purpose, forceRefresh) {
             val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
             val remoteSource = NotionRepository(KtorNotionApi(token))
             val cachedRepository = CachedDocumentRepository(
