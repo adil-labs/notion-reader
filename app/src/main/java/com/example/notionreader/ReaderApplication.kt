@@ -124,7 +124,8 @@ class ReaderApplication : Application() {
             documentCache = documentCache,
             indexStore = indexStore,
             autoCacheStateStore = autoCacheStateStore,
-            cacheTelemetry = cacheTelemetry
+            cacheTelemetry = cacheTelemetry,
+            isNotionConfigured = BuildConfig.NOTION_TOKEN.isNotBlank()
         )
 
         return ReaderHost(

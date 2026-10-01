@@ -49,6 +49,16 @@ class SettingsRepositoryTest {
         assertEquals(com.example.notionreader.domain.settings.AutoCacheTimeWindow.DAYS_30, updated.autoCacheTimeWindow)
         assertEquals(com.example.notionreader.domain.settings.AutoCacheNoteCount.COUNT_50, updated.autoCacheNoteCount)
 
+        repository.updateSettings {
+            it.copy(speechRate = SpeechRate.Multiplier(1.35f))
+        }
+        assertEquals(SpeechRate.Multiplier(1.35f), repository.settings.value.speechRate)
+
+        repository.updateSettings {
+            it.copy(speechRate = SpeechRate.SystemDefault)
+        }
+        assertEquals(SpeechRate.SystemDefault, repository.settings.value.speechRate)
+
         repository.clearHistory()
         assertEquals(1, clearHistoryCount)
 

@@ -78,13 +78,14 @@ interchangeable:
   Note. There is deliberately nothing to edit — an Active Queue's membership and order are fixed for the
   session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
   played" (`docs/decisions.md` §22).
-- **Settings** — the 4th top-level tab: a TalkBack-first hub of 8 categories (`Playback`, `Speech`, `Offline & storage`,
-  `Accessibility`, `Appearance`, `Notion`, `Privacy & data`, `About`). Each category is a single accessibility focus
+- **Settings** — the 4th top-level tab: a TalkBack-first hub of 7 categories (`Playback`, `Speech`, `Offline & storage`,
+  `Appearance`, `Notion`, `Privacy & data`, `About`). Each category is a single accessibility focus
   stop announcing its name and current summary. Selecting a category navigates to a focused secondary subpage with
-  dedicated controls, with Back cleanly restoring focus to the originating category. Customizations include default
-  navigation unit (Section/Part/Note), continuing or pausing between notes, configurable inter-note pause durations,
-  Android system vs app-specific speech rate and pitch, playback announcement verbosities (Minimal, Concise, Detailed),
-  offline caching policies (persistent discovery index caching with 1-hour TTL, priority load preemption, declarative time-window auto-caching with guaranteed minimum 5-note fallback, auto-managed state tracking with non-destructive reconciliation, storage-budget byte limits, and speculative prefetch eviction), and keeping screen awake.
+  dedicated controls, with Back cleanly restoring focus to the originating category row. Built on reusable design system
+  primitives (`SettingsScreenLayout`, `SettingsSection`, `SettingsValueRow`, `SettingsSwitchRow`, `SettingsActionRow`,
+  `SettingsDestructiveRow`, `SettingsStatusRow`, `SettingsSingleChoiceDialog`, `ClearCacheConfirmationDialog`), native
+  Compose accessibility semantics (`Role.Button`, `Role.Switch`, `Role.RadioButton`), and fine-grained `SpeechRate`
+  slider adjustments (0.5×–2.0× in 0.05× steps) alongside system default support.
 
 Queues ships **all three tabs**: **Listening**, **Saved**, and **Smart**. Settings is
 fully populated with the core customization preferences.

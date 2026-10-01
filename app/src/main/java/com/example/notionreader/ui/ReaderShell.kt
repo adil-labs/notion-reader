@@ -327,6 +327,10 @@ fun ReaderShell(
                     ReaderDestination.Settings -> SettingsScreen(
                         settings = settings,
                         cachedNotesCount = cacheStats.noteCount,
+                        cacheSizeBytes = cacheStats.totalBytes,
+                        historyCount = history.size,
+                        speechEngineLabel = speechEngineState.availableEngines.firstOrNull { it.packageName == settings.ttsEnginePackage }?.label,
+                        notionStatus = app.notionConnectionStatus,
                         onOpenPlayback = app::openSettingsPlayback,
                         onOpenSpeech = app::openSettingsSpeech,
                         onOpenOffline = app::openSettingsOffline,
@@ -366,9 +370,21 @@ fun ReaderShell(
                         onBack = { app.back() }
                     )
 
-                    ReaderDestination.SettingsNotion -> SettingsNotionScreen(
-                        onBack = { app.back() }
-                    )
+                    ReaderDestination.SettingsNotion -> {
+                        val indexStatus = when (browseState.index) {
+                            is com.example.notionreader.application.BrowseIndexStatus.Loaded -> "Up to date"
+                            is com.example.notionreader.application.BrowseIndexStatus.Loading -> "Checking…"
+                            is com.example.notionreader.application.BrowseIndexStatus.Error -> "Could not refresh Notes"
+                        }
+                        SettingsNotionScreen(
+                            connectionStatus = app.notionConnectionStatus,
+                            workspaceName = "Personal Workspace",
+                            indexStatus = indexStatus,
+                            lastRefreshedText = if (browseState.entries.isNotEmpty()) "Up to date" else null,
+                            onRefreshIndex = onRefreshBrowseIndex,
+                            onBack = { app.back() }
+                        )
+                    }
 
                     ReaderDestination.SettingsPrivacy -> SettingsPrivacyScreen(
                         historyCount = history.size,

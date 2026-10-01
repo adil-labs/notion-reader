@@ -77,7 +77,7 @@ class DataStoreSettingsRepository(
             pauseBetweenNotes = prefs[KEY_PAUSE_NOTES]?.let { runCatching { NotePauseDuration.valueOf(it) }.getOrNull() }
                 ?: NotePauseDuration.NONE,
             ttsEnginePackage = prefs[KEY_TTS_ENGINE_PKG],
-            speechRate = prefs[KEY_SPEECH_RATE]?.let { runCatching { SpeechRate.valueOf(it) }.getOrNull() }
+            speechRate = prefs[KEY_SPEECH_RATE]?.let { SpeechRate.parse(it) }
                 ?: SpeechRate.SYSTEM_DEFAULT,
             voicePitch = prefs[KEY_VOICE_PITCH]?.let { runCatching { VoicePitch.valueOf(it) }.getOrNull() }
                 ?: VoicePitch.SYSTEM_DEFAULT,

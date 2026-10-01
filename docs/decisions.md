@@ -6969,7 +6969,81 @@ Following the introduction of the persistent discovery index and `AutoCachePlann
 3. **Debug APK Build (`:app:assembleDebug`):**
    - Clean assembly.
 
+## 41. Settings UI/UX Redesign — Design System Primitives, Native Semantics, Fine-Grained Speech Rate, and Refined Settings Surfaces
 
+### 41.1 Context and Problems
 
+The Settings experience in Notion Reader previously suffered from several visual, architectural, and accessibility limitations:
+1. **Monolithic, Unmaintainable Layout:**
+   All secondary settings surfaces were grouped in a monolithic `SettingsSubpages.kt` file. Each setting was wrapped in an ad-hoc heavy `Card` with inconsistent padding, missing `paneTitle` declarations, and bespoke styling rather than a consistent hierarchy.
+2. **Inaccessible Horizontal Chips:**
+   Crucial choices like `Default navigation unit` and `Speech rate` were rendered as horizontal `FilterChip` rows (`[0.75×] [1.0×] [1.25×] [1.5×] [2.0×]`), requiring excessive TalkBack swipes and failing to indicate continuous or fine-grained selection.
+3. **Coarse SpeechRate Enum:**
+   `SpeechRate` was modeled as a closed 5-element enum (`P0_75X`, `P1_0X`, `P1_25X`, `P1_5X`, `P2_0X`), lacking support for Android system-default speech rates and fine-grained increments (0.05×/0.1×).
+4. **Synthetic and Flaky Semantics:**
+   Toggleable items attempted to encode `"Switch, on"` directly into `contentDescription`, leading to duplicate or unnatural announcements on TalkBack, rather than relying on native `Modifier.toggleable(role = Role.Switch)`.
+5. **Static and Misleading Summaries:**
+   Settings categories on the Hub presented hard-coded summaries (e.g., `"Personal Workspace · Connected"` regardless of real token state; `"Offline playback and prefetching"` regardless of cache size).
+6. **Dead and Inactive Controls:**
+   Dialogs in the About screen had empty click listeners (`onClick = {}`), and destructive operations had uninformative generic dialogs without clear explanations of data loss boundaries.
 
+### 41.2 Core Architectural and UX Invariants
 
+1. **Hierarchy (`Screen → Section → Preference row → Selection surface`):**
+   Preferences belong to clear sections with uppercase section headers (`VOICE`, `FEEDBACK`, `NAVIGATION`, `QUEUE PLAYBACK`, etc.) exposing heading semantics. Ordinary settings are standard list rows with clear titles and dynamic state summaries.
+2. **Native Semantics and TalkBack Stops:**
+   - One ordinary setting row = one TalkBack focus stop.
+   - `SettingsSwitchRow` merges descendants (`mergeDescendants = true`) and uses `Modifier.toggleable(role = Role.Switch)` while clearing child semantics on the inner `Switch`, ensuring TalkBack cleanly announces `"$title, $summary, switch, on/off"`.
+   - `SettingsTopBar` provides an auto-mirrored back arrow (`Icons.AutoMirrored.Filled.ArrowBack`) with explicit `"Back"` content description and `Role.Button`.
+   - Screen titles expose heading semantics (`semantics { heading() }`), producing the natural sequence: `Back, button` → `Speech, heading`.
+3. **Fine-Grained Speech Rate Model with System Default:**
+   - Modeled as a sealed interface `SpeechRate`: `SpeechRate.SystemDefault` and `SpeechRate.Multiplier(val value: Float)`.
+   - Supports numeric ranges 0.5× to 2.0× in 0.05× increments.
+   - `SpeechRateDialog` provides an accessible slider with `stateDescription = "${formatted} times"`, `setProgress` semantic action, and a direct toggle switch to restore system default.
+   - Backward compatibility: parsing automatically maps legacy string keys (`"P1_0X"`, `"P1_25X"`, etc.) to new Multiplier floats or SystemDefault.
+4. **Live System and Integration State:**
+   - Settings Hub dynamically shows live storage size (formatted in KB/MB via `formatBytes`), cached note count, listening history size, active TTS engine name, and Notion workspace connection status (`Connected`, `Not configured`, or `Connection problem`).
+   - Notion settings surface removes all POC/debug copy, displaying real index freshness timestamp, status, and an interactive "Refresh now" action.
+5. **No Dead Controls and Safe Destructive Dialogs:**
+   - About subpage features working Open-source licenses and Privacy policy dialogs.
+   - Destructive rows use distinct high-contrast error styling and trigger shared `ClearCacheConfirmationDialog` with explicit impact explanations (e.g. noting that clearing cache does not affect saved queues or Notion credentials).
+
+### 41.3 Implementation Across 5 Slices
+
+1. **Slice 1: Shared Settings Primitives (`SettingsComponents.kt`):**
+   - Created reusable components: `SettingsScreenLayout`, `SettingsTopBar`, `SettingsSection`, `SettingsDivider`, `SettingsValueRow`, `SettingsSwitchRow`, `SettingsActionRow`, `SettingsDestructiveRow`, `SettingsStatusRow`, `SettingsSingleChoiceDialog`, and `ClearCacheConfirmationDialog`.
+   - Unified padding, insets, scrolling, and accessibility pane titles across all screens.
+2. **Slice 2: Domain and Data Migration (`SpeechRate` and `ReaderSettings`):**
+   - Replaced legacy enum with `SpeechRate` sealed interface in `domain/settings/ReaderSettings.kt`.
+   - Updated `DataStoreSettingsRepository` with parsing and serialization logic for DataStore persistence and migration.
+   - Added `NotionConnectionStatus` enum (`CONFIGURED`, `NOT_CONFIGURED`, `ERROR`) and user-facing `CacheFreshnessPolicy` labels.
+3. **Slice 3: Modular Settings Screens:**
+   - Deleted legacy monolithic `SettingsSubpages.kt`.
+   - Implemented dedicated, modular screens:
+     - `PlaybackSettingsScreen.kt`: Navigation, Queue Playback, and Device sections. Automatically disables `Pause between Notes` row when `Continue to next Note` is off.
+     - `SpeechSettingsScreen.kt` & `SpeechRateDialog.kt`: Engine selection with fallback banner, fine-grained speech rate slider, discrete pitch dialog, and system TTS intent launcher.
+     - `OfflineSettingsScreen.kt`: Offline, Automatic Downloads, Refresh, and Storage sections; flat auto-download selection (7/15/30 days, 5/10/20/50 notes, Off); valid empty-state banner.
+     - `AppearanceSettingsScreen.kt`: Theme selection (System, Light, Dark) and reading text spacing (Comfortable, Compact).
+     - `NotionSettingsScreen.kt`: Live connection status, index freshness timestamp, and interactive refresh trigger.
+     - `PrivacySettingsScreen.kt`: On-device statistics, data management, and full local data reset with explicit safety boundaries.
+     - `AboutSettingsScreen.kt`: Build version display (`BuildConfig.VERSION_NAME`) and working legal dialogs.
+4. **Slice 4: Settings Hub Refinement (`SettingsScreen.kt`):**
+   - Refactored category rows from cards to full-width Material list items with titles, live dynamic summaries, and trailing chevrons.
+   - Preserved `restoreFocusOn` for returning focus to the activating row when navigating back from a subpage.
+5. **Slice 5: Composition Root & Application Wiring:**
+   - Injected live cache statistics, index status, and Notion connection state into `ReaderShell` from `ReaderViewModel` and `ReaderApp`.
+   - Updated `README.md` to document the Settings design system and accessibility hierarchy.
+
+### 41.4 Verification Record
+
+1. **JVM Unit Tests (`:app:testDebugUnitTest`):**
+   - 656 tests executed across all modules, 0 failed.
+   - `SpeechRateTest`: verified multiplier clamping, step rounding, legacy enum string parsing, serialization, and locale-safe string formatting.
+   - `SettingsRepositoryTest`: verified persistence of custom multipliers and system default speech rate in DataStore.
+   - `LayerRulesTest`: verified 0 architectural dependency violations.
+2. **AndroidTest Kotlin Compilation (`:app:compileDebugAndroidTestKotlin`):**
+   - Clean compilation with 0 errors.
+3. **Debug APK Build (`:app:assembleDebug`):**
+   - Clean assembly with 0 errors.
+4. **Instrumented Accessibility Suite (`tools/run-accessibility-tests.ps1`):**
+   - `SettingsScreenAccessibilityTest`: verified Hub reachability/readability, Back navigation semantics, heading hierarchy, switch toggling semantics, fine-grained speech rate adjustment, and subpage focus restoration.

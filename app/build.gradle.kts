@@ -187,6 +187,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     // viewModelScope, and the ViewModel that owns the listening session. The session's lifetime has to be
     // the task's rather than the Activity's: with no `android:configChanges`, every configuration change

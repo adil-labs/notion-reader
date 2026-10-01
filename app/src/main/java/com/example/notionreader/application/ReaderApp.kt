@@ -102,9 +102,21 @@ class ReaderApp(
     private val indexStore: com.example.notionreader.domain.discovery.ReaderIndexStore? = null,
     val autoCacheStateStore: com.example.notionreader.domain.discovery.AutoCacheStateStore? = null,
     val cacheTelemetry: com.example.notionreader.domain.document.CacheTelemetry? = null,
+    private val isNotionConfigured: Boolean = true,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
+
+    val notionConnectionStatus: com.example.notionreader.domain.settings.NotionConnectionStatus
+        get() {
+            if (!isNotionConfigured) return com.example.notionreader.domain.settings.NotionConnectionStatus.NOT_CONFIGURED
+            val indexStatus = browse.state.value.index
+            return if (indexStatus is BrowseIndexStatus.Error && !indexStatus.canRetry) {
+                com.example.notionreader.domain.settings.NotionConnectionStatus.CONNECTION_PROBLEM
+            } else {
+                com.example.notionreader.domain.settings.NotionConnectionStatus.CONNECTED
+            }
+        }
 
     val settingsRepo: SettingsRepository = settingsRepository ?: InMemorySettingsRepository()
     val settings: StateFlow<ReaderSettings> = settingsRepo.settings
@@ -423,10 +435,11 @@ class ReaderApp(
         session.announcementVerbosity = current.playbackAnnouncements
         speechEngine?.setEngine(current.ttsEnginePackage)
 
-        val rate = when (current.speechRate) {
-            com.example.notionreader.domain.settings.SpeechRate.SYSTEM_DEFAULT ->
+        val rate = when (val sr = current.speechRate) {
+            is com.example.notionreader.domain.settings.SpeechRate.SystemDefault ->
                 speechEngine?.systemSpeechRate() ?: 1.0f
-            else -> current.speechRate.factor
+            is com.example.notionreader.domain.settings.SpeechRate.Multiplier ->
+                sr.value
         }
         val pitch = when (current.voicePitch) {
             com.example.notionreader.domain.settings.VoicePitch.SYSTEM_DEFAULT ->

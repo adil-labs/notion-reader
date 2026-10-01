@@ -47,13 +47,69 @@ enum class NotePauseDuration(val label: String, val delayMs: Long) {
     FIVE_SECONDS("5 seconds", 5000L)
 }
 
-enum class SpeechRate(val label: String, val factor: Float) {
-    SYSTEM_DEFAULT("System default", 1.0f),
-    RATE_0_75("0.75×", 0.75f),
-    RATE_1_0("1.0×", 1.0f),
-    RATE_1_25("1.25×", 1.25f),
-    RATE_1_5("1.5×", 1.5f),
-    RATE_2_0("2.0×", 2.0f)
+sealed interface SpeechRate {
+    val label: String
+    val factor: Float
+    val name: String get() = serialize(this)
+
+    data object SystemDefault : SpeechRate {
+        override val label: String get() = "System default"
+        override val factor: Float get() = 1.0f
+        override fun toString(): String = "SYSTEM_DEFAULT"
+    }
+
+    data class Multiplier(val value: Float) : SpeechRate {
+        override val label: String get() {
+            val rounded = (Math.round(value * 100) / 100.0f)
+            val formatted = String.format(java.util.Locale.US, "%.2f", rounded)
+            val trimmed = if (formatted.endsWith("0")) formatted.dropLast(1) else formatted
+            return "${trimmed}×"
+        }
+        override val factor: Float get() = value
+        override fun toString(): String = "RATE_${value}"
+    }
+
+    companion object {
+        val SYSTEM_DEFAULT: SpeechRate = SystemDefault
+        val RATE_0_75: SpeechRate = Multiplier(0.75f)
+        val RATE_1_0: SpeechRate = Multiplier(1.0f)
+        val RATE_1_25: SpeechRate = Multiplier(1.25f)
+        val RATE_1_5: SpeechRate = Multiplier(1.5f)
+        val RATE_2_0: SpeechRate = Multiplier(2.0f)
+
+        fun values(): Array<SpeechRate> = arrayOf(
+            SYSTEM_DEFAULT,
+            RATE_0_75,
+            RATE_1_0,
+            RATE_1_25,
+            RATE_1_5,
+            RATE_2_0
+        )
+
+        fun valueOf(name: String): SpeechRate = parse(name)
+
+        fun parse(name: String?): SpeechRate {
+            if (name == null || name == "SYSTEM_DEFAULT") return SystemDefault
+            return when (name) {
+                "RATE_0_75" -> RATE_0_75
+                "RATE_1_0" -> RATE_1_0
+                "RATE_1_25" -> RATE_1_25
+                "RATE_1_5" -> RATE_1_5
+                "RATE_2_0" -> RATE_2_0
+                else -> {
+                    val raw = name.removePrefix("RATE_")
+                    raw.toFloatOrNull()?.let { Multiplier(it) } ?: SystemDefault
+                }
+            }
+        }
+
+        fun serialize(rate: SpeechRate): String {
+            return when (rate) {
+                is SystemDefault -> "SYSTEM_DEFAULT"
+                is Multiplier -> "RATE_${rate.value}"
+            }
+        }
+    }
 }
 
 enum class VoicePitch(val label: String, val factor: Float) {
@@ -75,11 +131,17 @@ enum class DownloadNetworkPolicy(val label: String) {
 }
 
 enum class CacheFreshnessPolicy(val label: String, val maxAgeMillis: Long) {
-    ALWAYS_CHECK("Always check Notion", 0L),
-    ONE_HOUR("1 hour", 1 * 3600 * 1000L),
-    SIX_HOURS("6 hours", 6 * 3600 * 1000L),
-    ONE_DAY("24 hours", 24 * 3600 * 1000L),
-    MANUAL_ONLY("Manual refresh only", Long.MAX_VALUE)
+    ALWAYS_CHECK("Every time", 0L),
+    ONE_HOUR("Every hour", 1 * 3600 * 1000L),
+    SIX_HOURS("Every 6 hours", 6 * 3600 * 1000L),
+    ONE_DAY("Every 24 hours", 24 * 3600 * 1000L),
+    MANUAL_ONLY("Only when I refresh", Long.MAX_VALUE)
+}
+
+enum class NotionConnectionStatus(val label: String) {
+    CONNECTED("Connected"),
+    NOT_CONFIGURED("Not configured"),
+    CONNECTION_PROBLEM("Connection problem")
 }
 
 enum class AutoCacheMode(val label: String) {
