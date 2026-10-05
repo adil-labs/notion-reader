@@ -457,51 +457,50 @@ class ReaderApp(
         speechEngine?.getAvailableEngines() ?: emptyList()
 
 
-    /**
-     * Deterministic discovery shortcuts for the Explore section on Home.
-     * Derived dynamically from normalized topics and areas in loaded Browse entries.
-     */
-    fun exploreCards(): List<ExploreCard> {
+    /** Complete deterministic Area and Topic discovery taxonomy. */
+    fun exploreCatalog(): ExploreCatalog {
         val entries = browse.state.value.entries
-        if (entries.isEmpty()) return emptyList()
+        if (entries.isEmpty()) return ExploreCatalog(emptyList(), emptyList())
 
         val topicCards = entries
-            .flatMap { entry -> entry.topics.map { topic -> topic to entry } }
-            .groupBy({ it.first }, { it.second })
-            .map { (topic, notes) ->
+            .flatMap { entry -> entry.topics.filter { it.isNotBlank() }.map { topic -> topic to entry } }
+            .groupBy({ it.first.lowercase() }, { it.second })
+            .map { (topicKey, notes) ->
+                val title = entries
+                    .asSequence()
+                    .flatMap { it.topics.asSequence() }
+                    .first { it.equals(topicKey, ignoreCase = true) }
                 ExploreCard(
-                    title = topic,
+                    title = title,
                     noteCount = notes.distinctBy { it.pageId }.size,
-                    queryText = topic,
-                    topic = topic
+                    queryText = title,
+                    topic = title
                 )
             }
 
         val areaCards = entries
-            .filter { it.area != null }
-            .groupBy { it.area!! }
-            .map { (area, notes) ->
+            .filter { !it.area.isNullOrBlank() }
+            .groupBy { it.area!!.lowercase() }
+            .map { (areaKey, notes) ->
+                val title = entries.first { it.area?.equals(areaKey, ignoreCase = true) == true }.area!!
                 ExploreCard(
-                    title = area,
-                    noteCount = notes.size,
-                    queryText = area,
-                    area = area
+                    title = title,
+                    noteCount = notes.distinctBy { it.pageId }.size,
+                    queryText = title,
+                    area = title
                 )
             }
 
-        val combined = (topicCards + areaCards)
-            .distinctBy { it.title.lowercase() }
-            .sortedByDescending { it.noteCount }
-            .take(6)
-
-        if (combined.isNotEmpty()) return combined
-
-        val candidates = listOf("Mindfulness", "Reading", "Chess", "Android", "Architecture")
-        return candidates.mapNotNull { candidate ->
-            val count = entries.count { it.title.contains(candidate, ignoreCase = true) }
-            if (count > 0) ExploreCard(title = candidate, noteCount = count, queryText = candidate) else null
-        }
+        val alphabetical = compareBy<ExploreCard> { it.title.lowercase() }.thenBy { it.title }
+        return ExploreCatalog(
+            areas = areaCards.sortedWith(alphabetical),
+            topics = topicCards.sortedWith(alphabetical)
+        )
     }
+
+    /** Bounded Home preview; the catalog remains the complete discovery surface. */
+    fun exploreCards(): List<ExploreCard> =
+        exploreCatalog().let { (it.areas + it.topics).take(6) }
 
     fun openExploreCard(card: ExploreCard) {
         browse.clearFilters()
@@ -511,6 +510,11 @@ class ReaderApp(
             else -> browse.setText(card.queryText)
         }
         navigator.open(ReaderDestination.Browse)
+    }
+
+    /** Opens the complete deterministic discovery taxonomy without changing playback or Browse filters. */
+    fun openExploreCatalog() {
+        navigator.open(ReaderDestination.ExploreCatalog, fromFocusId = ReaderFocus.HomeSeeAllExplore)
     }
 
     /**

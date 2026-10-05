@@ -7047,3 +7047,15 @@ The Settings experience in Notion Reader previously suffered from several visual
    - Clean assembly with 0 errors.
 4. **Instrumented Accessibility Suite (`tools/run-accessibility-tests.ps1`):**
    - `SettingsScreenAccessibilityTest`: verified Hub reachability/readability, Back navigation semantics, heading hierarchy, switch toggling semantics, fine-grained speech rate adjustment, and subpage focus restoration.
+
+## 42. Explore Catalog Discoverability and Cache-First Discovery Refresh
+
+**Date:** 2026-10-05
+
+The previous Home Explore implementation mixed Areas and Topics into a single popularity-ranked top-six list. One metadata-rich Area could therefore consume all visible entries with Topics, hiding a populated Area such as Business & Strategy. The governing UI contract now defines Home as a bounded preview plus a secondary Explore Catalog.
+
+- `ExploreCatalog` derives Areas and Topics separately from normalized Browse entries. Both lists include every nonblank metadata value, count distinct Notes, and sort deterministically case-insensitively.
+- The Home preview remains bounded; its See all Explore action opens the catalog. Selecting any catalog entry opens the existing pre-filtered Browse flow and does not create or modify a queue or playback session.
+- Startup already satisfies stale-while-revalidate: `ReaderHost` hydrates the persisted index first, then `ReaderViewModel` calls `loadBrowseIndex()` with its default forced refresh. A failed refresh preserves cached entries.
+
+Verification recorded during this round: targeted `ReaderAppTest` passed after failing first for the new catalog API and secondary destination; `:app:assembleDebug :app:compileDebugAndroidTestKotlin` passed.

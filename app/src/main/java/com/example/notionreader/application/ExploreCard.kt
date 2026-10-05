@@ -1,13 +1,7 @@
 package com.example.notionreader.application
 
 /**
- * A deterministic discovery shortcut into Browse, surfaced on Home.
- *
- * Per UI Screens & Navigation Contract lines 302–365:
- * "Explore contains deterministic discovery shortcuts into Browse.
- * It does not automatically create Saved or Smart Queues.
- * Example: Mindfulness (12 notes), Chess (31 notes)...
- * Selecting opens Browse with Topic / query text set."
+ * A deterministic discovery shortcut into Browse.
  */
 data class ExploreCard(
     val title: String,
@@ -15,4 +9,10 @@ data class ExploreCard(
     val queryText: String,
     val topic: String? = null,
     val area: String? = null
+)
+
+/** The complete metadata taxonomy exposed by the secondary Explore Catalog screen. */
+data class ExploreCatalog(
+    val areas: List<ExploreCard>,
+    val topics: List<ExploreCard>
 )

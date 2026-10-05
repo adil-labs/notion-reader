@@ -59,7 +59,7 @@ interchangeable:
 
 - **Home** — Continue listening (unfinished listening sessions from history with prominent "Continue"
   resumption), Your queues (recent Saved Queues, with "See all queues"),
-  and Explore (curated topic shortcuts with dynamic note counts).
+  and a bounded Explore preview. "See all Explore" opens the complete, deterministic Area-then-Topic catalog; each entry reports its note count and opens Browse with the corresponding facet.
 - **Browse** — the default result set, multi-facet filtering (Type, Area, Topics, Project, Status), search across titles and metadata, active filter summary, sort, and `Play all`.
 - **Queues** — the Listening tab: Continue listening and Recently completed; the Saved tab: Saved Queues;
   the Smart tab: configured Smart Queues with live match counts.

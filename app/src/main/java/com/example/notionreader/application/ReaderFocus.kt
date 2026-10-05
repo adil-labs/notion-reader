@@ -77,6 +77,9 @@ object ReaderFocus {
     /** Home screen's `See all queues`. */
     const val HomeSeeAllQueues: String = "home:seeAllQueues"
 
+    /** Home screen's `See all Explore`. */
+    const val HomeSeeAllExplore: String = "home:seeAllExplore"
+
     /** The Smart tab's `Create smart queue`. */
     const val SmartQueueCreate: String = "smartQueue:create"
 

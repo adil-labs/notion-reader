@@ -170,6 +170,7 @@ fun ReaderShell(
                         onOpenQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
                         onSeeAllQueues = app::openQueues,
                         onExplore = app::openExplore,
+                        onSeeAllExplore = app::openExploreCatalog,
                         onBrowse = app::openBrowse,
                         onPlayPause = app::togglePlayPause,
                         // Where focus goes when Back returns from the Player.
@@ -200,6 +201,11 @@ fun ReaderShell(
                         onRefresh = onRefreshBrowseIndex,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
+                    )
+
+                    ReaderDestination.ExploreCatalog -> ExploreCatalogScreen(
+                        catalog = app.exploreCatalog(),
+                        onSelect = app::openExploreCard
                     )
 
                     ReaderDestination.Queues -> QueuesScreen(

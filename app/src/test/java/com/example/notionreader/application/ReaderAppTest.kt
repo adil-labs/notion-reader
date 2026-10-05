@@ -8,6 +8,7 @@ import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadCancelledException
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.queue.QueueOrigin
 import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.player.FakeReaderEngine
@@ -22,6 +23,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 /**
  * Ownership tests: what each operation is allowed to touch.
@@ -812,5 +814,54 @@ class ReaderAppTest {
         assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
         assertEquals("Engineering", app.browse.state.value.query.selectedArea)
         assertNull(app.browse.state.value.query.selectedTopic)
+    }
+
+    @Test
+    fun exploreCatalogKeepsEveryAreaDiscoverableWhenTopicsDominateOneArea() {
+        val app = appWith(FakeReaderEngine(demo), inspected = demo)
+        app.browse.setLoadedEntries(
+            listOf(
+                ReaderIndexEntry("chess-1", "Chess one", Instant.EPOCH, area = "Chess", topics = setOf("Openings", "Tactics")),
+                ReaderIndexEntry("chess-2", "Chess two", Instant.EPOCH, area = "Chess", topics = setOf("Endgames", "Strategy")),
+                ReaderIndexEntry("business-1", "Business", Instant.EPOCH, area = "Business & Strategy", topics = setOf("Unit economics")),
+                ReaderIndexEntry("mind-1", "Mind", Instant.EPOCH, area = "Mind & Learning", topics = setOf("Mindfulness"))
+            )
+        )
+
+        val catalog = app.exploreCatalog()
+
+        assertEquals(listOf("Business & Strategy", "Chess", "Mind & Learning"), catalog.areas.map { it.title })
+        assertEquals(1, catalog.areas.first().noteCount)
+        assertEquals(listOf("Endgames", "Mindfulness", "Openings", "Strategy", "Tactics", "Unit economics"), catalog.topics.map { it.title })
+    }
+
+    @Test
+    fun exploreCatalogCountsOneNoteOnceWhenItRepeatsATopic() {
+        val app = appWith(FakeReaderEngine(demo), inspected = demo)
+        app.browse.setLoadedEntries(
+            listOf(
+                ReaderIndexEntry("one", "First", Instant.EPOCH, area = "Engineering", topics = setOf("Kotlin")),
+                ReaderIndexEntry("two", "Second", Instant.EPOCH, area = "Engineering", topics = setOf("Kotlin"))
+            )
+        )
+
+        assertEquals(2, app.exploreCatalog().topics.single { it.title == "Kotlin" }.noteCount)
+    }
+
+    @Test
+    fun exploreCatalogIsASecondaryScreenThatReturnsToHome() {
+        val engine = FakeReaderEngine(demo)
+        val app = ReaderApp(
+            session = ReaderSession(engine),
+            noteViewer = NoteViewer(demo),
+            navigator = ReaderNavigator(),
+            loadDocument = DefaultLoadReaderDocument { pageId -> note(pageId, "Queued $pageId") }
+        )
+
+        app.openExploreCatalog()
+        assertEquals(ReaderDestination.ExploreCatalog, app.navigator.state.value.current)
+        assertTrue(app.back())
+        assertEquals(ReaderDestination.Home, app.navigator.state.value.current)
+        assertFalse(engine.state.value.isPlaying)
     }
 }

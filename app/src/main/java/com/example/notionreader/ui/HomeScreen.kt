@@ -34,7 +34,7 @@ import com.example.notionreader.ui.describeLastActivity
  *
  * - **Continue listening**: Resumable Active Queue snapshots from history.
  * - **Your queues**: Persistent queues (Saved Queues, capped to recent entries, with "See all queues").
- * - **Explore**: Absent pending Content Metadata & Workspace Schema Adapters specification.
+ * - **Explore**: A bounded preview with a complete Area-and-Topic catalog.
  *
  * ## The empty state, which is not an empty result set
  *
@@ -53,6 +53,7 @@ fun HomeScreen(
     onSeeAllQueues: () -> Unit = {},
     exploreCards: List<ExploreCard> = emptyList(),
     onExplore: (String) -> Unit = {},
+    onSeeAllExplore: () -> Unit = {},
     /**
      * The instant the relative times are relative to.
      */
@@ -68,6 +69,7 @@ fun HomeScreen(
             continueListening.none { it.sessionId == focusTarget } &&
             yourQueues.none { it.queueId == focusTarget } &&
             focusTarget != ReaderFocus.HomeSeeAllQueues
+            && focusTarget != ReaderFocus.HomeSeeAllExplore
         ) {
             onFocusHandled()
         }
@@ -158,6 +160,15 @@ fun HomeScreen(
                     onSelect = { onExplore(card.queryText) }
                 )
             }
+
+            Button(
+                onClick = onSeeAllExplore,
+                modifier = Modifier.restoreFocusOn(
+                    target = focusTarget,
+                    id = ReaderFocus.HomeSeeAllExplore,
+                    onHandled = onFocusHandled
+                )
+            ) { Text("See all Explore") }
         }
     }
 }

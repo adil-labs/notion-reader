@@ -57,6 +57,9 @@ enum class ReaderDestination {
      */
     CreateSmartQueue,
 
+    /** Complete Area and Topic discovery taxonomy, reached from Home's Explore preview. */
+    ExploreCatalog,
+
     /** Manual reading and inspection. Reached from a Browse result, and later from a queue row. */
     Note,
 
