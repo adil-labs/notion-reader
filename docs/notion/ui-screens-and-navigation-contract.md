@@ -4,7 +4,7 @@
   Source page: Notion Reader — UI Screens & Navigation Contract
   Page id:     3dec9345-e10a-81b6-9cd2-d54532ad6fcd
   Notion URL:  https://app.notion.com/p/Notion-Reader-UI-Screens-Navigation-Contract-3dec9345e10a81b69cd2d54532ad6fcd
-  Notion last edited: 09/17/2026 11:01:00
+  Notion last edited: 10/05/2026 03:24:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -81,7 +81,9 @@ App
 ├── Home
 │   ├── Continue listening → Player
 │   ├── Your queues → Queue Details
-│   └── Explore → pre-filtered Browse
+│   └── Explore preview
+│       ├── Area or Topic → pre-filtered Browse
+│       └── See all Explore → Explore Catalog
 │
 ├── Browse
 │   ├── Search
@@ -105,6 +107,7 @@ App
 
 Secondary screens:
 
+Explore Catalog
 Note
 Player
 Queue Destination
@@ -301,7 +304,7 @@ The full collection remains under Queues.
 
 # Home — Explore
 
-Explore contains deterministic discovery shortcuts into Browse.
+Home contains a bounded, deterministic Explore preview. It is a set of discovery shortcuts into Browse, not the complete metadata taxonomy.
 
 It does not automatically create Saved or Smart Queues.
 
@@ -310,17 +313,16 @@ Example:
 ```plain text
 Explore
 
-Mindfulness
-12 notes
-
 Chess
-31 notes
+11 notes
 
-Android TTS
-9 notes
+Mind & Learning
+8 notes
 
-AI & ML
-24 notes
+Business & Strategy
+4 notes
+
+See all Explore
 ```
 
 Selecting:
@@ -347,20 +349,20 @@ may open Browse with:
 Area = Chess
 ```
 
-Explore entries are reader-oriented shortcuts into result sets.
+Each preview entry is a reader-oriented shortcut into a result set. Selecting See all Explore opens the Explore Catalog.
 
 They are not persistent queues.
 
-## Explore selection
+## Explore Catalog
 
-Initial Explore choices should be generated transparently from metadata rather than opaque AI recommendations.
+The Explore Catalog is the complete deterministic entry point into workspace discovery. It lists every Area and Topic that occurs on at least one accessible Note, with its note count.
 
-Useful signals may include:
-- recently accessed Areas or Topics;
-- recently updated content;
-- Areas or Topics containing enough useful Notes.
+Catalog order and selection are intentionally simple:
+- Areas appear before Topics, so every populated Area remains discoverable even when one Area has many Topics;
+- each section is ordered alphabetically using a case-insensitive deterministic comparison;
+- selecting an Area opens Browse with that Area facet, and selecting a Topic opens Browse with that Topic facet.
 
-The product must not require inferred emotional or personal-state recommendations to populate this section.
+The catalog must not use opaque AI recommendations or a shared popularity cut-off. Home preview selection may be ranked separately, but it must link to this complete catalog.
 
 # Home invariant
 
@@ -377,8 +379,9 @@ Continue listening
 Your queues
 → Saved and Smart Queue definitions
 
-Explore
+Explore preview
 → filtered entry points into Browse
+→ Explore Catalog for the complete Area and Topic taxonomy
 ```
 
 # Browse screen
@@ -1366,7 +1369,7 @@ Navigation simply opens the new Player session.
 
 # Loading states
 
-Screens dependent on remote content must distinguish loading from empty states.
+Screens dependent on remote content must distinguish loading from empty states. When a persisted Browse index exists, Browse, Home Explore, and Explore Catalog render that cached data immediately while a foreground refresh runs; a refresh failure retains the cached data rather than blanking the discovery surfaces.
 
 Example:
 
@@ -1502,8 +1505,8 @@ A downstream specification should justify creating another major destination rat
 1. Home, Browse, Queues, and Settings are top-level destinations.
 1. Player is not a permanent bottom-navigation tab.
 1. Note is not a top-level destination.
-1. Home contains Continue listening, Your queues, and Explore.
-1. Home Explore entries open pre-filtered Browse rather than creating persistent queues.
+1. Home contains Continue listening, Your queues, and a bounded Explore preview; Explore Catalog is a secondary destination.
+1. Explore preview and catalog entries open pre-filtered Browse rather than creating persistent queues; the catalog exposes every populated Area and Topic.
 1. Browse defaults to All Notes sorted by Recently updated.
 1. Browse combines Search, facets, sorting, and one ordered result set.
 1. Browse metadata filters are not represented as a folder hierarchy.
