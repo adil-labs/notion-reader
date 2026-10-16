@@ -1,0 +1,17 @@
+{
+  "sdk": 37,
+  "abi": "arm64-v8a",
+  "coldSessionMs": 159.348959,
+  "maximumAbsoluteHostParityError": 0.02283336398501538,
+  "minimumHostParityCosine": 0.9888374714676356,
+  "queryP50Ms": 11.938598,
+  "queryP95Ms": 14.625245,
+  "querySamples": 39,
+  "heldOutRecallAt5": 1,
+  "heldOutPrecision": 1,
+  "heldOutNdcgAt5": 1,
+  "nativeHeapBytes": 55835264,
+  "totalPssKiB": 140333,
+  "initialComponentTolerancePassed": false,
+  "semanticGatePassed": true
+}

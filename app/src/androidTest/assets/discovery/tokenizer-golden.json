@@ -1,0 +1,227 @@
+[
+  {
+    "text": "Hello, world!",
+    "input_ids": [
+      101,
+      7592,
+      1010,
+      2088,
+      999,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "text": "Café naïve résumé — 中文。",
+    "input_ids": [
+      101,
+      7668,
+      15743,
+      13746,
+      1517,
+      1746,
+      1861,
+      1636,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "text": "Running runners can't stop.",
+    "input_ids": [
+      101,
+      2770,
+      7190,
+      2064,
+      1005,
+      1056,
+      2644,
+      1012,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "text": "",
+    "input_ids": [
+      101,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0
+    ]
+  },
+  {
+    "text": "  MULTIPLE\tspaces\n",
+    "input_ids": [
+      101,
+      3674,
+      7258,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "text": "[CLS]hello[MASK] world[SEP]",
+    "input_ids": [
+      101,
+      101,
+      7592,
+      103,
+      2088,
+      102,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "text": "emoji 😀 and élan\t中文",
+    "input_ids": [
+      101,
+      7861,
+      29147,
+      2072,
+      100,
+      1998,
+      3449,
+      2319,
+      1746,
+      1861,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "input_ids": [
+      101,
+      100,
+      102
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1
+    ],
+    "token_type_ids": [
+      0,
+      0,
+      0
+    ]
+  }
+]

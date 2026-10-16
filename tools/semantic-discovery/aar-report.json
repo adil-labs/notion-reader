@@ -1,0 +1,83 @@
+{
+  "aar_sha256": "72683787a80d0608a3121b967d8e1239aef48286826661c953211626690540a7",
+  "manifest": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    package=\"ai.onnxruntime\" >\n\n    <uses-sdk android:minSdkVersion=\"24\" />\n\n    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n\n    <application>\n        <provider\n            android:name=\"ai.onnxruntime.TelemetryInitializer\"\n            android:authorities=\"${applicationId}.onnxruntime_telemetry_initializer\"\n            android:exported=\"false\"\n            android:initOrder=\"100\" />\n    </application>\n\n</manifest>",
+  "license_entries": [],
+  "libraries": [
+    {
+      "name": "jni/arm64-v8a/libonnxruntime.so",
+      "bytes": 34208680,
+      "load_segment_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/arm64-v8a/libonnxruntime4j_jni.so",
+      "bytes": 122576,
+      "load_segment_alignments": [
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/armeabi-v7a/libonnxruntime.so",
+      "bytes": 24182012,
+      "load_segment_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/armeabi-v7a/libonnxruntime4j_jni.so",
+      "bytes": 89900,
+      "load_segment_alignments": [
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/x86/libonnxruntime.so",
+      "bytes": 40741404,
+      "load_segment_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/x86/libonnxruntime4j_jni.so",
+      "bytes": 103076,
+      "load_segment_alignments": [
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/x86_64/libonnxruntime.so",
+      "bytes": 40827944,
+      "load_segment_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    },
+    {
+      "name": "jni/x86_64/libonnxruntime4j_jni.so",
+      "bytes": 109848,
+      "load_segment_alignments": [
+        16384,
+        16384
+      ],
+      "elf_16k_aligned": true
+    }
+  ]
+}

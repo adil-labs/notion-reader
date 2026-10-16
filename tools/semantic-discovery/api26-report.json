@@ -1,0 +1,17 @@
+{
+  "sdk": 26,
+  "abi": "x86_64",
+  "coldSessionMs": 142.8907,
+  "maximumAbsoluteHostParityError": 2.220446049250313E-16,
+  "minimumHostParityCosine": 0.9999999999999988,
+  "queryP50Ms": 17.9324,
+  "queryP95Ms": 53.04,
+  "querySamples": 39,
+  "heldOutRecallAt5": 1,
+  "heldOutPrecision": 1,
+  "heldOutNdcgAt5": 1,
+  "nativeHeapBytes": 55882968,
+  "totalPssKiB": 85056,
+  "initialComponentTolerancePassed": true,
+  "semanticGatePassed": true
+}

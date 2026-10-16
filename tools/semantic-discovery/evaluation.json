@@ -1,0 +1,210 @@
+{
+  "documents": [
+    {
+      "id": "sleep",
+      "text": "Consistent bedtimes, a dark cool bedroom and avoiding afternoon caffeine improve sleep quality and recovery.",
+      "title": "Restful sleep habits"
+    },
+    {
+      "id": "garden",
+      "text": "Composting vegetable scraps and leaves creates fertile soil. Water tomato roots deeply and use mulch to retain moisture.",
+      "title": "Healthy vegetable gardens"
+    },
+    {
+      "id": "database",
+      "text": "Database transactions provide atomicity and isolation. Indexes speed lookups but require extra storage and slower writes.",
+      "title": "Reliable database transactions"
+    },
+    {
+      "id": "budget",
+      "text": "Build an emergency savings fund covering essential expenses. Track monthly spending and pay expensive debt before discretionary purchases.",
+      "title": "Emergency savings and budgeting"
+    },
+    {
+      "id": "running",
+      "text": "Begin distance running with easy conversational efforts. Increase weekly mileage gradually and schedule rest days to avoid injury.",
+      "title": "Safe distance running"
+    },
+    {
+      "id": "bread",
+      "text": "Sourdough fermentation uses a starter of wild yeast and bacteria. Let dough rise until aerated before shaping and baking.",
+      "title": "Baking sourdough bread"
+    },
+    {
+      "id": "encryption",
+      "text": "End to end encryption protects messages so only their intended recipients can read them. Public keys establish shared secrets.",
+      "title": "Private message encryption"
+    },
+    {
+      "id": "astronomy",
+      "text": "A telescope collects faint light from distant stars and galaxies. Dark skies help observers see nebulae and planets.",
+      "title": "Observing the night sky"
+    },
+    {
+      "id": "cache",
+      "text": "A cache stores recently fetched data for faster offline access. Invalidation removes stale entries when the source changes.",
+      "title": "Offline caching and invalidation"
+    },
+    {
+      "id": "bird",
+      "text": "Migrating birds travel between seasonal feeding and breeding grounds. Wetlands provide crucial resting and nesting habitat.",
+      "title": "Migratory bird habitats"
+    },
+    {
+      "id": "sleep-keywords",
+      "text": "The database table named sleep contains a bedtime column used only as a synthetic performance benchmark; this is SQL tuning documentation.",
+      "title": "SQL sleep table benchmark"
+    },
+    {
+      "id": "bank-keywords",
+      "text": "The river bank supports tomato plants. Garden soil erosion is reduced by ground cover and deep roots.",
+      "title": "Preventing riverbank erosion"
+    },
+    {
+      "id": "audio",
+      "text": "A screen reader speaks user interface labels. Accessible playback controls need descriptive names and predictable focus restoration.",
+      "title": "Accessible spoken controls"
+    },
+    {
+      "id": "photography",
+      "text": "Aperture controls depth of field. Shutter speed freezes movement while sensor sensitivity changes noise in low light.",
+      "title": "Camera exposure techniques"
+    },
+    {
+      "id": "tea",
+      "text": "Green tea is steeped below boiling water for a brief time. Oversteeping increases bitter flavors.",
+      "title": "Brewing green tea"
+    },
+    {
+      "id": "bicycle",
+      "text": "Maintain bicycle brakes by inspecting pads and cable tension. Lubricate the chain and check tire pressure before riding.",
+      "title": "Bicycle maintenance"
+    },
+    {
+      "id": "backup",
+      "text": "Keep multiple copies of important files on independent media, including one offsite copy. Test restoring backups regularly.",
+      "title": "File backup and recovery"
+    },
+    {
+      "id": "ocean",
+      "text": "Coral reefs support marine biodiversity but warming water causes coral bleaching. Reducing pollution protects coastal ecosystems.",
+      "title": "Protecting coral reefs"
+    },
+    {
+      "id": "language",
+      "text": "Spaced repetition and recalling vocabulary from memory improve foreign language learning. Practice short conversations every day.",
+      "title": "Learning a foreign language"
+    },
+    {
+      "id": "music",
+      "text": "Practice piano slowly with a steady rhythm. Break difficult passages into small sections before joining them together.",
+      "title": "Piano practice routines"
+    },
+    {
+      "id": "long-archive",
+      "title": "Research reference archive",
+      "text": "Reference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nReference entry contains administrative numbering and an empty checklist for document organization.\n\nKeep an independent backup of essential documents on separate drives including one offsite copy. After a disk failure restore your lost files from a tested backup."
+    }
+  ],
+  "queries": [
+    {
+      "split": "calibration",
+      "text": "How can I get better rest at night?",
+      "relevant": [
+        "sleep"
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Growing vegetables with healthier dirt",
+      "relevant": [
+        "garden"
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Making relational queries faster",
+      "relevant": [
+        "database"
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Preparing financially for an unexpected bill",
+      "relevant": [
+        "budget"
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Training for a marathon without getting hurt",
+      "relevant": [
+        "running"
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Keeping private messages secret from intermediaries",
+      "relevant": [
+        "encryption"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Why does my homemade loaf need a living culture?",
+      "relevant": [
+        "bread"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Viewing very distant objects in the night sky",
+      "relevant": [
+        "astronomy"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Removing outdated locally stored responses",
+      "relevant": [
+        "cache"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Protecting places where seasonal flying animals stop to rest",
+      "relevant": [
+        "bird"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Making spoken navigation usable for people who cannot see controls",
+      "relevant": [
+        "audio"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Recovering lost documents after a hard drive fails",
+      "relevant": [
+        "backup",
+        "long-archive"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Remembering new words in another language",
+      "relevant": [
+        "language"
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Fixing the stopping mechanism on my pedal powered vehicle",
+      "relevant": [
+        "bicycle"
+      ]
+    }
+  ]
+}

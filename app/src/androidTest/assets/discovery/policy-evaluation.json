@@ -1,0 +1,379 @@
+{
+  "description": "Discovery policy hard-negative evaluation: original multi-label corpus plus separate navigation/reference distractors. No private content. Fixed policy thresholds; no held-out tuning.",
+  "documents": [
+    {
+      "id": "g1",
+      "split": "calibration",
+      "title": "Soil and roots",
+      "passages": [
+        {
+          "topic": "garden",
+          "heading": "Growing vegetables",
+          "text": "Vegetable gardens need fertile soil, compost and regular watering. Healthy roots absorb nutrients and moisture so plants can grow."
+        }
+      ]
+    },
+    {
+      "id": "g2",
+      "split": "calibration",
+      "title": "Compost in the vegetable patch",
+      "passages": [
+        {
+          "topic": "garden",
+          "heading": "Growing vegetables",
+          "text": "Compost improves garden soil and feeds vegetable plants. Water the roots consistently and protect young seedlings from drying out."
+        }
+      ]
+    },
+    {
+      "id": "g3",
+      "split": "calibration",
+      "title": "Watering seedlings",
+      "passages": [
+        {
+          "topic": "garden",
+          "heading": "Growing vegetables",
+          "text": "Keep vegetable seedlings watered in rich composted soil. Garden roots need moisture and nutrients for healthy plant growth."
+        }
+      ]
+    },
+    {
+      "id": "d1",
+      "split": "calibration",
+      "title": "Reliable transactions",
+      "passages": [
+        {
+          "topic": "database",
+          "heading": "Database transactions",
+          "text": "A database transaction commits a group of writes atomically. If any operation fails, rollback prevents partially stored changes."
+        }
+      ]
+    },
+    {
+      "id": "d2",
+      "split": "calibration",
+      "title": "Rollback after failure",
+      "passages": [
+        {
+          "topic": "database",
+          "heading": "Database transactions",
+          "text": "Atomic transactions make database writes reliable. Commit all changes together or roll them back when an operation fails."
+        }
+      ]
+    },
+    {
+      "id": "d3",
+      "split": "calibration",
+      "title": "Atomic commit",
+      "passages": [
+        {
+          "topic": "database",
+          "heading": "Database transactions",
+          "text": "Database transactions protect against partial updates. A successful commit saves every write; rollback restores the previous state after failure."
+        }
+      ]
+    },
+    {
+      "id": "mixedcal",
+      "split": "calibration",
+      "title": "Two independent projects",
+      "passages": [
+        {
+          "topic": "garden",
+          "heading": "Growing vegetables",
+          "text": "Water vegetable roots and enrich garden soil with compost to help seedlings grow."
+        },
+        {
+          "topic": "database",
+          "heading": "Database transactions",
+          "text": "Database transactions commit writes atomically and roll back partially applied changes on failure."
+        }
+      ]
+    },
+    {
+      "id": "n1",
+      "split": "calibration",
+      "title": "Train journey",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Travel",
+          "text": "The overnight train departs from the central station. Reserve a sleeping berth and keep the ticket available for inspection."
+        }
+      ]
+    },
+    {
+      "id": "n2",
+      "split": "calibration",
+      "title": "Tree-shaped data",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Binary search trees",
+          "text": "A binary search tree stores ordered keys in left and right subtrees. Rotations balance the nodes to keep lookup efficient."
+        }
+      ]
+    },
+    {
+      "id": "m1",
+      "split": "heldOut",
+      "title": "Guitar practice",
+      "passages": [
+        {
+          "topic": "music",
+          "heading": "Practicing music",
+          "text": "Practice guitar scales slowly with a metronome. Repeat chord changes and listen carefully to the timing and pitch of each note."
+        }
+      ]
+    },
+    {
+      "id": "m2",
+      "split": "heldOut",
+      "title": "Learning chords",
+      "passages": [
+        {
+          "topic": "music",
+          "heading": "Practicing music",
+          "text": "A musician learns guitar chords and scales through slow repeated practice. Use a metronome to improve timing while listening for accurate pitch."
+        }
+      ]
+    },
+    {
+      "id": "m3",
+      "split": "heldOut",
+      "title": "Music and frequency analysis",
+      "passages": [
+        {
+          "topic": "music",
+          "heading": "Practicing music",
+          "text": "Guitar practice combines scales, chord changes and steady metronome timing. Listening to pitch helps musicians improve."
+        },
+        {
+          "topic": "signals",
+          "heading": "Frequency analysis",
+          "text": "Fourier transforms separate a periodic signal into its component frequencies. Spectral peaks reveal repeating oscillations hidden in measured samples."
+        }
+      ]
+    },
+    {
+      "id": "s1",
+      "split": "heldOut",
+      "title": "Observing distant galaxies",
+      "passages": [
+        {
+          "topic": "astronomy",
+          "heading": "Studying galaxies",
+          "text": "Astronomers use telescopes to observe distant galaxies and stars. Light spectra reveal stellar composition and the motion of galaxies through space."
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "split": "heldOut",
+      "title": "Starlight and telescopes",
+      "passages": [
+        {
+          "topic": "astronomy",
+          "heading": "Studying galaxies",
+          "text": "Telescopes collect light from distant stars and galaxies. Astronomers analyze spectra to measure composition and motion across the universe."
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "split": "heldOut",
+      "title": "Radio astronomy and spectra",
+      "passages": [
+        {
+          "topic": "astronomy",
+          "heading": "Studying galaxies",
+          "text": "Astronomers study distant galaxies and stars with telescopes. Their light spectra provide evidence about composition and motion in space."
+        },
+        {
+          "topic": "signals",
+          "heading": "Frequency analysis",
+          "text": "Fourier transforms separate periodic signals into component frequencies. Peaks in the spectrum reveal repeating oscillations in measured samples."
+        }
+      ]
+    },
+    {
+      "id": "signals",
+      "split": "heldOut",
+      "title": "Measured oscillations",
+      "passages": [
+        {
+          "topic": "signals",
+          "heading": "Frequency analysis",
+          "text": "Use a Fourier transform to decompose a periodic signal into component frequencies. Repeating oscillations appear as spectral peaks in the measured samples."
+        }
+      ]
+    },
+    {
+      "id": "mixedheld",
+      "split": "heldOut",
+      "title": "Practice and observation",
+      "passages": [
+        {
+          "topic": "music",
+          "heading": "Practicing music",
+          "text": "Practice guitar chords and scales slowly using a metronome, listening for accurate pitch and steady timing."
+        },
+        {
+          "topic": "astronomy",
+          "heading": "Studying galaxies",
+          "text": "Astronomers observe distant stars and galaxies through telescopes, using light spectra to measure their composition and motion."
+        }
+      ]
+    },
+    {
+      "id": "n3",
+      "split": "heldOut",
+      "title": "Bread dough",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Bread making",
+          "text": "Mix flour with water, yeast and salt. Knead the dough, allow it to rise, then bake until the crust is golden."
+        }
+      ]
+    },
+    {
+      "id": "n4",
+      "split": "heldOut",
+      "title": "Bank notes",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Currency",
+          "text": "Printed bank notes are issued in several denominations. Security watermarks help merchants identify counterfeit currency."
+        }
+      ]
+    },
+    {
+      "id": "calibration-reference-0",
+      "split": "calibration",
+      "title": "Navigation index 0",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Related knowledge",
+          "text": "Related: Growing vegetables; Home cooking."
+        }
+      ]
+    },
+    {
+      "id": "calibration-reference-1",
+      "split": "calibration",
+      "title": "Navigation index 1",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Related knowledge",
+          "text": "Related: Growing vegetables; Home cooking."
+        }
+      ]
+    },
+    {
+      "id": "calibration-reference-2",
+      "split": "calibration",
+      "title": "Navigation index 2",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Related knowledge",
+          "text": "Related: Growing vegetables; Home cooking."
+        }
+      ]
+    },
+    {
+      "id": "calibration-route-0",
+      "split": "calibration",
+      "title": "Specification routing 0",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Ownership",
+          "text": "Exact growing vegetables behavior is defined by the separate implementation specification."
+        }
+      ]
+    },
+    {
+      "id": "calibration-route-1",
+      "split": "calibration",
+      "title": "Specification routing 1",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Ownership",
+          "text": "Exact home cooking behavior is defined by the separate implementation specification."
+        }
+      ]
+    },
+    {
+      "id": "heldOut-reference-0",
+      "split": "heldOut",
+      "title": "Navigation index 0",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Related knowledge",
+          "text": "Related: Playing an instrument; Observing space."
+        }
+      ]
+    },
+    {
+      "id": "heldOut-reference-1",
+      "split": "heldOut",
+      "title": "Navigation index 1",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Related knowledge",
+          "text": "Related: Playing an instrument; Observing space."
+        }
+      ]
+    },
+    {
+      "id": "heldOut-reference-2",
+      "split": "heldOut",
+      "title": "Navigation index 2",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Related knowledge",
+          "text": "Related: Playing an instrument; Observing space."
+        }
+      ]
+    },
+    {
+      "id": "heldOut-route-0",
+      "split": "heldOut",
+      "title": "Specification routing 0",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Ownership",
+          "text": "Exact playing an instrument behavior is defined by the separate implementation specification."
+        }
+      ]
+    },
+    {
+      "id": "heldOut-route-1",
+      "split": "heldOut",
+      "title": "Specification routing 1",
+      "passages": [
+        {
+          "topic": null,
+          "heading": "Ownership",
+          "text": "Exact observing space behavior is defined by the separate implementation specification."
+        }
+      ]
+    }
+  ],
+  "heldOutConnectionPairs": [
+    [
+      "m3",
+      "s3"
+    ]
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "status": "failed",
+  "scope": "Shipping FileSemanticIndexStore JSON format, actual DiscoveryController queries on physical Pixel ARM64",
+  "measurementPrecision": "rounded values reported by the parent from instrumentation output",
+  "passages": 10000,
+  "notes": 100,
+  "indexBytes": 50902890,
+  "hundredPassageInferenceMs": 966,
+  "queryP50Ms": 34623,
+  "queryP95Ms": 45492,
+  "targetQueryP95Ms": 2000,
+  "totalPssKiB": 400212,
+  "fixture": "Synthetic repeated passage embeddings, actual persisted reader documents and shipping retrieval pipeline",
+  "qualityGate": "passed separately; performance failure remains red"
+}

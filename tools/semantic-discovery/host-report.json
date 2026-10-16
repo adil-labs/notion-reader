@@ -1,0 +1,1291 @@
+{
+  "scope": "host CPU synthetic evidence; not Android/API26/ARM64/native-memory/playback evidence",
+  "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+  "artifacts": {
+    "onnx/model_qint8_arm64.onnx": {
+      "bytes": 23026053,
+      "sha256": "4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474"
+    },
+    "tokenizer.json": {
+      "bytes": 466247,
+      "sha256": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037"
+    },
+    "tokenizer_config.json": {
+      "bytes": 350,
+      "sha256": "acb92769e8195aabd29b7b2137a9e6d6e25c476a4f15aa4355c233426c61576b"
+    },
+    "config.json": {
+      "bytes": 612,
+      "sha256": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41"
+    },
+    "sentence_bert_config.json": {
+      "bytes": 53,
+      "sha256": "fc1993fde0a95c24ec6c022539d41cf6e2f7c9721e5415d6fb6897472a9cd4b7"
+    },
+    "1_Pooling/config.json": {
+      "bytes": 190,
+      "sha256": "4be450dde3b0273bb9787637cfbd28fe04a7ba6ab9d36ac48e92b11e350ffc23"
+    },
+    "README.md": {
+      "bytes": 10502,
+      "sha256": "dcd602d2fd35c203a247304a06fec6654a12f7941b739f9221a064fe8dc3b7f0"
+    }
+  },
+  "ort_version": "1.31.0",
+  "cold_session_seconds": 0.1798316000495106,
+  "query_p50_seconds": 0.009500449988991022,
+  "query_p95_seconds": 0.016255450062453745,
+  "threshold": 0.3867063977081559,
+  "calibration_precision": 0.8571428571428571,
+  "held_out_precision": 1.0,
+  "held_out_recall_at_5": 1.0,
+  "held_out_ndcg_at_5": 1.0,
+  "results": [
+    {
+      "split": "calibration",
+      "text": "How can I get better rest at night?",
+      "relevant": [
+        "sleep"
+      ],
+      "ranking": [
+        {
+          "id": "sleep",
+          "score": 0.6082868945802529
+        },
+        {
+          "id": "sleep-keywords",
+          "score": 0.3867063977081559
+        },
+        {
+          "id": "running",
+          "score": 0.27932349330369677
+        },
+        {
+          "id": "music",
+          "score": 0.26085227314796333
+        },
+        {
+          "id": "language",
+          "score": 0.24139707006206665
+        },
+        {
+          "id": "bicycle",
+          "score": 0.18789503166701527
+        },
+        {
+          "id": "astronomy",
+          "score": 0.1480470835721344
+        },
+        {
+          "id": "backup",
+          "score": 0.1297986794562338
+        },
+        {
+          "id": "budget",
+          "score": 0.1130791060010341
+        },
+        {
+          "id": "tea",
+          "score": 0.11187091653772878
+        },
+        {
+          "id": "bird",
+          "score": 0.08930527770716395
+        },
+        {
+          "id": "cache",
+          "score": 0.05309926706888501
+        },
+        {
+          "id": "bread",
+          "score": 0.03962670188828854
+        },
+        {
+          "id": "photography",
+          "score": 0.03507958917242105
+        },
+        {
+          "id": "garden",
+          "score": 0.020907036542578753
+        },
+        {
+          "id": "ocean",
+          "score": 0.0137665850507951
+        },
+        {
+          "id": "audio",
+          "score": -0.0022414028062998845
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.002647243642551575
+        },
+        {
+          "id": "database",
+          "score": -0.012418074879796669
+        },
+        {
+          "id": "encryption",
+          "score": -0.0435512910695911
+        }
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Growing vegetables with healthier dirt",
+      "relevant": [
+        "garden"
+      ],
+      "ranking": [
+        {
+          "id": "garden",
+          "score": 0.5220540376823032
+        },
+        {
+          "id": "bank-keywords",
+          "score": 0.3796115620930199
+        },
+        {
+          "id": "ocean",
+          "score": 0.19210649875188654
+        },
+        {
+          "id": "backup",
+          "score": 0.14446279647427754
+        },
+        {
+          "id": "bread",
+          "score": 0.11709805618829777
+        },
+        {
+          "id": "language",
+          "score": 0.06405063828649846
+        },
+        {
+          "id": "running",
+          "score": 0.0630480447616771
+        },
+        {
+          "id": "bicycle",
+          "score": 0.050523526338790384
+        },
+        {
+          "id": "budget",
+          "score": 0.04727857924390057
+        },
+        {
+          "id": "astronomy",
+          "score": 0.047104764173819424
+        },
+        {
+          "id": "music",
+          "score": 0.02973509441701564
+        },
+        {
+          "id": "tea",
+          "score": 0.015375695773197981
+        },
+        {
+          "id": "bird",
+          "score": 0.011803056558508433
+        },
+        {
+          "id": "photography",
+          "score": -0.011086091665437524
+        },
+        {
+          "id": "sleep",
+          "score": -0.020416478713225043
+        },
+        {
+          "id": "cache",
+          "score": -0.02769707824097803
+        },
+        {
+          "id": "audio",
+          "score": -0.03404246030882124
+        },
+        {
+          "id": "database",
+          "score": -0.04953440983446791
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.05040039286079641
+        },
+        {
+          "id": "encryption",
+          "score": -0.10590563158786645
+        }
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Making relational queries faster",
+      "relevant": [
+        "database"
+      ],
+      "ranking": [
+        {
+          "id": "database",
+          "score": 0.40086417456133305
+        },
+        {
+          "id": "sleep-keywords",
+          "score": 0.22580208414979466
+        },
+        {
+          "id": "language",
+          "score": 0.17280483465451577
+        },
+        {
+          "id": "music",
+          "score": 0.16190441492129184
+        },
+        {
+          "id": "cache",
+          "score": 0.1562650125996673
+        },
+        {
+          "id": "sleep",
+          "score": 0.09523021282295133
+        },
+        {
+          "id": "photography",
+          "score": 0.09509978533734562
+        },
+        {
+          "id": "tea",
+          "score": 0.09251690492129672
+        },
+        {
+          "id": "astronomy",
+          "score": 0.08956457581953653
+        },
+        {
+          "id": "bicycle",
+          "score": 0.08692859701010852
+        },
+        {
+          "id": "ocean",
+          "score": 0.048716291661205245
+        },
+        {
+          "id": "running",
+          "score": 0.0358873023528297
+        },
+        {
+          "id": "budget",
+          "score": 0.026944955267348032
+        },
+        {
+          "id": "backup",
+          "score": 0.014563437637952262
+        },
+        {
+          "id": "bird",
+          "score": 0.0020738756877432575
+        },
+        {
+          "id": "audio",
+          "score": -0.007883478539256375
+        },
+        {
+          "id": "encryption",
+          "score": -0.02605017183469515
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.04558750526231965
+        },
+        {
+          "id": "bread",
+          "score": -0.056941114901002156
+        },
+        {
+          "id": "garden",
+          "score": -0.0572283885856861
+        }
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Preparing financially for an unexpected bill",
+      "relevant": [
+        "budget"
+      ],
+      "ranking": [
+        {
+          "id": "budget",
+          "score": 0.5373293132621793
+        },
+        {
+          "id": "backup",
+          "score": 0.153003647174295
+        },
+        {
+          "id": "bicycle",
+          "score": 0.12436135822671136
+        },
+        {
+          "id": "running",
+          "score": 0.10100429031160248
+        },
+        {
+          "id": "music",
+          "score": 0.1002014765758586
+        },
+        {
+          "id": "bank-keywords",
+          "score": 0.07531266154429796
+        },
+        {
+          "id": "astronomy",
+          "score": 0.051881760875458524
+        },
+        {
+          "id": "sleep",
+          "score": 0.030116032697658553
+        },
+        {
+          "id": "bread",
+          "score": 0.02658768186694149
+        },
+        {
+          "id": "language",
+          "score": 0.005241145419829479
+        },
+        {
+          "id": "encryption",
+          "score": -0.002418897372551184
+        },
+        {
+          "id": "database",
+          "score": -0.0384716794861271
+        },
+        {
+          "id": "tea",
+          "score": -0.0426517309583798
+        },
+        {
+          "id": "garden",
+          "score": -0.05094302568004555
+        },
+        {
+          "id": "ocean",
+          "score": -0.05681312362961022
+        },
+        {
+          "id": "audio",
+          "score": -0.057756617310467204
+        },
+        {
+          "id": "bird",
+          "score": -0.05881289828562368
+        },
+        {
+          "id": "cache",
+          "score": -0.08431837798732328
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.1303999724204785
+        },
+        {
+          "id": "photography",
+          "score": -0.15764038813743947
+        }
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Training for a marathon without getting hurt",
+      "relevant": [
+        "running"
+      ],
+      "ranking": [
+        {
+          "id": "running",
+          "score": 0.5785990324325354
+        },
+        {
+          "id": "music",
+          "score": 0.13644483332586793
+        },
+        {
+          "id": "bicycle",
+          "score": 0.13264380186123595
+        },
+        {
+          "id": "budget",
+          "score": 0.12695228788265134
+        },
+        {
+          "id": "language",
+          "score": 0.06048871804302297
+        },
+        {
+          "id": "backup",
+          "score": 0.03765680998425039
+        },
+        {
+          "id": "sleep",
+          "score": 0.022404943185968734
+        },
+        {
+          "id": "tea",
+          "score": -0.00967298971016707
+        },
+        {
+          "id": "photography",
+          "score": -0.011386935203692486
+        },
+        {
+          "id": "bird",
+          "score": -0.013310967888563313
+        },
+        {
+          "id": "encryption",
+          "score": -0.026063518407207775
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.030727259821995114
+        },
+        {
+          "id": "database",
+          "score": -0.03808439360443719
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.04528079581245955
+        },
+        {
+          "id": "ocean",
+          "score": -0.04640355344800827
+        },
+        {
+          "id": "audio",
+          "score": -0.0520804057898757
+        },
+        {
+          "id": "bread",
+          "score": -0.05393770976128779
+        },
+        {
+          "id": "cache",
+          "score": -0.08098411663178666
+        },
+        {
+          "id": "garden",
+          "score": -0.10634549952929942
+        },
+        {
+          "id": "astronomy",
+          "score": -0.11417114247811361
+        }
+      ]
+    },
+    {
+      "split": "calibration",
+      "text": "Keeping private messages secret from intermediaries",
+      "relevant": [
+        "encryption"
+      ],
+      "ranking": [
+        {
+          "id": "encryption",
+          "score": 0.5364101171335255
+        },
+        {
+          "id": "database",
+          "score": 0.1480000363702229
+        },
+        {
+          "id": "backup",
+          "score": 0.12351708507225431
+        },
+        {
+          "id": "audio",
+          "score": 0.09163662093296628
+        },
+        {
+          "id": "budget",
+          "score": 0.08466016697236184
+        },
+        {
+          "id": "language",
+          "score": 0.08164999991114176
+        },
+        {
+          "id": "cache",
+          "score": 0.0728576547521067
+        },
+        {
+          "id": "bicycle",
+          "score": 0.055225781364643546
+        },
+        {
+          "id": "music",
+          "score": 0.03290312382573485
+        },
+        {
+          "id": "tea",
+          "score": 0.018401884039199186
+        },
+        {
+          "id": "ocean",
+          "score": 0.010714875681857625
+        },
+        {
+          "id": "garden",
+          "score": -0.0008893995664123605
+        },
+        {
+          "id": "running",
+          "score": -0.009265189903664754
+        },
+        {
+          "id": "photography",
+          "score": -0.01029867909765634
+        },
+        {
+          "id": "sleep",
+          "score": -0.013603760649226752
+        },
+        {
+          "id": "bread",
+          "score": -0.04344120849929682
+        },
+        {
+          "id": "astronomy",
+          "score": -0.06641414914999348
+        },
+        {
+          "id": "bird",
+          "score": -0.07724394222064199
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.08142433659453062
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.09786873119750424
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Why does my homemade loaf need a living culture?",
+      "relevant": [
+        "bread"
+      ],
+      "ranking": [
+        {
+          "id": "bread",
+          "score": 0.40878768632909956
+        },
+        {
+          "id": "garden",
+          "score": 0.24534669529549905
+        },
+        {
+          "id": "ocean",
+          "score": 0.1252873301426352
+        },
+        {
+          "id": "budget",
+          "score": 0.107104417432303
+        },
+        {
+          "id": "bank-keywords",
+          "score": 0.10603185535139559
+        },
+        {
+          "id": "sleep",
+          "score": 0.0810524324349523
+        },
+        {
+          "id": "language",
+          "score": 0.07599675445175869
+        },
+        {
+          "id": "bird",
+          "score": 0.06332615745410433
+        },
+        {
+          "id": "backup",
+          "score": 0.03720612805616817
+        },
+        {
+          "id": "tea",
+          "score": 0.024400635273729536
+        },
+        {
+          "id": "astronomy",
+          "score": 0.014907448710570629
+        },
+        {
+          "id": "running",
+          "score": 0.013098275204358571
+        },
+        {
+          "id": "bicycle",
+          "score": 0.012687146605563734
+        },
+        {
+          "id": "cache",
+          "score": 0.010503748739454324
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.015025520930332135
+        },
+        {
+          "id": "music",
+          "score": -0.018763818306338997
+        },
+        {
+          "id": "encryption",
+          "score": -0.030769506964064382
+        },
+        {
+          "id": "audio",
+          "score": -0.03817393958441412
+        },
+        {
+          "id": "database",
+          "score": -0.06374497299836047
+        },
+        {
+          "id": "photography",
+          "score": -0.09544018846260831
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Viewing very distant objects in the night sky",
+      "relevant": [
+        "astronomy"
+      ],
+      "ranking": [
+        {
+          "id": "astronomy",
+          "score": 0.5953307945136048
+        },
+        {
+          "id": "photography",
+          "score": 0.15939527142565174
+        },
+        {
+          "id": "sleep",
+          "score": 0.10588987058931085
+        },
+        {
+          "id": "sleep-keywords",
+          "score": 0.08315157198808772
+        },
+        {
+          "id": "bird",
+          "score": 0.07807971163297932
+        },
+        {
+          "id": "audio",
+          "score": 0.0705869635566897
+        },
+        {
+          "id": "music",
+          "score": 0.06615359989024736
+        },
+        {
+          "id": "backup",
+          "score": 0.0565925263072353
+        },
+        {
+          "id": "cache",
+          "score": 0.04760978815747942
+        },
+        {
+          "id": "language",
+          "score": 0.03290246908126906
+        },
+        {
+          "id": "database",
+          "score": 0.026370228680329337
+        },
+        {
+          "id": "running",
+          "score": 0.01898162405267645
+        },
+        {
+          "id": "budget",
+          "score": 0.007598582006093194
+        },
+        {
+          "id": "encryption",
+          "score": 0.0027383406132233633
+        },
+        {
+          "id": "bicycle",
+          "score": 0.0025451290207866226
+        },
+        {
+          "id": "bread",
+          "score": -0.03302057968559314
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.03927920426723645
+        },
+        {
+          "id": "tea",
+          "score": -0.04947671062149556
+        },
+        {
+          "id": "ocean",
+          "score": -0.05179940582596505
+        },
+        {
+          "id": "garden",
+          "score": -0.05811660806512644
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Removing outdated locally stored responses",
+      "relevant": [
+        "cache"
+      ],
+      "ranking": [
+        {
+          "id": "cache",
+          "score": 0.38896480128576566
+        },
+        {
+          "id": "backup",
+          "score": 0.21910742502158548
+        },
+        {
+          "id": "encryption",
+          "score": 0.11647114178303822
+        },
+        {
+          "id": "database",
+          "score": 0.0966432069664062
+        },
+        {
+          "id": "bird",
+          "score": 0.09137784686293449
+        },
+        {
+          "id": "ocean",
+          "score": 0.06450121137391245
+        },
+        {
+          "id": "budget",
+          "score": 0.06278220671830352
+        },
+        {
+          "id": "sleep-keywords",
+          "score": 0.05700346872813927
+        },
+        {
+          "id": "sleep",
+          "score": 0.056493578264669914
+        },
+        {
+          "id": "language",
+          "score": 0.04928973601360971
+        },
+        {
+          "id": "tea",
+          "score": 0.0357078970246916
+        },
+        {
+          "id": "bank-keywords",
+          "score": 0.024413982472735473
+        },
+        {
+          "id": "astronomy",
+          "score": 0.005586905947862146
+        },
+        {
+          "id": "bread",
+          "score": 0.00432739833165203
+        },
+        {
+          "id": "garden",
+          "score": 0.0036121235303977588
+        },
+        {
+          "id": "bicycle",
+          "score": 0.0029098948648257576
+        },
+        {
+          "id": "running",
+          "score": -0.010493970628956337
+        },
+        {
+          "id": "music",
+          "score": -0.02733257683101751
+        },
+        {
+          "id": "photography",
+          "score": -0.029790664718195973
+        },
+        {
+          "id": "audio",
+          "score": -0.06916226134144982
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Protecting places where seasonal flying animals stop to rest",
+      "relevant": [
+        "bird"
+      ],
+      "ranking": [
+        {
+          "id": "bird",
+          "score": 0.47839567133867494
+        },
+        {
+          "id": "ocean",
+          "score": 0.20831800930455896
+        },
+        {
+          "id": "budget",
+          "score": 0.19967510050835682
+        },
+        {
+          "id": "sleep",
+          "score": 0.16644549011025525
+        },
+        {
+          "id": "running",
+          "score": 0.15552198186284144
+        },
+        {
+          "id": "astronomy",
+          "score": 0.1040101459258948
+        },
+        {
+          "id": "bicycle",
+          "score": 0.0932750094520898
+        },
+        {
+          "id": "cache",
+          "score": 0.08388107690840126
+        },
+        {
+          "id": "backup",
+          "score": 0.07861831030456881
+        },
+        {
+          "id": "bank-keywords",
+          "score": 0.07798486120413008
+        },
+        {
+          "id": "encryption",
+          "score": 0.06383507485062692
+        },
+        {
+          "id": "photography",
+          "score": 0.05635298242300081
+        },
+        {
+          "id": "sleep-keywords",
+          "score": 0.05254040939549082
+        },
+        {
+          "id": "garden",
+          "score": 0.043645986176652496
+        },
+        {
+          "id": "language",
+          "score": 0.029578189354558672
+        },
+        {
+          "id": "audio",
+          "score": -0.011807774530877424
+        },
+        {
+          "id": "database",
+          "score": -0.02741087090442893
+        },
+        {
+          "id": "music",
+          "score": -0.03621386013240973
+        },
+        {
+          "id": "bread",
+          "score": -0.05155054003466965
+        },
+        {
+          "id": "tea",
+          "score": -0.06960545851303462
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Making spoken navigation usable for people who cannot see controls",
+      "relevant": [
+        "audio"
+      ],
+      "ranking": [
+        {
+          "id": "audio",
+          "score": 0.5057829095520221
+        },
+        {
+          "id": "language",
+          "score": 0.18336034397467474
+        },
+        {
+          "id": "encryption",
+          "score": 0.0709895358219984
+        },
+        {
+          "id": "music",
+          "score": 0.0667852133193836
+        },
+        {
+          "id": "photography",
+          "score": 0.04440889696442204
+        },
+        {
+          "id": "astronomy",
+          "score": 0.03273167690160331
+        },
+        {
+          "id": "running",
+          "score": 0.027602620926672258
+        },
+        {
+          "id": "bicycle",
+          "score": 0.016859654058901954
+        },
+        {
+          "id": "budget",
+          "score": -0.021546010575425482
+        },
+        {
+          "id": "sleep",
+          "score": -0.040860574456512706
+        },
+        {
+          "id": "cache",
+          "score": -0.04738889175018841
+        },
+        {
+          "id": "ocean",
+          "score": -0.04922040623325631
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.05369469342208795
+        },
+        {
+          "id": "database",
+          "score": -0.05399562339196657
+        },
+        {
+          "id": "bread",
+          "score": -0.06668037855065267
+        },
+        {
+          "id": "backup",
+          "score": -0.07336464789312609
+        },
+        {
+          "id": "tea",
+          "score": -0.07623267801366702
+        },
+        {
+          "id": "bird",
+          "score": -0.0860797174211969
+        },
+        {
+          "id": "garden",
+          "score": -0.09406923820060344
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.10512321839680433
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Recovering lost documents after a hard drive fails",
+      "relevant": [
+        "backup"
+      ],
+      "ranking": [
+        {
+          "id": "backup",
+          "score": 0.3358021379634476
+        },
+        {
+          "id": "cache",
+          "score": 0.14760023883641143
+        },
+        {
+          "id": "audio",
+          "score": 0.07666048938978387
+        },
+        {
+          "id": "astronomy",
+          "score": 0.07363147417965729
+        },
+        {
+          "id": "sleep",
+          "score": 0.06725424942214274
+        },
+        {
+          "id": "budget",
+          "score": 0.05491822520215563
+        },
+        {
+          "id": "language",
+          "score": 0.050636565915573854
+        },
+        {
+          "id": "encryption",
+          "score": 0.02245340486872735
+        },
+        {
+          "id": "bicycle",
+          "score": 0.017524817927663777
+        },
+        {
+          "id": "running",
+          "score": 0.010193417727752938
+        },
+        {
+          "id": "music",
+          "score": 0.00865514968232553
+        },
+        {
+          "id": "photography",
+          "score": 0.0002021400211408772
+        },
+        {
+          "id": "database",
+          "score": -0.00023924236358180417
+        },
+        {
+          "id": "bird",
+          "score": -0.0033519417834006575
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.006876594712605669
+        },
+        {
+          "id": "garden",
+          "score": -0.011538375409745238
+        },
+        {
+          "id": "tea",
+          "score": -0.05456151152156081
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.05947177705530288
+        },
+        {
+          "id": "ocean",
+          "score": -0.07079880795638159
+        },
+        {
+          "id": "bread",
+          "score": -0.07124428501811719
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Remembering new words in another language",
+      "relevant": [
+        "language"
+      ],
+      "ranking": [
+        {
+          "id": "language",
+          "score": 0.4915532808762789
+        },
+        {
+          "id": "audio",
+          "score": 0.21530241043548473
+        },
+        {
+          "id": "cache",
+          "score": 0.12788979051156868
+        },
+        {
+          "id": "music",
+          "score": 0.1026433901089074
+        },
+        {
+          "id": "backup",
+          "score": 0.09573898421562838
+        },
+        {
+          "id": "bread",
+          "score": 0.08503127326806578
+        },
+        {
+          "id": "budget",
+          "score": 0.07858833446139862
+        },
+        {
+          "id": "tea",
+          "score": 0.033855923718140064
+        },
+        {
+          "id": "database",
+          "score": 0.016110412932204936
+        },
+        {
+          "id": "encryption",
+          "score": 0.015237171751212947
+        },
+        {
+          "id": "bicycle",
+          "score": 0.013696423206490213
+        },
+        {
+          "id": "running",
+          "score": 0.011423284076976972
+        },
+        {
+          "id": "bird",
+          "score": 0.00473692474320412
+        },
+        {
+          "id": "astronomy",
+          "score": -0.0019016153252817344
+        },
+        {
+          "id": "ocean",
+          "score": -0.008102608472033718
+        },
+        {
+          "id": "sleep",
+          "score": -0.00935695652739884
+        },
+        {
+          "id": "garden",
+          "score": -0.01722749554509901
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.017328047921058826
+        },
+        {
+          "id": "photography",
+          "score": -0.03513023127359864
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.04443035151641669
+        }
+      ]
+    },
+    {
+      "split": "held-out",
+      "text": "Fixing the stopping mechanism on my pedal powered vehicle",
+      "relevant": [
+        "bicycle"
+      ],
+      "ranking": [
+        {
+          "id": "bicycle",
+          "score": 0.3715058422274268
+        },
+        {
+          "id": "music",
+          "score": 0.14163097708766853
+        },
+        {
+          "id": "running",
+          "score": 0.08964140444997999
+        },
+        {
+          "id": "bread",
+          "score": 0.08652626268414615
+        },
+        {
+          "id": "budget",
+          "score": 0.06660370526163015
+        },
+        {
+          "id": "backup",
+          "score": 0.0384657359055691
+        },
+        {
+          "id": "encryption",
+          "score": 0.03494660212829147
+        },
+        {
+          "id": "ocean",
+          "score": 0.020438930101114562
+        },
+        {
+          "id": "sleep",
+          "score": 0.011240483773942721
+        },
+        {
+          "id": "tea",
+          "score": -0.005164000427208902
+        },
+        {
+          "id": "language",
+          "score": -0.008132208940911281
+        },
+        {
+          "id": "bird",
+          "score": -0.04625837157843351
+        },
+        {
+          "id": "bank-keywords",
+          "score": -0.04626653859986138
+        },
+        {
+          "id": "garden",
+          "score": -0.047506005725142686
+        },
+        {
+          "id": "audio",
+          "score": -0.05781380389509493
+        },
+        {
+          "id": "cache",
+          "score": -0.05890719829407137
+        },
+        {
+          "id": "photography",
+          "score": -0.0589224191723607
+        },
+        {
+          "id": "astronomy",
+          "score": -0.09508049262538604
+        },
+        {
+          "id": "database",
+          "score": -0.09837060505565337
+        },
+        {
+          "id": "sleep-keywords",
+          "score": -0.11644934338235091
+        }
+      ]
+    }
+  ]
+}

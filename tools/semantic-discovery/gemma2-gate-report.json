@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-16",
+  "candidate": "EmbeddingGemma 2 via LiteRT-LM 0.18.0",
+  "status": "blocked_default_migration",
+  "existingSupportedAbis": [
+    "armeabi-v7a",
+    "arm64-v8a",
+    "x86",
+    "x86_64"
+  ],
+  "missingAbis": [
+    "armeabi-v7a",
+    "x86"
+  ],
+  "aar": {
+    "aar_sha256": "706cbb8a87739b2818111bf3a19a78b8f7781586d10f80adf3415581fab7595f",
+    "manifest": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    package=\"com.google.ai.edge.litertlm\">\n    <uses-sdk android:minSdkVersion=\"24\" />\n    <application>\n    </application>\n</manifest>",
+    "license_entries": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICE.txt"
+    ],
+    "libraries": [
+      {
+        "name": "jni/arm64-v8a/liblitertlm_jni.so",
+        "bytes": 22155680,
+        "load_segment_alignments": [
+          16384,
+          16384,
+          16384
+        ],
+        "elf_16k_aligned": true
+      },
+      {
+        "name": "jni/x86_64/liblitertlm_jni.so",
+        "bytes": 26353160,
+        "load_segment_alignments": [
+          16384,
+          16384,
+          16384
+        ],
+        "elf_16k_aligned": true
+      }
+    ]
+  },
+  "artifact": {
+    "repository": "litert-community/embeddinggemma-2-740m-litert-lm",
+    "revision": "24d962e906c7d332c6428e71c9676855024569e2",
+    "file": "embeddinggemma-2-740m.litertlm",
+    "bytes": 484622336,
+    "publisherLfsSha256": "e7a8a2204b91e0f96e92960e84a09a89212e1633dcb7575a9bf3378b4df77f4c",
+    "modelDownloaded": false,
+    "metadataOnly": true
+  },
+  "gate": {
+    "api26ManifestCompatible": true,
+    "api26NativeExecution": "unmeasured",
+    "tokenizerAndPromptParity": "unmeasured; model-card and LiteRT examples use different prompt forms; export-specific validation required",
+    "quantizedQuality": "unmeasured",
+    "pixel8ProMemoryAndPlaybackContention": "unmeasured",
+    "modelArtifactChecksumLocallyVerified": false,
+    "runtimeAarChecksumLocallyVerified": true
+  },
+  "decision": "Keep current optional MiniLM/ONNX provider. Do not add a production dependency or silently remove ABIs. No claim that Gemma quality is worse; runtime coverage gate blocks default replacement before costly inference work.",
+  "sources": [
+    "https://developers.google.com/edge/litert-lm/embedding_models",
+    "https://ai.google.dev/gemma/docs/embeddinggemma/model_card_2",
+    "https://huggingface.co/litert-community/embeddinggemma-2-740m-litert-lm/tree/24d962e906c7d332c6428e71c9676855024569e2",
+    "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litertlm/litertlm-android/0.18.0/litertlm-android-0.18.0.aar"
+  ]
+}
