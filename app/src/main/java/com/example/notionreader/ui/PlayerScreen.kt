@@ -112,7 +112,10 @@ fun PlayerScreen(
     keepScreenAwake: Boolean = true,
     defaultGranularity: NavigationGranularity = NavigationGranularity.SECTION,
     onRetryQueueNote: () -> Unit = {},
-    onJumpToSection: (ReaderSectionSpan) -> Unit = {}
+    onJumpToSection: (ReaderSectionSpan) -> Unit = {},
+    onRelatedNotes: (() -> Unit)? = null,
+    focusTarget: String? = null,
+    onFocusHandled: () -> Unit = {}
 ) {
     // One published answer, read by every control below. A disabled control and an unadvertised transport
     // command are therefore the same fact rather than two evaluations of it.
@@ -421,6 +424,8 @@ fun PlayerScreen(
                 Text("More playback controls")
             }
         }
+        onRelatedNotes?.let { related -> Button(onClick = related,
+            modifier = Modifier.restoreFocusOn(focusTarget, "player_related", onFocusHandled)) { Text("Related Notes") } }
     }
 }
 

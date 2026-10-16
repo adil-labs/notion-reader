@@ -4,10 +4,25 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.ui.res.painterResource
+import com.example.notionreader.R
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,6 +39,8 @@ import com.example.notionreader.ui.settings.SettingsPlaybackScreen
 import com.example.notionreader.ui.settings.SettingsPrivacyScreen
 import com.example.notionreader.ui.settings.SettingsScreen
 import com.example.notionreader.ui.settings.SettingsSpeechScreen
+import com.example.notionreader.ui.settings.DiscoverySettingsScreen
+import com.example.notionreader.ui.settings.DiscoverySettingsUi
 import kotlinx.coroutines.launch
 /**
  * The application shell: the destination the application is on, the mini-player, and the tab bar.
@@ -128,6 +145,8 @@ fun ReaderShell(
     val queueMessage by app.queueMessage.collectAsState()
     val settings by app.settings.collectAsState()
     val cacheStats by app.cacheStats.collectAsState()
+    val recentHistoryMessage = app.recentNotes?.message?.collectAsState()?.value
+    val recentNotesCount = app.recentNotes?.referenceCount?.collectAsState()?.value ?: 0
     val speechEngineState by app.speechEngineState.collectAsState()
     val scope = rememberCoroutineScope()
     val current = navigation.current
@@ -155,28 +174,68 @@ fun ReaderShell(
     // saved-instance-state bundle and a string is unambiguous there.
     val destinationState = rememberSaveableStateHolder()
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()
+        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+        .imePadding()) {
         Box(modifier = Modifier.weight(1f)) {
-            destinationState.SaveableStateProvider(current.name) {
+            destinationState.SaveableStateProvider(current.name + ":" + navigation.currentSubjectId.orEmpty()) {
                 when (current) {
-                    ReaderDestination.Home -> HomeScreen(
-                        // Reading `history` here is what makes Home recompose when the session moves; the
-                        // cards themselves are derived from it and from the live session, so nothing here
-                        // has to know which session is which.
-                        continueListening = history.let { app.continueListeningCards() },
-                        yourQueues = savedQueueRecords.let { app.savedQueueCards().take(5) },
-                        exploreCards = app.exploreCards(),
-                        onContinue = onContinueSession,
-                        onOpenQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
-                        onSeeAllQueues = app::openQueues,
-                        onExplore = app::openExplore,
-                        onSeeAllExplore = app::openExploreCatalog,
-                        onBrowse = app::openBrowse,
-                        onPlayPause = app::togglePlayPause,
-                        // Where focus goes when Back returns from the Player.
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
-                    )
+                    ReaderDestination.Home -> HomeDashboard(app, onOpenNote, onContinueSession, onReplayCompleted)
+                    ReaderDestination.Discover -> DiscoveryContent(app, onOpenNote)
+                    ReaderDestination.Interests -> InterestsScreen(app)
+                    ReaderDestination.RelatedNotes -> {
+                        app.discovery?.let { controller ->
+                            val discovery by controller.state.collectAsState()
+                            val subject = navigation.currentSubjectId
+                            LaunchedEffect(subject) { subject?.let { controller.relatedNotes(it) } }
+                            val matches = discovery.related.takeIf {
+                                subject != null && discovery.relatedPageId == com.example.notionreader.domain.discovery.canonicalSemanticId(subject)
+                            }.orEmpty()
+                            RelatedNotesScreen(matches.map { it.noteUi() }, onOpenNote, { app.back() },
+                                onGuided = { app.prepareDiscoveryPreview(matches) },
+                                focusTarget = navigation.focusTarget, onFocusHandled = app::focusHandled,
+                                status = discovery.message)
+                        }
+                    }
+                    ReaderDestination.GuidedListening -> {
+                        app.discovery?.let { controller ->
+                            val discovery by controller.state.collectAsState()
+                            GuidedListeningScreen(discovery.preview.map { it.noteUi() }, controller::removePreview,
+                                { controller.movePreview(it, -1) }, { controller.movePreview(it, 1) },
+                                app::playDiscoveryPreview, app::addDiscoveryPreviewToQueue, { app.back() },
+                                focusTarget = navigation.focusTarget, onFocusHandled = app::focusHandled,
+                                unavailableIds = discovery.unavailablePreviewIds, status = discovery.previewStatus)
+                        }
+                    }
+                    ReaderDestination.DiscoveryTopics, ReaderDestination.DiscoveryTopic,
+                    ReaderDestination.DiscoveryConnection, ReaderDestination.DiscoveryConnections, ReaderDestination.DiscoveryInterest -> TopicDestinationContent(app, onOpenNote)
+                    ReaderDestination.DiscoverySeeds -> DiscoverySeedsContent(app)
+                    ReaderDestination.SettingsDiscovery -> {
+                        app.discovery?.let { controller ->
+                            val discovery by controller.state.collectAsState()
+                            val modelManager = app.discoveryModel
+                            val model = modelManager?.state?.collectAsState()?.value
+                            DiscoverySettingsScreen(
+                                DiscoverySettingsUi(modelDescription = model?.description ?: "Model unavailable in this configuration",
+                                    modelInstalled = model?.installed ?: false,
+                                    downloading = model?.downloading ?: false,
+                                    wifiOnly = model?.wifiOnly ?: true,
+                                    indexingPaused = discovery.paused,
+                                    progress = "${discovery.indexedCount} of ${discovery.cachedPageIds.size} cached Notes indexed",
+                                    storageDescription = "${discovery.bytes} bytes of 64 MiB used",
+                                    error = model?.message ?: discovery.message,
+                                    downloadAllowed = modelManager != null),
+                                onWifiOnlyChange = { modelManager?.setWifiOnly(it) },
+                                onDownload = { modelManager?.download() },
+                                onCancelDownload = { modelManager?.cancelDownload() },
+                                onDeleteModel = { scope.launch { controller.clearIndex(); modelManager?.delete() } },
+                                onPause = { scope.launch { controller.pause() } },
+                                onResume = { scope.launch { controller.resume() } },
+                                onClearIndex = { scope.launch { controller.clearIndex() } },
+                                onRebuild = { scope.launch { controller.clearIndex(); controller.resume() } },
+                                onBack = { app.back() })
+                        }
+                    }
 
                     ReaderDestination.Browse -> BrowseScreen(
                         state = browseState.results,
@@ -199,6 +258,7 @@ fun ReaderShell(
                         onClearQuery = app.browse::clearQuery,
                         onRetry = onRetryBrowseIndex,
                         onRefresh = onRefreshBrowseIndex,
+                        onExplore = app::openExploreCatalog,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )
@@ -307,7 +367,8 @@ fun ReaderShell(
                         statusMessage = speechMessage,
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled,
-                        spacing = settings.readerSpacing
+                        spacing = settings.readerSpacing,
+                        onRelatedNotes = app.discovery?.let { { scope.launch { app.openRelatedNotes(noteDocument.pageId) }; Unit } }
                     )
 
                     ReaderDestination.Player -> PlayerScreen(
@@ -327,7 +388,10 @@ fun ReaderShell(
                             com.example.notionreader.domain.settings.NavigationUnit.NOTE -> NavigationGranularity.NOTE
                         },
                         onRetryQueueNote = app::retryQueueNote,
-                        onJumpToSection = app::jumpToSection
+                        onJumpToSection = app::jumpToSection,
+                        onRelatedNotes = app.discovery?.let { { scope.launch { app.openRelatedNotes(sessionDocument.pageId, "player_related") }; Unit } },
+                        focusTarget = navigation.focusTarget,
+                        onFocusHandled = app::focusHandled
                     )
 
                     ReaderDestination.Settings -> SettingsScreen(
@@ -344,6 +408,7 @@ fun ReaderShell(
                         onOpenNotion = app::openSettingsNotion,
                         onOpenPrivacy = app::openSettingsPrivacy,
                         onOpenAbout = app::openSettingsAbout,
+                        onOpenDiscovery = app.discovery?.let { app::openSettingsDiscovery },
                         focusTarget = navigation.focusTarget,
                         onFocusHandled = app::focusHandled
                     )
@@ -397,6 +462,8 @@ fun ReaderShell(
                         cachedNotesCount = cacheStats.noteCount,
                         cacheSizeBytes = cacheStats.totalBytes,
                         onClearHistory = { scope.launch { app.clearHistory() } },
+                        historyMessage = recentHistoryMessage,
+                        recentNotesCount = recentNotesCount,
                         onClearCache = { scope.launch { app.clearCache() } },
                         onClearAllData = { scope.launch { app.clearAllLocalData() } },
                         onBack = { app.back() }
@@ -428,26 +495,32 @@ fun ReaderShell(
             NavigationBar {
                 NavigationBarItem(
                     selected = navigation.top == ReaderDestination.Home,
-                    onClick = { app.openHome() },
-                    icon = {},
+                    onClick = app::openHome,
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("Home") }
+                )
+                NavigationBarItem(
+                    selected = navigation.top == ReaderDestination.Discover,
+                    onClick = app::openDiscover,
+                    icon = { Icon(painterResource(R.drawable.ic_discover_compass), contentDescription = null) },
+                    label = { Text("Discover") }
                 )
                 NavigationBarItem(
                     selected = navigation.top == ReaderDestination.Browse,
                     onClick = { app.openBrowse() },
-                    icon = {},
+                    icon = { Icon(Icons.Default.Search, contentDescription = null) },
                     label = { Text("Browse") }
                 )
                 NavigationBarItem(
                     selected = navigation.top == ReaderDestination.Queues,
                     onClick = { app.openQueues() },
-                    icon = {},
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
                     label = { Text("Queues") }
                 )
                 NavigationBarItem(
                     selected = navigation.top == ReaderDestination.Settings,
                     onClick = { app.openSettings() },
-                    icon = {},
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                     label = { Text("Settings") }
                 )
             }

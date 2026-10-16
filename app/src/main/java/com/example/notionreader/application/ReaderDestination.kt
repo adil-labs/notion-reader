@@ -10,9 +10,10 @@ package com.example.notionreader.application
  * which composable happens to render it, and [isTopLevel] is what the shell and the navigator agree on.
  */
 enum class ReaderDestination {
+    Home,
 
     /** "useful starting points" — Continue listening, and later Your queues and Explore. */
-    Home,
+    Discover,
 
     /** "the primary semantic discovery interface" — the default result set and search. */
     Browse,
@@ -22,6 +23,17 @@ enum class ReaderDestination {
 
     /** Settings hub: playback, speech, offline storage, accessibility, and appearance preferences. */
     Settings,
+    Interests,
+
+    RelatedNotes,
+    GuidedListening,
+    DiscoverySeeds,
+    DiscoveryTopics,
+    DiscoveryTopic,
+    DiscoveryConnection,
+    DiscoveryConnections,
+    DiscoveryInterest,
+    SettingsDiscovery,
 
     // Settings Subpages (secondary destinations)
     SettingsPlayback,
@@ -66,5 +78,5 @@ enum class ReaderDestination {
     /** Continuous spoken reading. Reached from Play, from Play all, and from the mini-player. */
     Player;
 
-    val isTopLevel: Boolean get() = this == Home || this == Browse || this == Queues || this == Settings
+    val isTopLevel: Boolean get() = this == Home || this == Discover || this == Browse || this == Queues || this == Settings
 }

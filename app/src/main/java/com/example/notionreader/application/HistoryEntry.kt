@@ -37,5 +37,6 @@ data class HistoryEntry(
     val isPlaying: Boolean,
     /** True for a session whose queue ended: it is replayable, not resumable. */
     val isCompleted: Boolean,
-    val lastActivityAt: Long
+    val lastActivityAt: Long,
+    val originLabel: String? = null
 )

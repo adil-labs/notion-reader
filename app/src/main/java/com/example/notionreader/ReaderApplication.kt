@@ -30,6 +30,14 @@ import com.example.notionreader.player.ReaderEngineImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * The composition root's lifetime half: the object graph now belongs to the process, not to a task.
@@ -52,6 +60,36 @@ import kotlinx.coroutines.SupervisorJob
  * DataStore, the Notion client — is constructed here and handed over.
  */
 class ReaderApplication : Application() {
+    private val discoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val discoveryForeground = MutableStateFlow(false)
+    private val discoveryResourcesAvailable = MutableStateFlow(true)
+    private var processDiscovery: com.example.notionreader.application.DiscoveryController? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var started = 0
+            override fun onActivityStarted(activity: android.app.Activity) {
+                started++; discoveryResourcesAvailable.value = true; discoveryForeground.value = true
+            }
+            override fun onActivityStopped(activity: android.app.Activity) {
+                started = (started - 1).coerceAtLeast(0); discoveryForeground.value = started > 0
+            }
+            override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            discoveryResourcesAvailable.value = false
+            discoveryScope.launch { processDiscovery?.releaseModel() }
+        }
+    }
 
     private companion object {
         const val TAG = "NotionReader"
@@ -106,6 +144,39 @@ class ReaderApplication : Application() {
             directory = File(noBackupFilesDir, "cache-metadata")
         )
 
+        val semanticDirectory = File(noBackupFilesDir, "semantic-index")
+        val topicDirectory = File(noBackupFilesDir, "discovery-topics")
+        val topicCheckpointDirectory = File(noBackupFilesDir, "discovery-topic-checkpoint")
+        fun storageBytes(directory: File): Long = directory.listFiles()?.sumOf { it.length() } ?: 0L
+        val semanticIndex = com.example.notionreader.data.local.FileSemanticIndexStore(semanticDirectory,
+            otherBytes = { storageBytes(topicDirectory) + storageBytes(topicCheckpointDirectory) })
+        val topicStore = com.example.notionreader.data.local.FileTopicStore(topicDirectory,
+            otherBytes = { storageBytes(semanticDirectory) + storageBytes(topicCheckpointDirectory) })
+        val topicCheckpointStore = com.example.notionreader.data.local.FileTopicStore(topicCheckpointDirectory,
+            otherBytes = { storageBytes(semanticDirectory) + storageBytes(topicDirectory) })
+        val interestStore = com.example.notionreader.data.local.FileDiscoveryInterestStore(File(noBackupFilesDir, "discovery-interests"))
+        val recentNotes = com.example.notionreader.application.RecentNotesController(
+            com.example.notionreader.data.local.FileRecentNoteHistoryStore(File(noBackupFilesDir, "recent-note-history")), documentCache)
+        lateinit var discovery: com.example.notionreader.application.DiscoveryController
+        lateinit var discoveryApp: ReaderApp
+        val discoveryModel = com.example.notionreader.data.discovery.LocalDiscoveryModelManager(
+            File(noBackupFilesDir, "discovery-model"), discoveryScope,
+            unmetered = { AndroidNetworkState(this).isUnmetered },
+            onInstalled = { discovery.resume() },
+            onDeleted = { discovery.releaseModel(); discovery.clearIndex() }
+        )
+        discovery = com.example.notionreader.application.DiscoveryController(
+            documentCache, semanticIndex, interestStore,
+            com.example.notionreader.data.discovery.OnnxEmbeddingProvider(discoveryModel.modelDirectory),
+            modelAvailable = { discoveryModel.state.value.installed },
+            recommendationThreshold = com.example.notionreader.data.discovery.OnnxEmbeddingProvider.RECOMMENDATION_THRESHOLD,
+            topicStore = topicStore, topicCheckpointStore = topicCheckpointStore,
+            invalidationAcknowledgementLimit = { recentNotes.processedInvalidationGeneration },
+            mayContinueIndexing = { discoveryForeground.value && discoveryResourcesAvailable.value &&
+                discoveryModel.state.value.installed && !discoveryApp.session.state.value.isPlaying }
+        )
+        processDiscovery = discovery
+
         val app = ReaderApp(
             session = ReaderSession(
                 ReaderEngineImpl(
@@ -125,8 +196,32 @@ class ReaderApplication : Application() {
             indexStore = indexStore,
             autoCacheStateStore = autoCacheStateStore,
             cacheTelemetry = cacheTelemetry,
+            discovery = discovery,
+            discoveryModel = discoveryModel,
+            recentNotes = recentNotes,
             isNotionConfigured = BuildConfig.NOTION_TOKEN.isNotBlank()
         )
+
+        discoveryApp = app
+        discoveryScope.launch {
+            discoveryModel.checkInstalled()
+            val inputs = combine(
+                documentCache.revision,
+                app.browse.state.map { it.entries }.distinctUntilChanged(),
+                discoveryForeground,
+                app.session.state.map { it.isPlaying }.distinctUntilChanged(),
+                discovery.revision
+            ) { _, entries, foreground, playing, _ -> Triple(entries, foreground, playing) }
+            combine(inputs, discoveryModel.state.map { it.installed }.distinctUntilChanged(), discoveryResourcesAvailable) { input, installed, resources ->
+                Triple(input.first, input.second && !input.third && installed && resources, installed)
+            }.conflate().collect { (entries, eligible, installed) ->
+                // Withdraw semantic evidence even if recency storage fails; its
+                // acknowledgement cap keeps unprocessed events durable for retry.
+                app.recentNotes?.refresh()
+                discovery.reconcile(entries, eligible)
+                if (!installed) discovery.releaseModel()
+            }
+        }
 
         return ReaderHost(
             app = app,

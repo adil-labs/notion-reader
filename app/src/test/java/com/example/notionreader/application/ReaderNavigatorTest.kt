@@ -17,6 +17,28 @@ import org.junit.Test
  * decision rather than a contract rule.
  */
 class ReaderNavigatorTest {
+    @Test fun restoringATabDoesNotOverwriteRetainedSecondaryNavigation() {
+        val cold = ReaderNavigator()
+        cold.restoreTopLevelIfNew("Discover")
+        assertEquals(ReaderDestination.Discover, cold.state.value.top)
+        cold.open(ReaderDestination.Note, "note")
+        val retained = cold.state.value
+        cold.restoreTopLevelIfNew("Home")
+        assertEquals(retained, cold.state.value)
+        val invalid = ReaderNavigator()
+        invalid.restoreTopLevelIfNew("Player")
+        assertEquals(ReaderDestination.Home, invalid.state.value.current)
+    }
+    @Test fun homeIsTheNewLaunchDestinationAndDiscoverRemainsRestorable() {
+        assertEquals("Home", ReaderNavigator().state.value.current.name)
+        val restored = ReaderNavigation(top = ReaderDestination.Discover,
+            secondary = listOf(ReaderStop(ReaderDestination.Note, "matched-note")))
+        assertEquals(restored, ReaderNavigator(restored).state.value)
+    }
+    @Test fun fivePrimaryDestinationsHaveIndependentIdentities() {
+        assertEquals(listOf("Home", "Discover", "Browse", "Queues", "Settings"),
+            ReaderDestination.entries.filter { it.isTopLevel }.map { it.name })
+    }
 
     @Test
     fun theAppStartsOnHome() {
@@ -133,7 +155,7 @@ class ReaderNavigatorTest {
         // to show. The list is asserted exactly, rather than by counting, because a destination silently
         // becoming a tab is what this test exists to notice.
         assertEquals(
-            listOf(ReaderDestination.Home, ReaderDestination.Browse, ReaderDestination.Queues, ReaderDestination.Settings),
+            listOf(ReaderDestination.Home, ReaderDestination.Discover, ReaderDestination.Browse, ReaderDestination.Queues, ReaderDestination.Settings),
             ReaderDestination.entries.filter { it.isTopLevel }
         )
         assertFalse(ReaderDestination.Note.isTopLevel)

@@ -51,7 +51,7 @@ class ReaderAppHistoryTest {
         val app = ReaderApp(
             session = ReaderSession(engine),
             noteViewer = NoteViewer(document("demo", "Demo")),
-            navigator = ReaderNavigator(ReaderNavigation(top = ReaderDestination.Home)),
+            navigator = ReaderNavigator(ReaderNavigation(top = ReaderDestination.Discover)),
             loadDocument = DefaultLoadReaderDocument { pageId -> document(pageId) },
             sessionStore = store,
             savedQueueStore = savedQueueStore,
@@ -264,7 +264,7 @@ class ReaderAppHistoryTest {
 
         assertNull(app.session.id)
         assertEquals(0, engine.setDocumentCount)
-        assertEquals("and does not navigate anywhere", ReaderDestination.Home, app.navigator.state.value.current)
+        assertEquals("and does not navigate anywhere", ReaderDestination.Discover, app.navigator.state.value.current)
     }
 
     @Test

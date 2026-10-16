@@ -30,6 +30,17 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ListeningTabTest {
+    @Test fun homeRecentsExcludeThePrimaryAndKeepFrozenQueueLabelsWithoutQueueLookups() = runTest {
+        val store = InMemorySessionStore(listOf(unfinished("primary", 90),
+            unfinished("saved", 80).copy(origin = QueueOrigin.Saved("deleted-queue", "Original queue")),
+            completed("done", 70, 2), unfinished("older", 60), unfinished("hidden", 50)))
+        val app = app(store); app.loadHistory()
+        val recent = app.homeRecentListeningEntries()
+        assertEquals(listOf("saved", "done", "older"), recent.map { it.sessionId })
+        assertEquals("Saved Queue: Original queue", recent.first().originLabel)
+        assertTrue(recent[1].isCompleted)
+        assertEquals(5, app.history.value.size)
+    }
 
     private var now = 1_000L
 

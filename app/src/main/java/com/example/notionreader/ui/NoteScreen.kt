@@ -96,7 +96,8 @@ fun NoteScreen(
      */
     focusTarget: String? = null,
     onFocusHandled: () -> Unit = {},
-    spacing: com.example.notionreader.domain.settings.ReaderSpacing = com.example.notionreader.domain.settings.ReaderSpacing.COMFORTABLE
+    spacing: com.example.notionreader.domain.settings.ReaderSpacing = com.example.notionreader.domain.settings.ReaderSpacing.COMFORTABLE,
+    onRelatedNotes: (() -> Unit)? = null
 ) {
     val paragraphSpacing = when (spacing) {
         com.example.notionreader.domain.settings.ReaderSpacing.COMPACT -> 8.dp
@@ -215,6 +216,12 @@ fun NoteScreen(
                 )
             ) {
                 Text("Add to queue")
+            }
+        }
+        onRelatedNotes?.let { related ->
+            Button(onClick = related, enabled = loadState is DocumentLoadState.Loaded,
+                modifier = Modifier.padding(horizontal = 24.dp).restoreFocusOn(focusTarget, "note_related", onFocusHandled)) {
+                Text("Related Notes")
             }
         }
     }

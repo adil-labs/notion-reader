@@ -19,6 +19,7 @@ package com.example.notionreader.application
  * cannot be one of these.
  */
 object ReaderFocus {
+    const val BrowseExplore: String = "browse:explore"
 
     /** The Note screen's Play button — "creates a new Active Queue containing only this Note". */
     const val NotePlay: String = "note:play"

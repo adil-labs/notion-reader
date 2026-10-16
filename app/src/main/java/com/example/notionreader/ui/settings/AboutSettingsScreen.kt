@@ -61,7 +61,9 @@ fun SettingsAboutScreen(
                             "• Kotlin & Kotlinx Coroutines (Apache 2.0)\n" +
                             "• Kotlinx Serialization (Apache 2.0)\n" +
                             "• Ktor HTTP Client (Apache 2.0)\n" +
-                            "• AndroidX DataStore (Apache 2.0)",
+                            "• AndroidX DataStore (Apache 2.0)\n" +
+                            "• ONNX Runtime (MIT)\n" +
+                            "• Optional MiniLM-L6-v2 model (Apache 2.0)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -99,7 +101,9 @@ fun SettingsAboutScreen(
                     Text(
                         text = "• No analytics, telemetry, or user tracking are collected.\n" +
                             "• Text-to-Speech synthesis is performed locally by your device's TTS engine.\n" +
-                            "• Cached notes, listening sessions, and user preferences are stored exclusively in private application sandbox storage.",
+                            "• Cached notes, listening sessions, and user preferences are stored exclusively in private application sandbox storage.\n" +
+                            "• The optional embedding model is downloaded from Hugging Face only on request. Notes and semantic queries stay on this device.\n" +
+                            "• Discovery vectors and excerpts are removed with their cached Notes. Interests are explicit and can be cleared with local data.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

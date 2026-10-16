@@ -54,7 +54,8 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit,
     focusTarget: String? = null,
     onFocusHandled: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenDiscovery: (() -> Unit)? = null
 ) {
     val scrollState = rememberScrollState()
 
@@ -81,6 +82,12 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
+                onOpenDiscovery?.let { action ->
+                    SettingsCategoryRow(title = "Discovery", summary = "On-device model, indexing and storage",
+                        id = "settings_row_discovery", focusTarget = focusTarget,
+                        onFocusHandled = onFocusHandled, onClick = action)
+                    SettingsDivider()
+                }
                 // 1. Playback
                 val playbackContinuation = if (settings.continueToNextNote) {
                     "Continue between Notes"

@@ -30,7 +30,9 @@ fun SettingsPrivacyScreen(
     onClearCache: () -> Unit,
     onClearAllData: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    historyMessage: String? = null,
+    recentNotesCount: Int = 0
 ) {
     var confirmAction by remember { mutableStateOf<String?>(null) }
 
@@ -45,7 +47,7 @@ fun SettingsPrivacyScreen(
                 )
             },
             text = {
-                Text("This removes Continue Listening and recently completed sessions.\n\nSaved Queues, Smart Queues, cached Notes, and your Notion pages will not be removed.")
+                Text("This removes Continue Listening, recently completed sessions, and Recently opened Notes shortcuts.\n\nSaved Queues, Smart Queues, cached Notes, and your Notion pages will not be removed.")
             },
             confirmButton = {
                 Button(
@@ -113,11 +115,14 @@ fun SettingsPrivacyScreen(
         onBack = onBack,
         modifier = modifier
     ) {
+        historyMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         SettingsSection(title = "ON THIS DEVICE") {
             SettingsStatusRow(
                 title = "Listening history",
                 value = "$historyCount sessions"
             )
+            SettingsDivider()
+            SettingsStatusRow(title = "Recently opened Notes", value = "$recentNotesCount Notes")
             SettingsDivider()
             val cachedText = if (cachedNotesCount > 0) {
                 "$cachedNotesCount Notes · ${formatBytes(cacheSizeBytes)}"
@@ -133,7 +138,7 @@ fun SettingsPrivacyScreen(
         SettingsSection(title = "DATA MANAGEMENT") {
             SettingsActionRow(
                 title = "Clear listening history",
-                enabled = historyCount > 0,
+                enabled = historyCount > 0 || recentNotesCount > 0 || historyMessage != null,
                 onClick = { confirmAction = "history" }
             )
             SettingsDivider()

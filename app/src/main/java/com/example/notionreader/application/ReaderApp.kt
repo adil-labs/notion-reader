@@ -103,8 +103,11 @@ class ReaderApp(
     val autoCacheStateStore: com.example.notionreader.domain.discovery.AutoCacheStateStore? = null,
     val cacheTelemetry: com.example.notionreader.domain.document.CacheTelemetry? = null,
     private val isNotionConfigured: Boolean = true,
+    val discovery: DiscoveryController? = null,
+    val discoveryModel: com.example.notionreader.domain.discovery.DiscoveryModelManager? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
-    private val clock: () -> Long = { System.currentTimeMillis() }
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    val recentNotes: RecentNotesController? = null
 ) {
 
     val notionConnectionStatus: com.example.notionreader.domain.settings.NotionConnectionStatus
@@ -216,6 +219,7 @@ class ReaderApp(
 
     /** Reads history and holds it. A store that cannot be read yields an empty history, by design. */
     suspend fun loadHistory() {
+        recentNotes?.refresh()
         updateCacheStats()
         val stored = sessionStore?.read() ?: return
         _history.value = ListeningHistory.retain(stored, clock())
@@ -272,6 +276,19 @@ class ReaderApp(
 
     /** The Listening tab's second section: every completed session, most recently active first. */
     fun listeningCompletedEntries(): List<HistoryEntry> = completedSessions.map { it.toHistoryEntry() }
+
+    fun homeRecentListeningEntries(): List<HistoryEntry> {
+        val primary = continueListeningCards(1).firstOrNull()?.sessionId
+        return historyIncludingLiveSession().filter { it.id != primary }
+            .sortedWith(compareByDescending<StoredSession> { it.lastActivityAt }.thenBy { it.id }).take(3)
+            .map { stored -> stored.toHistoryEntry().copy(originLabel = when (val origin = stored.origin) {
+                is QueueOrigin.Saved -> "Saved Queue: ${origin.name}"
+                is QueueOrigin.Smart -> "Smart Queue: ${origin.name}"
+                is QueueOrigin.Discovery -> origin.label
+                QueueOrigin.SingleNote -> "Single Note"
+                QueueOrigin.BrowseResults -> "Browse selection"
+            }) }
+    }
 
     /**
      * Continue: restores the named session, or opens the Player if it is already the live one.
@@ -367,6 +384,38 @@ class ReaderApp(
     fun openNote() = navigator.open(ReaderDestination.Note, fromFocusId = ReaderFocus.NotePlay)
 
     fun openHome() = navigator.openTopLevel(ReaderDestination.Home)
+    fun openDiscover() = navigator.openTopLevel(ReaderDestination.Discover)
+    fun openInterests(fromFocusId: String) = navigator.open(ReaderDestination.Interests, fromFocusId)
+
+    fun openSettingsDiscovery() = navigator.open(ReaderDestination.SettingsDiscovery, fromFocusId = "settings_row_discovery")
+
+    suspend fun openRelatedNotes(pageId: String, fromFocusId: String? = "note_related") {
+        navigator.open(ReaderDestination.RelatedNotes, fromFocusId = fromFocusId, subjectId = pageId)
+    }
+
+    fun prepareDiscoveryPreview(matches: List<com.example.notionreader.domain.discovery.SemanticMatch>, label: String = "Discovery recommendations") {
+        discovery?.preparePreview(matches, label)
+        navigator.open(ReaderDestination.GuidedListening, fromFocusId = "preview_guided")
+    }
+
+    fun playDiscoveryPreview() {
+        if (discovery?.state?.value?.unavailablePreviewIds?.isNotEmpty() == true) return
+        val notes = discovery?.state?.value?.preview.orEmpty().map { it.metadata.entry(discovery?.sourcePageId(it.pageId) ?: it.pageId).toQueuedNote() }
+        playAll(notes, QueueOrigin.Discovery(discovery?.state?.value?.previewLabel ?: "Discovery recommendations"), "preview_play")
+    }
+
+    fun addDiscoveryPreviewToQueue() {
+        if (discovery?.state?.value?.unavailablePreviewIds?.isNotEmpty() == true) return
+        val notes = discovery?.state?.value?.preview.orEmpty().map { it.metadata.entry(discovery?.sourcePageId(it.pageId) ?: it.pageId).toQueuedNote() }
+        beginAddToQueue(notes, "preview_save")
+    }
+
+    suspend fun selectDiscoverySeed(pageId: String) {
+        if (com.example.notionreader.domain.discovery.canonicalSemanticId(pageId) !in discovery?.state?.value?.cachedPageIds.orEmpty()) return
+        val interestId = navigator.state.value.currentSubjectId.takeIf { navigator.state.value.current == ReaderDestination.DiscoverySeeds }
+        discovery?.saveInterest(interestId, "", pageId)
+        navigator.back()
+    }
 
     fun openBrowse() = navigator.openTopLevel(ReaderDestination.Browse)
 
@@ -396,23 +445,29 @@ class ReaderApp(
         navigator.open(ReaderDestination.SettingsAbout, fromFocusId = fromFocusId)
 
     suspend fun clearHistory() {
+        recentNotes?.clear()
         _history.value = emptyList()
         sessionStore?.write(emptyList())
     }
 
     suspend fun clearCache() {
         documentCache?.clear()
+        discovery?.clearIndex(preserveTopicContinuity = true)
         updateCacheStats()
     }
 
     suspend fun clearAllLocalData() {
+        recentNotes?.clear()
+        discoveryModel?.delete()
+        discovery?.clearIndex()
+        discovery?.clearInterests()
         _history.value = emptyList()
         sessionStore?.write(emptyList())
         _savedQueues.value = emptyList()
         savedQueueStore?.clear()
         _smartQueues.value = emptyList()
         smartQueueStore?.clear()
-        documentCache?.clear()
+        documentCache?.clear(com.example.notionreader.domain.document.CacheRemovalReason.RESET)
         indexStore?.clear()
         settingsRepo.resetToDefaults()
         updateCacheStats()
@@ -514,7 +569,7 @@ class ReaderApp(
 
     /** Opens the complete deterministic discovery taxonomy without changing playback or Browse filters. */
     fun openExploreCatalog() {
-        navigator.open(ReaderDestination.ExploreCatalog, fromFocusId = ReaderFocus.HomeSeeAllExplore)
+        navigator.open(ReaderDestination.ExploreCatalog, fromFocusId = ReaderFocus.BrowseExplore)
     }
 
     /**
@@ -566,7 +621,13 @@ class ReaderApp(
         // The page id is the activated element: a Browse row is identified by the page it opens, which is
         // also its `key` in the list, so Back can find the row the listener actually left.
         navigator.open(ReaderDestination.Note, fromFocusId = pageId)
-        noteViewer.load(pageId, loadDocument, knownRemoteLastEditedAt, forceRefresh)
+        val openedStop = navigator.state.value.secondary.last()
+        val generation = recentNotes?.generation
+        if (noteViewer.load(discovery?.sourcePageId(pageId) ?: pageId, loadDocument, knownRemoteLastEditedAt, forceRefresh)) {
+            if (navigator.state.value.secondary.lastOrNull() === openedStop) {
+                generation?.let { recentNotes.recordSuccessfulOpen(noteViewer.document.value.pageId, it) }
+            }
+        }
     }
 
     /**
@@ -774,14 +835,14 @@ class ReaderApp(
      * Playback does not start immediately: the first Note's document is not known, so the session waits
      * for it and the loading loop supplies it. Every later Note takes the same path.
      */
-    fun playAll(notes: List<QueuedNote>, origin: QueueOrigin = QueueOrigin.BrowseResults) {
+    fun playAll(notes: List<QueuedNote>, origin: QueueOrigin = QueueOrigin.BrowseResults, fromFocusId: String = ReaderFocus.BrowsePlayAll) {
         if (notes.isEmpty()) return
 
         session.start(ActiveQueue.snapshotOf(notes, origin))
         // Nothing here has a content identity — `Play all` acts on the result *set* — so it is named by
         // the control instead, which is also what the contract's focus rule wants: the listener comes
         // back to the button they pressed.
-        navigator.open(ReaderDestination.Player, fromFocusId = ReaderFocus.BrowsePlayAll)
+        navigator.open(ReaderDestination.Player, fromFocusId = fromFocusId)
     }
 
     /**

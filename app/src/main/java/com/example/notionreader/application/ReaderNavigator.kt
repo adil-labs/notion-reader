@@ -118,6 +118,10 @@ data class ReaderNavigation(
  * fact, which is the class of bug this whole round exists to remove.
  */
 class ReaderNavigator(initial: ReaderNavigation = ReaderNavigation()) {
+    fun restoreTopLevelIfNew(name: String?) {
+        if (_state.value != ReaderNavigation()) return
+        ReaderDestination.entries.firstOrNull { it.name == name && it.isTopLevel }?.let(::openTopLevel)
+    }
 
     private val _state = MutableStateFlow(initial)
 

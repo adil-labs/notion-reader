@@ -6,6 +6,7 @@ import com.example.notionreader.domain.ReaderDocument
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ensureActive
 
 /**
  * The Note screen's content: the document being inspected, and how its load went.
@@ -89,7 +90,7 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
         loader: LoadReaderDocument,
         knownRemoteLastEditedAt: java.time.Instant? = null,
         forceRefresh: Boolean = false
-    ) {
+    ): Boolean {
         val token = ++requestToken
         _pageId.value = pageId
         _loadState.value = DocumentLoadState.Loading
@@ -97,7 +98,8 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
         val result = loader(pageId, knownRemoteLastEditedAt, forceRefresh, com.example.notionreader.domain.document.DocumentLoadPurpose.INTERACTIVE)
 
         // Requested first, answered second: a superseded load is dropped rather than applied.
-        if (token != requestToken) return
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        if (token != requestToken) return false
 
         result.fold(
             onSuccess = { loaded ->
@@ -114,6 +116,7 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
                 )
             }
         )
+        return result.isSuccess
     }
 
     /**

@@ -1,6 +1,9 @@
 package com.example.notionreader.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,10 +65,13 @@ fun HomeScreen(
      * The element the listener activated before leaving this screen, if they came back with Back.
      */
     focusTarget: String? = null,
-    onFocusHandled: () -> Unit = {}
+    onFocusHandled: () -> Unit = {},
+    embedded: Boolean = false,
+    showContinueListening: Boolean = true,
+    showShortcuts: Boolean = true
 ) {
     LaunchedEffect(focusTarget, continueListening, yourQueues) {
-        if (focusTarget != null &&
+        if (!embedded && focusTarget != null &&
             continueListening.none { it.sessionId == focusTarget } &&
             yourQueues.none { it.queueId == focusTarget } &&
             focusTarget != ReaderFocus.HomeSeeAllQueues
@@ -77,13 +83,12 @@ fun HomeScreen(
 
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp)
-            .semantics { paneTitle = "Home" },
+            .then(if (embedded) Modifier else Modifier.fillMaxSize().verticalScroll(rememberScrollState()))
+            .then(if (embedded) Modifier.padding(vertical = 8.dp) else Modifier.padding(24.dp))
+            .then(if (embedded) Modifier else Modifier.semantics { paneTitle = "Home" }),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        if (continueListening.isEmpty() && yourQueues.isEmpty() && exploreCards.isEmpty()) {
+        if (showShortcuts && continueListening.isEmpty() && yourQueues.isEmpty() && exploreCards.isEmpty()) {
             Text(
                 text = "Nothing to continue yet.",
                 style = MaterialTheme.typography.titleMedium,
@@ -101,7 +106,7 @@ fun HomeScreen(
             return@Column
         }
 
-        if (continueListening.isNotEmpty()) {
+        if (showContinueListening && continueListening.isNotEmpty()) {
             Text(
                 text = "Continue listening",
                 style = MaterialTheme.typography.titleMedium,
@@ -114,12 +119,13 @@ fun HomeScreen(
                     now = now,
                     onContinue = { onContinue(session.sessionId) },
                     focusTarget = focusTarget,
-                    onFocusHandled = onFocusHandled
+                    onFocusHandled = onFocusHandled,
+                    compact = embedded && !showShortcuts
                 )
             }
         }
 
-        if (yourQueues.isNotEmpty()) {
+        if (showShortcuts && yourQueues.isNotEmpty()) {
             Text(
                 text = "Your queues",
                 style = MaterialTheme.typography.titleMedium,
@@ -147,7 +153,7 @@ fun HomeScreen(
             }
         }
 
-        if (exploreCards.isNotEmpty()) {
+        if (showShortcuts && exploreCards.isNotEmpty()) {
             Text(
                 text = "Explore",
                 style = MaterialTheme.typography.titleMedium,
@@ -204,16 +210,18 @@ private fun HomeExploreEntry(
  * a single accessible focus stop.
  */
 @Composable
-private fun ContinueListeningEntry(
+internal fun ContinueListeningEntry(
     session: ContinueListeningCard,
     now: Long,
     onContinue: () -> Unit,
     focusTarget: String?,
-    onFocusHandled: () -> Unit
+    onFocusHandled: () -> Unit,
+    compact: Boolean = false
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (compact) Modifier.background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)) else Modifier)
             .restoreFocusOn(
                 target = focusTarget,
                 // A history entry is identified by its session, never by its title — the same id the
@@ -227,14 +235,24 @@ private fun ContinueListeningEntry(
             )
             // One focus stop for the session, as with a Browse result row.
             .semantics(mergeDescendants = true) {}
-            .padding(vertical = 12.dp),
+            .then(if (compact) Modifier.padding(16.dp) else Modifier.padding(vertical = 12.dp)),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
             text = session.title,
-            style = MaterialTheme.typography.bodyLarge
+            style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+            maxLines = if (compact) 2 else Int.MAX_VALUE,
+            overflow = TextOverflow.Ellipsis
         )
 
+        if (compact) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(listOfNotNull(session.queuePosition, session.stateDescription).joinToString(" · "),
+                    Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                Text("Continue", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            }
+        } else {
         if (session.queuePosition != null) {
             Text(
                 text = session.queuePosition,
@@ -246,6 +264,7 @@ private fun ContinueListeningEntry(
             text = "${session.stateDescription} · ${describeLastActivity(now - session.lastActivityAt)}",
             style = MaterialTheme.typography.labelMedium
         )
+        }
     }
 }
 

@@ -849,7 +849,7 @@ class ReaderAppTest {
     }
 
     @Test
-    fun exploreCatalogIsASecondaryScreenThatReturnsToHome() {
+    fun exploreCatalogIsASecondaryScreenThatReturnsToBrowse() {
         val engine = FakeReaderEngine(demo)
         val app = ReaderApp(
             session = ReaderSession(engine),
@@ -858,10 +858,11 @@ class ReaderAppTest {
             loadDocument = DefaultLoadReaderDocument { pageId -> note(pageId, "Queued $pageId") }
         )
 
+        app.openBrowse()
         app.openExploreCatalog()
         assertEquals(ReaderDestination.ExploreCatalog, app.navigator.state.value.current)
         assertTrue(app.back())
-        assertEquals(ReaderDestination.Home, app.navigator.state.value.current)
+        assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
         assertFalse(engine.state.value.isPlaying)
     }
 }

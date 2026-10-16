@@ -83,6 +83,11 @@ data class QueuedNote(
  */
 @Serializable
 sealed interface QueueOrigin {
+    /** Frozen guided preview; its label never re-evaluates an interest or semantic query. */
+    @Serializable
+    @SerialName("discovery")
+    data class Discovery(val label: String) : QueueOrigin
+
 
     /** `Play` on one Note. A queue of one. */
     @Serializable

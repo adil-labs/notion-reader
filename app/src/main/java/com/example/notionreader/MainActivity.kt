@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -76,8 +77,16 @@ class MainActivity : ComponentActivity() {
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("reader_top_destination", model.app.navigator.state.value.top.name)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        if (savedInstanceState == null) model.app.openHome()
+        else model.app.navigator.restoreTopLevelIfNew(savedInstanceState.getString("reader_top_destination"))
 
         // Logged because it distinguishes a fresh process from a resumed Activity, and the previous round
         // needed exactly that distinction to tell an apparent spec violation from a misreading.

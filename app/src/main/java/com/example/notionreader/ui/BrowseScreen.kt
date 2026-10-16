@@ -89,10 +89,11 @@ fun BrowseScreen(
     onTopicFilterChange: (String?) -> Unit = {},
     onProjectFilterChange: (String?) -> Unit = {},
     onStatusFilterChange: (String?) -> Unit = {},
-    onClearFilters: () -> Unit = {}
+    onClearFilters: () -> Unit = {},
+    onExplore: (() -> Unit)? = null
 ) {
     LaunchedEffect(focusTarget, state.entries) {
-        val owned = focusTarget == ReaderFocus.BrowsePlayAll ||
+        val owned = focusTarget == ReaderFocus.BrowseExplore || focusTarget == ReaderFocus.BrowsePlayAll ||
             focusTarget == ReaderFocus.BrowseAddAllToQueue ||
             state.entries.any { it.pageId == focusTarget }
         if (focusTarget != null && !owned) onFocusHandled()
@@ -134,6 +135,15 @@ fun BrowseScreen(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            onExplore?.let { action ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Browse", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+                    TextButton(onClick = action, modifier = Modifier.restoreFocusOn(focusTarget, ReaderFocus.BrowseExplore, onFocusHandled)) {
+                        Text("Explore")
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

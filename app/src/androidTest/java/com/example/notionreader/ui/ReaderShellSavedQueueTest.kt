@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import com.example.notionreader.application.ReaderApp
+import com.example.notionreader.application.ReaderDestination
 import com.example.notionreader.domain.queue.QueueEffect
 import com.example.notionreader.domain.queue.QueuedNote
 import com.example.notionreader.domain.queue.SavedQueue
@@ -117,7 +118,7 @@ class ReaderShellSavedQueueTest {
 
         openSavedTab()
         createQueue("Chess")
-        compose.onNodeWithText("Home").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Discover").performSemanticsAction(SemanticsActions.OnClick)
         openSavedTab()
 
         compose.onNodeWithText("Chess").assertIsReadable()
@@ -283,7 +284,10 @@ class ReaderShellSavedQueueTest {
         assertEquals(2, app.savedQueues.value.single().notes.size)
 
         // Second time: same results, so nothing can be added and the report has to say so as a success.
-        compose.onNodeWithText("Browse").performSemanticsAction(SemanticsActions.OnClick)
+        // Details and Queue Destination are secondary screens; their tab bar is intentionally absent.
+        pressBack()
+        pressBack()
+        assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
         compose.onNodeWithText("Add all to queue").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Reading").performSemanticsAction(SemanticsActions.OnClick)
 
