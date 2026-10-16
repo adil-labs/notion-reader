@@ -1,7 +1,9 @@
 # Notion Reader (Android POC)
 
-An Android, TalkBack-first reader that turns a Notion page into a sequential, hands-free reading
-experience. It behaves like an audio/document player rather than a Notion editor.
+An Android, TalkBack-first knowledge exploration and listening companion for Notion.
+Discover searches cached Notes by meaning with optional local embeddings, explicit
+interests, related Notes and guided listening. Manual reading and hands-free
+playback remain available without a model.
 
 Implemented so far: reader state and navigation, reader engine, Android TTS speech engine, the Note
 and Player screens, Notion API/repository, **automatic section progression** (continuous hands-free
@@ -57,10 +59,16 @@ and the **Settings hub & subpages with 10 core customization preferences**.
 The UI contract separates manual reading from continuous listening, so the screens are not
 interchangeable:
 
-- **Home** — Continue listening (unfinished listening sessions from history with prominent "Continue"
-  resumption), Your queues (recent Saved Queues, with "See all queues"),
-  and a bounded Explore preview. "See all Explore" opens the complete, deterministic Area-then-Topic catalog; each entry reports its note count and opens Browse with the corresponding facet.
-- **Browse** — the default result set, multi-facet filtering (Type, Area, Topics, Project, Status), search across titles and metadata, active filter summary, sort, and `Play all`.
+- **Home** — the default destination: Continue listening, up to three other recent
+  listening sessions, five recently opened cached Notes and three interest cards.
+  Queue labels come from frozen listening history. Recent Note references stay
+  private, retain no content snapshot and clear with history/full reset.
+- **Discover** — semantic search, Topics in your Notes, connections and one
+  **View your interests** entry. It contains no listening-history or queue-preview
+  section. An unavailable model has one setup card; model/index controls live in Settings.
+- **Browse** — keyword search, metadata facets (Type, Area, Topics, Project, Status),
+  sorting and `Play all`. Its **Explore** entry opens the complete deterministic
+  Area-and-Topic catalog; selecting an entry opens pre-filtered Browse.
 - **Queues** — the Listening tab: Continue listening and Recently completed; the Saved tab: Saved Queues;
   the Smart tab: configured Smart Queues with live match counts.
 - **Note** — manual reading and inspection. Renders the whole document in reading order; opening it
@@ -176,7 +184,8 @@ action starts). Only the root may name `data`, `platform` and `application` toge
 - `domain/queue/` — `ActiveQueue`, `QueuedNote`, `QueueOrigin`, `QueueState`.
 - `domain/session/` — `StoredSession`, the `SessionStore` port, `ListeningHistory` (retention and
   ordering) and `ResumePolicy`. Pure, and JVM-testable with no dispatcher.
-- `domain/discovery/` — normalized discovery metadata and the query over it.
+- `domain/discovery/` — keyword Browse, semantic model/index/interest ports, source-aware
+  token-bounded chunking, vector validation and deterministic Note-level ranking.
 - `player/` — `ReaderState` (the immutable reading position and navigation), `ReaderEngine`, and the
   `SpeechEngine` port. Depends only on `domain`.
 - `application/` — the use cases and application state: `ReaderSession` (the owner of playback),
@@ -417,3 +426,82 @@ interface is *usable* with one, which is a different thing from coordinating wit
 - Pause stops the current utterance and keeps the position; Play restarts that part from the
   beginning, since Android TTS has no reliable pause/resume.
 - Moving between screens never touches playback, and opening a Note never starts TTS.
+
+
+## Local semantic discovery
+
+Open **Settings → Discovery → Download model** (or Discover's **Set up Discovery**) to install the optional
+English MiniLM-L6-v2 model and vocabulary (23,257,561 bytes). Wi-Fi-only download
+is the default; choose mobile data explicitly if appropriate. Downloads use a
+pinned publisher revision and verified SHA-256 checksums. ONNX Runtime CPU inference
+runs locally; no Note content or queries go to an embedding service.
+
+Only cached Notes are indexed. Coverage is shown beside search; use Browse to open
+and cache other Notes. Search has its own metadata filters and relevance order;
+Browse keyword search and Smart Queues keep their existing behavior. Results quote
+source passages rather than generated explanations or confidence percentages.
+
+Save plain-language interests or choose cached seed Notes. Home shows compact
+interest cards; Discover links to the shared interests collection. Open one for its matching Notes, older-matches filter and
+listening preview. Pooled interest Note lists are absent from the main feed.
+Related Notes is also
+available from Note and Player. Older matching Notes use last-edited dates at least
+90 days old, without inferring unread/forgotten status. Preview guided listening to
+remove/reorder up to five recommended Notes; explicit Play creates a frozen new
+session. Saving the preview uses existing Saved Queue destinations and leaves
+playback alone.
+
+Indexing has one process-scoped worker and pauses while playing, backgrounded or
+under memory pressure. It resumes completed-document checkpoints on an eligible
+launch. Derived records use atomic, versioned binary float32 files and a 64 MiB
+budget; vectors are streamed per document for exact cosine retrieval. Unchanged
+passages reuse embeddings. Cache eviction and confirmed access loss remove derived
+records. Clearing the index pauses rebuilding until explicit Resume/Rebuild;
+deleting the model also clears the index. Full local-data reset clears interests.
+
+See [the implementation specification](docs/semantic-discovery-implementation-spec.md)
+and [reproducible model/device evaluation](tools/semantic-discovery/README.md).
+The synthetic evaluation is deliberately small; broader real-library relevance,
+human TalkBack speech/listening, battery measurements and low-memory device
+coverage remain explicit acceptance gaps. Model binaries are not bundled in the
+APK; the full multi-ABI ONNX runtime materially increases debug APK size.
+
+**Topics in your Notes** automatically groups indexed passages into overlapping
+themes. Notes can belong to several topics or none. Topic details provides matching
+excerpts, representative Notes and listening previews. **Follow topic** saves an
+editable name and matching text as an independent interest; future cluster changes
+do not rewrite it. **Connections between Notes** shows similar passages on both
+sides of individual cross-topic pairs. Search and Browse remain available without
+topics or follows.
+
+Topic identities and source references are persisted; inspected lists adopt newer
+generations only through Refresh. Cache eviction immediately removes vectors,
+excerpts and membership evidence but retains opaque continuity references for
+recaching. Confirmed deletion or permission loss also removes those references.
+Index/model deletion clears automatic topics and continuity while preserving
+explicit interests; full local reset clears interests too. An unavailable prepared
+preview Note keeps its position with source text removed; Play/Save requires
+recaching or explicitly removing that entry.
+
+Grouping uses at most 64 anchor vectors, overlapping direct passage evidence,
+64-passage checkpoints and resumable source cursors. Foreground queries take
+priority. All derived topic/checkpoint/connection data shares the 64 MiB index
+budget. See the [topic design](docs/superpowers/specs/2026-10-15-discovered-topics-design.md)
+and the current verification record in [decisions](docs/decisions.md).
+
+Automatic groups and connections require body evidence; repeated standalone
+headings remain searchable but cannot establish a group. Candidate opportunities
+rotate across Notes and long-document passages, with two new anchors per Note
+per pass. Overlapping windows in one reader chunk cannot duplicate a supported
+neighborhood. Exhausted candidate coverage is reported without endlessly
+rescanning unchanged content. The production-shaped synthetic quality corpus
+includes generic headings and checks passage-level evidence as well as Note
+membership; real-library relevance remains a separate acceptance gap.
+
+Home keeps Continue listening prominent, with compact named session rows and a brief recent-Note empty state. Discover uses integrated field/keyboard search, compact topic previews with one representative Note, and one explicit refresh/progress state; full evidence stays in details.
+
+Topic details put member Notes first and keep label provenance/comparison context under Why these Notes?. Compact connection cards open Compare passages with both full excerpts. Generic topic previews attribute their cached source Note; presentation changes do not rename persisted topics or interests.
+
+Discovery policy 7 filters reference-only/navigation/checklist evidence for automatic topics and connections, consolidates near-copy neighborhoods, improves source-label selection, and limits connection hub repetition. Search still sees cached source text; policy updates reuse embeddings and preserve interests. Gemma 2 default migration is blocked by incomplete native ABI coverage and unmeasured runtime/quality gates; the optional MiniLM model remains active. Synthetic quality scores do not establish real-library relevance.
+
+Topic checkpoint reconciliation reserves stable identities during regrouping, preventing duplicate IDs when an identity moves between candidates. Persistence distinguishes validation, I/O, budget and unknown failures; only budget exhaustion is labelled storage full. Developer-only private snapshot/replay tools support local evidence review without uploading Notes or including them in the repository. Human relevance acceptance and physical-device performance measurements remain separate gates.

@@ -7059,3 +7059,690 @@ The previous Home Explore implementation mixed Areas and Topics into a single po
 - Startup already satisfies stale-while-revalidate: `ReaderHost` hydrates the persisted index first, then `ReaderViewModel` calls `loadBrowseIndex()` with its default forced refresh. A failed refresh preserves cached entries.
 
 Verification recorded during this round: targeted `ReaderAppTest` passed after failing first for the new catalog API and secondary destination; `:app:assembleDebug :app:compileDebugAndroidTestKotlin` passed.
+
+
+## 43. Discovery-first local semantic retrieval and guided listening
+
+**Date:** 2026-10-15. **Scope:** User-approved Discover product direction, optional
+on-device embeddings, cache-bound semantic discovery, explicit interests and frozen
+listening previews. Governing Product/UI/Integration/Session pages were amended in
+Notion first and regenerated. The note-authoring mirror had unrelated upstream
+changes; those were inspected and excluded from this round.
+
+### 43.1 Architecture and model choice
+
+Discover replaces Home as the default tab while retaining Continue listening,
+queue shortcuts and the complete deterministic Explore Catalog. Browse keyword
+matching, facets, sort and Smart Queue query semantics remain independent.
+
+English MiniLM-L6-v2 was selected for the English-first scope: a published quantized
+ONNX artifact avoids a new conversion pipeline, has 384-dimensional vectors and
+Apache-2.0 terms. ONNX Runtime CPU is MIT and needs no new backend or Play Services.
+LiteRT supports the minimum Android version but requires model conversion and new
+output-parity evidence; multilingual MiniLM is deferred because English-first was
+explicitly selected. This is an integration-cost decision, not a claim that ONNX
+is universally faster or more accurate. The current full multi-ABI debug APK is
+approximately 168 MB: runtime packaging is a material cost, while the model itself
+is an explicit additional 23,257,561-byte download, never an APK asset.
+
+The artifact revision and SHA-256 values are tracked in
+`tools/semantic-discovery/artifacts.json`. Actual API26 x86_64 and API37 physical
+ARM64 native loading/inference passed before production dependency adoption. All
+AAR ELF LOAD segments have 16 KiB alignment; actual 16 KiB-page execution was not
+measured. Automatic runtime telemetry initialization is removed and telemetry is
+disabled before inference. Existing Notion network permissions remain intact.
+
+Domain owns tokenizer/model/index ports, provenance, filters and algorithms;
+data owns model acquisition, ONNX and private atomic storage; application owns the
+process-scoped index worker. Existing architecture rules are unchanged. Bulk work
+pauses during playback, app backgrounding and memory pressure. Cache mutations
+include internal eviction and corruption cleanup; enumeration does not promote LRU.
+
+Chunking preserves section/block/chunk/offset references and the last passage of a
+long document, budgets context plus special tokens, and reuses unchanged passage
+inputs across edits. Metadata changes update filters without regenerating vectors.
+Model/preprocessor/tokenizer/chunker/dimension/storage identities prevent mixing
+incompatible vectors. Completed documents are restart checkpoints; reset generation
+and source-revision checks prevent stale commits after clear/eviction.
+
+### 43.2 Privacy and product behavior
+
+Only cached Notes are indexed. Coverage is explicit; vectors/excerpts follow source
+cache removal and confirmed access loss, never absence from a partial remote index.
+Model acquisition is opt-in, integrity-checked, cancellable and retryable. Index
+clear persists paused state until explicit resume/rebuild; model deletion clears
+derived data; full local reset also clears explicit interests. No behavioral
+profiling, cloud inference, private-content logging or chatbot was added.
+
+Interests are plain text or cached seed identities, including cached Notes missing
+from Browse metadata. Recommendations quote source passages. Older matching Notes
+use a known last-edited date at least 90 days old, filtered before top-K selection.
+Guided previews exclude the seed, permit accessible remove/reorder and start a new
+session only on Play. Saved Queue destination actions reuse existing deduplication.
+Discovery's descriptive origin is additive: version-2 records and all existing
+origins remain readable; restored queues never re-evaluate recommendations.
+
+### 43.3 Defects found and failing-first proofs
+
+The publisher tokenizer JSON enables padding by default. An initial golden-ID
+fixture accidentally retained PAD/SEP tokens while asserting an unpadded content
+interface. The fixture generator now explicitly disables padding/truncation; exact
+publisher token IDs remain asserted, including accents, emoji, CJK, punctuation,
+special tokens and long unknown words. This was a fixture defect, not evidence to
+weaken tokenization assertions. Cross-ISA INT8 component differences are retained
+in the feasibility reports; exact-token and actual retrieval checks passed.
+
+Fresh review found that Related Notes loading could be cancelled by its originating
+Discover composition's disposal, and nested Related Notes navigation could render
+another seed's results on Back. Both integrated device regressions failed for the
+intended reason first. Loading now belongs to the destination, keyed by its seed;
+rendering/previewing require the matching canonical seed. Both device tests passed.
+
+The older-note regression first showed that a qualifying sixth match was lost
+because five recent matches were selected before age filtering. Age eligibility
+now precedes ranking. Other failing tests caught unnecessary re-embedding of an
+unchanged paragraph and valid-JSON records with corrupt vectors.
+
+`tools/semantic-discovery/prove-regressions.ps1` disables shipping eviction/reset
+commit guards and deliberately couples preview creation to destructive playback.
+Each mutation must produce exactly its intended assertion failure, not a build
+failure or an unrelated red test. It restores original source bytes in finally
+and finishes with the complete green JVM suite. All three proofs passed.
+
+### 43.4 Retrieval evaluation and the performance defect
+
+The original 20-Note feasibility corpus and host/native reports are retained
+separately. The shipping evaluation uses 21 synthetic Notes, meaningful titles,
+separate calibration/held-out queries and a relevant final passage in a long Note.
+It exercises actual cache -> chunker -> provider -> index -> controller retrieval,
+filters, normalized persisted vectors, seed exclusion and provider release/reload.
+On the physical Pixel, held-out Recall@5, nDCG@5 and precision at the fixed production
+cutoff were 1.0; the existing title/metadata Browse baseline was 0 on those specific
+natural-language queries. This small synthetic result does not establish broad
+real-library usefulness or a calibrated confidence probability.
+
+The first real 10,000-passage disk query benchmark failed decisively: JSON vectors
+occupied 50,902,890 bytes; p50 was 34,623 ms and p95 was 45,492 ms, against 2,000 ms.
+Each query parsed vectors twice, and scoring allocated normalized boxed lists for
+every passage. The test stayed red; its workload and latency target were preserved.
+
+Storage format 2 now uses bounded JSON provenance/metadata headers and binary
+float32 payloads, atomically committed per document. Legacy JSON is invalidated for
+rebuild. ID enumeration retains IDs only and checks directory membership; vectors
+are still streamed one document at a time, with length/dimension/finite/norm checks.
+Scoring uses scalar accumulators and one best passage per Note. A first binary run
+still exceeded the gate at 2,176 ms; repeated catalog parsing and Formatter-based
+hash encoding were removed rather than relaxing the target. Final benchmark and
+verification evidence follows below.
+
+### 43.5 Acceptance limits
+
+Human TalkBack speech/listening observation, real-library usefulness studies,
+API26 ARM64 hardware, actual 16 KiB-page execution, low-memory/battery measurements
+and direct physical TTS contention are not inferred from synthetic tests. The
+implementation keeps indexing paused during playback; physical speech quality and
+battery cost remain explicitly unmeasured. Broader multilingual models, hybrid
+ranking, behavioral personalization and persistent background indexing are deferred.
+
+## 44. Automatic topic discovery and durable follows — specification round
+
+### 44.1 Product change and source of truth
+
+The user requested automatic Topics in your Notes as a primary Discover capability,
+with passage-level overlapping membership, stable identities, durable explicit
+follows and individual cross-topic Note connections. Updated the authoritative
+Notion Product, UI Navigation, Integration and Session contracts before changing
+product behavior; regenerated mirrors must be inspected before implementation.
+The hand-authored semantic and queue contracts now describe the dependent behavior.
+
+The earlier explicit-interest-only wording in section 43 is implementation history,
+not a restriction on the newly approved product direction. Automatic topics are
+content-derived suggestions, not inferred user interests. Your interests contains
+only explicit user choices. Browse remains keyword/metadata navigation; deterministic
+Explore and existing playback/session behavior retain their meaning.
+
+### 44.2 Proposed implementation decisions
+
+The written design is `docs/superpowers/specs/2026-10-15-discovered-topics-design.md`.
+It selects bounded overlapping passage neighborhoods with direct source-anchor
+evidence, rather than an exclusive document partition or a full similarity graph.
+Stable topic IDs, explicit snapshot refresh and source-based continuity reconciliation
+protect navigation. A Follow confirmation saves independent name/matching text;
+it never stores a hidden embedding/content snapshot or follows live membership.
+Similarity policy needs its own calibration and held-out topic/pair evaluation.
+
+Connections are unordered deduplicated individual Note pairs with matching excerpts
+on both sides. Different-topic and grouped-to-ungrouped pairs do not require a
+generative explanation or topic membership for every Note. The first preview uses
+bounded round-robin work and acknowledges incomplete coverage.
+
+### 44.3 Retention distinction
+
+Temporary cache eviction and explicit cache clear immediately discard source vectors,
+excerpts, automatic labels depending solely on the source, memberships and connection
+evidence. They may retain a minimal opaque identity registry for recache continuity.
+Confirmed deletion/permission denial also purges affected source identities and
+provenance, including when a source was already evicted. Network/partial refresh
+failures are not deletion evidence. Explicit user-confirmed follow text survives;
+it is user data. Index clear/model deletion additionally clear automatic continuity;
+full reset clears interests. Historical queues keep their existing retention rules.
+
+### 44.4 Verification and still open
+
+This is a specification/design round. No topic production code, topic UI, topic
+tests, clustering quality evidence or device-performance result exists yet. The
+existing unfinished verification from section 43 is not retroactively marked done.
+Written-design review precedes an execution plan and implementation under the
+brainstorming workflow. New topic/membership/pair thresholds are not validated by
+the previous semantic-search arithmetic or small retrieval corpus.
+
+Verification: read back all four modified Notion pages after targeted edits;
+exported all mirrors with the repository exporter and inspected the generated
+diffs. Removed unrelated upstream note-authoring-guide changes from this round.
+The exporter preserved the integration model code block; no table format was used.
+`git diff --check -- docs README.md` passed. Per the project verification skill's
+spec-amendment classification, JVM/build/device reruns were not applicable to this
+documentation-only round. No product source or test source was changed in it.
+
+## 45. Working automatic topics, durable follows, connections and live Discover corrections
+
+### 45.1 Delivered behavior and ownership
+
+Implemented the approved topic design after the four authoritative Notion contracts
+were amended and regenerated. Discover has separate automatic topics and explicit
+interests. A Note independently matches multiple passage neighborhoods or none;
+three passages in one Note never count as three Notes. Topic details and individual
+cross-topic pairs expose source evidence and reuse the existing preview/Play/Save
+flow. Following saves independent user-confirmed name/matching text with origin
+provenance, not a live cluster or hidden vector snapshot. Existing interest/session
+formats remain readable with additive fields and defaults.
+
+Pure domain code bounds anchors at 64, consolidates redundant neighborhoods only
+when both membership and passage evidence support it, and preserves distinct themes
+sharing the same Notes. Stable opaque identities reconcile surviving anchors,
+splits/merges and recache continuity. First-pass provisional candidates stay hidden;
+unsupported second-pass candidates retire. Literal headings require distinct-Note
+support; bounded shared source phrases precede the honest source-title fallback.
+No generative model, Python application dependency or behavioral signal is used.
+
+Atomic completed generations and checkpoints live outside backups. The application
+pins inspected snapshots and offers explicit Refresh, with immediate eligibility
+withdrawals. Vector, topic, continuity, connection and staging bytes share the
+64 MiB budget; continuity has a 1 MiB sub-budget. Bounded round-robin connection and
+candidate cursors persist. Foreground work is limited to sixteen rounds per eligible
+foreground, then resumes from its cursor on another eligible foreground or explicit
+Resume; the cap is not a lifetime starvation limit. Query priority covers streamed
+disk work as well as inference.
+
+### 45.2 Retention and race fixes
+
+The cache now journals typed removals, including confirmed denial/not-found for an
+already absent page. Pending invalidations survive restart and are acknowledged
+only after durable topic cleanup. Temporary eviction/clear/corruption removes
+source text/vectors and derived evidence but keeps opaque continuity; confirmed
+loss additionally purges page/source references. Cache clear preserves this registry;
+explicit index/model clear discards it. Full reset emits RESET and clears interests.
+The journal is bounded; malformed journal/backlog failure remains an explicit
+failure condition rather than silently forgetting revocations.
+
+Review caught stale ungrouped connection excerpts, pinned-only evidence missing
+from cleanup, a checkpoint writer recreating data after reset, incomplete connection
+passes never advancing, and retained pairs losing their cross-topic eligibility.
+Cleanup now includes visible/provisional/latest/pinned/member/pair sources, checkpoint
+writes serialize with reset, and cached-source generation is captured with source
+enumeration and carried through publication. Replacement anchors never inherit
+unsupported old-anchor scores: exact replay or a conservative cosine lower bound
+withdraws unsupported memberships.
+
+Prepared previews used to silently lose evicted Notes. They now keep prepared
+identities/order while scrubbing unavailable evidence; Play and Save require an
+explicit removal or recache. Saved Queue and session snapshots remain independent.
+
+### 45.3 Failing-first evidence and verification defects
+
+Domain/storage and application tests were first observed failing for absent topic,
+follow and persistence behavior. Typed cache propagation/journal guards removed:
+exactly seven intended tests failed; 27 prior/network-negative tests still passed.
+Restored targeted cache suite passed, followed by the final broader JVM run.
+
+Removing topic distinct-count and settings focus-target guards produced exactly
+their two intended device failures; restoring passed the seven original new UI
+tests. The integrated six-test device class covered following, Note/Back focus,
+preview isolation, paired evidence/order, eviction and explicit snapshot refresh.
+
+The durable topic proof script initially exposed inadequate fixtures rather than
+proving its guards: an allegedly ungrouped endpoint still had provisional membership,
+and a stored build signature accidentally prevented the stale-map regression.
+The fixtures now remove provisional evidence and exercise a legacy no-signature
+generation. Both guard mutations then fail exactly their named assertion, and
+the script restores source bytes and runs the full JVM suite. Assertions were not
+weakened to obtain green results.
+
+### 45.4 Quality and physical performance
+
+The separate synthetic corpus has 19 Notes and 23 passages, disjoint calibration
+and held-out theme families, multi-topic Notes, misleading distractors and a
+passage-supported cross-topic pair. Host calibration selects admission .75,
+retention .69 and separation .85; connection cutoff is separately .5. Held-out host
+membership precision/recall are 1.0. Native ARM64 held-out membership and pair
+precision/recall are recorded in the reproducible reports; these do not establish
+general real-library usefulness. Thresholds are internal policy, not user confidence.
+
+The first simultaneous 10,000-passage topic/search benchmark failed: p95 4,189 ms,
+with query samples 4,189/1,917/3,326/1,958/1,790 ms and total topic/query time
+23,803 ms. The two-second target and workload were preserved. A shared bounded
+work gate now prevents background disk/ranking/checkpoint work from competing with
+foreground query work. A later attempt failed because UI automation was already
+registered, before either assertion ran; it is a harness failure, not a passing
+measurement. Repeated final measurements are appended below.
+
+### 45.5 Live-device UX findings and corrections
+
+The user reported poor UX and nonworking flows. Actual Android CLI layout and
+screenshots confirmed the title overlapped the status bar, three oversized history
+entries buried topics, topic previews were giant pill-shaped buttons clipping text,
+and stale indexed counts could exceed current cached counts. The source summary
+also contained four Windows-1252 bytes inside a Kotlin UTF-8 file; repaired them
+without changing existing valid Unicode.
+
+Added top/horizontal safe drawing and IME insets, enabled edge-to-edge explicitly,
+and kept NavigationBar's own bottom inset. Search/Filters share a row; model controls
+remain in Settings once ready. Discover shows one recent session plus history access,
+and topic previews use contained cards with source-backed labels. Index counts are
+bounded by current coverage and publish before topic processing. Cache updates are
+conflated rather than repeatedly cancelling a long in-progress document; eligibility
+is checked between work chunks so playback/background/resource suspension remains.
+The existing live user library was preserved during deployment and inspection.
+
+Human TalkBack speech/listening, real-library relevance studies, API26 ARM64 hardware,
+actual 16 KiB page execution, battery/low-memory measurement and direct TTS contention
+remain separate unmeasured gates. Synthetic device semantics are not evidence for them.
+
+### 45.6 Follow-up performance evidence and cache integrity proof
+
+Foreground eligibility now reuses only a cache-generation-bound map of canonical IDs
+and semantic revision hashes. The streamed store keeps a bounded decoded-header cache
+(8 MiB encoded headers, 20,000 passages, 256 documents), never a second vector index.
+Cache hits require byte-for-byte header equality; CRC32 is only a lookup key.
+Memory-pressure release drops this cache. A deliberately colliding checksum fixture
+fails when exact-byte validation is removed. The durable proof script verifies this
+guard and the two topic source/race guards, restores original bytes, then runs the
+whole JVM suite: 738 tests, zero failures/errors on 15 October 2026.
+
+The physical concurrent 10,000-passage benchmark still failed its unchanged two-second
+target after these changes: cold query 2,945 ms; warm samples 3,244/2,784/2,625/2,657/1,999 ms;
+p95 3,244 ms; total topic/query work 30,841 ms. Cold initialization/query is now reported
+separately from the five warmed samples. Device inspection found thermal status 1,
+LITTLE temperature 73 C, SoC 51.16 C, and a big-core maximum frequency capped at
+910 MHz. These are environmental observations, not proof that thermal throttling is
+the only cause. The performance gate remains failed; normal-temperature repetition
+and direct playback contention remain open. Earlier isolated green numbers do not
+override this concurrent failure.
+
+## 46. Listening-first Discover and Browse-owned Explore
+
+### 46.1 Product and layout
+
+The live device showed that search, coverage and setup/status controls displaced
+Continue listening, especially in landscape. Separate paused/incomplete sections
+also described unavailable features without a useful recovery path. Empty bottom-tab
+icons left unexplained selection pills. The user selected listening first, discovery
+cards second, and deterministic Explore in Browse.
+
+Amended the authoritative Notion product and navigation sources before code, reviewed
+integration/session/queue dependencies, regenerated mirrors, and inspected their diffs.
+The unrelated note-authoring source update was excluded. Continue keeps its existing
+snapshot restoration semantics; no playback command or session origin changed.
+
+Discover now shows one compact listening card, cached semantic search, three topic
+previews, two connection previews, explicit interests and supported recommendations.
+See-all routes preserve the complete topic/connection collections. Missing models
+have one setup card; a ready model with no cached Notes offers Browse. Saved interests
+survive unavailable semantic features. Empty topic/connection processing uses one
+state instead of repeated headings and warnings. Model/storage controls remain in
+Settings. Browse owns the stable Explore Catalog entry with a real return-focus target.
+Cards contain long titles and excerpts; tab icons are visible with labels, without
+duplicating their spoken names. Search submission hides the keyboard.
+
+### 46.2 Regression evidence
+
+Before implementation, the new reading-order and missing-model tests were exactly
+the two failures in the nine-test Discovery screen class. Restoring the new layout
+passed all nine. The three-test navigation class passed, including Explore absent
+from Discover, reachable from Browse, and focused again after Back. The six-test
+topic navigation class passed following, source/Back focus, preview isolation,
+eviction, paired evidence and explicit snapshot refresh. Final checks and live
+device observations follow below.
+
+### 46.3 Actual model setup and the misleading empty state
+
+After a physical instrumentation run the development package was absent; reinstalling
+showed no model in private no-backup storage. The user explicitly requested installation
+and model download. Reinstalled the debug APK and completed the normal Wi-Fi model
+download in Settings, preserving explicit download consent. The app indexed 24 cached
+Notes and produced 23 topics and initially five, then eight individual connections.
+Opened a connection on the real screen and verified both source Note actions and
+Preview listening. These counts establish working wiring, not real-library relevance
+or complete topic coverage: the 64-anchor bound was reached and remains honestly marked
+incomplete. Further instrumentation moved to an isolated API36 emulator so it would
+not remove the user's newly downloaded model.
+
+The new empty-feed card initially returned before rendering the newer-snapshot action.
+An inspected empty generation could therefore keep showing a processing message even
+when completed results awaited explicit refresh. A seventh topic-navigation test
+reproduced exactly that missing Refresh action while the prior six tests passed.
+The card now distinguishes vector preparation, topic work, ready updates, paused work
+and actual empty results, and exposes Refresh without changing the inspected snapshot
+automatically. Existing cards stay usable while a newer generation is being computed.
+
+The physical queue smoke class exposed an old test navigating by a Browse tab from
+Queue Details, where the governing navigation contract deliberately hides tabs. The
+test now dispatches real Back twice through Details and Queue Destination, asserts
+Browse, and repeats Add all with the unchanged duplicate-membership/message assertions.
+An unrelated test lost the activity in that physical run; the mixed run stayed red.
+Another run during USB disconnection returned zero tests and was correctly inconclusive.
+Neither is counted as success. One focus test fixture was updated to the missing-model
+setup card and still asserts actual focused state, rather than a removed button label.
+
+The durable `tools/proof-discovery-explore.ps1` removes only Browse's Explore wiring:
+exactly its named navigation assertion fails, the other two tests remain green, and
+restoring the original source passes the complete three-test class.
+
+## 47. Interest cards and selected-interest listening
+
+The user identified a real missing vertical slice: interest details exposed editing
+but no matching Notes or listening path, while Discover expanded one pooled list
+across interests. Amended the live product/navigation contracts first, regenerated
+and inspected mirrors, and reviewed the unchanged queue/session ownership rules.
+
+Discover now presents each interest as one named, focusable card. Its details load
+up to twenty independent matches on demand, including cached-seed interests with
+the seed excluded. Older matches are an optional date-based view; unknown dates
+are excluded. Evidence stays linked to sources. Preview listening captures up to
+five displayed matches in relevance order, supports removal/reordering and Saved
+Queue actions, and only Play starts a new frozen Discovery origin labelled with
+the interest's name. Play's Back target is now its real preview Play control.
+Opening Notes, editing definitions and preparing previews leave playback alone.
+Hidden pooled recommendations are no longer computed by the shipping worker/UI.
+
+Requests bind the saved definition, source generation, model and index revision.
+Edits, source loss and reset reject stale publication and remove derived matches.
+An initial empty query cannot stay cached after newly indexed vectors become ready:
+a fifth targeted JVM test failed for this exact case before the index revision
+guard. Unchanged definition saves retain current results. Seed loss offers recache;
+model/index clear removes matches while preserving explicit interests.
+
+Three new application tests first failed against the missing selected-interest API;
+they then passed selection isolation, seed eviction and an edit during inference.
+The real ReaderEngine plus process-scoped ReaderHost, driven by deterministic speech
+completion callbacks, advanced through the selected interest's two frozen Notes
+after the interest changed. A separate test checks five-Note preview order, explicit
+Play, first-Note loading, later preview edits and index clear without queue mutation.
+The whole JVM suite passes 743 tests with zero failures/errors; debug assembly and
+androidTest compilation pass. Native speech audibility remains a human gate.
+
+The two new screen-flow tests initially failed exactly the missing card click action
+and unwanted pooled feed. The new flow passes card → interest → edited preview →
+Play, frozen membership/origin, active playback and Back focus. The nine-test topic
+navigation class was green after restoring the existing standalone saved-text display;
+its final repeated run and physical deployment are recorded below.
+
+The physical interest smoke caught a source-identity defect hidden by short fake
+IDs: semantic canonical IDs omit UUID hyphens, while cache loading and ReaderSession
+correctly require the original Notion identity. Discovery now resolves matches to
+the current cached source ID before manual loads or queue snapshots; it does not
+weaken session stale-completion guards or rewrite existing history. The sixth
+interest JVM regression failed for this UUID mismatch before the fix. On the Pixel,
+a new interest preview reached Playing with Note 1 of 5 after granting the ordinary
+notification permission. The test session was paused and the temporary interest
+removed through the UI. Actual speech audibility remains a human acceptance gate.
+
+## 48. Grouping quality and production-shaped evidence (16 October 2026)
+
+The physical library exposed a quality failure that the earlier perfect synthetic
+scores missed: 23 topics represented only four distinct Notes; nine memberships
+and seven of eight connections used fewer than five words on at least one side.
+Production mapping puts a standalone spoken heading before each section's body.
+Topic selection and connection seeding had treated those headings as independent
+evidence, while the native evaluation fixture omitted heading chunks entirely.
+
+Amended the live Product contract first, regenerated and inspected the mirrors,
+and reviewed the navigation/integration/session dependency boundaries. Standalone
+headings remain indexed for search but cannot establish automatic groups or
+connections. Both sides of a connection now require body evidence. The separate
+native quality entry point allows corpus checks without rerunning a benchmark.
+
+A long first Note could fill all 64 candidates. The document cursor advanced by
+the document count for libraries up to 64, so it never moved. New candidate seeds
+are limited to two per Note per pass, persisted through mid-Note interruption;
+all body passages still match retained anchors for multi-label membership. Source
+order advances by one and passage opportunities rotate through long Notes. Review
+caught an initial two-global-pass stop that would miss a common fifth passage
+after four private passages. The final implementation sweeps bounded opportunities
+through all body positions plus reconciliation, retaining the foreground work
+budget and stopping unchanged work when the sweep finishes or supported anchors
+fill capacity. Candidate expiry after two passes is a separate rule.
+
+Overlapping windows could also create redundant groups. Consolidation now accepts
+substantial source-span overlap as equivalent evidence, requiring the same reader
+chunk because offsets are chunk-relative. Review caught the missing chunk check:
+different speech chunks of one long block can each start at offset zero while
+covering unrelated themes. Common Note membership still cannot merge those themes.
+
+The stricter native fixture uses real heading/body ordering and repeated Summary
+headings, with passage-level truth checks. The former .75 admission policy failed
+held-out recall at 7/11 (63.6%), with calibration recall 50%. No assertion was
+relaxed. A fixed grid, selected using calibration only, chose .65 admission, .59
+retention and .75 separation: precision and recall were both 100% on calibration.
+The held-out evaluation afterward achieved 100% membership precision and recall,
+100% connection precision across three pairs, and found the required cross-topic
+pair. This small synthetic corpus is useful regression evidence, not a claim of
+real-library relevance or benchmark success.
+
+Failing-first evidence includes generic-heading false grouping, long-first-Note
+candidate starvation, overlapping-window duplication and checkpoint budget loss.
+The durable proof script additionally removes source rotation, later-passage
+opportunities, chunk-coordinate checks and work termination individually. Its first
+checkpoint mutation caused compilation failure; the verifier correctly refused to
+count that as regression proof. The corrected mutation preserves compilation and
+must fail the intended assertion.
+
+Final verification: 751 JVM tests, zero failures/errors; debug assembly and
+androidTest compilation passed. All eight proof-script mutations failed exactly
+their named assertions, followed by a restored full-suite pass. The final native
+quality wrapper passed its complete one-test class on API 36 x86_64 (19 synthetic
+Notes, 46 indexed passages, five groups, three held-out pairs; 1,984 ms initial
+index/topic time). The nine-test Discover navigation class passed again after the
+final policy change. This timing is not the separate 10,000-passage performance
+benchmark. The updated debug APK was installed on the Pixel with its downloaded
+model and cached documents preserved. Physical inspection confirmed no standalone
+heading evidence in either memberships or connections; topic generation was still
+updating, so no final real-library relevance score is claimed.
+The subsequent physical snapshot represented ten distinct cached Notes across
+nine topics, with zero heading-only membership evidence (previously four distinct
+Notes). Its candidate sweep remained incomplete; this is coverage evidence, not
+human-labelled precision. The temporary API 36 review emulator was stopped after
+the checks. New implementation, fixtures and proof files are intentionally included
+in the Git worktree; no model binary or private-library export was added.
+
+Still open: human relevance review on a broader real library, TalkBack speech and
+listening acceptance, the previously failed physical 10,000-passage warm-query p95
+gate, and the previously documented unmeasured API/device/memory/battery combinations.
+Do not substitute topic counts or synthetic correctness for these gates.
+
+## 49. Separate listening-first Home and focused Discover (16 October 2026)
+
+The user approved five destinations and explicitly requested removal of listening
+history from Discover. Amended the live product, navigation, integration and session
+contracts before code, regenerated and inspected their mirrors, and aligned the
+hand-authored queue contract. Home is the new-task default; Discover contains cached
+semantic search, automatic topics/connections and one shared-interests entry. Browse
+retains keyword search, filters, sort and Explore; Queues retains full history and
+queue management. Model/index controls remain in Settings. Existing session records
+are not migrated or rewritten.
+
+Home shows one Continue card, three other recent listening sessions, five eligible
+recently opened Notes and three interests in saved order. Recent session cards carry
+frozen origin labels, including deleted/renamed source queues, without looking up or
+re-evaluating queue membership. Full history remains in Queues. Interests open their
+existing matches and explicit-Play listening preview; the shared collection supports
+adding text/cached-seed interests, edits and removal without a model. Discover no
+longer accepts an injected listening/history section in its shipping content adapter.
+
+Recent Note history stores at most twenty opaque page references and epoch-millisecond
+timestamps outside backups. Only a successful, current explicit manual request that
+still owns its navigation stop records an open. Failure, cancellation, supersession,
+Back before completion, playback and background loads do not. Card labels resolve
+from cached documents; eviction hides content while keeping an opaque recache link.
+Confirmed deletion/permission loss removes it, including after eviction. History
+clearing/full reset clears these references; recency never feeds semantic ranking.
+
+Review found a race between the recency consumer and semantic cleanup: a new removal
+could arrive during recency persistence and then be acknowledged by semantic cleanup
+before recency saw it. Acknowledgement is now capped at the generation recency durably
+processed. Later events remain in the journal; semantic evidence is still withdrawn
+immediately even if recency storage fails. Another review finding exposed failed
+history deletion being silently treated as success. Clear now returns failure, shows
+a retryable privacy-settings message and keeps the clear action available with zero
+listening sessions but outstanding recent references. File history clearing deletes
+its persisted file directly. The reviewer confirmed both fixes and their regressions.
+
+Navigation/default tests were red before the five-destination change. Old default
+assertions were deliberately amended for the governing Home decision, preserving
+session-origin compatibility assertions. The real Activity test caught a new task
+inheriting Discover from a surviving process; it failed expected Home/actual Discover.
+New tasks now select Home at the Activity boundary, while recreation preserves richer
+process navigation and a fresh process can restore its saved top-level tab. The
+process session object survives both cases. A missing recent-card focus target after
+cache eviction also failed on device before adding a real Home-heading fallback.
+
+Eight durable guard mutations in tools/proof-home-recents.ps1 each fail the intended
+JVM assertion, then restore the source and pass the full suite. They cover failed
+opens, Back/load and clear/load races, canonical deduplication, retention limits,
+permanent removal, shared invalidation acknowledgement and failed-clear reporting.
+The initial UI run exposed fixture errors (starting on Player, scrolling fixed tabs,
+and an explicitly paused index); assertions were preserved and fixtures corrected.
+The nested Related Notes fixture also had to select Discover at construction rather
+than resetting navigation in its rendering helper.
+
+Device verification uses the API 36 review emulator, leaving the Pixel's model and
+cache intact. The new eight-test Home/Discover class, nine-test topic/navigation
+class, three-test Discovery navigation class, thirteen-test Settings class and one
+real Activity recreation/new-task test pass through the repository wrapper. The
+installed Pixel shows all five labelled destinations and zero listening-history
+sections on Discover; model/cache/history remain present. Human TalkBack speech
+and physical-device-specific performance remain separate gates.
+
+The user's subsequent design review inspected both live Pixel screens. The split
+is appropriate, but Home's recents still dominate its vertical space, and Discover
+shows redundant updating/updated/refresh messages before large topic previews.
+Source-backed but generic/long topic labels and the star navigation icon weaken
+discoverability. The next proposed design pass should address hierarchy, compact
+rows/cards, honest single-state progress, accessible interest access and clearer
+topic labels; it is a review recommendation, not an unapproved product amendment.
+
+Still open: final visual/human TalkBack acceptance and the previously recorded
+real-library relevance, warm-query performance and unmeasured device gates. This
+navigation round does not close them.
+
+Final build verification passes 765 JVM tests with zero failures/errors, debug
+assembly and Android-test compilation. The final Home class additionally drives
+all five visible tab controls while listening, asserting the frozen queue and
+playing state after every selection. Physical screen captures used for the design
+review remain in ignored build output; no private-library screenshots were added
+to the repository. No commit was created in this continuing implementation branch.
+
+
+## 50. Home and Discover presentation polish (2026-10-16)
+
+The approved visual review identified oversized recent-session cards, verbose empty recents, a disabled empty-query Search button, multiple concurrent discovery status messages, and three representative titles per topic preview. The live Notion navigation contract was amended first and mirrors regenerated and inspected; unrelated note-authoring mirror drift was discarded. Dependent product/session contracts retain their existing semantics.
+
+Home retains its primary Continue card and uses compact single-action recent-session rows, with frozen queue/interest origin names distinguishing sessions. Empty recent Notes offers a brief Browse action. Discover integrates accessible search into the field plus keyboard Search, keeps compact coverage/Filters, uses one primary discovery progress state with ready updates taking precedence, and shows one representative title per topic. Honest Similar Notes/Related Notes captions do not rewrite stored labels or identities. The tab uses a compass. Full evidence stays in details; ranking, clustering, follows and listening snapshots are unchanged.
+
+Failing-first evidence: six presentation JVM tests failed against placeholder helpers, then passed with the production implementation. The new device class failed both intended properties before the UI fixes: empty-query Search remained visible, and Representative 2 remained visible. After the fixes the same two tests passed. Topic accessibility (8) and Discover navigation (9) passed through the repository wrapper on the API 36 emulator. A scoped independent read-only review found no important issue.
+
+Full JVM verification reports 771 tests with zero failures/errors; debug assembly and Android-test Kotlin compilation pass. The Discover navigation wrapper reported a blank initial screen timeout read and a restoration warning after its complete 9-test pass; this is a harness/settings warning, not evidence of an application failure. No wrapper code was changed.
+
+The updated APK was installed with install -r on the currently connected Samsung SM-S931B, preserving application data. Its secure Bouncer prevented physical layout verification; the previously used Pixel was not connected. Human TalkBack speech/listening acceptance, real-library relevance and the previously recorded warm-query performance/device gates remain open. This presentation round does not claim to fix those gates.
+
+Final Home flow wrapper: 8/8 pass, including frozen queue/playback across all five tabs (27 targeted tests total this round). Visually inspected shipping Home empty state and Discover model-setup state on the emulator, including the new compass and retained interest access; populated compact previews/search are covered by targeted semantics tests. This is not a populated physical-library visual check. Screenshots remain in ignored build output.
+
+
+## 51. Pixel-driven topic and connection detail refinement (2026-10-16)
+
+Inspected the actual Pixel 8 Pro (39261FDJG004KS) library through Android CLI layout and screenshots. It initially had the build preceding section 50; installed the current APK with install -r, retaining 23 cached/indexed Notes, the optional model and paused session/history. Topic details repeated label-source/anchor material ahead of the member list. Connection previews concatenated long titles and repeated both passages in the feed. Generic topic names lacked identifiable source context.
+
+Amended the live governing navigation contract before changing presentation, reviewed dependent semantics and regenerated mirrors. Unrelated note-authoring mirror drift was discarded. Topic details now prioritize count/actions and actual member Notes, mark representative members inline, and put coverage, label-source navigation and distinct anchor contexts behind Why these Notes?. Expansion persists across Note navigation and label-source return focus remains real. Follow is visually secondary to Preview listening and its saved-interest semantics are explained. Generic preview captions attribute their source Note without renaming persisted topics. Prefer a different representative when the source attribution already names the first member. Compact connection cards have one navigation action, separate titles, one short excerpt and Compare passages; details show both full excerpts and named source actions. Queue snapshots and playback behavior are unchanged.
+
+Failing-first proof: the 10-test topic/navigation class produced exactly two intended failures before the fixes: label-source control incorrectly visible before expansion, and the second connection excerpt incorrectly visible in the main feed. All other eight tests passed. Restoring the implementation passes those properties, source-control focus restoration, connection preview order and playback isolation. The topic component class passes 8/8 and the polish class passes 3/3, including exactly one connection action and both source titles. Full JVM suite remains 771 tests, zero failures/errors; debug assembly and Android-test Kotlin compilation pass. Independent scoped read-only review found no important defect.
+
+Installed and visually inspected populated topic detail, compact connections, and full comparison details on the Pixel. Private screenshots/layout captures remain only in ignored build output. Did not run instrumentation on the physical library or change global TalkBack settings. Automated tests validate semantics/focus, not human TalkBack speech acceptance.
+
+Quality finding: sampled topics include fragmentary source labels and repeated specification neighborhoods; sampled connections include direct document references rather than demonstrated novel cross-topic insight. UI changes honestly expose the evidence and do not establish held-out grouping quality. Improving source-label selection, distinguishing duplicate neighborhoods and evaluating reference-only matches remain quality work, subject to explicit specification/evaluation changes. Previously recorded relevance/performance/device and human listening gates remain open.
+
+
+## 52. Evidence quality policies and conditional model migration (2026-10-16)
+
+The user authorized reference/boilerplate suppression, redundancy/label/diversity improvements and a better-model migration only if justified. Amended the live Product and Integration governing specifications first, reviewed dependent navigation/session contracts, regenerated and inspected mirrors, and discarded unrelated note-authoring drift. The existing provider/architecture, explicit download, cache lifecycle, source-linked evidence and frozen-session contracts remain intact.
+
+Policy 7 is independent of EmbeddingIdentity. It excludes explicit reference/link-only material, specification routing, standalone heading evidence, short checklist questions and reference-heading text without explanatory prose from automatic topics/connections. Search retains those source records. The English-first reference heuristic is deliberately conservative and can omit useful short references; it is not a semantic-quality guarantee. Near-copy consolidation now recognizes ordered four-word-window overlap across different blocks alongside member overlap and compatible anchors, refusing the shortcut when negation differs. Existing independent-passage/multi-label guards remain. Label selection rejects generic reference headings and pronoun fragments; legacy fragment labels can improve without changing the topic identity. Saved interests are never rewritten.
+
+Policy version is persisted on topic/checkpoint records. Incompatible accepted-document maps cannot skip current evidence evaluation. Rebuilding reuses existing vectors and preserves eligible identity continuity; snapshots are still adopted only through explicit Refresh. Canonical connection ranking retains its calibrated cosine floor and caps each Note at two exposures among up to twenty pairs. Diversity runs during reservoir pruning as well as final selection.
+
+Regression discipline: the initial six new evidence tests produced five intended failures before implementation; the substantive-body preservation control passed. Legacy-fragment and real Pixel checklist/reference regressions were separately observed red before their fixes. Equal-vocabulary reordered/negated passages also failed the first bag-of-words duplicate check; ordered windows/negation checks restore that property.
+
+The durable tools/proof-discovery-quality.ps1 removes five guards separately, verifies the single named AssertionError in each source-derived XML report, restores exact source bytes and finishes with a passing full JVM suite:
+
+| Removed guard | Test that detected it |
+| --- | --- |
+| Automatic evidence eligibility | referencesCannotManufactureAGroupEvenWithIdenticalVectors |
+| Near-copy passage consolidation | nearDuplicatePassagesInDifferentBlocksDoNotCreateDuplicateNeighborhoods |
+| Checkpoint policy compatibility | oldPolicyCheckpointsReprocessEvidenceWithoutReusingCompletionFlags |
+| Per-Note connection exposure cap | repeatedHubNotesDoNotCrowdOtherSupportedConnectionsOutOfTheCollection |
+| Diverse bounded-reservoir pruning | boundedConnectionPruningRetainsSupportedPairsOutsideTheHub |
+
+Independent review found score-only pruning could discard a disjoint supported pair before the diversity cap ran. Fixed it and strengthened the coordinator regression: nineteen retained hub pairs plus one disjoint pair fill the production limit; retrieval adds a genuinely new strong hub pair. Orthogonal earlier sections prevent accidental regeneration of the disjoint pair. Raw top-twenty pruning fails the named assertion; the corrected pruning passes. The reviewer confirmed this reachable fixture and found no further important issue.
+
+The public policy-evaluation extension contains 29 Notes/33 passages, including disjoint calibration/held-out reference/routing distractors. Actual pinned-model host vectors at unchanged production thresholds yield precision/recall 1.0 on both splits (2/3 topics). The shipping tokenizer/ONNX provider reproduces those scores on the API36 x86_64 emulator through DiscoveryPolicyInferenceTest. The separate original mapper-shaped native gate also passes: 19 Notes/46 passages, calibration and held-out membership precision/recall 1.0, three held-out pairs with precision 1.0 and the required cross-topic pair found. Its calibration selected admission .65/retention .59/separation .75; raising admission to .75 cut calibration recall to .5, so thresholds were not raised to hide weak matches. Synthetic scores are not private-library relevance acceptance.
+
+Final verification: 784 JVM tests, zero failures/errors; debug assembly and Android-test Kotlin compilation pass. Wrapper runs pass the new native policy class (1), original native grouping/connection quality class (1), and topic/navigation accessibility class (10). The five-guard proof restores a green full suite. No instrumentation ran on the Pixel's private library.
+
+Installed the updated build with install -r on the unlocked Pixel 8 Pro. Retained its model, 23 indexed/cached Notes, saved interests and paused session/history. Inspected actual refreshed topic/connection passages. The first sample exposed a checklist question matched to a long Related knowledge title, which the earlier synthetic extension missed; the final question/prose guard addresses that specific unsupported evidence. Labels and grouping coverage remain uneven, including multiple technical neighborhoods; do not claim broad real-library quality from this spot check. Screenshots and raw layouts remain in ignored build output.
+
+A transient Topic checkpoint storage is full message appeared during the live rebuild, although measured derived directories occupied roughly six MiB, far below the 64MiB budget. A subsequent eligible launch wrote checkpoints and published refreshed generations; checkpoint storage later cleared. Temporary counts-only validation instrumentation did not reproduce a rejection and was removed. No source cache/index was cleared, no storage cap raised and no speculative persistence fix made. The store's Boolean failure currently conflates validation and budget failure; root cause of the transient message remains open. Topic candidate coverage remains honestly incomplete where bounded work/anchor capacity is reached.
+
+EmbeddingGemma 2 default migration was blocked before adoption. Inspected the real LiteRT-LM 0.18.0 AAR (20,905,807 bytes; SHA256 recorded in gemma2-gate-report.json): minSdk24, ARM64/x86_64 JNI only, 16KiB ELF LOAD alignment. ARMv7/x86 support present in the existing ONNX distribution is absent. Pinned converted-model metadata advertises 484,622,336 bytes and its LFS hash; those are not a locally verified downloaded model. The reproducible static probe exits nonzero with explicit missing ABI and unmeasured-gate status. No Gemma runtime dependency/model was added to the app and minimum Android/ABI support was not changed. API26 native execution, prompt/tokenizer/export parity, quantized retrieval quality, Pixel memory/heat and playback contention remain unmeasured for Gemma. It is not declared worse than MiniLM; it has not qualified as the default replacement.
+
+Still open: human-labelled private-library precision/usefulness and TalkBack speech acceptance; complete candidate coverage on long libraries; the previously failed physical 10,000-passage warm-query performance gate; the transient checkpoint diagnostic; and a separately designed optional supported-device Gemma path if broader replacement compatibility cannot be achieved. No silent model migration or cloud inference occurred.
+
+## 53. Checkpoint identity collision and private local evidence review (2026-10-16)
+
+The user authorized checkpoint diagnosis, a bounded real-library relevance review, a private held-out evaluation set and Pixel query/playback measurements. Amended live governing Integration and Navigation specifications first to distinguish persistence outcomes and explicitly govern developer-local private snapshots. Regenerated mirrors, inspected the amendments and discarded unrelated note-authoring export drift. No cache retention or product recommendation semantics were relaxed.
+
+An explicit developer export copied 23 cached/indexed Notes and derived topic/checkpoint records into ignored build storage; no model, credentials or listening history was exported. The copied shipping coordinator/store replay reproduced InvalidSnapshot / DuplicateTopicId at a checkpoint. This establishes that the earlier storage-full diagnosis was misleading: it was not evidence of the 64 MiB budget being exhausted.
+
+Root cause: after resuming a checkpoint, a document revision can move its continuity identity into another candidate while the former candidate retains that same resolved ID. When a new document fills the former neighborhood, fallback ID reuse produced two topics with one distinct ID. TopicBuilder now reserves all continuity assignments before resolving fallback IDs. A fallback cannot reuse an identity assigned to another candidate, merged away or already published. The new branch receives a stable fresh identity. Existing merge/split/model continuity rules and strict store validation remain intact.
+
+Regression proof: a public two-dimensional fixture resumes a checkpoint, resolves IDs, moves one Note to the other axis, then fills the former neighborhood. With the fallback ownership guard removed, both the domain identity property and the real FileTopicStore acceptance property fail for the intended duplicate-ID reason; restoring the guard passes both. Repeated checkpoint and a second builder restoration retain the new branch identity. No private fixture entered repository tests.
+
+TopicStore now exposes additive typed outcomes: Written, InvalidSnapshot with a structural validation reason, BudgetExceeded, IoFailure and Unknown for a legacy Boolean adapter failure. FileTopicStore preserves the previous valid generation on rejection and propagates cancellation. Coordinator publication, checkpoint and invalidation paths describe the actual failure stage; only budget exhaustion says storage full. Four initial failing-first guards detected validation/budget misclassification, escaping I/O and the misleading caller message. A 64-passage integration test proves the actual checkpoint boundary is reached and rejected checkpoints preserve the prior view. Independent scoped review found no actionable important defect. Reviewer noted populated-generation and atomic-write-failure coverage could be stronger; current tests do not establish every filesystem failure mode.
+
+The private replay now reports zero structural failures on the same copied 23-Note snapshot. It never modifies the exported originals or the app. The explicit Gradle developer task exits nonzero on a structural rejection, rather than treating a completed diagnostic as a healthy index. Its host elapsed times are explicitly not Android timing evidence. Export paths are constrained to ignored build storage, and the HTML renderer escapes source text; a synthetic escaping/pending-judgment check passes.
+
+The frozen purposive held-out review contains six topics, four displayed connections and ten candidate unshown pairs. Assistant evidence assessment found generic labels, mixed/repeated technical neighborhoods, non-goal/routing anchors and shallow connection evidence. Some unshown pairs have substantive support; others are explicit references or near duplicates. No unshown candidate is counted as a true missed useful connection without judgment. No private cases were used to tune thresholds in this round. Human judgments remain pending; no human precision/recall or population-level quality claim is made. Private excerpts, IDs, assessments and rendered review remain solely in ignored local output. This is developer evaluation, not inferred behavioral profiling or a cloud service.
+
+Verification: 794 JVM tests, zero failures/errors; debug assembly and Android-test Kotlin compilation pass. Repository wrapper on a cold API36 x86_64 emulator passes DiscoveryTopicsNavigationAccessibilityTest, 10/10, first attempt, with completeness confirmed. Private snapshot replay succeeds without rejection. Existing native semantic-quality gates were not rerun because tokenizer/model/ranking thresholds did not change. Human TalkBack speech acceptance is not inferred from semantics tests.
+
+Physical-device limitation: Pixel ADB briefly returned while the device was locked and permitted the authorized read-only snapshot export. It disconnected during install -r; the install failed and success is not claimed. After the user reported unlocking, subsequent ADB inventories showed only the emulator. No instrumentation/uninstall or cache/model reset was performed on the private Pixel library. Updated-build installation, live discovery completion, warm-query p50/p95 and playback-contention measurements therefore remain unverified, rather than replaced with host replay timings.
+
+Still open: reconnect/install and physically measure the updated Pixel flow; human usefulness ratings for the private held-out cases; improved substantive topic labels/member evidence and reduced duplicate technical neighborhoods evaluated on separate public calibration; full candidate coverage on long libraries; physical 10,000-passage query performance; human TalkBack/listening acceptance; and any separately qualified optional Gemma path. The checkpoint collision itself is reproduced and fixed. MiniLM/ONNX remains active; no silent model migration occurred.
+
+## 54. Focused commit checkpoint before the next phase (2026-10-16)
+
+The user requested committing all pending work before continuing. Grouped the accumulated changes into governing contracts/plans, local semantic retrieval and model adapters, stable topic/connection grouping, the integrated Home/Discover/listening experience, reproducible quality/native feasibility tooling, private developer review tools, and repository summaries/verification history. These are dependency-ordered snapshots of an accumulated implementation; verification applies to the complete resulting tree, not an independently tested claim for every intermediate commit. Kept the existing codex/discovery-first branch; no push or merge was requested.
+
+Rechecked the complete tree with testDebugUnitTest, assembleDebug and compileDebugAndroidTestKotlin: all pass (tasks up to date from the preceding verified 794-test run). The preceding targeted wrapper run remains 10/10 navigation/accessibility tests, first attempt. No production code changed during commit organization. Private snapshots, raw device layouts and assessments remain ignored under app/build; no model binaries, credentials or private review content were added to the commits.
+
+Pixel 8 Pro reconnected unlocked with Notion Reader foreground. install -r of the verified current APK succeeded. Reopened the app and inspected its actual Home and Discover layouts using Android CLI: Home and the five destinations render; Discover reports 23 of 23 cached Notes indexed, shows Topics, explicit Refresh and Connections. The model/source library was retained through replacement installation. This closes the previous installation blocker, not the outstanding performance or listening gates. No instrumentation or destructive reset ran against the Pixel library.
+
+Still open for the next phase: physically measure query latency and playback contention; human usefulness ratings and evidence-quality improvements; bounded candidate coverage on long libraries; the 10,000-passage performance gate; human TalkBack/listening acceptance; and any separately qualified optional Gemma path. Do not treat commit completion or indexed coverage as semantic-quality acceptance.
