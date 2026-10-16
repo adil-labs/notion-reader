@@ -35,6 +35,75 @@ class FileDocumentCacheTest {
     }
 
     @Test
+    fun ageRetentionAndFullResetEmitTheirOwnReasons() = runBlocking {
+        cache.put(CachedDocument(ReaderDocument.fromChunkTexts("old", "Title", listOf("Text")), null, Instant.EPOCH))
+        assertEquals(1, cache.pruneOlderThan(1))
+        assertEquals(com.example.notionreader.domain.document.CacheRemovalReason.AGED_OUT, cache.invalidations.value.single().reason)
+        cache.clear(com.example.notionreader.domain.document.CacheRemovalReason.RESET)
+        assertEquals(com.example.notionreader.domain.document.CacheRemovalReason.RESET, cache.invalidations.value.last().reason)
+    }
+
+    @Test
+    fun restartFinishesAPermanentRemovalInterruptedAfterJournaling() = runBlocking {
+        val doc = CachedDocument(ReaderDocument.fromChunkTexts("revoked", "Title", listOf("Private")), null, Instant.now())
+        cache.put(doc)
+        val bytes = File(tempDir, "revoked.json").readBytes()
+        cache.remove("revoked", com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED)
+        // Simulate a crash after the write-ahead event, before unlinking its old cached file.
+        File(tempDir, "revoked.json").writeBytes(bytes)
+        val restarted = FileDocumentCache(tempDir)
+        assertNull(restarted.get("revoked"))
+        assertEquals(com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED, restarted.invalidations.value.single().reason)
+    }
+
+    @Test
+    fun evictionAndCorruptionHaveDifferentReasonsAndCanonicalIdentities() = runBlocking {
+        val tiny = FileDocumentCache(tempDir, maxEntries = 0)
+        tiny.put(CachedDocument(ReaderDocument.fromChunkTexts("AA-BB", "Title", listOf("Text")), null, Instant.now()))
+        assertEquals("aabb", tiny.invalidations.value.single().pageId)
+        assertEquals(com.example.notionreader.domain.document.CacheRemovalReason.EVICTED, tiny.invalidations.value.single().reason)
+        tiny.acknowledgeInvalidations(tiny.revision.value)
+        File(tempDir, "cc-dd.json").writeText("broken")
+        tiny.snapshot()
+        assertEquals("ccdd", tiny.invalidations.value.single().pageId)
+        assertEquals(com.example.notionreader.domain.document.CacheRemovalReason.CORRUPT, tiny.invalidations.value.single().reason)
+    }
+
+    @Test
+    fun acknowledgingAnEarlierBatchPreservesNewerAccessLoss() = runBlocking {
+        cache.remove("first", com.example.notionreader.domain.document.CacheRemovalReason.DELETED)
+        val first = cache.invalidations.value.single().generation
+        cache.remove("second", com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED)
+        cache.acknowledgeInvalidations(first)
+        assertEquals("second", FileDocumentCache(tempDir).invalidations.value.single().pageId)
+        val beforeRestart = cache.revision.value
+        assertEquals(beforeRestart, FileDocumentCache(tempDir).revision.value)
+    }
+
+    @Test
+    fun confirmedDenialAfterEvictionSurvivesRestartUntilAcknowledged() = runBlocking {
+        cache.remove("gone", com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED)
+        val event = cache.invalidations.value.single()
+        assertEquals("gone", event.pageId)
+        assertEquals(com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED, event.reason)
+        val restarted = FileDocumentCache(tempDir)
+        assertEquals(listOf(event), restarted.invalidations.value)
+        assertEquals(true, restarted.revision.value >= event.generation)
+        restarted.acknowledgeInvalidations(event.generation)
+        assertEquals(emptyList<com.example.notionreader.domain.document.CacheInvalidation>(), FileDocumentCache(tempDir).invalidations.value)
+    }
+
+    @Test
+    fun cacheClearRetainsUnacknowledgedPermanentLoss() = runBlocking {
+        cache.remove("gone", com.example.notionreader.domain.document.CacheRemovalReason.DELETED)
+        cache.clear()
+        val events = FileDocumentCache(tempDir).invalidations.value
+        assertEquals(listOf(com.example.notionreader.domain.document.CacheRemovalReason.DELETED,
+            com.example.notionreader.domain.document.CacheRemovalReason.CLEARED), events.map { it.reason })
+        assertNull(events.last().pageId)
+    }
+
+    @Test
     fun putAndGetDocumentSuccessfully() = runBlocking {
         val pageId = "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
         val doc = CachedDocument(

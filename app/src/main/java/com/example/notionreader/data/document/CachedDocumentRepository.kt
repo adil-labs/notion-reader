@@ -4,6 +4,7 @@ import com.example.notionreader.data.notion.normalizeNotionPageId
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderErrorCategory
 import com.example.notionreader.domain.ReaderLoadException
+import com.example.notionreader.domain.document.CacheRemovalReason
 import com.example.notionreader.domain.document.CacheOrigin
 import com.example.notionreader.domain.document.CacheTelemetry
 import com.example.notionreader.domain.document.DocumentLoadPurpose
@@ -93,14 +94,14 @@ class CachedDocumentRepository(
             } else if (e.category == ReaderErrorCategory.PAGE_NOT_FOUND || e.category == ReaderErrorCategory.PERMISSION_DENIED) {
                 // Invalidate deleted/trashed or unauthorized note from cache
                 if (canonicalId != null) {
-                    cache.remove(canonicalId)
+                    cache.remove(canonicalId, if (e.category == ReaderErrorCategory.PERMISSION_DENIED) CacheRemovalReason.PERMISSION_DENIED else CacheRemovalReason.DELETED)
                 }
             }
             throw e
         }
 
         if (metadata.isTrashed) {
-            cache.remove(metadata.pageId)
+            cache.remove(metadata.pageId, CacheRemovalReason.DELETED)
             throw ReaderLoadException(
                 category = ReaderErrorCategory.PAGE_NOT_FOUND,
                 message = "That Notion page is in the trash.",
@@ -130,9 +131,7 @@ class CachedDocumentRepository(
                 telemetry?.recordStaleFallback()
                 return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.STALE_OFFLINE)
             } else if (e.category == ReaderErrorCategory.PAGE_NOT_FOUND || e.category == ReaderErrorCategory.PERMISSION_DENIED) {
-                if (canonicalId != null) {
-                    cache.remove(canonicalId)
-                }
+                cache.remove(metadata.pageId, if (e.category == ReaderErrorCategory.PERMISSION_DENIED) CacheRemovalReason.PERMISSION_DENIED else CacheRemovalReason.DELETED)
             }
             throw e
         }

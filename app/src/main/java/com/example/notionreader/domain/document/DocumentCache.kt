@@ -3,7 +3,28 @@ package com.example.notionreader.domain.document
 /**
  * Port for persisting and retrieving cached reader document snapshots.
  */
+enum class CacheRemovalReason { EVICTED, AGED_OUT, CLEARED, CORRUPT, DELETED, PERMISSION_DENIED, RESET }
+
+/** Pending lifecycle work; null pageId applies to every cached source. Contains no source content. */
+data class CacheInvalidation(val pageId: String?, val reason: CacheRemovalReason, val generation: Long)
+
 interface DocumentCache {
+    /** Durable pending lifecycle events, retained until the derived store commits and acknowledges them. */
+    val invalidations: kotlinx.coroutines.flow.StateFlow<List<CacheInvalidation>>
+        get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
+
+    suspend fun acknowledgeInvalidations(throughGeneration: Long) = Unit
+
+    /** Confirmed access loss must be recorded even when the document is already absent. */
+    suspend fun remove(pageId: String, reason: CacheRemovalReason) = remove(pageId)
+
+    /** Mutation generation includes removals and internal evictions; observing it never touches LRU. */
+    val revision: kotlinx.coroutines.flow.StateFlow<Long>
+        get() = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    /** A bounded cache snapshot without promoting documents in LRU order. */
+    suspend fun snapshot(): List<CachedDocument> = emptyList()
+
     /** Retrieves the cached document for [pageId], or null if not cached or schema-incompatible. */
     suspend fun get(pageId: String): CachedDocument?
 
@@ -15,6 +36,9 @@ interface DocumentCache {
 
     /** Clears all cached documents. */
     suspend fun clear()
+
+    /** Full local reset can distinguish itself from a cache-only clear. */
+    suspend fun clear(reason: CacheRemovalReason) = clear()
 
     /** Returns the most recently accessed document in cache (LRU ordering based on last access). */
     suspend fun getMostRecentlyUsed(): CachedDocument?

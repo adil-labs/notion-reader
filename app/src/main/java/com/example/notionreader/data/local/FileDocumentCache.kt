@@ -3,6 +3,8 @@ package com.example.notionreader.data.local
 import com.example.notionreader.data.document.CachedDocument
 import com.example.notionreader.data.document.DocumentCache
 import com.example.notionreader.domain.document.DocumentCacheStats
+import com.example.notionreader.domain.document.CacheRemovalReason
+import com.example.notionreader.domain.document.CacheInvalidation
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -29,10 +31,94 @@ class FileDocumentCache(
 ) : DocumentCache {
 
     private val writeMutex = Mutex()
+    private val pending = kotlinx.coroutines.flow.MutableStateFlow<List<CacheInvalidation>>(emptyList())
+    override val invalidations: kotlinx.coroutines.flow.StateFlow<List<CacheInvalidation>> = pending
+    private val journal get() = File(directory, ".invalidations")
+
+    // Write-ahead records make permanent access loss recoverable after process death. Never silently
+    // truncate unacknowledged work: backpressure preserves the evidence needed to purge provenance.
+    private fun persistEvents(events: List<CacheInvalidation>, generation: Long) {
+        val text = buildString {
+            append(generation).append('\n')
+            events.forEach { event ->
+                append(event.generation).append('\t').append(event.reason.name).append('\t')
+                append(event.pageId?.let { java.util.Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) } ?: "-")
+                append('\n')
+            }
+        }
+        check(text.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "Cache invalidation backlog requires acknowledgement" }
+        val temp = File(directory, ".invalidations.tmp")
+        FileOutputStream(temp).use { out -> out.write(text.toByteArray(Charsets.UTF_8)); out.fd.sync() }
+        try {
+            Files.move(temp.toPath(), journal.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(temp.toPath(), journal.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    private fun record(pageId: String?, reason: CacheRemovalReason) {
+        val generation = mutations.value + 1
+        val events = pending.value + CacheInvalidation(pageId?.trim()?.lowercase()?.replace("-", ""), reason, generation)
+        persistEvents(events, generation)
+        mutations.value = generation
+        pending.value = events
+    }
+
+    private fun removeFile(file: File, reason: CacheRemovalReason, pageId: String = file.nameWithoutExtension): Boolean {
+        if (!file.exists()) return false
+        record(pageId, reason)
+        return file.delete()
+    }
+
+    override suspend fun acknowledgeInvalidations(throughGeneration: Long): Unit = withContext(ioDispatcher) {
+        writeMutex.withLock {
+            val retained = pending.value.filter { it.generation > throughGeneration }
+            persistEvents(retained, mutations.value)
+            pending.value = retained
+        }
+    }
+    private val mutations = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    override val revision: kotlinx.coroutines.flow.StateFlow<Long> = mutations
+
+    private suspend fun <T> mutate(action: () -> T): T = writeMutex.withLock {
+        try { action() } finally {
+            val generation = mutations.value + 1
+            persistEvents(pending.value, generation)
+            mutations.value = generation
+        }
+    }
+
+    override suspend fun snapshot(): List<com.example.notionreader.domain.document.CachedDocument> = withContext(ioDispatcher) {
+        writeMutex.withLock {
+            directory.listFiles { f -> f.isFile && f.extension == "json" }.orEmpty().mapNotNull { f ->
+                val cached = runCatching { ReaderDocumentCodec.decode(f.readText()) }.getOrNull()
+                if (cached == null) removeFile(f, CacheRemovalReason.CORRUPT)
+                cached
+            }
+        }
+    }
+
 
     init {
         if (!directory.exists()) {
             directory.mkdirs()
+        }
+        if (journal.exists()) {
+            // A malformed lifecycle journal must fail closed rather than forget revocations.
+            val lines = journal.readLines()
+            mutations.value = lines.first().toLong()
+            pending.value = lines.drop(1).filter { it.isNotBlank() }.map { line ->
+                val parts = line.split('\t')
+                CacheInvalidation(if (parts[2] == "-") null else String(java.util.Base64.getDecoder().decode(parts[2]), Charsets.UTF_8),
+                    CacheRemovalReason.valueOf(parts[1]), parts[0].toLong())
+            }
+            val removed = pending.value.mapNotNull { it.pageId }.toSet()
+            val cleared = pending.value.any { it.pageId == null }
+            directory.listFiles { file -> file.isFile && file.extension == "json" }.orEmpty().forEach { file ->
+                if (cleared || file.nameWithoutExtension.lowercase().replace("-", "") in removed) {
+                    check(file.delete()) { "Cannot finish pending cache removal" }
+                }
+            }
         }
     }
 
@@ -49,8 +135,8 @@ class FileDocumentCache(
         val cached = ReaderDocumentCodec.decode(content)
         if (cached == null) {
             // Delete corrupt or incompatible cache file
-            writeMutex.withLock {
-                file.delete()
+            mutate {
+                removeFile(file, CacheRemovalReason.CORRUPT, pageId)
             }
             return@withContext null
         }
@@ -72,7 +158,7 @@ class FileDocumentCache(
         val tempFile = File(directory, "${targetFile.nameWithoutExtension}-${UUID.randomUUID()}.tmp")
         val json = ReaderDocumentCodec.encode(document)
 
-        writeMutex.withLock {
+        mutate {
             if (!directory.exists()) {
                 directory.mkdirs()
             }
@@ -119,15 +205,27 @@ class FileDocumentCache(
         }
     }
 
-    override suspend fun remove(pageId: String): Unit = withContext(ioDispatcher) {
-        writeMutex.withLock {
-            fileFor(pageId).delete()
+    override suspend fun remove(pageId: String) = remove(pageId, CacheRemovalReason.EVICTED)
+
+    override suspend fun remove(pageId: String, reason: CacheRemovalReason): Unit = withContext(ioDispatcher) {
+        mutate {
+            val file = fileFor(pageId)
+            if (reason == CacheRemovalReason.DELETED || reason == CacheRemovalReason.PERMISSION_DENIED) {
+                record(pageId, reason)
+                file.delete()
+            } else {
+                removeFile(file, reason, pageId)
+            }
         }
     }
 
-    override suspend fun clear(): Unit = withContext(ioDispatcher) {
-        writeMutex.withLock {
-            directory.listFiles()?.forEach { it.delete() }
+    override suspend fun clear() = clear(CacheRemovalReason.CLEARED)
+
+    override suspend fun clear(reason: CacheRemovalReason): Unit = withContext(ioDispatcher) {
+        require(reason == CacheRemovalReason.CLEARED || reason == CacheRemovalReason.RESET)
+        mutate {
+            record(null, reason)
+            directory.listFiles { file -> file.extension == "json" || file.extension == "tmp" }?.forEach { it.delete() }
         }
     }
 
@@ -173,8 +271,8 @@ class FileDocumentCache(
         val normalizedPreserved = preservePageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
         var prunedCount = 0
 
-        writeMutex.withLock {
-            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withLock
+        mutate {
+            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@mutate
             for (file in files) {
                 val cached = try {
                     ReaderDocumentCodec.decode(file.readText())
@@ -183,8 +281,7 @@ class FileDocumentCache(
                 }
 
                 if (cached == null) {
-                    file.delete()
-                    prunedCount++
+                    if (removeFile(file, CacheRemovalReason.CORRUPT)) prunedCount++
                     continue
                 }
 
@@ -197,7 +294,7 @@ class FileDocumentCache(
                 val effectiveEpoch = retentionInstant.toEpochMilli()
 
                 if (now - effectiveEpoch > maxAgeMillis) {
-                    if (file.delete()) {
+                    if (removeFile(file, CacheRemovalReason.AGED_OUT, cached.document.pageId)) {
                         prunedCount++
                     }
                 }
@@ -211,8 +308,8 @@ class FileDocumentCache(
         val normalizedKeep = keepPageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
         var prunedCount = 0
 
-        writeMutex.withLock {
-            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withLock
+        mutate {
+            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@mutate
             for (file in files) {
                 val cached = try {
                     ReaderDocumentCodec.decode(file.readText())
@@ -221,14 +318,13 @@ class FileDocumentCache(
                 }
 
                 if (cached == null) {
-                    file.delete()
-                    prunedCount++
+                    if (removeFile(file, CacheRemovalReason.CORRUPT)) prunedCount++
                     continue
                 }
 
                 val canonicalPageId = cached.document.pageId.trim().lowercase().replace("-", "")
                 if (canonicalPageId !in normalizedKeep) {
-                    if (file.delete()) {
+                    if (removeFile(file, CacheRemovalReason.EVICTED, cached.document.pageId)) {
                         prunedCount++
                     }
                 }
@@ -243,12 +339,12 @@ class FileDocumentCache(
         val normalized = pageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
         var removedCount = 0
 
-        writeMutex.withLock {
-            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@withLock
+        mutate {
+            val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return@mutate
             for (file in files) {
                 val nameWithoutExt = file.nameWithoutExtension.lowercase().replace("-", "")
                 if (nameWithoutExt in normalized) {
-                    if (file.delete()) {
+                    if (removeFile(file, CacheRemovalReason.EVICTED)) {
                         removedCount++
                     }
                 } else {
@@ -260,7 +356,7 @@ class FileDocumentCache(
                     if (cached != null) {
                         val canonical = cached.document.pageId.trim().lowercase().replace("-", "")
                         if (canonical in normalized) {
-                            if (file.delete()) {
+                            if (removeFile(file, CacheRemovalReason.EVICTED, cached.document.pageId)) {
                                 removedCount++
                             }
                         }
@@ -278,7 +374,7 @@ class FileDocumentCache(
     }
 
     override suspend fun enforceBudget(preservePageIds: Set<String>): Int = withContext(ioDispatcher) {
-        writeMutex.withLock {
+        mutate {
             enforceBudgetLocked(preservePageIds)
         }
     }
@@ -307,7 +403,7 @@ class FileDocumentCache(
             }
             if (cached == null) {
                 val size = file.length()
-                if (file.delete()) {
+                if (removeFile(file, CacheRemovalReason.CORRUPT)) {
                     totalBytes -= size
                     totalEntries--
                 }
@@ -335,7 +431,7 @@ class FileDocumentCache(
 
         for (candidate in evictionPlan) {
             if (totalBytes <= maxBytes && totalEntries <= maxEntries) break
-            if (candidate.file.delete()) {
+            if (removeFile(candidate.file, CacheRemovalReason.EVICTED, candidate.canonicalPageId)) {
                 totalBytes -= candidate.size
                 totalEntries--
                 evictedCount++

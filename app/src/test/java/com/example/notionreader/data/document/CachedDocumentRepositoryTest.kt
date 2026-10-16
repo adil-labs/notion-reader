@@ -35,6 +35,39 @@ class CachedDocumentRepositoryTest {
     ).copy(lastEditedAt = v2Time)
 
     @Test
+    fun deniedDiscoveredPageUsesMetadataIdentityForInvalidation() = runBlocking {
+        val remote = FakeRemoteDocumentSource().apply {
+            metadata = RemoteDocumentMetadata(docV1.pageId, docV1.title, v1Time, false)
+            throwOnDocument = ReaderLoadException(ReaderErrorCategory.PERMISSION_DENIED, "Denied")
+        }
+        val cache = FakeDocumentCache()
+        val failure = runCatching { CachedDocumentRepository(remote, cache, fixedClock).loadDocument("") }.exceptionOrNull()
+        assertEquals(ReaderErrorCategory.PERMISSION_DENIED, (failure as ReaderLoadException).category)
+        assertEquals(listOf(docV1.pageId), cache.removedPageIds)
+        assertEquals(listOf(com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED), cache.removalReasons)
+    }
+
+    @Test
+    fun confirmedDenialOfAnUncachedPageEmitsPermanentInvalidation() = runBlocking {
+        val remote = FakeRemoteDocumentSource().apply {
+            throwOnMetadata = ReaderLoadException(ReaderErrorCategory.PERMISSION_DENIED, "Denied")
+        }
+        val cache = FakeDocumentCache()
+        runCatching { CachedDocumentRepository(remote, cache, fixedClock).loadDocument(docV1.pageId) }
+        assertEquals(listOf(com.example.notionreader.domain.document.CacheRemovalReason.PERMISSION_DENIED), cache.removalReasons)
+    }
+
+    @Test
+    fun temporaryRemoteFailureDoesNotEmitDeletion() = runBlocking {
+        val remote = FakeRemoteDocumentSource().apply {
+            throwOnMetadata = ReaderLoadException(ReaderErrorCategory.NETWORK_UNAVAILABLE, "Offline")
+        }
+        val cache = FakeDocumentCache()
+        runCatching { CachedDocumentRepository(remote, cache, fixedClock).loadDocument(docV1.pageId) }
+        assertTrue(cache.removalReasons.isEmpty())
+    }
+
+    @Test
     fun cacheHitDoesNotDownloadBlocksWhenRemoteTimestampIsIdentical() = runBlocking {
         val fakeRemote = FakeRemoteDocumentSource().apply {
             metadata = RemoteDocumentMetadata(
@@ -454,6 +487,13 @@ class CachedDocumentRepositoryTest {
     }
 
     private class FakeDocumentCache : DocumentCache {
+        val removedPageIds = mutableListOf<String>()
+        val removalReasons = mutableListOf<com.example.notionreader.domain.document.CacheRemovalReason>()
+        override suspend fun remove(pageId: String, reason: com.example.notionreader.domain.document.CacheRemovalReason) {
+            removalReasons += reason
+            removedPageIds += pageId
+            remove(pageId)
+        }
         private val storage = mutableMapOf<String, CachedDocument>()
         private val accessOrder = mutableMapOf<String, Long>()
         private var accessCounter = 0L

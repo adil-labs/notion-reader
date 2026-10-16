@@ -1,0 +1,12 @@
+ONNX Runtime 1.31.0
+Copyright (c) Microsoft Corporation
+MIT license: onnxruntime-MIT.txt
+Source: https://github.com/microsoft/onnxruntime/tree/v1.31.0
+
+sentence-transformers/all-MiniLM-L6-v2
+Publisher: Sentence Transformers
+Revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+Publisher model card declares Apache License 2.0: MiniLM-Apache-2.0.txt
+Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+The model and vocabulary are downloaded only after explicit user action.
+The unmodified vocabulary in the JVM test resources is a publisher parity fixture.

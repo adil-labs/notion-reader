@@ -179,6 +179,8 @@ fun looksLikeNotionPageReference(value: String): Boolean {
 fun quote(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 dependencies {
+    // Standalone API26 native-load and ARM64 semantic-quality gates recorded in tools/semantic-discovery.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
 
     implementation(composeBom)
@@ -237,4 +239,15 @@ dependencies {
     // the `testOptions` block for why the orchestrator was removed and how it would come back.
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+
+// Explicit developer-only task: private snapshots remain outside normal tests and APKs.
+tasks.register<JavaExec>("privateDiscoveryReview") {
+    group = "verification"
+    description = "Review/replay an explicitly exported private snapshot under ignored build storage"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
+    mainClass.set("com.example.notionreader.tooling.PrivateDiscoveryReview")
+    args(providers.gradleProperty("discoveryReviewDirectory").getOrElse(""))
 }
