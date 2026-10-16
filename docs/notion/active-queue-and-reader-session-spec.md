@@ -4,7 +4,7 @@
   Source page: Notion Reader — Active Queue & Reader Session Spec
   Page id:     3dec9345-e10a-814c-a8f3-c8b3539ac8e1
   Notion URL:  https://app.notion.com/p/Notion-Reader-Active-Queue-Reader-Session-Spec-3dec9345e10a814ca8f3c8b3539ac8e1
-  Notion last edited: 09/18/2026 15:30:00
+  Notion last edited: 10/15/2026 21:16:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -399,4 +399,16 @@ None. The two items this specification was created to settle — retention limit
 # Next implementation step
 
 Implement Phase 1 and Phase 2 against the existing reader domain, which already exposes the handoff types these phases consume. Both phases are JVM-testable with no device and no network, so the restore and resume behavior can be proven before any surface depends on it.
+
+# Discovery-origin sessions
+
+Home is the default destination and owns the bounded Continue and recent-session surfaces. Discover has no listening-history surface. Full listening history remains in Queues. Existing session persistence, resume and replay semantics remain unchanged. Recently opened manual Notes are a separate bounded private navigation history, cleared with history clearing and full reset; recording or navigating those references never changes a listening session.
+
+A guided Discovery preview is a fifth playback source. Explicit Play snapshots its visible ordered Note identities into an Active Queue and starts from the beginning. Preparing, removing, reordering or saving preview Notes does not affect the current session.
+
+QueueOrigin.Discovery carries only a descriptive label. Continue, completed-session replay and process-death restoration use the stored Note snapshot and saved position. They never re-evaluate a semantic query, seed Note, saved interest, automatic topic, topic membership, Note connection or recommendation.
+
+Topic details and Note-connection details may create an editable listening preview of at most five distinct currently eligible Notes, with descriptive source labels. Topic previews initially use representative relevance order; connection previews contain the two source Notes in the displayed order. Follow, unfollow, topic refresh, connection exploration, preview edits and Saved Queue actions never modify the active or retained session. Only explicit Play snapshots the visible preview. Cache eviction after snapshot does not remove historical queue membership; existing Note-load failure and access-loss behavior remains authoritative.
+
+The additive origin does not change the meaning of existing version-2 records. Keep their schema version and test that existing origins and new Discovery records round-trip together; unknown origin records remain individually rejectable without destroying other history.
 

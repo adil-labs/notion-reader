@@ -4,7 +4,7 @@
   Source page: Notion Reader — Product & Architecture Contract
   Page id:     3dec9345-e10a-81ab-aa68-cf0b2ee17e45
   Notion URL:  https://app.notion.com/p/Notion-Reader-Product-Architecture-Contract-3dec9345e10a81abaa68cf0b2ee17e45
-  Notion last edited: 09/17/2026 10:13:00
+  Notion last edited: 10/16/2026 05:33:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -53,7 +53,7 @@ This product is not intended to:
 
 ## Browse
 
-Browse is the reader-oriented discovery layer.
+Browse is the complete reader-oriented library with keyword search and metadata filtering. Discover is the primary semantic exploration destination.
 
 It may combine content from multiple Notion databases and standalone pages into one normalized discovery experience.
 
@@ -660,6 +660,7 @@ The expected top-level product concepts are:
 
 ```plain text
 Home
+Discover
 Browse
 Queues
 Settings
@@ -746,4 +747,34 @@ Those decisions belong to their corresponding implementation specifications.
 # Open questions
 
 None.
+
+# Home recency contract
+
+Home shows one primary resumable session and up to three other recent listening sessions without duplicating it. These use existing frozen session semantics and queue-origin labels; full history remains in Queues. Recently opened Notes shows up to five successfully opened manual Notes, newest first and deduplicated by canonical identity. Keep at most twenty opaque page references and timestamps privately; resolve titles from currently eligible content, without retaining an evicted-content snapshot. Background loading, playback, prefetch, indexing and previews do not record opens. Clear recent Note references with listening-history clearing and full local reset; confirmed deletion or permission loss removes the reference. Recency is a navigation convenience, never an input to inferred interests, topic grouping or recommendation ranking. Home shows up to three explicit interests in stable saved order, with View all interests. Browse keeps Explore. Tab switching and all manual history navigation preserve process-scoped playback and frozen queues.
+
+# Semantic discovery contract
+
+Notion Reader is an accessible, privacy-first personal knowledge exploration and listening companion. Home is the default top-level destination for a new launch; restoring an existing task preserves its visual destination. Browse retains its existing keyword search, metadata filters, sorts and full accessible library. Home, Discover, Browse, Queues and Settings are the five top-level destinations.
+
+Discover operates only on cached normalized ReaderDocuments and their derived local embeddings. It never implies that uncached workspace content has been searched. Model acquisition is explicit and optional; ordinary reading, Browse, queues and listening remain available without a model.
+
+Discovery is a core knowledge-exploration capability. Topics in your Notes automatically discovers overlapping themes from indexed cached content, independently of Your interests. A Note may belong to several topics through different matching passages, and may belong to none. Topic discovery and individual cross-topic Note connections work without followed interests. Neither topics nor interests are inferred from reading or listening activity. Deterministic Explore belongs to Browse, including its complete Area-and-Topic Explore Catalog and pre-filtered Browse routes. Home prioritizes Continue listening, recent listening sessions, recently opened Notes and compact explicit-interest cards. Discover contains cached semantic search, automatic topics and individual connections, with one View your interests entry; no listening history, Continue listening or queue shortcuts appear in Discover. Model and index management belong to Settings; unavailable semantic features use one concise setup or recovery card rather than repeated empty discovery sections.
+
+Topic labels are grounded in currently indexed titles, headings or phrases with source references. Representative Notes show their matching passage and section as evidence; shared wording or membership is not proof of a conceptual relationship. Cross-topic connections between individual Notes show relevant excerpts from both Notes, including connections to ungrouped Notes, without generated explanations, confidence percentages or chatbot answers. Standalone section headings remain searchable but cannot alone establish topic membership or a Note connection; evidence must come from body passages. Bounded candidate selection must distribute opportunities across Notes instead of allowing one long Note to consume the anchor budget. Discovery quality policies distinguish substantive body evidence from explicit reference lists, link-only/navigation passages and specification-routing boilerplate. Those weak passages remain searchable but cannot independently establish automatic membership or connections. Sparse results are preferable to unsupported groups. Consolidate redundant neighborhoods only when both Note overlap and same/near-duplicate passage evidence support redundancy; preserve independent multi-topic passages. Labels prefer supported complete headings or distinctive bounded literal phrases, reject generic reference headings and pronoun fragments, and retain explicit source fallback when unsupported. Rank supported connections deterministically and bound repeated use of the same Note in the displayed collection. These policies use cached content only and never infer user behavior. Capacity-limited coverage is reported honestly and does not repeatedly rescan unchanged sources without progress.
+
+Your interests are explicit editable text interests, cached seed-Note interests or followed topics. Following a topic creates an independent persisted interest with a user-confirmed name and editable plain-language matching text proposed from its source-backed label and terms. The matching text, not a live cluster, determines future interest recommendations. Its origin topic ID is provenance only. Cluster updates, renaming, splitting, merging, inactivity, eviction or disappearance never silently rewrite or delete that interest. Unfollow removes the interest, not the automatic topic. Existing seed interests retain their cache-bound availability semantics.
+
+Automatic topics have persistent opaque identities independent of labels and list positions. Updates preserve identity when surviving passage/member evidence supports continuity; genuine splits, merges and label-source loss are handled explicitly without arbitrarily recycling identities. A user's inspected topic, visible ordering and focus do not change under background work. A newer snapshot is offered explicitly; removed or revoked content is withdrawn promptly even from a pinned view. Topic navigation never redirects silently to another topic.
+
+Related Notes exclude the seed and do not start playback when opened. Older Notes are matching cached Notes last edited at least 90 days ago; unknown dates are excluded and no unread or forgotten claim is made.
+
+Each explicit interest is an independent entry into matching cached Notes and guided listening. Home presents a bounded interest-card preview. A shared Your interests collection is reachable from Home and Discover; individual matches belong to that interest's details, rather than one pooled feed. A guided listening preview contains at most five recommended Notes from the selected interest, topic, Note or connection, initially in relevance order, with accessible removal and reordering. The seed is not automatically included. Only explicit Play freezes its visible membership and order into a new Active Queue and starts a new session. Preview changes, model/index changes, saved interests and recommendations cannot mutate an active or resumable queue.
+
+Discovery is an additional descriptive queue origin. Persist only its label alongside the ordinary frozen session snapshot, never a live query or connection to interests. Existing session records retain their meaning.
+
+Discovery Add to queue and Add all to queue use the existing Saved Queue destination and identity deduplication rules; they never alter playback or populate a Smart Queue.
+
+Derived vectors, excerpts, automatic content labels, membership evidence and connection evidence remain cache-bound. Temporary eviction or cache clearing removes that content immediately but does not assert remote deletion. A minimal private continuity registry may retain only opaque topic IDs, canonical page/source identities, creation order and unavailable state, with no vectors, titles, excerpts or derived labels from evicted Notes. Recaching revalidates content and may restore topic continuity. Confirmed deletion or permission loss removes the affected page/source identities and all discovery evidence; failed or partial refresh, timeout or absence from Browse never proves deletion. A topic with other valid sources survives; an empty topic is unavailable rather than redirected. User-confirmed interest names and matching text are explicit user data and survive source loss, while any stored source links are removed on confirmed access loss. Index clear removes derived topics, connections and continuity registry and pauses rebuilding; model deletion does the same while preserving explicit interests. Full local-data reset also clears interests. Private content is never sent to an embedding service or logged. No silent model updates or behavioral profiling are permitted.
+
+Semantic extraction and ranking consume reader-domain representations, not Notion DTOs. Domain ports, data adapters and application orchestration preserve existing layer dependencies and process-scoped playback ownership.
 

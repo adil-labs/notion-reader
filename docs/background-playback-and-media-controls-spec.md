@@ -67,8 +67,8 @@ This specification does not:
 - define queue policy, completion, or what happens to a Note that will not load;
 - define resume policy, session persistence, retention or listening history, which the Active Queue &
   Reader Session spec owns;
-- define anything about the Command's *visual* design, or add a destination: the UI contract's four
-  top-level destinations are unchanged and the Player remains secondary;
+- define anything about the Command's *visual* design, or add a destination: top-level navigation
+  belongs to the UI contract and the Player remains secondary;
 - implement Google Cast, a media *browser*, or a content library. `MediaSessionService` is used as a
   transport host, not as a browsable library; `MediaLibraryService` is deliberately not adopted;
 - implement playback resumption after a reboot, or any scheme in which the system restarts playback

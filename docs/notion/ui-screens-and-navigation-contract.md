@@ -4,7 +4,7 @@
   Source page: Notion Reader — UI Screens & Navigation Contract
   Page id:     3dec9345-e10a-81b6-9cd2-d54532ad6fcd
   Notion URL:  https://app.notion.com/p/Notion-Reader-UI-Screens-Navigation-Contract-3dec9345e10a81b69cd2d54532ad6fcd
-  Notion last edited: 10/05/2026 03:24:00
+  Notion last edited: 10/16/2026 06:01:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -25,7 +25,7 @@ Terms such as Browse, Note, Saved Queue, Smart Queue, Active Queue, Player, Play
 # Goals
 - Keep top-level navigation small and predictable.
 - Make continuing previously paused listening fast.
-- Provide useful Home discovery without duplicating Browse.
+- Provide useful Discover discovery without duplicating Browse.
 - Support manual Note reading independently from spoken playback.
 - Make Browse powerful without recreating folders or Notion database navigation.
 - Clearly distinguish listening history, Saved Queues, and Smart Queues.
@@ -54,10 +54,11 @@ This specification does not define:
 
 # Top-level navigation
 
-The application has four top-level destinations:
+The application has five top-level destinations:
 
 ```plain text
 Home
+Discover
 Browse
 Queues
 Settings
@@ -67,7 +68,7 @@ These should use a persistent Android top-level navigation mechanism appropriate
 
 On standard phone layouts, bottom navigation is expected.
 
-The Player is not a fifth bottom-navigation destination.
+The Player is a secondary destination and is not a bottom-navigation destination.
 
 The Note screen is not a top-level destination.
 
@@ -79,13 +80,16 @@ Both are secondary screens reached from the primary navigation surfaces.
 App
 │
 ├── Home
-│   ├── Continue listening → Player
-│   ├── Your queues → Queue Details
-│   └── Explore preview
-│       ├── Area or Topic → pre-filtered Browse
-│       └── See all Explore → Explore Catalog
+│   ├── Continue listening and Recent listening → Player
+│   ├── Recently opened Notes → Note
+│   └── Your interests → interest details / shared interests collection
+│
+├── Discover
+│   ├── Search cached Notes, topics and connections → source-linked Notes
+│   └── View your interests → shared interests collection
 │
 ├── Browse
+│   ├── Explore → complete Explore Catalog → pre-filtered Browse
 │   ├── Search
 │   ├── Filters
 │   ├── Sorting
@@ -212,99 +216,19 @@ If no resumable session exists, the mini-player is absent.
 
 # Home screen
 
-## Purpose
+Home is the default destination for a new launch. Restore an existing task's destination without forcing Home. Back from other top-level destinations returns Home; Back from Home follows system behavior. Home contains, in order: one compact Continue listening card; up to three other compact Recent listening session rows; up to five Recently opened Notes; and up to three Your interests cards in stable saved order with View all interests. Empty sections use concise useful actions rather than blank lists. Listening cards use the existing Continue/replay commands and frozen snapshots. The full history remains in Queues → Listening. Recent Note cards open manual reading without changing playback. Only successful explicit opens count; failed, canceled, superseded or background loads do not. Page references and timestamps are bounded to twenty private records, resolved against current eligible content and cleared with history/full reset. An evicted Note has no retained title or content snapshot. Confirmed deletion or denied permission removes its reference. These recents never influence semantic ranking or interest discovery.
 
-Home provides useful starting points.
+# Discover screen
 
-It should answer:
+Discover focuses on Search your cached Notes with facets and indexed coverage, Topics in your Notes, Connections between Notes, and one View your interests entry. It contains no listening history, Continue listening, recent queue list or expanded interest collection. Matching and older Notes belong in individual interest/topic/Note details. Existing mini-player behavior remains independently governed; removing the listening history section does not stop background playback. Use an integrated accessible Search action in the search field and the keyboard Search action; do not show a separate disabled Search button for an empty query. Keep indexed cached-content coverage visible and Filters compact. Discovery progress has one primary state: ready updates take precedence over background updating text and expose an explicit Refresh action, without silently changing the inspected snapshot. Topic previews show a concise source-backed label, distinct Note count and one representative Note; the full evidence and member list remain in details. Generic or long fallback labels may use an honest Similar Notes or Related Notes presentation, without rewriting stored labels, identities, memberships or followed interests. Home keeps its primary Continue card, uses compact vertical rows for other sessions with queue/interest names distinguishing them, and provides a brief recent-Note empty state with access to Browse. Use a compass for Discover. Preserve section headings, real focus targets, stable Back behavior, scalable text and accessible vertical navigation.
 
-```plain text
-What was I listening to?
-What queues do I already have?
-What might I want to explore?
-```
+# Shared Your interests screen
 
-Home is not a complete Browse screen and not a complete Queue-management screen.
+Home View all interests and Discover View your interests open the same secondary collection, preserving their own source focus and scroll on Back. Show explicit text, seed and followed-topic interests as compact cards, with Add interest and existing editing/removal routes. Empty or model-unavailable collections still allow interest management. Selecting an interest opens its existing source-linked matches and optional listening preview; only explicit Play starts a session.
 
-It has three primary sections.
+# Browse — Explore
 
-# Home — Continue listening
-
-This section shows a small number of recent unfinished listening sessions.
-
-These are frozen Active Queue snapshots.
-
-Example:
-
-```plain text
-Continue listening
-
-Mindfulness reflections
-Note 3 of 8
-Paused 2 hours ago
-[Continue]
-
-Chess practice
-Note 7 of 12
-Paused yesterday
-[Continue]
-```
-
-Selecting Continue:
-1. restores that exact Active Queue snapshot;
-1. restores its exact saved playback position;
-1. opens Player;
-1. does not re-evaluate the source Browse query, Saved Queue, or Smart Queue.
-
-The full listening history is available under:
-
-```plain text
-Queues → Listening
-```
-
-Home should show only a small useful subset.
-
-If no resumable session exists, omit the section.
-
-# Home — Your queues
-
-This section surfaces a small number of useful persistent queues.
-
-It may contain both:
-
-```plain text
-Saved Queue
-Smart Queue
-```
-
-Example:
-
-```plain text
-Your queues
-
-Android accessibility
-Saved Queue · 11 notes
-
-Recent mindfulness reflections
-Smart Queue · 8 current matches
-
-Chess calculation review
-Saved Queue · 6 notes
-
-See all queues
-```
-
-Activating an item opens its Queue Details screen.
-
-It does not immediately start playback.
-
-Home should show a limited number based primarily on recent usage or recent queue activity.
-
-The full collection remains under Queues.
-
-# Home — Explore
-
-Home contains a bounded, deterministic Explore preview. It is a set of discovery shortcuts into Browse, not the complete metadata taxonomy.
+Browse exposes a compact Explore entry opening the complete deterministic Explore Catalog. Explore is not repeated in Discover. It provides metadata shortcuts into the Browse result set, not an automatic topic taxonomy.
 
 It does not automatically create Saved or Smart Queues.
 
@@ -349,7 +273,7 @@ may open Browse with:
 Area = Chess
 ```
 
-Each preview entry is a reader-oriented shortcut into a result set. Selecting See all Explore opens the Explore Catalog.
+Each catalog entry is a reader-oriented shortcut into a result set. Selecting Explore in Browse opens the Explore Catalog.
 
 They are not persistent queues.
 
@@ -362,33 +286,17 @@ Catalog order and selection are intentionally simple:
 - each section is ordered alphabetically using a case-insensitive deterministic comparison;
 - selecting an Area opens Browse with that Area facet, and selecting a Topic opens Browse with that Topic facet.
 
-The catalog must not use opaque AI recommendations or a shared popularity cut-off. Home preview selection may be ranked separately, but it must link to this complete catalog.
+The catalog must not use opaque AI recommendations or a shared popularity cut-off. Browse exposes a stable Explore entry linking to this complete catalog.
 
-# Home invariant
+# Home and Discover invariant
 
-Home may surface useful content, sessions, and queue shortcuts, but must not duplicate the full functionality of Browse or Queues.
-
-The Home structure is therefore:
-
-```plain text
-Home
-
-Continue listening
-→ resumable Active Queue snapshots
-
-Your queues
-→ Saved and Smart Queue definitions
-
-Explore preview
-→ filtered entry points into Browse
-→ Explore Catalog for the complete Area and Topic taxonomy
-```
+Home resumes familiar content; Discover explores cached knowledge. Neither duplicates Browse or queue management. Explore remains in Browse. Opening any card is visual navigation unless it explicitly invokes an existing listening command.
 
 # Browse screen
 
 ## Purpose
 
-Browse is the primary semantic discovery interface.
+Browse is the primary keyword-search and metadata-browsing interface. Discover owns local semantic search, automatic topics and individual semantic connections.
 
 It answers:
 
@@ -661,15 +569,15 @@ Opening a Note must not force the user to rebuild the Browse query.
 
 The same principle applies when briefly opening Player and returning.
 
-# Home Explore to Browse
+# Browse Explore to filtered Browse
 
-Explore shortcuts on Home resolve into Browse state.
+Explore Catalog shortcuts reached from Browse resolve into Browse state.
 
 Example:
 
 ```plain text
-Home
-→ Explore: Mindfulness
+Browse
+→ Explore Catalog: Mindfulness
 → Browse
 → Topic = mindfulness
 ```
@@ -1336,6 +1244,7 @@ Switching between:
 
 ```plain text
 Home
+Discover
 Browse
 Queues
 Settings
@@ -1369,7 +1278,7 @@ Navigation simply opens the new Player session.
 
 # Loading states
 
-Screens dependent on remote content must distinguish loading from empty states. When a persisted Browse index exists, Browse, Home Explore, and Explore Catalog render that cached data immediately while a foreground refresh runs; a refresh failure retains the cached data rather than blanking the discovery surfaces.
+Screens dependent on remote content must distinguish loading from empty states. When a persisted Browse index exists, Browse and Explore Catalog render that cached data immediately while a foreground refresh runs; a refresh failure retains the cached data rather than blanking the discovery surfaces.
 
 Example:
 
@@ -1477,7 +1386,7 @@ The mini-player should not read the complete queue state every time focus reache
 Each primary screen has one responsibility:
 
 ```plain text
-Home
+Discover
 → useful starting points
 
 Browse
@@ -1502,10 +1411,10 @@ Raw Notion
 A downstream specification should justify creating another major destination rather than overloading one of these responsibilities.
 
 # Navigation invariants
-1. Home, Browse, Queues, and Settings are top-level destinations.
+1. Home, Discover, Browse, Queues, and Settings are top-level destinations.
 1. Player is not a permanent bottom-navigation tab.
 1. Note is not a top-level destination.
-1. Home contains Continue listening, Your queues, and a bounded Explore preview; Explore Catalog is a secondary destination.
+1. Home owns listening recents and interest shortcuts; Discover owns semantic search and knowledge exploration, without listening history; Browse owns deterministic Explore.
 1. Explore preview and catalog entries open pre-filtered Browse rather than creating persistent queues; the catalog exposes every populated Area and Topic.
 1. Browse defaults to All Notes sorted by Recently updated.
 1. Browse combines Search, facets, sorting, and one ordered result set.
@@ -1553,11 +1462,11 @@ Future specifications that depend on this contract include:
 # Acceptance criteria
 
 This specification is ready when:
-- the four top-level destinations are explicit;
-- Home has clear responsibilities and three defined sections;
+- the five top-level destinations are explicit;
+- Home provides resume/recency shortcuts and Discover focuses on search, topics and connections;
 - Browse has a defined default state;
 - Search/filter/sort/result-set behavior is unambiguous;
-- Home Explore and Browse have an explicit relationship;
+- Browse owns Explore and its complete catalog;
 - Play all and Add all to queue have precise navigation effects;
 - Listening, Saved, and Smart Queue tabs have distinct mental models;
 - unfinished and completed listening sessions have defined behavior;
@@ -1579,8 +1488,8 @@ This specification intentionally does not define:
 - precise screen spacing;
 - exact filter widgets;
 - exact Browse search backend;
-- exact Home Explore ranking algorithm;
-- exact number of Home entries shown;
+- exact ordering of optional Browse Explore shortcuts;
+- exact number of Discover entries shown;
 - exact listening-history retention limit;
 - exact Saved Queue persistence schema;
 - exact Smart Queue query representation;
@@ -1595,4 +1504,30 @@ This specification intentionally does not define:
 # Open questions
 
 None.
+
+# Discover semantic surfaces
+
+Discover is a primary knowledge-exploration experience, separate from the default Home destination. Its order is semantic search with facets and coverage, Topics in your Notes, Connections between Notes and one View your interests entry. No listening history or queue shortcuts appear here. Topic and connection previews are bounded cards linking to secondary lists. Explore remains in Browse. Search and individual Notes never require topic membership or interests. Show one concise setup/recovery state for unavailable semantic features; keep interest management reachable even without a model.
+
+Search is labelled Search your cached Notes and shows indexed versus cached coverage. It supports the existing metadata facets and returns up to 20 distinct Notes in semantic relevance order. Browse keeps its existing keyword behavior and navigation state. Search query, facets, visible results and return-focus identity survive trips into a Note.
+
+Your interests contains only explicitly saved text, seed-Note and followed-topic interests. Add interest offers Describe a topic and Choose a Note; the Note picker explains that only cached Notes are available. Automatic topics remain in Topics in your Notes, not in Your interests. Without followed interests, show automatic topics and individual connections when supported by evidence, plus a concise Add interest invitation; never fabricate personalized recommendations. An evicted seed is unavailable until recached and retains no content snapshot.
+
+Each automatic-topic preview is a labelled navigation item with its distinct available Note count and one representative title. See all topics opens a stable list. Topic details prioritizes the topic name, distinct available Note count, Preview listening, Follow topic or View followed interest, and member Notes with matching excerpts. The first three members are marked Representative without duplicating their titles in a separate list. Explain that following saves an interest and only Play starts listening. Put cached/indexed coverage, label provenance with Open label source Note, and anchor context behind a collapsed Why these Notes? control; retain its expanded state and real return-focus targets across Note navigation. For generic fallback topic labels, show a clearly attributed source Note title as context in previews and details without changing persisted labels, identities or follows. Each Note has a source-linked matching excerpt and section. A Note can appear in multiple topic details; counts deduplicate canonical Note identities within each topic. No useful groups, insufficient indexed content, indexing paused, model unavailable and processing incomplete have distinct states; Browse and search remain available.
+
+Follow topic opens a confirmation form with the proposed name and editable matching text. Save creates a durable independent interest; Cancel changes nothing. Existing follows open the saved interest rather than duplicating it. Renaming or regrouping the automatic topic never changes its saved interest. Your interests is a shared secondary card collection with a bounded preview on Home; do not expand pooled interest recommendations or older matching Notes into the main feed. Selecting a card opens that individual interest, its saved definition, matching cached Notes with passage evidence, and an optional older-matches subsection. Text and cached-seed interests use the same details route; an unavailable seed has an explicit recache state and no retained content snapshot. Interest details offers Preview listening for up to five matches in relevance order, with a descriptive Interest origin label. Preview, edits, saving and opening Notes leave the current session alone; only explicit Play creates the frozen Discovery-origin Active Queue. Details also offers editing and removal. Topic disappearance leaves the saved interest usable.
+
+Connections between Notes uses compact single-action cards with two separately readable Note titles, one short source excerpt and a Compare passages cue. The card opens a comparison showing full excerpts and section labels from both Notes with named Open Note actions; the accessible navigation label identifies both Notes. Preview listening remains optional in details. Do not repeat both full excerpts in the main feed. It may surface different-topic or grouped-to-ungrouped pairs, deduplicates unordered canonical pairs, and does not require every Note to have a topic. Connection details permits opening either Note and Preview listening. A generic Similar passages label describes the evidence without claiming cause, contradiction, agreement or a generated conceptual relationship.
+
+Topic, connection and member lists use structured headings, list semantics and explicit labelled controls. A topic row is one navigation stop with its name and distinct Note count; representative titles are readable without separate repeated open controls on the preview. Details provides named Open Note actions and readable evidence. All destinations and rows have stable ID-based focus targets. Back restores the originating topic, member or connection control and its saved scroll position. When a source becomes unavailable, withdraw its evidence, keep the destination with an honest unavailable state and restore focus to the nearest surviving control or section heading.
+
+Background indexing may build a newer snapshot but does not reorder, rename or regroup an inspected list. Offer New discoveries available and an explicit Refresh action without repeated announcements. User refresh adopts the newer snapshot and restores the same topic ID when it survives. Opening Note and returning preserves the inspected snapshot except for mandatory eligibility removals. Topic changes do not alter a prepared listening preview.
+
+Note and Player secondary navigation offer up to five Related Notes with source excerpts and section labels. Opening a result is manual reading and leaves playback alone. Related lists exclude the source Note. Older Notes use the last-edited date and a 90-day cutoff, excluding unknown dates.
+
+Guided listening is a secondary preview of at most five recommended Notes, excluding the seed unless explicitly added through a future specified action. Provide labelled remove and move-up/move-down controls, Play, and existing Saved Queue destination actions. Play snapshots the preview order into a new session; other actions never replace or interrupt playback.
+
+Discovery settings expose model download size, source, license, network choice, download cancellation/retry/deletion, indexing coverage/progress/pause/resume, index clear/rebuild, and derived storage use. Clearing the index pauses rebuilding until explicit resume. Model deletion clears vectors and excerpts. Loading, unavailable model, incomplete index, empty results, errors and storage-budget exhaustion are distinct accessible states. A topic/checkpoint validation rejection or I/O error must show an accurate recovery description and must not be called storage full. Keep the prior valid discoveries accessible; do not clear the source cache or silently raise storage limits to hide failure.
+
+Recommendation rows are source-linked, keyboard-operable list items. Background updates do not move focus, reorder the currently inspected list, or repeatedly announce counts. Back reverses visual navigation and restores a real focus target. No graph is required to operate Discovery.
 

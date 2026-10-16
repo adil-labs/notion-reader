@@ -4,7 +4,7 @@
   Source page: Notion Reader — Notion Integration Implementation Spec
   Page id:     3dec9345-e10a-81e8-8b28-e7d04672e53e
   Notion URL:  https://app.notion.com/p/Notion-Reader-Notion-Integration-Implementation-Spec-3dec9345e10a81e88b28e7d04672e53e
-  Notion last edited: 09/17/2026 13:25:00
+  Notion last edited: 10/16/2026 06:01:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -151,6 +151,10 @@ playback
 ```
 
 A direct page-read request may bypass library discovery and go straight from page identity to ReaderDocument.
+
+# Manual-open navigation history
+
+Only a successfully published explicit manual Note-open request may record a recent-open reference. Failed, canceled, superseded, playback, indexing, prefetch and background loads do not. Persist at most twenty opaque page identities and timestamps in private backup-excluded storage. Resolve labels from currently eligible content; retain no evicted-content snapshot. Propagate confirmed deletion/permission-denial removals even after temporary eviction. History clearing/full reset removes these references. Keep this feature separate from document-cache LRU, semantic ranking and explicit interests.
 
 # Discovery and reading queues
 
@@ -644,4 +648,26 @@ known page ID
 ```
 
 Once that contract is stable, add pagination and recursive children before introducing playback.
+
+# Local semantic indexing boundary
+
+Semantic indexing consumes cached ReaderDocuments and normalized ReaderIndexEntries only. Notion DTOs remain confined to data integration. It must not force a workspace-content download or alter existing refresh, cache ownership, playback, or retry semantics.
+
+The cache exposes bounded enumeration and change observation without touching access timestamps. All writes, removals, budget evictions, corruption removals and clears participate. A failed or partial remote index response never proves deletion; confirmed page-not-found or permission-denied removal invalidates derived semantic data.
+
+A single process-scoped application worker extracts title, section and paragraph text, chunks within the embedding model token budget without whole-document truncation, and retains page, section, block and passage-offset provenance. Filtering metadata is separate from semantic input. Content hashes avoid unchanged embeddings; metadata-only edits update filters independently.
+
+Per-document semantic records are atomic, versioned by model artifact, tokenizer, preprocessing, chunking, dimensions and storage format, and stored outside backup. Index completion checks source revision and reset generation before commit. Topic/checkpoint persistence distinguishes successful writes, invalid snapshot rejection with a content-free reason, derived-budget exhaustion, I/O failure and an unknown legacy-adapter failure. Never label validation, I/O or unknown failure as storage full. Preserve the previous valid generation on a rejected write and retain cancellation semantics. Developer diagnostics may record aggregate timings and structural failure codes, never Note content, IDs or queries in general logs. An explicitly requested private local evaluation may retain a developer-controlled snapshot outside the app in ignored local files; it is not behavioral profiling, a cloud embedding service or a product cache-retention exemption. Interrupted work resumes from cached source; corrupt derived data is rebuilt. Retrieval revalidates cache eligibility before publishing.
+
+The initial model is optional English MiniLM-L6-v2 with 384-dimensional normalized embeddings and ONNX Runtime CPU inference, subject to API 26, ABI/native packaging, licensing, tokenizer parity, memory and retrieval-quality feasibility gates. Downloads require explicit user action and immutable revisions/checksums; model initialization and inference never run on the UI thread.
+
+The derived index budget is 64 MiB. Indexing pauses rather than truncating documents or evicting source documents on budget exhaustion. One worker gives foreground queries priority and pauses bulk indexing during playback, app backgrounding and resource pressure. Checkpoints resume on an eligible launch; no persistent indexing service is introduced.
+
+Vectors and source excerpts are removed with their source cache records, including temporary eviction and corruption cleanup. Automatic topic labels, evidence, memberships and Note-pair connection evidence have the same cache-bound lifecycle. Temporary eviction and explicit cache clear are distinct from confirmed deletion or permission loss: the former may retain a minimal opaque continuity registry, while the latter also removes affected source identities from that registry and interest provenance. Neither partial index refresh nor failed remote fetch is evidence of deletion. Cache mutations expose a typed reason and generation; confirmed access loss invalidates discovery even when the page was already evicted. No registry record retains an evicted source's title, derived label, text, vector or excerpt. Explicit user-confirmed interest name/matching text is independent user data, not a hidden seed-content snapshot.
+
+Topic discovery reuses the existing embedding identity, passage records and exact cosine primitives. Domain owns pure overlapping membership, source-backed labels, identity reconciliation and connection ranking; data owns private atomic topic/continuity persistence and typed cache lifecycle events; application owns process-scoped incremental coordination. No Python, extra generative model, cloud service or second permanent worker is introduced. A Note is independently eligible for multiple topics through matching passages; do not replace this with a non-overlapping document partition. Do not materialize an unbounded passage-pair similarity matrix. Version evidence/label/diversity policies separately from embeddings. Policy updates reprocess cached vector records without recomputing unchanged embeddings, preserve opaque continuity and saved interests, invalidate incompatible processing checkpoints, and offer the resulting generation through explicit Refresh. Reference-only/link-list/navigation boilerplate is excluded from group/connection evidence without deleting or hiding it from semantic search. Apply deterministic near-duplicate passage checks alongside member overlap for consolidation and a bounded per-Note connection exposure cap. A replacement embedding provider may ship only after immutable artifact, native ABI/API 26, tokenizer/prompt/pooling, memory, retrieval quality and playback-contention gates pass; unsupported ABIs or unmeasured gates block default migration, without changing minimum Android support.
+
+Persist versioned topic generations, stable topic IDs, source references and processing checkpoints atomically. Only publish a completed consistent generation after model/index/cache/reset revisions still match. Reconcile changed and invalidated documents incrementally with bounded candidate/anchor memory, foreground-query priority and the existing playback/background/resource-pressure suspension policy. Any topic/work/storage cap is visible as incomplete coverage, not a claim that remaining Notes have no topic. Retain the existing 64 MiB total derived-data budget across embeddings, topics, connections and continuity state.
+
+Index clear disables rebuilding until explicit resume and clears automatic topics, connections and continuity state; model deletion does the same. Explicit interests, including followed-topic name/matching text, survive both operations; full local reset clears them. A model change rebuilds incompatible content embeddings and topic evidence without silently rewriting followed interests. No note content or queries are transmitted to external inference services or logged.
 

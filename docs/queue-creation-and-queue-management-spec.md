@@ -100,6 +100,16 @@ order to be inverted by accident.
 
 # Definitions
 
+## Discovery sources
+
+Discovery results and guided previews use the existing Saved Queue destination
+and stable-page-identity deduplication rules. Add all to queue captures the visible
+ordered identities at invocation; later semantic refreshes cannot change that
+pending selection. Saving never starts, replaces or interrupts playback. Smart
+Queues remain invalid manual-add destinations. Explicit preview Play creates a
+frozen Discovery-origin session under the Product and Active Queue contracts;
+it does not add any Player transport command.
+
 - **Saved Queue** — a persistent, user-managed ordered collection of Note identities, with a stable identity
   and a user-visible name. "Playlists I built."
 - **Queue identity** — the stable identifier of the queue itself, distinct from every Note identity in it
@@ -595,6 +605,13 @@ The chooser, the dedupe report, and the create-if-empty path.
 
 The last consumer, because it is a projection of what the first seven produce.
 
+The current Home/Discover navigation amendment supersedes the former Home Saved
+Queue preview: Home's recent listening cards describe frozen session snapshots,
+including their queue origins. They preserve Continue/completed-session replay
+semantics. Persistent Saved and Smart Queue definitions remain under Queues;
+Discover has no listening-history or queue-shortcut section. Queue creation,
+destination actions, persistence and explicit Play behavior are unchanged.
+
 # Acceptance criteria
 
 1. A Saved Queue survives process death with its identity, name, membership and order intact.
@@ -650,6 +667,29 @@ The last consumer, because it is a projection of what the first seven produce.
   are both defensible and the difference is only observable after a source page is renamed.
 
 # Next implementation step
+
+## Discovery topic and connection destinations
+
+Automatic topic details and individual Note-connection details may prepare the
+existing editable Discovery listening preview, capped at five distinct Notes.
+Topic previews use representative relevance order; a connection preview contains
+its two Notes in displayed order. Preview creation, edits, topic refresh and Follow
+do not create or alter an Active Queue. Only explicit Play snapshots a new session.
+
+Add to queue and Add all to queue use the ordinary Saved Queue destination picker,
+canonical Note deduplication and persistence rules. The selected ordered identities
+are captured when the user invokes the action, not reevaluated from the topic later.
+Saving never populates a Smart Queue, starts playback or updates a frozen session.
+Automatic regrouping, rename, eviction, split/merge and Unfollow never rewrite a
+Saved Queue or an existing Discovery session. Existing unavailable-Note load
+behavior still applies when the listener later plays that frozen queue.
+
+These additional destinations are specified by the governing Discover contracts
+and implemented with the discovered-topic flow. Unavailable prepared entries keep
+their identity/order with source evidence removed; Play/Save remains disabled until
+the listener recaches or explicitly removes them.
+
+## Original queue implementation sequence
 
 **Phase 1**, which is JVM-verifiable with no device and no surface: the record, the codec, the store
 interface, an in-memory double and the DataStore implementation, following `SessionCodec` and
