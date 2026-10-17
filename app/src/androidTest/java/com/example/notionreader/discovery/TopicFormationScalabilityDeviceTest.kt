@@ -12,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
 
-/** Public synthetic formation benchmark, separate from model inference and human quality gates. */
+/** Varied public synthetic formation with model-loaded baseline; not a human quality corpus. */
 class TopicFormationScalabilityDeviceTest {
     private fun stableJavaHeapBytes(total: () -> Long, free: () -> Long): Long? {
         val before = total()
@@ -26,15 +26,23 @@ class TopicFormationScalabilityDeviceTest {
         assertEquals(80L, stableJavaHeapBytes({ 100L }, { 20L }))
         assertNull(stableJavaHeapBytes({ 100L }, { 101L }))
     }
-    @Test fun tenThousandPassagesAcrossUnevenSectionsCompleteWithoutTruncation() {
-        val identity = EmbeddingIdentity("public-formation-scale", 384)
+    @Test fun tenThousandPassagesAcrossUnevenSectionsCompleteWithoutTruncation() = formation(8)
+    @Test fun fortySubjectsAcrossUnevenSectionsCompleteWithoutTruncation() = formation(40)
+
+    private fun formation(subjectCount: Int) {
+        val provider = ShippingDiscoveryInferenceTest().provider()
+        runBlocking { provider.embed("Model-loaded idle baseline for public topic formation.") }
+        val identity = provider.identity
         fun allocated(): Long? = stableJavaHeapBytes({ Runtime.getRuntime().totalMemory() }, { Runtime.getRuntime().freeMemory() })
             ?.let { it + Debug.getNativeHeapAllocatedSize() }
+        Runtime.getRuntime().gc()
+        Thread.sleep(50)
         // Include retained corpus allocation in the added-memory measurement.
         val baseline = requireNotNull(allocated()) { "Baseline heap changed while sampling; retry the benchmark" }
         Log.i("TopicFormationBenchmark", "baselineJava=${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} baselineNative=${Debug.getNativeHeapAllocatedSize()}")
-        val names = listOf("Forest ecology", "Ocean currents", "Database recovery", "Stellar evolution",
+        val baseNames = listOf("Forest ecology", "Ocean currents", "Database recovery", "Stellar evolution",
             "Mountain geology", "Music harmony", "Plant physiology", "River erosion")
+        val names = (0 until subjectCount).map { baseNames.getOrNull(it) ?: "Public subject $it" }
         val records = (0 until 100).map { note ->
             SemanticRecord("note-$note", "r1", identity, SemanticMetadata("Public synthetic Note $note"),
                 (0 until 25).flatMap { section ->
@@ -47,7 +55,9 @@ class TopicFormationScalabilityDeviceTest {
                             names[subject], "body-$sectionNumber-$part", "chunk-$sectionNumber-$part",
                             0, excerpt.length, excerpt, excerpt, section * 10 + part)
                         // Match FileSemanticIndexStore's primitive representation instead of retaining boxed Floats.
-                        EmbeddedPassage(passage, PackedNormalizedVector.fromNormalized(FloatArray(384) { if (it == subject) 1f else 0f }))
+                        val varied = FloatArray(384) { if (it == subject) 1f else 0f }
+                        varied[subjectCount + sectionNumber % (384 - subjectCount)] = .04f + (sectionNumber % 17) * .001f
+                        EmbeddedPassage(passage, normalizeEmbedding(varied.toList(), 384))
                     }
                 })
         }
@@ -78,7 +88,7 @@ class TopicFormationScalabilityDeviceTest {
         try {
             do {
                 val stepStarted = System.nanoTime()
-                snapshot = SectionHierarchicalEngine(identity).step(records, snapshot, TopicPolicy(), workBudget = 25_000)
+                snapshot = SectionHierarchicalEngine(identity).step(records, snapshot, TopicPolicy(), workBudget = 250_000)
                 stepNanos += System.nanoTime() - stepStarted
                 snapshot.formationProgress?.let {
                     assertEquals(2_500, it.totalSections)
@@ -100,6 +110,7 @@ class TopicFormationScalabilityDeviceTest {
             } while (!snapshot!!.complete)
         } finally {
             Log.i("TopicFormationBenchmark", "final steps=$steps comparisons=$comparisons complete=${snapshot?.complete} elapsedMs=${(System.nanoTime() - started) / 1e6} stepMs=${stepNanos / 1e6} persistenceMs=${persistenceNanos / 1e6} sampledAddedBytes=${peak.get() - baseline}")
+            provider.release()
             sampling.set(false)
             monitor.join(1_000)
             runBlocking { FileTopicStore(workDirectory).clear() }
@@ -114,6 +125,26 @@ class TopicFormationScalabilityDeviceTest {
         assertEquals("Every orthogonal public subject survives", names.toSet(), snapshot.topics.map { it.label }.toSet())
         assertTrue("Memory sampler must observe the run", samples.get() > 1)
         assertTrue("Sampled additional Java/native memory exceeds 128 MiB", additionalPeak <= 128L * 1024 * 1024)
-        Log.i("TopicFormationBenchmark", "passages=10000 sections=2500 steps=$steps activeMs=$elapsedMs threadCpuMs=${(Debug.threadCpuTimeNanos() - cpuStarted) / 1e6} sampledAddedBytes=$additionalPeak samples=${samples.get()}")
+        val reachedCpuWork = java.util.concurrent.CountDownLatch(1)
+        val cancelRequested = AtomicBoolean(false)
+        val cancellation = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val checks = java.util.concurrent.atomic.AtomicInteger()
+        val cancellable = Thread {
+            try {
+                SectionHierarchicalEngine(identity).step(records, null, TopicPolicy(), workBudget = Int.MAX_VALUE) {
+                    if (checks.incrementAndGet() >= 3000) reachedCpuWork.countDown()
+                    if (cancelRequested.get()) throw java.util.concurrent.CancellationException("Public benchmark cancellation")
+                }
+            } catch (failure: Throwable) { cancellation.set(failure) }
+        }.apply { start() }
+        try {
+            assertTrue("Cancellation must be exercised during active CPU work", reachedCpuWork.await(10, java.util.concurrent.TimeUnit.SECONDS))
+        } finally { cancelRequested.set(true) }
+        val cancelledAt = System.nanoTime()
+        cancellable.join(1000)
+        assertFalse("Formation must stop within one second after cancellation", cancellable.isAlive)
+        assertTrue("The worker must observe cancellation rather than fail for another reason", cancellation.get() is java.util.concurrent.CancellationException)
+        Log.i("TopicFormationBenchmark", "cancellationMs=${(System.nanoTime() - cancelledAt) / 1e6} checks=${checks.get()}")
+        Log.i("TopicFormationBenchmark", "passages=10000 sections=2500 subjects=$subjectCount steps=$steps activeMs=$elapsedMs threadCpuMs=${(Debug.threadCpuTimeNanos() - cpuStarted) / 1e6} sampledAddedBytes=$additionalPeak samples=${samples.get()}")
     }
 }
