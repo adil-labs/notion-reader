@@ -1,4 +1,13 @@
-# Decision record — block conversion, resume, and cross-spec conflicts
+# Decision record
+
+This is chronological evidence: decisions, investigations, superseded proposals and
+verification results. It does not override the governing specifications. Start with
+[current implementation and open work (§73)](#73-current-implementation-open-work-and-documentation-map-2026-10-17)
+and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
+when investigating rationale or past failures. Earlier status and completion labels
+apply to their recorded round, not automatically to the current product.
+
+### Initial historical record — revision 3
 
 **Date:** 2026-09-17
 **Status:** revision 3 — tracks the first round of spec amendments.
@@ -7746,3 +7755,539 @@ Rechecked the complete tree with testDebugUnitTest, assembleDebug and compileDeb
 Pixel 8 Pro reconnected unlocked with Notion Reader foreground. install -r of the verified current APK succeeded. Reopened the app and inspected its actual Home and Discover layouts using Android CLI: Home and the five destinations render; Discover reports 23 of 23 cached Notes indexed, shows Topics, explicit Refresh and Connections. The model/source library was retained through replacement installation. This closes the previous installation blocker, not the outstanding performance or listening gates. No instrumentation or destructive reset ran against the Pixel library.
 
 Still open for the next phase: physically measure query latency and playback contention; human usefulness ratings and evidence-quality improvements; bounded candidate coverage on long libraries; the 10,000-passage performance gate; human TalkBack/listening acceptance; and any separately qualified optional Gemma path. Do not treat commit completion or indexed coverage as semantic-quality acceptance.
+
+## 55. Real-library and Pixel listening baseline for the next phase (2026-10-16)
+
+Started the authorized quality/performance phase from the clean committed tree. Human usefulness judgments were requested for the frozen displayed cases, separately from assistant evidence assessment. No ratings have been supplied yet and the 80% human-rated precision gate remains unproven. No private case was used for calibration. Proposed a debug-only content-free search timing hook and isolated public-data benchmark using shipping adapters; that bounded measurement design is awaiting a response before implementation. Existing queryTimings covers retrieval only, excluding embedding and query-gate wait, so it cannot be presented as end-to-end search latency.
+
+Pixel API37 ARM64, existing library/model: confirmed Notion Reader foreground, explicitly refreshed Discover, opened a four-Note topic, and opened its listening preview without starting a session. Explicit Play created a four-Note Discovery queue. Initial Loading became Playing and successive part positions advanced. Android Back returned to the preview while the mini-player retained the same Note 1 of 4 and Playing state; returning to Player retained the queue and progressed position. Selected row 2 in Active Queue: Note 2 of 4 reached Part 1, Playing. Paused after the probe; final state was Note 2 of 4, Part 2, Paused. This verifies manual queue transition and observed progression, not natural end-of-Note advancement, audio continuity or human speech acceptance. The explicit Play probe created a new session; no queue was saved and no interest followed.
+
+Preview usability finding: on the actual Pixel, four Notes with repeated full-title ordering/removal actions placed Play two long scrolls away. This is a concrete action-placement/presentation issue to address through the navigation contract and a bounded reviewed design, without removing accessible controls or changing explicit-Play semantics.
+
+Memory snapshots, not peaks or isolated discovery attribution: before probe total PSS 274338 KiB / RSS 403400 KiB / native heap PSS 79277 KiB; after playback and pausing PSS 333317 KiB / RSS 467156 KiB / native heap PSS 84189 KiB. These are baseline observations, not leak evidence or a memory acceptance pass. No physical query p50/p95 or contention claim is made from them.
+
+Exported a fresh developer-local cache/index/topic snapshot into ignored build storage. The persisted generation 226 had zero published topics, eight provisional topics, two connections, incomplete candidate coverage and 818 continuity records. The inspected UI retained an earlier pinned topic snapshot, so its four-Note topic is not evidence that the newest generation has supported groups. Candidate lifecycle, source revisions and continuity growth need investigation; do not increase bounds or preserve ineligible content to hide this discrepancy. Indexed-document coverage remains separate from grouping completion. Private layouts, evidence and journey details remain ignored; no product source/cache was cleared.
+
+Verification: the three-class wrapper invocation expected 14 tests but only HomeTaskRestorationTest ran (1/1). Its final verdict was correctly INCOMPLETE, not pass. Subsequent separate wrapper runs pass DiscoveryTopicsNavigationAccessibilityTest 10/10 and DiscoveryPolishAccessibilityTest 3/3, first attempts. The one observed Home recreation test retained the same process session object and destination, but the combined invocation's completeness failure remains recorded. No production or test implementation changed in this baseline investigation. No instrumentation ran on the Pixel library.
+
+Still open: human private-review ratings; design confirmation and accurate end-to-end timing/isolation tools; grouping lifecycle/continuity investigation and substantive quality improvements; accessible preview action placement; Pixel interest listening, natural completion, contention and task recreation; large text and human TalkBack acceptance; physical 10,000-passage performance and conditional model comparison. The full multi-phase goal remains active and is not complete.
+
+Follow-up copied-index replay: 32 bounded rounds completed without structural rejection. Published topics moved from zero to 24, provisional topics to 10, connections to six, groupingPass from three to six, and continuity entries from 818 to 923. CandidatePassLimit is 280 and needsMoreWork remains true. This demonstrates progress through a long grouping schedule rather than proving permanent topic loss. It also identifies completion latency/candidate turnover as measurement targets. Host replay did not change the app or establish Android throughput. The grouping and semantic-quality gates remain open.
+
+## 56. Measured search, topic publication and live playback observation (2026-10-16)
+
+The user supplied qualitative judgments for all twenty frozen private cases and approved content-free timing and topic-publication designs. Preserved judgments beside the frozen review in ignored storage, checking all case identities/order. Six reviewed topics were withheld as-is; three of four displayed connections were keep/conditional (one unconditional keep); eight of ten unshown candidates were worth considering, including conditional/deduplicated cases. These purposive qualitative decisions do not pass the 80% precision gate or prove unshown candidates were missed. After feedback guides design, this set is diagnostic; fresh independent evaluation remains needed. No private titles/excerpts/judgments entered repository fixtures or external services.
+
+Amended live governing Product, Navigation and Integration specifications before behavior, exported and inspected mirrors, and discarded unrelated note-authoring drift. Publication policy 1, carried by discovery policy 8, retains eligible candidates/IDs internally but withholds generic fallback/unsupported labels and deterministically suppresses redundant member families. The .75 canonical-member Jaccard boundary identifies near-identical families; independently supported labels, passages and anchors below the existing .75 separation justify both. Literal source support on two canonical member body contexts is deliberately conservative, not generated conceptual naming. This filter does not merge identities, rewrite interests or remove source records. It does not reconstruct every weak topic.
+
+Nine public JVM publication properties cover retention, grounding, word boundaries, duplicate families/prose, stability and independent themes. An identity stub failed five intended properties first. The same-block disjoint-span regression failed alone before correction: chunks of one long source block may have independent themes; overlapping spans cannot establish them. Display wiring has its own failing-first guard: See all topics remained visible for an entirely withheld collection before the filter. A source-loss Back-focus regression failed before routing missing all_topics/all_connections controls to the heading. Final topic/navigation wrapper run passes 12/12. The navigation fixture's authored heading now actually supports its Forest ecology label instead of only embedding-input annotation; assertions were retained.
+
+Connection membership uses published groups. Found an older exclusion: when neither Note had a group, the predicate rejected the pair. A two-Note integration property failed before allowing either/both ungrouped Notes. Score floors, canonical pairs and exposure caps remain unchanged. The native mapper-shaped corpus (19 Notes/46 passages) passes published held-out precision/recall 1.0 and pair precision 1.0 on API36 x86_64; host hard-negative publication checks also pass. The public native report is tools/semantic-discovery/publication-native-quality-2026-10-16.json. Synthetic evidence is not human private-library acceptance.
+
+Debug timing now distinguishes retrieval-only totalNs from whole-operation searchTotalNs, bulk/inference waiting, embedding and retrieval. completed=1 identifies successful current publication; cancelled/superseded/blank/unavailable operations are excluded from successful percentiles. Maps contain no query text, Note IDs or content. Two tests failed for the intended missing-whole-timing and observer-induced-error reasons, then passed. Optional diagnostic failures no longer change search behavior.
+
+The separate no-permissions benchmark UID builds copies of shipping sources and uses checksum-verified public model/synthetic records. It never installs/uninstalls the reader or reads its library. Persisted 100 Notes/10000 passages under the actual 64 MiB budget, checked cardinality and collected twenty successful warm queries per run. Pixel 8 Pro API37 ARM64: run 1 p50 938ms/p95 991ms; run 2 p50 908ms/p95 1020ms. Binary index 19304090 bytes; run 2 PSS 215049 KiB. Cold embedding including session creation was 393–403ms; one hundred passage inferences took about 1306ms in run 1. These are not isolated session-init or peak-memory measurements. Repeated embeddings test storage/exact search, not diverse relevance or every filter workload. The historical JSON-format 35–45second failure remains recorded; this scoped physical binary-format gate passes twice. Broader API/devices and 10000 passages during speech remain unmeasured.
+
+Review caught stale-APK reuse through SkipBuild and emulator results labelled physical. Removed SkipBuild, always assemble incrementally, compare generated shipping copies, record APK SHA256, reject emulator targets and record physical hardware. An actual emulator invocation rejects before install. Current-run UUID prevents accepting a prior report. Shared verdict checks reject incomplete samples, nonfinite timings, wrong percentiles, runtime errors and threshold breaches; removing the threshold guard makes its named self-check fail, restoring it passes. Independent review found no remaining important runner/helper defect. The public second report is tools/semantic-discovery/pixel-binary-benchmark-2026-10-16.json.
+
+Real-library twenty-query runs using one public query: paused p50 431ms/p95 550ms; first playing run 340ms/373ms; after the UI-state fix a fresh playing run 264ms/299ms. A baseline snapshot contained 23 records/2447 passages; eligibility can change as Notes refresh. Cache/warm-up and indexing eligibility differ, so lower playing latency does not prove playback improves performance. The first playing run retained the same topic generation before/after, consistent with bulk work pausing. These samples are not the controlled 10000-passage gate and cannot prove uninterrupted audible output.
+
+Physical verification exposed stale UI: Android's media session could be paused while Discover still displayed Playing/Pause. ReaderShell declared delegated collectAsState values but only read playback snapshots in other destinations; imperative continueListeningCard reads did not subscribe Discover. It now reads session/document/queue/history snapshots as mini-player projection keys. The external pause/resume semantics regression failed because Pause remained after engine pause, then passed. Reinstalled with install -r, retaining source/model/history, and confirmed Discover changes to Paused/Play without navigation. After the fresh twenty-query run, Player showed Note 2 advanced to Part 85; left paused there. This proves observed progression, not natural end-of-Note completion or speech acceptance.
+
+Additional evidence: 200% font navigation wrapper passes 10/10 and restores font_scale=1.0. Related Note open/Back preserves the paused Pixel queue. Full JVM suite is 806 tests with zero failures/errors; debug assembly and Android-test compilation pass. Native publication gate, mini-player regression and topic/navigation wrapper runs pass as scoped above. Independent UI review's missing all_topics focus finding is covered by its failing-first test; reviewer confirmed the fix. No instrumentation ran on the Pixel library.
+
+Still open: fresh human-rated precision and useful subjects beyond specification-family overlap; grounded subject reconstruction and grouping completion/turnover latency; explicit-reference versus inferred-connection presentation and novelty; preview Play placement; natural multi-Note completion and task recreation during actual speech; interest listening and human TalkBack acceptance; controlled 10000-passage speech contention, peak memory/heat and broader API/device measurements; and separately qualified replacement-model comparison. MiniLM remains active. The full goal is not complete.
+
+## 57. Copied replay is not unchanged-input resume evidence (2026-10-16)
+
+Completion investigation exposed a diagnostic defect: the private replay guessed the production metadata token from integers 0 through 64. Production supplies entries.hashCode(), an arbitrary signed Int; the export does not retain it. A mismatching replay signature starts a new grouping schedule, so the prior copied replay's pass counts cannot prove unchanged-input checkpoint resumption or a production restart defect. Structural write outcomes remain observed, but timing and pass progression describe that copied run only.
+
+Removed the guess. Replay uses an explicit zero, reports signature agreement and states that the missing original metadata hash prevents a resume claim. Added per-round grouping/connection stage, cursor, publication and checkpoint counts for diagnosis; host measurements remain separate from Android benchmarks. No production scheduling change is justified by these observations yet. The new 32-round copied run had no structural rejection, but its restarted pass schedule is not evidence of app completion latency. Correct provenance or an independently controlled reproduction is required before changing the algorithm.
+
+After the diagnostic correction, the complete JVM suite, debug assembly and Android-test compilation pass. Existing scoped device evidence is recorded in section 56; this diagnostic-only change does not establish additional device or human acceptance.
+
+## 58. Stable grouping inputs and second private quality review (2026-10-16)
+
+Found a production restart condition independently of the earlier replay defect: hashing the complete Browse list makes reordered entries and metadata changes on uncached Notes restart the cached candidate sweep. The public integration property first failed at reordered entries (expected pass 2, actual 1); a sort-only correction then failed at an added uncached entry (expected pass 3, actual 1). Grouping now hashes only metadata actually used for eligible cached vector records, sorted by canonical page identity. The property also recreates the controller before continuing and verifies that a real cached title update still starts reconciliation and updates stored metadata without embedding calls. A legacy signature starts one fresh reconciliation; no model or embedding migration is needed.
+
+The shared metadata helper makes current signatures reconstructible from a complete cache-current vector export. Copied Pixel replay verified exact source-signature agreement on 23 Notes/2455 passages, continued from grouping pass 1 to 6 over 32 bounded rounds and had no structural rejection. Published candidates moved from 2 to 6 under publication policy 1. CandidatePassLimit remains 281 and needsMoreWork remains true: this proves resumption for that copied input, not acceptable Android completion latency. The host diagnostic measures grouping and connection phases separately. Section 57's zero-token diagnostic limitation still applies to older signatures, not this exact-match replay.
+
+The user rated the second frozen twenty-case batch as one evaluation, explicitly noting duplicate supplied files are not independent runs. Preserved separate usefulness, passage support, label clarity, coherence and decisions under ignored private storage. Topics ready unchanged: 0/2; displayed connections worth keeping: 5/8; unshown candidates worth considering: 7/10. These are qualitative sample decisions, not a system precision/recall estimate. Useful personal and concrete technical connections exist, but invalid labels, broad product-family subjects and weak passage bridges remain. Prior private feedback is diagnostic/exposed evidence; it never enters public calibration or training fixtures.
+
+The review renderer now audits canonical Note pairs independently of displayed/unshown case kind, and complete canonical topic membership independently of changed labels/opaque IDs. Initial ID-only behavior failed three public properties. Independent review found that six representative excerpts do not identify a larger topic; two additional tests failed before exporting complete memberPageIds and marking truncated legacy membership unknown. All five Python properties pass. Rendering no longer calls every private sample held-out or invents human precision; original frozen review JSON/judgments are not overwritten.
+
+Amended live governing Product, Navigation and Integration sources, regenerated mirrors and inspected diffs; restored unrelated note-authoring exporter drift. Publication policy 2/discovery policy 9 withholds repeated negative/modal predicate fragments and ambiguous title-family-only labels. The structural family rule requires at least three and sixty percent of canonical members sharing the label before a title separator; two independently authored current body-section headings permit a supported subject. It is conservative, can withhold useful ambiguous names and is not a semantic product classifier. Candidate evidence, opaque identities, interests and independent connections remain. Both new public label properties failed under policy 1; all eleven publication properties pass, including exact one-versus-two heading support. This does not produce the desired specific subject for every retained cluster or pass human quality acceptance.
+
+Independent review found no remaining important issue after the exposure correction. The API36 x86_64 native mapper-shaped corpus passes publication policy 2 held-out precision/recall and pair precision 1.0 (19 Notes/46 passages); public report: tools/semantic-discovery/publication2-native-quality-2026-10-16.json. Topic/navigation wrapper passes 12/12. Full grouping completion, specific grounded reconstruction, separate direct-reference presentation and usefulness-aware passage selection remain open.
+
+## 59. Natural listening exposed interrupted speech and false Playing state (2026-10-16)
+
+Used the populated Pixel without instrumented installation, reset, voice change or accessibility-setting changes. A real two-Note connection preview (38 parts) started only through Play. During Note 1, cleared/relaunched the Activity task using NEW_TASK/CLEAR_TASK; Activity identity changed, PID stayed the same, the old Activity disappeared, and Note 2 loaded naturally. Opening Home/Discover/search did not replace queue membership. However, Note 2 stalled on part 12: several observations showed Playing, no active audio track, an unlocked foreground app and a live foreground service. That part was a short heading, not a long synthesis request. Pause/Play recovered the same part and the queue reached End of queue. This first run is not an uninterrupted playback pass.
+
+Added DEBUG-only SpeechTrace: static events and numeric utterance counters/statuses, with observer exceptions isolated. No speech text, Note IDs or engine/voice identities are logged. A second two-Note replay completed naturally with native start/done callbacks and no recovery; this establishes one clean run, not the navigation/TalkBack gate. A third run recreated the task and navigated while TalkBack was enabled. The active request received native onStop(interrupted=true), with no preceding reader cancel; accessibility speech from the selected engine began immediately afterwards. This is evidence of a native interruption coincident with accessibility speech, not proof of which component initiated it. The Pixel currently reports TalkBack and touch exploration enabled; prior historical off-state assumptions cannot govern this observation. Left those settings unchanged.
+
+The old adapter discarded error/stop callbacks while leaving the session Playing, ignored rejected speak returns, and invoked completion when speak threw. Those paths violate the existing Core Player rule that failed speech is reported and never skipped. The adapter now uses a single main-thread request tracker: native errors/unexpected stops, rejection and exceptions fail the current request once; cancellation/replacement/engine switching invalidate old callbacks; only genuine completion invokes advancement. The process host pauses before publishing the failure message, retaining the same part and queue index. No transport command or automatic retry was introduced. The third Pixel run now pauses truthfully at Note 1/part 6, media state agrees, and Player exposes the retry message. The native/accessibility interruption itself remains unresolved.
+
+Failing-first evidence:
+
+| Guard absent | Tests that noticed |
+| --- | --- |
+| Failed request discarded | Failed current request and failed announcement each require one failure and zero completion |
+| Host reports without pausing | aSpeechFailurePausesWithoutAdvancingTheNoteOrQueue |
+| Native rejection ignored | rejectedNativeSubmissionNeverBecomesSuccessfulCompletion |
+| Native exception treated as completion | throwingNativeSubmissionNeverBecomesSuccessfulCompletion |
+
+All six tracker properties and the host property pass after restoration; cancelled/replaced/late callbacks and reentrant next-request submission are covered. Independent review found no important issue in the bridge or request lifetime. Final JVM suite: 816 tests, zero failures/errors. Debug assembly and Android-test compilation pass. Player accessibility wrapper passes 18/18; topic/navigation 12/12 and native public quality 1/1 are recorded above. No instrumentation ran on the Pixel library. Latest debug build is installed with install -r and the Pixel is left paused at the failed part with its retry message.
+
+Official Android API documentation says onStop(interrupted=true) indicates incomplete output, while QUEUE_FLUSH is scoped to a calling app: [UtteranceProgressListener](https://developer.android.com/reference/android/speech/tts/UtteranceProgressListener#onStop(java.lang.String,%20boolean)), [TextToSpeech](https://developer.android.com/reference/android/speech/tts/TextToSpeech#QUEUE_FLUSH). Those contracts support reporting the interruption rather than declaring completion; they do not establish engine blame. Further comparison/engine diagnostics and human audible TalkBack acceptance are still required. One clean run and two different interrupted exploratory journeys must not be collapsed into a claimed reliability rate.
+
+Still open: human-rated recommendation quality at the required gate; useful specific topics and passage-pair/novelty policy; grouping completion latency; uninterrupted interest/topic listening during TalkBack navigation and task recreation; accessible preview Play placement and human speech/listening acceptance; controlled 10000-passage speech contention, peak memory/heat and wider API coverage; qualified replacement-model comparison. MiniLM remains active and the full four-phase goal remains active.
+
+
+## 60. Separate explicit named references from similar passages (2026-10-16)
+
+The user approved explicit full-title instructions/citations without requiring a verified Notion URL. Amended the live Product, Navigation and Integration governing sources first, exported mirrors, inspected diffs and restored unrelated authoring-export drift. Connection evidence policy 1 annotates existing eligible pairs only. Both canonical source identities and current titles must agree with cached metadata; target title must be unique. Explicit bounded body instructions/citations qualify; ambiguous titles, incidental mentions, partial titles, stale metadata and heading-only evidence do not. No candidate admission, ranking, storage, hyperlink or causality claim changes.
+
+Cards and details expose Named reference versus Similar passages. Complete lists have separate counted headings, stable pair identities and preserved within-group ordering. Manual Note opening and preview edits leave playback alone; only Play snapshots a preview. If a source disappears while details are open, Back focuses a real complete-list heading instead of a missing row. Future private exports and rendering record the evidence distinction without overwriting frozen reviews or changing exposure identity.
+
+Failing-first: the absent classifier failed exactly three positive domain properties while three negative properties passed; all six pass after implementation. Missing UI classification failed the two new navigation properties while twelve existing properties passed. A new source-loss Back test then failed until heading fallback existed. The final targeted wrapper passes 15/15 with completeness checks. Missing review labels failed one new Python property; all six review properties pass. Independent scoped review found no important findings. Full JVM suite passes 822 tests, zero failures/errors; debug assembly and Android-test compilation pass. Installed the main APK on Pixel using install -r after pausing Reader, preserving library data; foreground window/layout confirms Reader is open. The full named-reference interaction is verified on the emulator, not yet a human Pixel TalkBack acceptance.
+
+## 61. Measure a bounded query window during native speech (2026-10-16)
+
+Added optional delayed query start and current-run ready/window markers to the isolated shipping-source benchmark. Shared verdict checks both clocks, requested delay, complete fields and duration against all twenty samples; fourteen invalid-window cases fail when validation is disabled and pass with it restored. Historical reports remain explicitly supported.
+
+Retained the mixed-visibility failed run: p50 3228.16ms, p95 3963.25ms, one 38419.81ms outlier. Benchmark background/foreground changes and speech ending before the whole window prevent treating it as controlled foreground contention acceptance. A later controlled run kept the benchmark foreground and Reader speech in its foreground service, separate UID: 100 Notes, 10000 persisted passages, twenty queries, p50 374.88ms, p95 456.81ms; cold embedding including session 233.84ms, index 19304090 bytes, snapshot benchmark PSS 166117KiB. Public report includes source/APK provenance and condition. Different runtime/cache conditions do not establish a playback speed benefit.
+
+Manually correlated numeric-only Reader trace with epoch window 1792166980004–1792166987939ms: native utterance 48 began before the window and completed inside; 49 started/completed inside; 50 started inside and completed at the rounded end boundary. No native stop, error or reader cancel occurred in that window. Active speech audio track was separately observed. Native callbacks do not prove human audibility or uninterrupted navigation, peak memory/thermal behavior, or other API/device performance. An untargeted media Play command during setup briefly selected another media app; paused that specific app and used only Reader's named MediaSession thereafter. Do not use generic media keys to control this probe.
+
+Still open: the full four-phase goal, human quality acceptance, useful specific topics, passage-pair support/novelty, grouping completion, reliable TalkBack listening/navigation, peak resource measurements and qualified replacement-model comparison. MiniLM remains active; no migration is justified by these measurements alone.
+
+
+## 62. Fresh unchanged-input replay narrows grouping latency investigation (2026-10-16)
+
+Backgrounded the paused Pixel before a fresh local export; copied cache and derived records into ignored private storage only. Shipping replay confirms exact current source-signature agreement, 23 cache-current Notes and 2455 passages, with zero rejected checkpoints. Across 32 host rounds, grouping advances from pass 1 to pass 6 of the persisted 281-pass limit; generation advances 367 to 398 and the final connection cursor is 12 with further work eligible. Summed host build time is 19897.90ms. These are host diagnostics, not Android completion latency or a complete sweep.
+
+The implementation admits at most two new anchors per Note per pass, streams all passages against retained anchors, and runs a bounded connection sweep between grouping passes. The candidate limit derives from the longest Note. This demonstrates continuing progress rather than a stuck signature/checkpoint, while repeated full matching/connection sweeps remain a concrete cost to investigate. Do not raise budgets or declare coverage complete merely to hide that cost. Preserve late-document theme opportunity, multi-label evidence, interruption safety and foreground query priority in any optimization.
+
+The fresh frozen review includes six topic cases, eight displayed connection cases and six unshown candidates, audited against both prior reviews. All fourteen pair excerpts classify as Similar passages under the new strict evidence policy. Thus shipping annotation exists and has public positive/negative tests, but this snapshot does not demonstrate a Named reference reaching the populated feed. Better eligible-pair passage selection remains open; do not relabel an unrelated excerpt from document-level knowledge. No new human quality score is inferred. Pixel returned to Reader after export; source snapshots and generated HTML remain private and uncommitted.
+
+
+## 63. Reuse completed connection sweeps when grouping leaves their inputs unchanged (2026-10-16)
+
+Investigation found every grouping pass reset the connection cursor even if the published memberships and exact-search inputs were unchanged. Provisional anchor churn is not a connection-search input. Reuse now requires the same persisted source/model/policy/metadata signature, a completed connection sweep and equal published Note-to-topic memberships. This works after coordinator recreation without new storage fields. Changed memberships force retrieval; changed metadata/source/model/policy invalidates signature reuse. Partial connection sweeps continue their persisted cursor. Publication still checks epoch, cache revision, model, pause and eligibility.
+
+Failing-first: unchangedPublishedMembershipReusesCompletedConnectionsAcrossGroupingAndRestart failed because an unchanged grouping round read 24 records, versus at most six for grouping/reanchoring alone. With reuse it preserves a nonempty connection list and completion flag through two subsequent grouping rounds and coordinator recreation. Metadata change still forces retrieval. Removing only membership equality made newlyPublishedMembershipRecomputesConnectionsAndRemovesWithinTopicPairs fail because a newly excluded within-topic pair survived. Restoring the guard passes both properties and the full 824-test JVM suite, zero failures/errors. Debug assembly and Android-test compilation pass. Independent scoped review found no important findings. This is an application scheduling optimization, not a new recommendation policy; governing product semantics, ranking and candidate opportunity are unchanged.
+
+Replayed exactly the same private snapshot, without changing frozen cases/judgments. Both signatures agree and both finish 32 rounds without rejection. Before: grouping pass 6, five grouping rounds and 27 connection-only rounds, 19897.90ms summed host time. After: grouping pass 8, seven grouping rounds and 25 connection-only rounds, 20092.35ms. Reuse avoids some redundant sweeps, but changed published memberships still legitimately require work and total host time did not improve in this sample. Neither is a Pixel timing or full 281-pass completion result. Preserve this limitation rather than claiming the latency problem solved. Updated main APK installed with install -r, preserving populated library; Reader returned foreground. No instrumentation installed on Pixel.
+
+
+## 64. Observe capacity-limited termination and eliminate duplicate grouping cosine work (2026-10-16)
+
+Extended the explicit private host replay with bounded round/time controls (defaults 32/60 seconds; maxima 4096/1800), periodic content-free progress, stop reasons and separate final grouping/connection completion flags. The task still copies the original ignored snapshot and never rewrites frozen cases or judgments. Worker stopping is not full coverage: an extended run of the exact unchanged 23-Note/2455-passage snapshot stops after 163 calls at grouping pass 99/281 because all 64 anchor slots hold supported candidates. Eighteen pass the separate publication projection; connections are complete, grouping coverage is false, and no write is rejected. Continuity has 1510 opaque entries, about 512KB encoded, below the current 1MiB bound. This is a capacity-limited terminal state, not corruption or a complete candidate sweep.
+
+Code inspection found each passage/anchor cosine computed once for membership, then redundantly during candidate separation. Reuse the same computed score for the separation predicate. Candidate anchors are unchanged during membership updates, so thresholds, admission, evidence and arithmetic remain identical. Independent scoped review found no important issue in either this loop or replay reporting. Full JVM suite passes 824 tests, with debug assembly and Android-test compilation passing. Installed the updated APK with install -r; Pixel foreground/layout confirms Discover shows 23/23 indexed Notes separately from Updating discoveries. No Pixel instrumentation, voice/accessibility-setting change or library reset.
+
+Repeated the extended replay against identical cached-source and vector files. Baseline summed host build time 219674.47ms; optimized 187946.55ms. Both stop after exactly 163 calls/pass99 with 64 candidates, eighteen published topics, nineteen connection pairs, incomplete grouping, complete connections and no rejection. Final connection records are identical. Final topic/continuity JSON differs because independent replays create fresh UUIDs; mapping those new IDs by creation order yields exactly equal complete snapshots, and all pre-existing continuity IDs survive in both. This one paired host observation is not a statistically controlled speedup estimate, physical Pixel latency, quality improvement or full-coverage acceptance.
+
+Aggregate inspection of the frozen connection sample found matching cache titles and unique target names in all 28 directions, with four full-title occurrences but no approved instruction/citation form. Do not broaden Named reference merely to label those cases positively. Better eligible passage selection remains open.
+
+Prepared a separate private review from the terminal host-derived records, with explicit provenance and incomplete-coverage disclosure, preserving all earlier frozen files. The renderer includes that context; one new failing-first property exposed missing provenance support and all seven Python properties pass after implementation. Requested human review of six topics and eight displayed connections, with prior exposures marked. These are diagnostic cases, not a newly independent held-out sample or an inferred precision score. Human quality/TalkBack/listening acceptance, Pixel grouping completion timing and the wider goal remain open.
+
+
+## 65. Keep guided-listening actions reachable above long-preview scrolling (2026-10-16)
+
+Amended the live Navigation contract before layout changes, regenerated mirrors and inspected diffs. Restored unrelated authoring-guide export changes. Product, session and Saved Queue semantics remain unchanged: only explicit Play creates a new queue; editing and saving do not interrupt playback. Guided listening now reserves a persistent action area for one Play and one Save to queue button, outside the weighted scrolling ordered preview. Existing source headings, move/remove controls, Back, focus targets and empty/unavailable disablement remain. The shell still owns insets, without an overlay covering list items.
+
+Failing-first proof: with five long public Notes, 200 percent text and a 320x480dp viewport, the initial layout fails the new direct Play reachability assertion because visible bounds are zero. Both wrapper attempts reproduce this assertion. The wrapper's known broad occupies-no-area signature misleadingly calls it a lost Activity/no assertion; the XML actually contains the app assertion and stack. Do not cite that label as evidence of a device failure. The empty-preview property passes before and after. With the persistent footer, both new tests pass 2/2 without a retry; Play and Save remain displayed/reachable before and after scrolling to the final Note, and editing/saving never invoke Play.
+
+Existing tests now require direct action reachability instead of scrolling to actions that no longer belong to the scrolling list; disabled and session-isolation assertions are retained. Targeted navigation wrapper passes 15/15. A combined two-class invocation executed only nine of seventeen expected tests and correctly returned INCOMPLETE; it was not accepted as green. Explicit single-class runs subsequently pass DiscoveryScreenAccessibilityTest 9/9 and TopicScreenAccessibilityTest 8/8. Independent scoped review found no important issue. Final JVM suite remains 824 with zero failures/errors; debug assembly and Android-test compilation pass. These Compose tests remain in the existing instrumented harness; JVM Compose migration is not claimed.
+
+Installed the main APK on the populated Pixel via install -r. Used fresh layout-derived controls for Discover to topic to Preview listening. Both footer actions are present in the initial app window without scrolling; no Reader MediaSession is created by this navigation, and no Play/Save was invoked. Large text was injected only inside emulator Compose tests; Pixel accessibility, voice and global font settings were untouched. Pixel is left on the prepared preview. This structural probe is not human TalkBack speech/listening acceptance.
+
+The user's latest quality feedback asks whether a small language model or classifier should complement embeddings. This is a design discussion, not authorization to silently install a generative model or change the source-grounding contract. Current topic quality and human acceptance gates remain open, and MiniLM remains the active optional embedding provider.
+
+
+## 66. Separate auxiliary model research from embedding migration (2026-10-16)
+
+Following the user's question about a small language model/classifier, inspected publisher metadata/configs for a query reranker, NLI classifier and small instruction model. Recorded immutable revisions, declared licenses, architecture, label mappings, export sizes and published LFS hashes in a tracked metadata report; no private content was used. These models complement different tasks rather than constituting interchangeable embedding replacements. MS MARCO relevance does not establish useful Note relationships; NLI entailment is not topical relatedness; generated names do not validate membership. Added a separate research protocol with task-specific quality, abstention, coverage and physical compatibility gates. Shipping governing behavior is unchanged; generative labeling is not adopted.
+
+Using the Hugging Face CLI skill, downloaded only the pinned 23200716-byte publisher ARM64 INT8 reranker graph and tokenizer/config assets into ignored host feasibility storage. Verified actual graph size and SHA-256. The public publisher query/document example loads on Windows AMD64 ONNX CPU, produces finite single-logit outputs, uses explicit two-sequence BERT encoding and ranks the relevant passage above the irrelevant one. The recorded run initializes in 97.37ms and has twenty warm inference-only samples, p50 2.99ms/p95 4.23ms. This is neither Android performance nor discovery quality. Raw logits remain logits; no confidence percentages are presented.
+
+The NLI graph metadata advertises 82823065 bytes and a RoBERTa tokenizer family; the inspected 360M instruction model's q4f16 ONNX file is 272737275 bytes with other export formats differing. These are single-file sizes, not complete downloads or memory. Neither model's weights were downloaded. Different tokenizer/graph/generation contracts and the full native ABI/API gate remain open.
+
+Verification code proof: disabling only the graph size/checksum guard makes same-size corruption and wrong-size-with-matching-digest tests fail, while the valid-artifact test passes. Restoring it passes all three. Graph/pair/output acceptance uses explicit checks that remain active under Python -O. Existing requirement versions were reused and no Android dependency or production code changed. All new durable research files are intentionally tracked. Human quality acceptance, native candidate qualification and the full goal remain open; MiniLM stays active.
+
+
+## 67. Empirical evaluation of topic discovery, classification, reranking, and local LLM labeling (2026-10-17)
+
+Investigated, implemented, and executed a reproducible offline benchmark suite (`tools/semantic-discovery/experiments/`) on native Windows to determine the best local AI architecture for Discovery, without modifying shipping Android production code. Evaluated using the real local library snapshot (23 Notes, 2,437 passages, precomputed 384-dimensional `all-MiniLM-L6-v2` vectors in `NRS2` format) with strict local privacy protections and Note-family leakage prevention between calibration and held-out partitions. Incorporated 20 human gold judgments (`human-judgments.json`).
+
+Measured results across candidate architectures:
+1. **Topic Discovery Clustering**: The shipping streaming baseline (`TopicBuilder`) exhausts its 64-anchor capacity ceiling by pass 99 of 281, leaving candidate space unexplored. Agglomerative Hierarchical Clustering (Cosine Distance <= 0.35, average linkage) clusters all 2,437 passages in 261.07 ms on CPU, discovering 5 cohesive multi-note themes with silhouette scores 0.37–0.46 and zero anchor-slot exhaustion. HDBSCAN discovered 28 clusters but marked 1,068 passages (43.8%) as unassigned noise.
+2. **Topic Representation & Labeling**: Under the shipping baseline, >70% of topics fall back to "Notes related to Title" and are suppressed by `TopicPublication.kt`. c-TF-IDF keyword extraction produces concise domain labels ("Voice & Recognition", "Queue & Browse", "Topic & Interest") in 1.9 ms on CPU with 0 MB additional neural footprint and 0% fallback suppression. SmolLM2-360M-Instruct (272.7 MB ONNX q4f16) ran at 25.71 tok/s on short prompts but 3.96 tok/s on multi-passage evidence, taking 4,473.71 ms per label and consuming 501.13 MB RAM; furthermore, it failed the distractor abstention test by repeating excerpts instead of flagging incoherence.
+3. **Passage Connection Reranking**: Evaluated `cross-encoder/ms-marco-MiniLM-L6-v2` (23.2 MB INT8 ONNX) on bidirectional passage pairs. Warm inference latency p50 is 7.94 ms and p95 is 17.68 ms on CPU, with working set memory delta 35.76 MB and order asymmetry mean 0.18 logits. Re-ranks top 10-20 MiniLM candidate pairs to eliminate superficial vocabulary matches.
+4. **Zero-Shot NLI Topic Membership**: Evaluated `cross-encoder/nli-MiniLM2-L6-H768` (82.8 MB INT8 ONNX). Raw entailment probability remained < 0.15 across all test passages, with neutral dominating at 70-87% due to MNLI training on formal deductive logic rather than topical relatedness. Working set memory increased by 91.63 MB without improving over centroid cosine similarity.
+
+Recommendation: Adopt **Configuration E**:
+- In-memory Agglomerative Hierarchical Clustering (eliminates capacity exhaustion, 261 ms on CPU).
+- In-memory c-TF-IDF Topic Representation (crisp domain labels, 0% suppression, 0 MB footprint).
+- In-memory Centroid Cosine Membership (avoids 82.8 MB NLI model and BPE tokenizer).
+- Optional background `ms-marco-MiniLM-L6-v2` Cross-Encoder Reranker (23.2 MB INT8 ONNX, 7.9 ms/pair).
+- Defer generative LLMs on mobile to prevent battery drain and audio stutter during active TTS playback. Total AI footprint remains 46.0 MB, well within the app's 64 MB budget. Full detailed report written to `docs/discovery-local-ai-evaluation-report.md`. All 16 existing and 11 new Python tests pass; JVM suite passes 824 tests.
+
+
+## 68. Feature-flagged Phase 1 Discovery Prototype, negative reranker results, and O(N^2) scalability (2026-10-17)
+
+Following critical review of the initial experimental report, several assumptions were subjected to rigorous falsification against ground truth and mobile resource constraints:
+
+1. **Negative Results on Cross-Encoder Reranking**: When evaluated directly against the 14 historical human-judged connection pairs in `human-judgments.json`, pure MiniLM cosine alone outperformed `ms-marco-MiniLM-L6-v2`:
+   - MiniLM Cosine alone: 7 of 8 top candidates were Keep (87.5%), 0 Suppress (0%), Definite Decision AUC = **0.879**.
+   - MiniLM + MS MARCO Reranker: 6 of 8 top candidates were Keep (75.0%), 1 Suppress (12.5%, promoted case `32814e2ef769`), Definite Decision AUC = **0.697** (-0.182 drop).
+   Because MS MARCO was trained on Bing search engine query-passage relevance, it favored lexical question-answer phrasing and penalized complementary conceptual relationships between technical/personal notes. The cross-encoder is indefinitely deferred; MiniLM cosine connection ranking remains active.
+2. **Ground-Truth Accounting Corrected**: Out of 120 connection cases in the experimental dataset, exactly 20 cases (6 topics, 14 connections) were reviewed by a human. The remaining 106 cases were unrated candidate pairs. All precision claims are now strictly bounded to verified human judgments.
+3. **Android Scalability & Nearest Neighbor Chain O(N^2) Optimization**:
+   - A naive $10,000 \times 10,000$ passage-level distance matrix requires 400 MB RAM, causing an immediate Android OOM.
+   - Clustering at the section level collapses 2,437 passages into 422 sections (0.68 MB matrix) and 10,000 passages into ~1,500 sections (9 MB matrix).
+   - In Kotlin, an initial naive agglomerative merge loop exhibited $O(N^3)$ performance, taking >2,000 ms. Replaced with the **Nearest Neighbor Chain Algorithm** with an upper-triangular distance matrix. Time complexity dropped to strict $O(N^2)$ without boxing overhead (`FloatArray` primitive dot products).
+   - Verified across three synthetic scales on JVM:
+     - 2,437 passages / 422 sections: **240 ms**, 32.57 MB heap delta, 10 topics.
+     - 10,000 passages / 1,500 sections: **441 ms**, 47.82 MB heap delta, 10 topics.
+     - 20,000 passages / 3,000 sections: **706 ms**, 67.77 MB heap delta, safely capped at 2,000 sections with graceful degradation message and zero crash.
+4. **Isolated Feature-Flagged Prototype Implementation**:
+   - Defined `TopicDiscoveryEngine` contract in `domain/discovery`: default `StreamingAnchorEngine` (wrapping legacy `TopicBuilder`) and `SectionHierarchicalEngine`.
+   - Wired into `TopicCoordinator` and `DiscoveryController` with `useExperimentalClustering: Boolean = false` by default.
+   - Shipping production behavior remains 100% untouched.
+   - Comprehensive unit tests (`TopicDiscoveryEngineTest`) verify deterministic order invariance, multi-topic note assignment, outlier protection, and topic continuity identity preservation across rebuilds.
+   - All 829 JVM tests pass (`:app:testDebugUnitTest`); `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` succeed.
+5. **Quality Review Artifact & Label Refinement**:
+   - Generated git-ignored local review document `app/build/private-discovery-review/phase1_hierarchical_topics_review.html` comparing the legacy baseline to the new hierarchical engine.
+   - Disclosed all 5 Major Topics (&ge; 3 distinct Notes) and 16 Subtopics (2 distinct Notes) with member Notes and supporting excerpts.
+   - Refined `TopicDiscoveryEngine` suppression lists (`genericHeadings` and `weakAdjectives`) to eliminate generic metadata headers ("Related knowledge", "What to remember", "What is happening", "Explicitly deferred work") and high-frequency non-substantive words ("feeling", "beautiful", "world", "matters", "becomes", "think"), ensuring topic labels reflect substantive entities ("Accessibility & TalkBack", "Session & Persistence", "Metacognition & Reflective", "Queue & Active").
+
+
+## 69. High-recall topic discovery, evidence-aware validation, and interactive judgment recording (2026-10-17)
+
+Following editorial review of the Phase 1 quality review, the architectural goal for Notion Reader Discovery was refined:
+1. **Strategic Shift: "Discover broadly, validate carefully, personalize explicitly"**:
+   - Rejected artificial topic minimization (forcing 5 or 10 broad topics). 30–40 topics is an asset, not a defect, provided users have clear browsing and follow controls.
+   - Avoid aggressive merging: A tight 2-Note topic with high coherence (e.g. `Android Process-Death Recovery`, `Active and Saved Queues`, `Semantic Indexing and Cache Management`) is substantially more useful to a reader than a diluted 15-note mega-cluster.
+   - Separate discovery (finding all genuine subjects) from personalization (user voluntary follow model) and validation (guarding against nonsense labels).
+2. **Phase 2 Interactive Topic Quality & Judgment Review Application**:
+   - Built a complete, accessible, screen-reader-friendly interactive HTML application:
+     `app/build/private-discovery-review/phase2_interactive_topic_review.html` (git-ignored, strictly local under build storage).
+   - Covers all 21 discovery candidate clusters with **complete, untruncated supporting excerpts**, member Notes, and authored section headers. Fixed the previous omission of Cluster 159 (`exact filter UI;` / `exact filter widgets;` under `Explicitly deferred work`).
+   - Equipped with interactive decision forms: `Keep`, `Rename`, `Merge`, `Reference-only`, and `Withhold`, along with approved title and justification inputs.
+   - Pre-populated with the user's provisional editorial judgments.
+   - Features client-side filtering, localStorage persistence, and a one-click JSON exporter.
+   - Serialized durable human evaluation data to `app/build/private-discovery-review/human-judgments-phase2.json`.
+3. **Evidence-Aware Pipeline Invariants in Engine**:
+   - `TopicDiscoveryEngine` filters out passages residing in `Non-goals`, `Explicitly deferred work`, or `Out of scope` sections from cluster formation, preventing speculative features (e.g. voice recognition non-goals) from generating phantom topics.
+   - Integrated compound technical concept recognition for compound terminology (`Android Process-Death Recovery`, `Listening Queue Management`, `Listening Session Persistence`, `Search and Metadata Browsing`, `Social Influence and Personal Values`, `Semantic Indexing and Cache Management`).
+   - Verified via `TopicDiscoveryEngineTest`: all 830 JVM tests pass; `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` succeed with 0 errors.
+
+
+## 70. Discovery Governing Charter: High-Recall Topic Discovery, Evidence-Validated Knowledge Exploration, and Explicit User Follow Architecture (2026-10-17)
+
+Codified the overarching product charter and governing invariants for Notion Reader Discovery based on the user's formal requirement:
+
+### 1. North-Star Metric
+**"How many distinct, meaningful, evidence-supported subjects can users successfully discover and explore from their Notes?"**
+Measured in balance with:
+- Incorrect / false topic publication rate.
+- Missed topic recall.
+- Multi-topic membership precision.
+- User-rated usefulness and voluntary follow engagement.
+
+### 2. Six Primary Objectives (P0 & P1)
+- **P0: Discover meaningful topics**: Automatically identify broad and narrow subjects supported by the Notes, rejecting artificial topic-count ceilings (30–40 topics is an expected, healthy state).
+- **P0: Ensure topic quality**: Guarantee every published topic possesses an informative, substantive title and verifiable supporting body passages.
+- **P0: Preserve multi-topic membership**: A Note may belong to multiple distinct topics simultaneously without being forced into an exclusive partition.
+- **P1: Support user choice**: Provide explicit Follow / Unfollow controls for topics; decouple automated topic discovery from inferred user interest.
+- **P1: Preserve trustworthy relationships**: Strictly distinguish thematic topics, semantic passage connections, and explicit Note cross-references.
+- **P1: Run reliably on Android**: Zero battery drain or audio stutter during active TTS playback; scalable background indexing up to 10,000+ passages; full TalkBack accessibility.
+
+### 3. Product Invariants
+- **No arbitrary topic cap**: Never optimize for an arbitrary maximum (e.g. 5, 10, or 20 topics).
+- **No forced clustering**: Unrelated passages remain ungrouped.
+- **No meaningless names**: Collocations like `Process & Death` are prohibited in favor of compound concepts (`Android Process-Death Recovery`).
+- **No unnecessary merging**: Distinct subjects (`Active and Saved Queues`, `Listening Session Persistence`, `Playback Management`) remain separately discoverable and followable.
+- **No false interests**: Automatic discovery does not imply user subscription.
+- **No unsupported associations**: Every topic and connection is traceable to literal source passages.
+- **No conflation of references and similarity**: Explicit title citations are treated as references, not mistaken for independent semantic topics.
+
+### 4. Technical Roadmap & Milestone Status
+- **Roadmap 1 (Topic Formation)**: Section-level hierarchical agglomerative clustering ($O(N^2)$ Nearest Neighbor Chain), broad and focused topics, removal of 64-anchor limit. *[Complete, Verified in Engine]*
+- **Roadmap 2 (Topic Validation & Labeling)**: Compound concept naming, non-goal and deferred section exclusion, explicit reference separation. *[Complete, Verified in Engine]*
+- **Roadmap 3 (Real Notes Evaluation)**: Interactive HTML review with complete excerpts and recorded human judgments (`human-judgments-phase2.json`). *[Complete, Evaluation Active]*
+- **Roadmap 4 (Personalized Topic Exploration)**: Expose Follow/Unfollow controls in Discovery UI, topic detail navigation, and rebuild continuity. *[Next Phase]*
+- **Roadmap 5 (Android Physical Validation)**: 10,000-passage synthetic profiling, background TTS playback coexistence, and TalkBack semantics verification on device. *[Final Gate]*
+
+## 71. Reconcile the Discovery charter with authoritative contracts and acceptance evidence (2026-10-17)
+
+Sections 67–70 describe experimental observations and editorial proposals; their
+completion labels do not establish roadmap acceptance. In particular, the capped
+2,000-section prototype did not prove complete processing, a JVM heap delta is
+not peak Android Java/native memory, topic totals and silhouette scores do not
+establish useful topics, and generated keyword labels do not prove source support.
+The charter's 30–40-topic example is not a target. Its zero-battery-drain claim is
+not a measurable acceptance rule. Section 69's blanket non-goal/deferred-heading
+exclusion confuses discussing a subject with implementing a capability.
+
+Amended the live authoritative Product, UI and Integration pages before production
+changes, then regenerated all Notion mirrors with the repository exporter and
+inspected the diffs. The Product amendment explicitly supersedes the earlier
+three-Note minimum and terminal capacity-limited sweep. Established subjects need
+two distinct supporting Notes; validated single-Note subjects belong to a separate
+Emerging topics collection. Source-supported specific labels and body evidence
+remain necessary. Both collections reuse the existing explicit Follow confirmation
+and independent saved-interest editing/removal. Complete section opportunity is
+bounded per slice, cancellable and resumable, without a terminal truncation cap.
+Substantive non-goal/deferred discussion may be eligible without asserting a
+capability exists. MiniLM, exact retrieval, the existing private 64 MiB derived
+budget and process-scoped playback/background scheduling remain binding.
+
+The live amendment locks acceptance before replacement tuning or held-out scoring:
+at least twenty independently human-reviewed held-out subjects and fifty membership
+judgments; false publication <=10%, missed-subject recall >=80%, membership
+precision >=90% and useful specific source-supported labels >=80%. These are
+separate from existing recommendation precision/Recall@5 and warm-query gates.
+Shipping Android must completely process 10,000 passages across more than 2,000
+uneven sections in <=120 seconds of active processing, peak added Java plus native
+memory <=128 MiB over idle model-loaded baseline, pause/cancel within one second,
+durable complete resume and storage <=64 MiB. Bulk work pauses during playback;
+observe no attributable playback error, skip or session mutation. No host result
+or automated semantics result substitutes for physical or human speech acceptance.
+
+Inspected the existing private `human-judgments-phase2.json` structure without
+copying private source text into tracked artifacts: it contains 21 candidate cases
+and a generic “Phase 2 Discovery Topic Editorial Review” provenance string, with
+no case-level author/attestation fields. Its decision counts are Keep 1, Rename 10,
+Reference-only 3, Withhold 2 and five mixed Merge decisions. This confirms recorded
+editorial annotations, not twenty-one independently verified human judgments or
+held-out examples. Section 69 already calls the prepopulation provisional; preserve
+that distinction. Do not convert those entries to human gold without direct
+attestation, or use candidate totals as a recall denominator. Previously exposed
+cases remain exposed even after reranking/relabeling.
+
+The hand-authored implementation specification now reflects Home as the default
+surface and the amended publication/coverage/gating contract. README distinguishes
+the shipping baseline from replacement acceptance. The idempotent amendment script
+records the exact approved source text and reads current live blocks before append;
+it does not patch the integration domain-model code block. Exporting all pages also
+updated the previously stale note-authoring mirror from live source; that is an
+unrelated source update, not an app semantic amendment or exporter defect.
+
+Still open at this specification-audit checkpoint: implementation and verification
+of complete resumable formation and Emerging topics; reconciled baseline/replacement
+review on the same corpus with Note-family calibration/held-out partitions; actual
+human judgments for missing subjects, overlap, labels, references and emerging
+subjects; physical complete-processing/resource/cancellation/playback gates; human
+TalkBack speech/listening acceptance. Keep the experimental engine disabled until
+all applicable gates pass. Subsequent implementation verification belongs in a new
+numbered round, rather than retroactively treating this audit as a completed gate.
+
+## 72. Automatic Discovery implementation and authorized Android debug trial (2026-10-17)
+
+Implemented the replacement behind its engine flag: complete resumable section
+processing without the 2,000-section truncation, exact on-demand average linkage,
+broad and authored focused candidates, overlapping membership, grounded publication,
+separate single-Note Emerging topics, and independent explicit-reference retrieval.
+Checkpoint validation, source removal and split/merge continuity preserve independent
+saved interests and stable inspected generations. Only Play changes playback.
+
+Exact duplicate directions now contract before linkage while retaining every source
+section and its weight. Engine version 2 restarts incompatible partial work without
+discarding the previous published generation. Primitive vector copies and cached
+prepared vectors avoid repeated boxing/normalization. Android profiling exposed
+native regex-matcher allocation pressure; per-thread matcher reuse clears input in
+a finally block after every operation, avoiding retained private passage text.
+
+The same-corpus private replay completed the replacement sweep (368 candidates,
+330 passing the mechanical publication projection) while the streaming baseline
+remained incomplete (46 candidates, two published). These are counts, not human
+quality results. Complete review exports remain in ignored private build storage.
+The 21-case phase-2 editorial file has no per-case human confirmation; its entries
+remain provisional, and its declared aggregate summary disagrees with its cases.
+
+Failing-first checks observed the intended failures for former section truncation,
+duplicate topic identities, single-Note publication, unsupported memberships,
+independent overlapping subjects, duplicate aliases, focused-subject retention,
+the legacy three-Note progress message and duplicate-direction contraction.
+Removing the Emerging collection failed only its new navigation test (1/17);
+removing the independent-reference context caption failed only that new test
+(1/17). Removing heap-sample consistency checks failed the heap-resize property
+while the public formation test passed (1/2). Guards were restored.
+
+The public 10,000-passage/2,500-uneven-section benchmark uses eight repeated
+384-dimensional directions and primitive vectors like the shipping index. It
+persists slices and resumes through fresh engine/store instances. Initial Android
+runs exceeded 120 seconds; after exact contraction, the emulator completed in
+about seven seconds. Matcher reuse reduced sampled added Java/native memory to
+about 59 MiB on that emulator. A physical Pixel 8 Pro API37 run completed in about
+15 seconds but measured about 189 MiB added memory, above 128 MiB. This model-free
+synthetic test does not qualify varied real-library, model-loaded, heat, playback
+coexistence or human TalkBack acceptance. Keep these failed/unmeasured gates open.
+
+The user clarified that private-Note evaluation must not be a user responsibility
+and explicitly requested enabling the implemented feature for Android testing.
+Amended the authoritative Product/UI/Integration sources, regenerated all mirrors
+and inspected the diffs. Human evaluation is developer acceptance work on public,
+consented or purpose-built representative Notes. Private-library feedback is
+optional; users never need to label or approve automatic topics. Follow/Unfollow
+expresses personal choice rather than a quality judgment.
+
+Debug builds now set BuildConfig.EXPERIMENTAL_DISCOVERY=true and the application
+composition root passes it to DiscoveryController. Release builds retain false;
+`-PexperimentalDiscovery=false` builds a debug rollback. This authorized trial
+supersedes the earlier blanket prohibition on enabling any experimental flag;
+general release acceptance thresholds are unchanged and are not marked passed.
+Installed the enabled debug APK on the connected Pixel with `adb install -r` and
+opened Discover. Its current setup state requests the optional local model; no
+model was silently downloaded or private data submitted for review.
+
+Verification for trial activation: 865 JVM tests, zero failures/errors/skips;
+debug assembly and Android-test compilation pass; generated debug/release flags
+are respectively true/false; targeted navigation wrapper passes 17/17, including
+Emerging Follow and explicit-reference context; installed MainActivity is focused
+on the Pixel. Generated Notion mirrors were exported rather than hand-edited.
+Release readiness, the physical memory finding and human speech/listening quality
+remain open independently of the user's debug trial.
+
+## 73. Current implementation, open work and documentation map (2026-10-17)
+
+Consolidated the documentation entrypoints around coherent current specifications
+and a separate chronological evidence record. The [documentation guide](README.md)
+identifies authority, implementation guidance and historical evaluations; the
+[repository summary](../README.md) describes the implemented boundary. Generated
+Notion specifications remain mirrors of live sources and are never hand-edited.
+This consolidation changes documentation navigation and framing, not runtime behavior
+or acceptance thresholds. All numbered historical sections remain in place so
+existing section references in tooling, specifications and AGENTS.md keep working.
+
+The implementation companion previously called itself a governing specification,
+although the authority list contains seven other documents. It is now explicitly
+subordinate. Current replacement requirements are separated from legacy baseline
+anchor/publication policies; the README no longer describes implemented background
+playback as absent. The delivery plan points to observed verification and retains
+unfinished acceptance work instead of leaving completed verification unchecked.
+
+Consolidated 24 live Notion blocks across Product, UI and Integration: removed
+dated amendment framing, scoped existing-pair classification to the release
+baseline, distinguished thematic evidence from independent explicit references,
+included Emerging topics in the screen order, and reconciled general release
+gates with the authorized debug trial. Block identities/order, untouched text and
+complete code blocks were verified against pre-write backups. No thresholds changed.
+The consolidation tool defaults to a reviewable dry run and checks source text
+before each patch; backups remain in ignored build storage. The old amendment
+tools recognize consolidated headings so they cannot reappend the dated rules.
+
+Documentation verification: regenerated all Notion mirrors and inspected changes;
+only the three intended mirrors changed in this round. Full fenced code blocks
+were identical, consolidation rerun matched zero blocks, local links in the guide,
+companion and roadmap resolve, and the four affected PowerShell tools parse.
+All three historical amendment tools were rerun and recognized each consolidated
+page as already amended, making no writes.
+All historical numbered headings were preserved. This documentation-only round
+uses the verification skill's specification path; it does not claim a fresh JVM,
+Android or human listening run. Runtime results below remain the scoped §72 evidence.
+
+### Current implementation and slice
+
+Read the governing [Product & Architecture Contract](notion/product-and-architecture-contract.md),
+[UI Screens & Navigation Contract](notion/ui-screens-and-navigation-contract.md) and
+[Notion Integration Implementation Spec](notion/notion-integration-implementation-spec.md)
+for current semantics, with the hand-authored
+[Semantic Discovery implementation specification](semantic-discovery-implementation-spec.md)
+for implementation detail within those contracts. This record supplies evidence
+and priorities; it cannot amend those sources.
+
+Section 72 records the implemented automatic Discovery replacement and authorized
+Android debug trial. Debug enables the replacement by default; release retains the
+baseline (`EXPERIMENTAL_DISCOVERY=false`). The enabled debug app is installed on the
+Pixel. Its optional local model still requires the normal setup flow. Users do not
+need to rate topics, label their private Notes or approve automatic publications;
+Follow/Unfollow records personal choice. Private-library feedback is optional.
+
+The complete resumable formation, grounded publication, overlapping membership,
+Emerging topics and independent-reference implementation has verification evidence
+in §72. Those results do not establish general release acceptance. The public
+10,000-passage benchmark uses repeated vector directions without the model; it is
+a processing/regression benchmark, not formal topic-quality evidence. The physical
+Pixel result measured about 189 MiB added memory against the 128 MiB gate. Varied
+real-library processing with the model loaded, playback coexistence and human
+TalkBack speech/listening acceptance remain unqualified.
+
+### Still open — current priorities
+
+This section supersedes earlier backlog/status lists for current-slice priorities;
+§20.4 remains the historical slice plan, and prior completion labels retain only
+the scope of their recorded evidence.
+
+1. Developer-owned quality evaluation on public, consented or purpose-built
+   representative Notes: independent held-out subjects and membership judgments,
+   missing-subject recall, overlapping membership, supported useful labels,
+   explicit references and Emerging topics under the governing acceptance rules.
+   Provisional/private editorial annotations are not attested human gold.
+2. Realistic varied and model-loaded Android processing/resource validation,
+   including the unresolved physical memory overrun, complete durable resume,
+   cancellation and playback coexistence gates.
+3. Human TalkBack speech/listening acceptance and the remaining general release
+   gates. Debug trial authorization does not mark these gates passed.
+
+### Chronological evidence map
+
+- §0–§19: initial contract interpretation, conflicts, amendments and early evidence.
+- §20.4: original slice ordering, retained for historical references.
+- §23–§25: accessibility/focus and verification failures, wrapper proofs, test-cost
+  findings and emulator aging; these remain useful when validating new work.
+- §67–§70: Discovery experiments and proposals, including superseded completion
+  claims; read with the qualifications in §71 and §72.
+- §71: authoritative Discovery contract reconciliation and limits of prior evidence.
+- §72: replacement implementation, failing-first proofs, observed benchmark limits
+  and the authorized debug trial.
+- §73: current documentation entrypoint and open-work snapshot. Later numbered
+  rounds should record new evidence and explicitly update current priorities.
+
+## 74. Focused commits and local main integration verification (2026-10-17)
+
+The user requested focused commits and integration into local `main`. Split the
+pending round into governing-contract reconciliation, generated authoring guidance,
+native speech failure handling, mini-player observation, persistent preview actions,
+resumable topic formation/publication/reference retrieval, Discovery surfaces,
+isolated Android benchmarking, evaluation provenance/tooling, debug trial wiring,
+and repository summary/evidence updates. Existing branch history is preserved.
+No private snapshots, models, build output or credentials are included. Integration
+does not change the release enablement decision or satisfy outstanding acceptance.
+
+Verification on the integration tree:
+
+- Forced JVM task execution: 865 tests, zero failures/errors/skips.
+- `assembleDebug` and `compileDebugAndroidTestKotlin` passed; the separate isolated
+  benchmark project's `assembleDebug` also passed against current shipping sources.
+- Python tooling: 24 top-level and 17 experiment tests passed. Benchmark verdict
+  self-checks accepted valid reports and rejected slow/incomplete/invalid reports.
+- On emulator-5556, API 36, individual repository-wrapper runs passed Discovery
+  screen 9/9, topic navigation 17/17, topic details 8/8, guided listening 2/2 and
+  mini-player state 1/1: 37 tests total, zero failures/errors/skips.
+- A grouped filter initially ran only 9 of the expected 37 tests and was correctly
+  rejected as INCOMPLETE. It is not counted as a suite pass. Each affected class was
+  then run separately. An accidentally overlapping wrapper invocation was refused
+  by the existing process lock and rerun after the active wrapper finished.
+- Instrumentation cleanup left the reader APK absent; installed the verified debug
+  APK before probing MainActivity. The historical Back probe's timed snapshots
+  captured OTHER before Player finished loading and PLAYER after its Back action,
+  despite exit zero. This was inconclusive, not a successful navigation proof.
+  A subsequent CLI probe verified MainActivity focus and a stable Player with
+  Playing, Pause and Previous section controls before Back. After Back the actual
+  tree showed Browse, a mini-player and Pause, with no Player controls. Playback
+  was paused through the observed control for cleanup. This proves the observed
+  navigation/state continuity, not human audibility or API 37 audio behavior.
+- Pre-merge review found no actionable runtime correctness or privacy blocker.
+  Diff formatting and source/document integrity checks passed. Focused commits
+  retain prose subjects and the existing numbered verification history.
+
+Still open: the general release quality, realistic model-loaded physical resource,
+playback coexistence and human TalkBack/listening gates listed in §73 remain open.
+The previously measured physical additional-memory overrun is not resolved by
+these integration checks. The debug trial remains enabled and release retains
+the baseline. No remote push is part of this local integration request.

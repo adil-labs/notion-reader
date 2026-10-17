@@ -5,10 +5,13 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
+For the governing contracts, current implementation boundary and historical evidence, start with the
+[documentation reading map](docs/README.md). This README is a derived repository summary.
+
 Implemented so far: reader state and navigation, reader engine, Android TTS speech engine, the Note
 and Player screens, Notion API/repository, **automatic section progression** (continuous hands-free
 reading), a typed load-error taxonomy, block-derived stable identities proven to survive edits,
-**Saved and Smart Queues**, **section outline and granular part controls**, **audio lifecycle hardening**,
+**Saved and Smart Queues**, **section outline and granular part controls**, **background playback and media controls**, **audio lifecycle hardening**,
 **stale-while-revalidate document caching & offline playback**, **adaptive Player navigation stepping**,
 and the **Settings hub & subpages with 10 core customization preferences**.
 
@@ -49,10 +52,13 @@ and the **Settings hub & subpages with 10 core customization preferences**.
 - The listening session survives a configuration change — rotating the phone, changing the font size, or
   the system switching to dark mode at dusk. Speech is not interrupted, and the queue, its position and
   its history entry are the same afterwards (`docs/decisions.md` §19.4).
-- The display is held awake while playing so a hands-free session is not interrupted by the screen
-  timing out. That is a stated workaround rather than a design: removing it is part of the specified
-  background-playback work (`docs/background-playback-and-media-controls-spec.md`), which is not yet
-  implemented.
+- Background and screen-off playback use Media3 `MediaSessionService`. Notification, lock-screen and
+  headset controls use the existing Player commands. The session and queue-loading loops live in the
+  process-scoped `ReaderHost`; leaving a screen or dismissing the task does not own their lifetime.
+- Native speech errors, unexpected stops and rejected submissions pause at the current part with a
+  retry message. Cancelled or superseded requests cannot complete or fail a newer request. Human
+  TalkBack navigation/listening acceptance remains open after an observed external TTS interruption.
+
 
 ## Screens
 
@@ -76,9 +82,6 @@ interchangeable:
 - **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
   queue position, and adaptive primary controls: Previous / prominent center Play-Pause / Next, governed by a
   dynamic **Step granularity selector** (Section, Part, or Note), with polite TalkBack announcements and
-- **Player** — the continuous spoken-reading surface. Title, current section, progress, playback state,
-  queue position, and adaptive primary controls: Previous / prominent center Play-Pause / Next, governed by a
-  dynamic **Step granularity selector** (Section, Part, or Note), with polite TalkBack announcements and
   the **Queue** snapshot button. Secondary controls are accessible via **More playback controls** (Restart note,
   Sections outline). Back returns to the previous screen while playback continues.
 - **Active Queue** — the Player's `Queue` control opens a read-only view of the session's frozen
@@ -86,8 +89,8 @@ interchangeable:
   Note. There is deliberately nothing to edit — an Active Queue's membership and order are fixed for the
   session's lifetime, and "Saved Queues are edited, Smart Queues are configured, Active Queues are
   played" (`docs/decisions.md` §22).
-- **Settings** — the 4th top-level tab: a TalkBack-first hub of 7 categories (`Playback`, `Speech`, `Offline & storage`,
-  `Appearance`, `Notion`, `Privacy & data`, `About`). Each category is a single accessibility focus
+- **Settings** — a top-level TalkBack-first hub (`Playback`, `Speech`, `Offline & storage`,
+  `Appearance`, `Notion`, `Discovery`, `Privacy & data`, `About`). Each category is a single accessibility focus
   stop announcing its name and current summary. Selecting a category navigates to a focused secondary subpage with
   dedicated controls, with Back cleanly restoring focus to the originating category row. Built on reusable design system
   primitives (`SettingsScreenLayout`, `SettingsSection`, `SettingsValueRow`, `SettingsSwitchRow`, `SettingsActionRow`,
@@ -129,21 +132,14 @@ Destination and neither touches playback, because neither is given a way to reac
 
 ```
 .\gradlew.bat :app:assembleDebug
-$adb install -r app\build\outputs\apk\debug\app-debug.apk
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
 On the device, add a text-to-speech engine (Google Speech Services is usually present) and enable
 TalkBack to test accessibility. Playback is hands-free once you press **Play**.
 
-## Not yet implemented
+## Implementation limits and acceptance gaps
 
-- The mini-player's own screen. It renders today, but not as a destination with its own surface.
-- Background/lock-screen playback and media buttons (Media3 `MediaSessionService`). The Player holds the
-  screen awake with `keepScreenOn` as a stated workaround, so this is the largest gap in a listening app.
-  It now has a **governing specification** (`docs/background-playback-and-media-controls-spec.md`) and is
-  **ranked first** among the outstanding work (`docs/decisions.md` §23, D28) — but no code has been written
-  for it, and the specification's own Phase 1 is a refactor of the session's lifetime rather than the
-  service itself.
 - Sentence-level resume after pause, and finer offsets inside a chunk (`characterOffset` is carried
   but always 0). Resume is at chunk granularity.
 - A spoken announcement when a restored position is *lost* has not been observed on a device — the four
@@ -160,22 +156,18 @@ The layers are the Product & Architecture Contract's, and `LayerRulesTest` fails
 depends on a layer above it, if a file's package disagrees with its directory, or if a layer named in the
 rule table does not exist. The names below are packages under `com.example.notionreader`.
 
+```text
+domain      -> nothing
+player      -> domain
+application -> domain, player
+data        -> domain
+platform    -> player
+ui          -> domain, player, application
 ```
-platform (Android TTS adapter)
-        \
-         v
-data.notion   data.content   data.local          domain (+ queue / session / discovery)
-        \           |              /                       ^
-         \          v             /                        |
-          ----> application -> player ---------------------+
-                    ^
-                    |
-                   ui  (screens; depends on domain, player and application)
 
-The root package holds the composition root: `ReaderApplication` (the process-scoped owner of the graph), the
-`ReaderHost` it builds, `MainActivity` (the Compose host) and `ReaderViewModel` (the I/O a screen's own
-action starts). Only the root may name `data`, `platform` and `application` together, which is what wiring is.
-```
+The root package holds the composition root: `ReaderApplication` (the process-scoped owner of the graph),
+its `ReaderHost`, `MainActivity` (the Compose host) and `ReaderViewModel` (screen-started I/O).
+Only the root may name `data`, `platform` and `application` together for wiring.
 
 - `domain/` — the provider-agnostic model, and nothing else. `ReaderDocument`, `ReaderSection`,
   `ReaderChunk`, `ChunkMetadata`; `ReaderDocumentPosition` and the resolver that reports how much of a
@@ -197,7 +189,7 @@ action starts). Only the root may name `data`, `platform` and `application` toge
   `ReaderDocumentMapper`, `TextChunker`.
 - `data/document/` — `CachedDocumentRepository` (stale-while-revalidate caching and offline playback orchestration), `DocumentCache` port.
 - `data/local/` — `SessionCodec` (the versioned wire form), `DataStoreSessionStore`, `FileDocumentCache` (concurrency-safe atomic cache in `noBackupFilesDir` with LRU pruning), and `ReaderDocumentCodec`.
-- `platform/` — `AndroidSpeechEngine`.
+- `platform/` — `AndroidSpeechEngine` and Player/media adapters; the root `PlaybackService` wires Media3 to the process-owned session.
 - `ui/` — state and callbacks only, no business logic.
 
 Two rules matter more than the names. **Notion DTOs never reach the reader domain** — the mapper consumes
@@ -206,13 +198,11 @@ the types it produces live in `domain`. And **`application` never depends on `ui
 application builds and screens render belongs to the application, which is why `ContinueListeningCard` is
 where it is rather than in the file that first drew it.
 
-A third is about lifetime rather than direction. **Nothing that must outlive a screen lives in one.** The
-listening session is owned by the root package's `ReaderViewModel`, not by `MainActivity`, because the
-system rebuilds the Activity for every configuration change — rotating the phone, changing the font size,
-or the system switching to dark mode at dusk. While the session was owned by the Activity, any of those
-ended playback mid-sentence, discarded the queue and its position, and started a fresh session on the demo
-document (`docs/decisions.md` §19.4). `tools/probe-config-change.ps1` drives exactly that on a device and
-reads what survived.
+A third rule is about lifetime. **Nothing that must outlive a screen or task lives in one.**
+`ReaderApplication` builds the process-scoped `ReaderHost`, which owns the listening session, active
+queue and the loops that advance and load Notes. `ReaderViewModel` handles screen-started work;
+clearing it does not shut playback down. Configuration-change and background/task-lifecycle evidence
+is recorded in [decisions](docs/decisions.md).
 
 Because of that split, the hard-coded `ReaderDocument.Demo` and a `NotionRepository`-produced document
 are interchangeable without touching navigation.
@@ -299,7 +289,7 @@ runs offline in CI against real API data.
 ## Build and test
 
 ```
-./gradlew.bat :app:testDebugUnitTest       # 534 JVM tests
+./gradlew.bat :app:testDebugUnitTest
 ./gradlew.bat :app:assembleDebug
 ```
 
@@ -312,7 +302,7 @@ be silent.
 
 ### Instrumented accessibility tests
 
-The 180 tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
+Tests under `app/src/androidTest/` assert on the semantics tree — the thing TalkBack actually
 consumes — so they need a device or emulator. Run them through the wrapper rather than invoking Gradle
 directly:
 
@@ -342,7 +332,7 @@ Two other things are pinned deliberately, both because the failure they prevent 
   test failing in `Espresso.onIdle`, which reads as a broken suite rather than a stale library.
 - **No test orchestrator, deliberately** (`docs/decisions.md` §23.31, §23.32). It was added to stop one
   transient device-side process death from aborting a whole run — and it does that — but it buys that with
-  **one process start per test**, 180 of them on an emulator whose process budget the orchestrator then
+  **one process start per test**, on an emulator whose process budget the orchestrator then
   competes for. The half of its justification that mattered most, that a truncated run must not read as a
   clean one, is now handled by name instead: the runner reports **INCOMPLETE** whenever fewer tests ran
   than the sources contain. What was given up is recorded in `app/build.gradle.kts`: no test here drives the
@@ -352,7 +342,7 @@ Controls are driven through `SemanticsActions.OnClick` rather than synthetic tap
 accessibility service performs, and unlike a synthesised touch it cannot be silently dropped by the
 device's window.
 
-**What this suite costs, measured** (`docs/decisions.md` §24): **180 tests in 873 s — 4.7 s each**, against
+**Historical cost measurement** (`docs/decisions.md` §24): **180 tests in 873 s — 4.7 s each**, against
 **534 JVM tests in 0.8 s (~1.5 ms each)**. The instrumented cost is *flat across every class*, which makes it
 fixed per-test setup — Activity launch, instrumentation, Compose idle, teardown — rather than the assertions.
 So the JVM suite is the default check (automated on PRs and pushes via GitHub Actions in `.github/workflows/ci.yml`), `-Class` is the way to iterate, and the plan is to move the pure-UI
@@ -430,78 +420,62 @@ interface is *usable* with one, which is a different thing from coordinating wit
 
 ## Local semantic discovery
 
-Open **Settings → Discovery → Download model** (or Discover's **Set up Discovery**) to install the optional
-English MiniLM-L6-v2 model and vocabulary (23,257,561 bytes). Wi-Fi-only download
-is the default; choose mobile data explicitly if appropriate. Downloads use a
-pinned publisher revision and verified SHA-256 checksums. ONNX Runtime CPU inference
-runs locally; no Note content or queries go to an embedding service.
+Discovery is optional and automatic. Settings → Discovery → Download model (also reached through
+Discover's Set up Discovery) installs the English MiniLM-L6-v2 model and vocabulary. Downloads
+use a pinned revision and verified checksums; Wi-Fi-only is the default. ONNX Runtime CPU inference
+runs locally. Note content and queries are not sent to an embedding service, and model binaries
+are not bundled in the APK. Browse and listening work without the model.
 
-Only cached Notes are indexed. Coverage is shown beside search; use Browse to open
-and cache other Notes. Search has its own metadata filters and relevance order;
-Browse keyword search and Smart Queues keep their existing behavior. Results quote
-source passages rather than generated explanations or confidence percentages.
+Only cached Notes are indexed. Semantic search has its own metadata filters and relevance order;
+Browse keyword search and Smart Queues retain their behavior. Results show literal source passages.
+Automatic topics may overlap, and Notes may remain ungrouped. Topics and connections do not infer
+personal interests from reading or listening activity. Named references identify explicit citations
+of a unique cached Note's complete title and remain distinct from Similar passages; they do not
+promise a verified Notion hyperlink.
 
-Save plain-language interests or choose cached seed Notes. Home shows compact
-interest cards; Discover links to the shared interests collection. Open one for its matching Notes, older-matches filter and
-listening preview. Pooled interest Note lists are absent from the main feed.
-Related Notes is also
-available from Note and Player. Older matching Notes use last-edited dates at least
-90 days old, without inferring unread/forgotten status. Preview guided listening to
-remove/reorder up to five recommended Notes; explicit Play creates a frozen new
-session. Saving the preview uses existing Saved Queue destinations and leaves
-playback alone.
+Follow topic opens confirmation of a name and editable matching text, saving an independent interest.
+Future regrouping, renaming or source loss does not rewrite it. Remove it through Your interests.
+Text interests and cached seed-Note interests use the shared collection and details routes, with
+compact cards on Home. Interest details includes matching Notes, an older-matches filter (last edited
+at least 90 days ago), and a listening preview. Preview allows removing/reordering up to five Notes;
+Save uses Saved Queue destinations. Only explicit Play creates a new frozen listening session.
 
-Indexing has one process-scoped worker and pauses while playing, backgrounded or
-under memory pressure. It resumes completed-document checkpoints on an eligible
-launch. Derived records use atomic, versioned binary float32 files and a 64 MiB
-budget; vectors are streamed per document for exact cosine retrieval. Unchanged
-passages reuse embeddings. Cache eviction and confirmed access loss remove derived
-records. Clearing the index pauses rebuilding until explicit Resume/Rebuild;
-deleting the model also clears the index. Full local-data reset clears interests.
+Topic details put member Notes and passage evidence first; Why these Notes? holds provenance.
+Connections open Compare passages with complete excerpts. Inspected topic generations adopt new
+ordering and labels through explicit Refresh, while revoked or evicted source content is removed
+immediately. An unavailable preview entry retains its position without source text and requires
+recaching or removal before Play/Save.
 
-See [the implementation specification](docs/semantic-discovery-implementation-spec.md)
-and [reproducible model/device evaluation](tools/semantic-discovery/README.md).
-The synthetic evaluation is deliberately small; broader real-library relevance,
-human TalkBack speech/listening, battery measurements and low-memory device
-coverage remain explicit acceptance gaps. Model binaries are not bundled in the
-APK; the full multi-ABI ONNX runtime materially increases debug APK size.
+The process-scoped indexing worker pauses during playback, backgrounding and memory pressure.
+Versioned durable checkpoints resume eligible work; unchanged passages reuse embeddings. All derived
+vectors, topics, connections and checkpoints share the private 64 MiB budget. Exact cosine search
+streams per-document vectors. Clearing the index pauses rebuilding until Resume/Rebuild; deleting
+the model clears the index and automatic continuity while preserving explicit interests. Full local
+reset clears interests too. Cache eviction removes derived content but retains opaque recache
+continuity; confirmed deletion or access loss removes that continuity as well.
 
-**Topics in your Notes** automatically groups indexed passages into overlapping
-themes. Notes can belong to several topics or none. Topic details provides matching
-excerpts, representative Notes and listening previews. **Follow topic** saves an
-editable name and matching text as an independent interest; future cluster changes
-do not rewrite it. **Connections between Notes** shows similar passages on both
-sides of individual cross-topic pairs. Search and Browse remain available without
-topics or follows.
+### Engine selection and acceptance
 
-Topic identities and source references are persisted; inspected lists adopt newer
-generations only through Refresh. Cache eviction immediately removes vectors,
-excerpts and membership evidence but retains opaque continuity references for
-recaching. Confirmed deletion or permission loss also removes those references.
-Index/model deletion clears automatic topics and continuity while preserving
-explicit interests; full local reset clears interests too. An unavailable prepared
-preview Note keeps its position with source text removed; Play/Save requires
-recaching or explicitly removing that entry.
+Release builds use the bounded `streaming64anchors` baseline. Debug builds enable the experimental
+Trustworthy Discovery replacement through `BuildConfig.EXPERIMENTAL_DISCOVERY`; build with
+`-PexperimentalDiscovery=false` for a debug rollback. The replacement processes complete resumable
+section opportunities, discovers broad and focused overlapping subjects, and separates established
+topics (at least two supporting Notes) from Emerging topics (exactly one supporting Note). Both
+require specific source-supported labels and substantive body evidence and use the same Follow
+confirmation. Substantive discussion under a non-goal heading can support a topic without asserting
+that a capability exists. Independent Named reference retrieval is experimental; the baseline retains
+its semantic-pair classification policy.
 
-Grouping uses at most 64 anchor vectors, overlapping direct passage evidence,
-64-passage checkpoints and resumable source cursors. Foreground queries take
-priority. All derived topic/checkpoint/connection data shares the 64 MiB index
-budget. See the [topic design](docs/superpowers/specs/2026-10-15-discovered-topics-design.md)
-and the current verification record in [decisions](docs/decisions.md).
+The debug trial is authorized; general release acceptance is still open. The physical Pixel
+10,000-passage/2,500-section synthetic formation benchmark completed in about 15 seconds but measured
+about 189 MiB added Java/native memory against a 128 MiB limit. This model-free repeated-direction
+workload does not establish varied real-library quality, model-loaded resource use, playback
+coexistence or human TalkBack speech/listening acceptance. A separate isolated physical search
+benchmark met its warm-query target; it does not establish recommendation quality or formation
+acceptance. Candidate counts and provisional editorial annotations are not verified human judgments.
 
-Automatic groups and connections require body evidence; repeated standalone
-headings remain searchable but cannot establish a group. Candidate opportunities
-rotate across Notes and long-document passages, with two new anchors per Note
-per pass. Overlapping windows in one reader chunk cannot duplicate a supported
-neighborhood. Exhausted candidate coverage is reported without endlessly
-rescanning unchanged content. The production-shaped synthetic quality corpus
-includes generic headings and checks passage-level evidence as well as Note
-membership; real-library relevance remains a separate acceptance gap.
-
-Home keeps Continue listening prominent, with compact named session rows and a brief recent-Note empty state. Discover uses integrated field/keyboard search, compact topic previews with one representative Note, and one explicit refresh/progress state; full evidence stays in details.
-
-Topic details put member Notes first and keep label provenance/comparison context under Why these Notes?. Compact connection cards open Compare passages with both full excerpts. Generic topic previews attribute their cached source Note; presentation changes do not rename persisted topics or interests.
-
-Discovery policy 7 filters reference-only/navigation/checklist evidence for automatic topics and connections, consolidates near-copy neighborhoods, improves source-label selection, and limits connection hub repetition. Search still sees cached source text; policy updates reuse embeddings and preserve interests. Gemma 2 default migration is blocked by incomplete native ABI coverage and unmeasured runtime/quality gates; the optional MiniLM model remains active. Synthetic quality scores do not establish real-library relevance.
-
-Topic checkpoint reconciliation reserves stable identities during regrouping, preventing duplicate IDs when an identity moves between candidates. Persistence distinguishes validation, I/O, budget and unknown failures; only budget exhaustion is labelled storage full. Developer-only private snapshot/replay tools support local evidence review without uploading Notes or including them in the repository. Human relevance acceptance and physical-device performance measurements remain separate gates.
+Human quality evaluation is developer acceptance work on public, consented or purpose-built Notes.
+Users do not need to label, approve or submit their private library to use Discovery; private feedback
+is optional. See the [implementation and acceptance contract](docs/semantic-discovery-implementation-spec.md),
+[reproducible model/device evaluation](tools/semantic-discovery/README.md) and
+[decision and verification history](docs/decisions.md) for thresholds, evidence and outstanding gates.
