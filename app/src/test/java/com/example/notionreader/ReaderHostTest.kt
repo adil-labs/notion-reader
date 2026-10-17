@@ -46,6 +46,28 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderHostTest {
 
+    @Test fun aSpeechFailurePausesWithoutAdvancingTheNoteOrQueue() = runTest {
+        val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val speech = FakeSpeechEngine()
+            val engine = ReaderEngineImpl(speech, initialDocument = alpha)
+            val app = ReaderApp(ReaderSession(engine), NoteViewer(alpha), ReaderNavigator(), RecordingLoader().asLoader())
+            val host = ReaderHost(app, processScope)
+            host.start()
+            app.playAll(listOf(QueuedNote(alpha.pageId, alpha.title), QueuedNote(beta.pageId, beta.title)), QueueOrigin.BrowseResults)
+            app.session.play()
+            val queue = app.session.queueState.value
+            val part = engine.state.value.currentParagraphIndex
+            assertTrue(app.session.isPlaying)
+            host.reportSpeechUnavailable("Speech failed. Press Play to retry this part.")
+            assertFalse(app.session.isPlaying)
+            assertEquals(part, engine.state.value.currentParagraphIndex)
+            assertEquals(queue.index, app.session.queueState.value.index)
+            assertFalse(app.session.queueState.value.completed)
+            assertEquals("Speech failed. Press Play to retry this part.", host.speechMessage.value)
+        } finally { processScope.cancel() }
+    }
+
     private fun note(pageId: String, title: String) = ReaderDocument.fromChunkTexts(
         pageId = pageId,
         title = title,

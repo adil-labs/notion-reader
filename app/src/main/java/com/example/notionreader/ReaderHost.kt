@@ -76,15 +76,16 @@ class ReaderHost(
     private val _speechMessage = MutableStateFlow<String?>(null)
 
     /**
-     * Set when the device cannot speak at all, which no amount of retrying will fix.
+     * Set when the device or current utterance cannot speak successfully.
      *
      * Here rather than on the ViewModel because the speech engine's lifetime is now this object's: a
      * device-level speech failure outlives any screen that would report it.
      */
     val speechMessage: StateFlow<String?> = _speechMessage.asStateFlow()
 
-    /** Reports a device-level speech failure. Called by the engine that was built with this host. */
+    /** Reports speech failure without discarding the current part or advancing the queue. */
     fun reportSpeechUnavailable(message: String) {
+        app.session.pause()
         _speechMessage.value = message
     }
 

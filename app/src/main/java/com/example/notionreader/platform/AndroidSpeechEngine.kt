@@ -12,7 +12,6 @@ import com.example.notionreader.player.SpeechEngineState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 
 /**
@@ -23,7 +22,8 @@ import java.util.Locale
  */
 class AndroidSpeechEngine(
     private val context: Context,
-    private val onUnavailable: ((String) -> Unit)? = null
+    private val onUnavailable: ((String) -> Unit)? = null,
+    private val diagnostics: ((event: String, utterance: Int, status: Int) -> Unit)? = null
 ) : SpeechEngine {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -42,27 +42,45 @@ class AndroidSpeechEngine(
     private var currentEnginePackage: String? = null
     private var engineGeneration = 0
 
-    private val completions = ConcurrentHashMap<String, () -> Unit>()
+    private val requests = SpeechRequestCallbacks {
+        onUnavailable?.invoke("Speech could not finish this part. Press Play to retry.")
+    }
+
+    /** Static event names and numeric request counters only; never text, voice or document identities. */
+    private fun trace(event: String, utteranceId: String?, status: Int = 0) {
+        try {
+            diagnostics?.invoke(event, utteranceId?.removePrefix("notion-reader-")?.toIntOrNull() ?: -1, status)
+        } catch (_: Exception) { /* Diagnostics cannot alter playback. */ }
+    }
 
     private val progressListener = object : UtteranceProgressListener() {
 
-        override fun onStart(utteranceId: String?) = Unit
+        override fun onStart(utteranceId: String?) { trace("start", utteranceId) }
 
         override fun onDone(utteranceId: String?) {
+            trace("done", utteranceId)
             if (utteranceId == null) return
             mainHandler.post {
-                completions.remove(utteranceId)?.invoke()
+                val delivered = requests.complete(utteranceId)
+                trace("dispatch", utteranceId, if (delivered) 1 else 0)
             }
         }
 
         @Suppress("OVERRIDE_DEPRECATION")
         override fun onError(utteranceId: String?) {
-            if (utteranceId != null) completions.remove(utteranceId)
+            trace("error", utteranceId)
+            mainHandler.post { requests.fail(utteranceId) }
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            trace("error", utteranceId, errorCode)
+            mainHandler.post { requests.fail(utteranceId) }
         }
 
         @Suppress("OVERRIDE_DEPRECATION")
         override fun onStop(utteranceId: String?, interrupted: Boolean) {
-            if (utteranceId != null) completions.remove(utteranceId)
+            trace("stop", utteranceId, if (interrupted) 1 else 0)
+            mainHandler.post { requests.fail(utteranceId) }
         }
     }
 
@@ -85,6 +103,8 @@ class AndroidSpeechEngine(
     override fun setEngine(packageName: String?) {
         if (isShutdown) return
         if (currentEnginePackage == packageName && isReady) return
+
+        requests.cancel()
 
         val gen = ++engineGeneration
         currentEnginePackage = packageName
@@ -190,8 +210,9 @@ class AndroidSpeechEngine(
     }
 
     override fun stop() {
+        trace("cancel", "notion-reader-$utteranceCounter")
         pendingRequest = null
-        completions.clear()
+        requests.cancel()
         try {
             tts?.stop()
         } catch (_: Exception) {
@@ -202,7 +223,7 @@ class AndroidSpeechEngine(
         isShutdown = true
         isReady = false
         pendingRequest = null
-        completions.clear()
+        requests.cancel()
 
         val engine = tts
         tts = null
@@ -287,17 +308,18 @@ class AndroidSpeechEngine(
         utteranceCounter += 1
         val utteranceId = "notion-reader-$utteranceCounter"
 
-        if (onComplete != null) {
-            completions[utteranceId] = onComplete
-        }
-
-        try {
-            val maxLength = TextToSpeech.getMaxSpeechInputLength()
-            val safeText = if (text.length > maxLength) text.take(maxLength) else text
-            engine.speak(safeText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-        } catch (_: Exception) {
-            completions.remove(utteranceId)
-            onComplete?.invoke()
+        requests.enqueue(utteranceId, onComplete) {
+            try {
+                val maxLength = TextToSpeech.getMaxSpeechInputLength()
+                val safeText = if (text.length > maxLength) text.take(maxLength) else text
+                trace("submit", utteranceId)
+                val result = engine.speak(safeText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+                trace("return", utteranceId, result)
+                result != TextToSpeech.ERROR
+            } catch (failure: Exception) {
+                trace("exception", utteranceId)
+                throw failure
+            }
         }
     }
 

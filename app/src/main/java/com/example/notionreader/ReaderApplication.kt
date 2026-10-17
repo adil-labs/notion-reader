@@ -124,12 +124,14 @@ class ReaderApplication : Application() {
     private fun buildHost(): ReaderHost {
         var host: ReaderHost? = null
 
-        val speechEngine = AndroidSpeechEngine(this) { message ->
+        val speechEngine = AndroidSpeechEngine(this, onUnavailable = { message ->
             // The engine is built before the host exists, so the failure is held until there is something to
             // hold it. A device with no usable voice reports once, rather than producing a silent session
             // that looks like a working one.
             host?.reportSpeechUnavailable(message)
-        }
+        }, diagnostics = if (BuildConfig.DEBUG) { event, utterance, status ->
+            Log.d("SpeechTrace", "$event utterance=$utterance status=$status")
+        } else null)
 
         val sessionStore = DataStoreSessionStore(this)
         val savedQueueStore = DataStoreSavedQueueStore(this)
