@@ -51,7 +51,8 @@ class DiscoveryController(
     private val topicCheckpointStore: TopicStore? = null,
     private val topicPolicy: TopicPolicy = TopicPolicy(),
     private val mayContinueIndexing: () -> Boolean = { true },
-    private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE }
+    private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
+    private val useExperimentalClustering: Boolean = false
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
     val state = mutable.asStateFlow()
@@ -76,7 +77,8 @@ class DiscoveryController(
             currentCoroutineContext().ensureActive()
         }, changed = { view -> mutable.update { it.copy(topicSnapshot = view.snapshot,
             topicsUpdated = view.updated, topicStatus = view.status) } },
-        invalidationAcknowledgementLimit = invalidationAcknowledgementLimit) }
+        invalidationAcknowledgementLimit = invalidationAcknowledgementLimit,
+        engine = if (useExperimentalClustering) SectionHierarchicalEngine(provider.identity) else null) }
 
     fun refreshTopics() { topics?.refresh() }
     fun sourcePageId(id: String): String = state.value.cachedSourceIds[canonicalSemanticId(id)] ?: id
@@ -177,6 +179,11 @@ class DiscoveryController(
                 preview = preview, unavailablePreviewIds = unavailable,
                 previewStatus = if (unavailable.isEmpty()) null else "Some preview Notes are unavailable. Remove them or recache them before playing or saving.") }
             val metadata = entries.associateBy { canonicalSemanticId(it.pageId) }
+            // Only metadata actually stored with eligible cached vectors affects grouping.
+            // Browse order and uncached Notes must not restart the bounded candidate sweep.
+            val cachedMetadata = sources.mapValues { (id, source) ->
+                SemanticMetadata.from(metadata[id] ?: ReaderIndexEntry(id, source.document.title, source.document.lastEditedAt))
+            }
             var indexed = 0
             mutable.update { it.copy(indexing = mayIndex && !paused && modelAvailable(), message = null) }
             for ((id, source) in sources) {
@@ -186,7 +193,7 @@ class DiscoveryController(
                 if (generation.get() != epoch) return
                 val revision = semanticRevision(source.document)
                 val old = bulkStep { index.read(id) }
-                val meta = SemanticMetadata.from(metadata[id] ?: ReaderIndexEntry(id, source.document.title, source.document.lastEditedAt))
+                val meta = cachedMetadata.getValue(id)
                 if (old?.revision == revision && old.identity == provider.identity) {
                     indexed++
                     if (old.metadata != meta) commits.withLock {
@@ -226,7 +233,7 @@ class DiscoveryController(
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size), indexing = false) }
             if (mayIndex && !index.isPaused() && modelAvailable()) withContext(Dispatchers.Default) {
-                topics?.build(sources.mapValues { semanticRevision(it.value.document) }, entries.hashCode(), sourceGeneration)
+                topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration)
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size), bytes = index.bytes() + (topics?.bytes() ?: 0L)) }
             if (mayIndex && topics?.needsMoreWork == true) { delay(50); wake.value++ }
@@ -236,6 +243,11 @@ class DiscoveryController(
     }
 
     suspend fun search(text: String, filters: BrowseQuery = state.value.filters) {
+        val started = System.nanoTime()
+        var waitNs = 0L
+        var embeddingNs = 0L
+        var retrievalNs = 0L
+        var completed = 0L
         val request = queryGeneration.incrementAndGet()
         val epoch = generation.get()
         mutable.update { it.copy(query = text, filters = filters, searching = true, message = null) }
@@ -244,13 +256,30 @@ class DiscoveryController(
             if (!modelAvailable()) { mutable.update { it.copy(results = emptyList(), message = "Download the Discovery model to search cached Notes.") }; return }
             foregroundQueries.incrementAndGet()
             val results = try { bulkGate.withLock {
-                val vector = inference.withLock { provider.embed(text) }
-                retrieve(vector, filters, 20)
+                val vector = inference.withLock {
+                    waitNs = System.nanoTime() - started
+                    val embeddingStarted = System.nanoTime()
+                    provider.embed(text).also { embeddingNs = System.nanoTime() - embeddingStarted }
+                }
+                val retrievalStarted = System.nanoTime()
+                retrieve(vector, filters, 20).also { retrievalNs = System.nanoTime() - retrievalStarted }
             } } finally { foregroundQueries.decrementAndGet() }
-            if (request == queryGeneration.get() && epoch == generation.get()) mutable.update { it.copy(results = results) }
+            if (request == queryGeneration.get() && epoch == generation.get()) {
+                mutable.update { it.copy(results = results) }
+                completed = 1L
+            }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { if (request == queryGeneration.get()) mutable.update { it.copy(message = "Semantic search failed. Try again or rebuild the index.") } }
-        finally { if (request == queryGeneration.get()) mutable.update { it.copy(searching = false) } }
+        finally {
+            if (request == queryGeneration.get()) mutable.update { it.copy(searching = false) }
+            recordTiming(mapOf("searchTotalNs" to System.nanoTime() - started, "waitNs" to waitNs,
+                "embeddingNs" to embeddingNs, "retrievalNs" to retrievalNs, "completed" to completed))
+        }
+    }
+
+    /** Optional numeric diagnostics must never change search behavior or expose source/query text. */
+    private fun recordTiming(timing: Map<String, Long>) {
+        try { queryTimings(timing) } catch (_: Exception) { /* Diagnostic observer only. */ }
     }
 
     private suspend fun <T> bulkStep(action: suspend () -> T): T {
@@ -305,7 +334,7 @@ class DiscoveryController(
         }
         // Refuse stale publication even if cleanup is queued behind this query.
         if (generation.get() != epoch || cache.revision.value != revision) return@withContext emptyList()
-        queryTimings(mapOf("sourceReadNs" to sourceReadNanos, "catalogNs" to catalogNanos,
+        recordTiming(mapOf("sourceReadNs" to sourceReadNanos, "catalogNs" to catalogNanos,
             "recordReadNs" to recordReadNanos, "validationNs" to validationNanos, "rankingNs" to rankingNanos,
             "totalNs" to System.nanoTime() - started))
         best

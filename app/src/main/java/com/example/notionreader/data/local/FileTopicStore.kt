@@ -24,7 +24,31 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
         val identity = snapshot.identity
         val anchors = snapshot.topics + snapshot.provisionalTopics
         if (snapshot.candidatePassLimit < 2 || snapshot.candidateSeeds.values.any { it !in 0..2 }) return TopicValidationReason.CandidateBound
-        if (anchors.size > 64) return TopicValidationReason.CandidateBound
+        if (snapshot.engineVersion == 0 && anchors.size > 64) return TopicValidationReason.CandidateBound
+        if (snapshot.engineVersion !in 0..SectionHierarchicalEngine.VERSION) return TopicValidationReason.InvalidIdentity
+        snapshot.formationProgress?.let { work ->
+            val indices = work.clusters.flatten()
+            if (snapshot.engineVersion != SectionHierarchicalEngine.VERSION || snapshot.complete ||
+                work.inputSignature.isBlank() || work.totalSections < 0 || work.clusters.size != work.totalSections ||
+                indices.size != work.totalSections || indices.toSet() != (0 until work.totalSections).toSet() ||
+                work.chain.distinct().size != work.chain.size ||
+                work.chain.any { it !in work.clusters.indices || work.clusters[it].isEmpty() } ||
+                work.outerCursor !in 0..work.clusters.size || work.neighborCursor !in 0..work.clusters.size ||
+                work.bestNeighbor !in -1 until work.clusters.size || !work.bestDistance.isFinite() ||
+                work.bestDistance !in 0f..2f || work.projectionCluster !in 0..work.candidateGroups.size ||
+                work.projectionPassage < 0 || work.comparisonsCompleted < 0 ||
+                work.candidateGroups.any { group -> group.isEmpty() || group.distinct().size != group.size || group.any { it !in 0 until work.totalSections } } ||
+                work.groupingComplete && (work.outerCursor != work.totalSections || work.chain.isNotEmpty() || work.neighborCursor != 0 || work.bestNeighbor != -1) ||
+                !work.groupingComplete && (work.projectionCluster != 0 || work.projectionPassage != 0 || work.projectionMembers.isNotEmpty() || anchors.isNotEmpty()) ||
+                work.emptyProjectionClusters.distinct().size != work.emptyProjectionClusters.size ||
+                work.emptyProjectionClusters.any { it !in 0 until work.projectionCluster || work.candidateGroups[it].isEmpty() } ||
+                work.groupingComplete && anchors.size + work.emptyProjectionClusters.size != work.projectionCluster ||
+                work.projectionCluster == work.candidateGroups.size && (work.projectionPassage != 0 || work.projectionMembers.isNotEmpty()) ||
+                work.projectionMembers.size > work.projectionPassage ||
+                work.projectionMembers.any { !it.score.isFinite() || it.score !in -1f..1f ||
+                    canonicalSemanticId(it.pageId) != canonicalSemanticId(it.passage.pageId) })
+                return TopicValidationReason.InvalidSnapshotProgress
+        }
         if (anchors.map { it.id }.distinct().size != anchors.size) return TopicValidationReason.DuplicateTopicId
         if (snapshot.generation < 0) return TopicValidationReason.InvalidGeneration
         if (json.encodeToString(snapshot.continuity).toByteArray(Charsets.UTF_8).size > 1024 * 1024) return TopicValidationReason.ContinuityBound

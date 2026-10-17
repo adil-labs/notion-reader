@@ -4,21 +4,42 @@ package com.example.notionreader.domain.discovery
 internal val referenceHeadings = setOf("related knowledge", "related notes", "related", "see also", "references",
     "further reading", "dependencies", "read next", "links", "navigation")
 private val words = Regex("[\\p{L}\\p{N}]+")
-private val referenceStart = Regex("^(related(?: notes| knowledge)?|see also|references|depends on|read next|open next)\\s*:", RegexOption.IGNORE_CASE)
-private val route = Regex("^(?:the future .{0,100}specification owns\\s*:|(?:exact|detailed) .{0,240}(?:defined|owned|specified|governed) by (?:the )?(?:separate|future) .{0,120}(?:specification|contract)\\.?)$", RegexOption.IGNORE_CASE)
+/** Android matchers own native allocations. Reuse them, clearing source text after every operation. */
+private class EvidencePattern(regex: Regex) {
+    private val matchers = ThreadLocal.withInitial { regex.toPattern().matcher("") }
+    private fun <T> use(text: String, action: (java.util.regex.Matcher) -> T): T {
+        val matcher = requireNotNull(matchers.get()).reset(text)
+        return try { action(matcher) } finally { matcher.reset("") }
+    }
+    fun tokens(text: String): List<String> = use(text) { matcher -> buildList {
+        while (matcher.find()) add(matcher.group())
+    } }
+    fun count(text: String): Int = use(text) { matcher -> var count = 0; while (matcher.find()) count++; count }
+    fun containsMatchIn(text: String): Boolean = use(text) { it.find() }
+    fun matches(text: String): Boolean = use(text) { it.matches() }
+    fun replace(text: String, replacement: String): String = use(text) { it.replaceAll(replacement) }
+}
+private val bodyWords = EvidencePattern(words)
+private val sentenceBoundary = EvidencePattern(Regex("[.!?](?:\\s|$)"))
+private val previousSentence = EvidencePattern(Regex("[.!]\\s"))
+private val whitespace = EvidencePattern(Regex("\\s+"))
+private val markdownLink = EvidencePattern(Regex("\\[[^]\\n]+]\\(https?://[^)]+\\)"))
+private val plainLink = EvidencePattern(Regex("https?://\\S+"))
+private val linkSeparators = EvidencePattern(Regex("[\\s*•,;:—–-]+"))
+private val referenceStart = EvidencePattern(Regex("^(related(?: notes| knowledge)?|see also|references|depends on|read next|open next)\\s*:", RegexOption.IGNORE_CASE))
+private val route = EvidencePattern(Regex("^(?:the future .{0,100}specification owns\\s*:|(?:exact|detailed) .{0,240}(?:defined|owned|specified|governed) by (?:the )?(?:separate|future) .{0,120}(?:specification|contract)\\.?)$", RegexOption.IGNORE_CASE))
 
 internal fun substantiveDiscoveryEvidence(passage: SemanticPassage): Boolean {
     val text = passage.excerpt.trim()
     if (text.isBlank()) return false
-    val tokens = words.findAll(text.lowercase()).map { it.value }.toList()
+    val tokens = bodyWords.tokens(text.lowercase())
     val wordCount = tokens.size
-    if (text.endsWith("?") && wordCount < 12 && !Regex("[.!]\\s").containsMatchIn(text)) return false
-    val sentenceCount = Regex("[.!?](?:\\s|$)").findAll(text).count()
+    if (text.endsWith("?") && wordCount < 12 && !previousSentence.containsMatchIn(text)) return false
+    val sentenceCount = sentenceBoundary.count(text)
     val explanatory = wordCount >= 10 && sentenceCount > 0 || wordCount >= 8 && sentenceCount >= 2
-    if (route.matches(text.replace(Regex("\\s+"), " "))) return false
-    if (referenceStart.containsMatchIn(text) && !(explanatory && Regex("[.!?](?:\\s|$)").findAll(text).count() >= 2)) return false
-    val withoutLinks = text.replace(Regex("\\[[^]\\n]+]\\(https?://[^)]+\\)"), "")
-        .replace(Regex("https?://\\S+"), "").replace(Regex("[\\s*•,;:—–-]+"), "")
+    if (route.matches(whitespace.replace(text, " "))) return false
+    if (referenceStart.containsMatchIn(text) && !(explanatory && sentenceCount >= 2)) return false
+    val withoutLinks = linkSeparators.replace(plainLink.replace(markdownLink.replace(text, ""), ""), "")
     if (withoutLinks.isEmpty()) return false
     if (passage.sectionTitle?.trim()?.lowercase() in referenceHeadings) {
         val proseVerbs = setOf("is", "are", "was", "were", "has", "have", "can", "will", "should", "must",

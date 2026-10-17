@@ -47,6 +47,11 @@ data class SemanticMetadata(
 
 @Serializable
 data class EmbeddedPassage(val passage: SemanticPassage, val vector: List<Float>)
+
+/** Stable across Browse ordering; callers supply only cache-eligible metadata. */
+fun semanticMetadataHash(metadata: Map<String, SemanticMetadata>): Int =
+    metadata.toSortedMap().entries.toList().hashCode()
+
 @Serializable
 data class SemanticRecord(val pageId: String, val revision: String, val identity: EmbeddingIdentity,
     val metadata: SemanticMetadata, val passages: List<EmbeddedPassage>)

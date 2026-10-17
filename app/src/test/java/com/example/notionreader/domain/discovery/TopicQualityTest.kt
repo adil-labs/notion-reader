@@ -66,6 +66,10 @@ class TopicQualityTest {
             println("POLICY_QUALITY split=$split precision=${quality.first} recall=${quality.second} topics=${result.topics.size}")
             assertTrue("Fixed-policy precision on $split: $quality", quality.first >= .8)
             assertTrue("Fixed-policy recall on $split: $quality", quality.second >= .8)
+            val published = result.copy(topics = publishableDiscoveryTopics(result.topics))
+            val publishedQuality = measures(published, inputs)
+            assertTrue("Published membership precision on $split: $publishedQuality", publishedQuality.first >= .8)
+            assertTrue("Published theme recall on $split: $publishedQuality", publishedQuality.second >= .8)
             assertTrue("Reference and routing Notes must not become members", result.topics.flatMap { it.members }
                 .none { "-reference-" in it.pageId || "-route-" in it.pageId })
         }

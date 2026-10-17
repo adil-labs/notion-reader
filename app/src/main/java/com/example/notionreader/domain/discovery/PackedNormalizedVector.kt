@@ -5,6 +5,7 @@ internal class PackedNormalizedVector private constructor(private val components
     AbstractList<Float>(), java.util.RandomAccess {
     override val size: Int get() = components.size
     override fun get(index: Int): Float = components[index]
+    internal fun copyComponents(): FloatArray = components.copyOf()
 
     fun cosine(other: PackedNormalizedVector): Float {
         require(size == other.size)

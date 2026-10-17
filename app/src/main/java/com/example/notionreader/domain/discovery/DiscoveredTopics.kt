@@ -10,12 +10,14 @@ data class TopicMembership(val pageId: String, val metadata: SemanticMetadata, v
 }
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
-    val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long)
+    val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,
+    val experimentalEvidenceValidated: Boolean = false)
 @Serializable
 data class TopicContinuity(val id: String, val createdOrder: Long, val pageIds: Set<String> = emptySet(),
     val sourceIds: Set<String> = emptySet(), val replacementId: String? = null)
 @Serializable
-data class NoteConnection(val id: String, val left: TopicMembership, val right: TopicMembership, val score: Float)
+data class NoteConnection(val id: String, val left: TopicMembership, val right: TopicMembership, val score: Float,
+    val independentNamedReference: Boolean = false)
 @Serializable
 data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val continuity: List<TopicContinuity> = emptyList(),
     val identity: EmbeddingIdentity? = null, val generation: Long = 0, val complete: Boolean = false,
@@ -24,11 +26,31 @@ data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val co
     val policyVersion: Int = 0, val connectionCursor: Int = 0, val connectionPassComplete: Boolean = false,
     val provisionalTopics: List<DiscoveredTopic> = emptyList(), val provisionalPasses: Map<String, Int> = emptyMap(),
     val candidateCursor: Int = 0, val groupingPass: Int = 0, val sourceSignature: String? = null,
-    val candidatePassLimit: Int = 2, val candidateSeeds: Map<String, Int> = emptyMap())
+    val candidatePassLimit: Int = 2, val candidateSeeds: Map<String, Int> = emptyMap(),
+    val engineVersion: Int = 0, val formationProgress: TopicFormationProgress? = null)
+/** Private, versioned work state. Indices refer to canonical eligible sections/passages, never a truncated input. */
+@Serializable
+data class TopicFormationProgress(
+    val inputSignature: String,
+    val totalSections: Int,
+    val clusters: List<List<Int>>,
+    val chain: List<Int> = emptyList(),
+    val outerCursor: Int = 0,
+    val neighborCursor: Int = 0,
+    val bestNeighbor: Int = -1,
+    val bestDistance: Float = 2f,
+    val groupingComplete: Boolean = false,
+    val projectionCluster: Int = 0,
+    val projectionPassage: Int = 0,
+    val projectionMembers: List<TopicMembership> = emptyList(),
+    val comparisonsCompleted: Long = 0,
+    val emptyProjectionClusters: List<Int> = emptyList(),
+    val candidateGroups: List<List<Int>> = emptyList()
+)
 enum class TopicWriteFailure { BudgetExceeded, InvalidSnapshot, IoFailure, Unknown }
 enum class TopicValidationReason {
     CandidateBound, DuplicateTopicId, InvalidGeneration, ContinuityBound, InvalidIdentity,
-    InvalidTopic, InvalidMember, InvalidConnection
+    InvalidTopic, InvalidMember, InvalidConnection, InvalidSnapshotProgress
 }
 sealed interface TopicWriteResult {
     data object Written : TopicWriteResult
@@ -47,7 +69,7 @@ interface TopicStore {
 fun SemanticPassage.isBodyEvidence(): Boolean = sourceBlockId != sectionId && substantiveDiscoveryEvidence(this)
 /** Separate clustering policy: retrieval thresholds are deliberately not reused. */
 data class TopicPolicy(val admission: Float = .65f, val retention: Float = .59f,
-    val separation: Float = .75f, val maxAnchors: Int = 64, val minNotes: Int = 3, val version: Int = 7,
+    val separation: Float = .75f, val maxAnchors: Int = 64, val minNotes: Int = 3, val version: Int = 9,
     val connection: Float = .5f) {
     init {
         require(admission in 0f..1f && retention in 0f..admission && separation in admission..1f)
@@ -103,8 +125,10 @@ class TopicBuilder(private val previous: TopicSnapshot?, private val identity: E
             accepted.remove(page)
         }
         record.passages.filter { valid(it) && it.passage.isBodyEvidence() && canonicalSemanticId(it.passage.pageId) == page }.forEach { embedded ->
+            var represented = false
             candidates.forEach { candidate ->
                 val score = cosine(candidate.anchor.vector, embedded.vector)
+                if (score >= policy.separation) represented = true
                 val retained = candidate.old?.members?.any { canonicalSemanticId(it.pageId) == page } == true
                 if (score >= if (retained) policy.retention else policy.admission) {
                     val member = TopicMembership(record.pageId, record.metadata, embedded.passage, score, candidate.anchor.passage, record.revision)
@@ -115,7 +139,7 @@ class TopicBuilder(private val previous: TopicSnapshot?, private val identity: E
                 }
             }
             // Close anchors represent the same direct neighborhood; independent passages can create independent topics.
-            if (candidates.none { cosine(it.anchor.vector, embedded.vector) >= policy.separation }) {
+            if (!represented) {
                 if ((seeded[page] ?: 0) >= 2) {
                     overflow = true
                 } else if (candidates.size < policy.maxAnchors) {
@@ -268,7 +292,8 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
     }
     fun removeEvidence(input: List<DiscoveredTopic>, minimum: Int): List<DiscoveredTopic> = input.mapNotNull { topic ->
         val members = topic.members.filter { available(it.pageId) }
-        if (members.size < minimum) null
+        val required = if (topic.experimentalEvidenceValidated) 1 else minimum
+        if (members.size < required) null
         else if (available(topic.anchor.passage.pageId) && available(topic.labelSource.pageId)) topic.copy(members = members)
         else {
             val replacement = replacements[topic.id]
@@ -279,8 +304,9 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
                 val similarity = directCosine(topic.anchor.vector, replacement.vector)
                 val rescored = members.map { it.copy(anchor = replacement.passage, score = if (it.passage.id == replacement.passage.id) 1f else cosineLowerBound(it.score, similarity)) }
                     .filter { it.score >= TopicPolicy().retention }
-                if (rescored.size < minimum) null else topic.copy(anchor = replacement, labelSource = replacement.passage,
-                    label = supportedHeading(replacement.passage.sectionTitle, rescored) ?: sharedSourcePhrase(replacement.passage, rescored)
+                if (rescored.size < required) null else topic.copy(anchor = replacement, labelSource = replacement.passage,
+                    label = (if (topic.experimentalEvidenceValidated) topic.label.takeIf { label -> rescored.all { it.passage.sectionTitle?.trim()?.equals(label, true) == true || it.passage.excerpt.contains(label, true) } } ?: replacement.passage.sectionTitle else null)
+                        ?: supportedHeading(replacement.passage.sectionTitle, rescored) ?: sharedSourcePhrase(replacement.passage, rescored)
                         ?: "Notes related to ${member.metadata.title}", members = rescored)
             }
         }
@@ -290,16 +316,8 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
         provisionalTopics = provisional, provisionalPasses = snapshot.provisionalPasses.filterKeys { id -> provisional.any { it.id == id } },
         connections = snapshot.connections.filter { available(it.left.pageId) && available(it.right.pageId) },
         generation = snapshot.generation + 1, acceptedRevisions = snapshot.acceptedRevisions.filterKeys(::available),
-        pendingRevisions = snapshot.pendingRevisions.filterKeys(::available), candidateSeeds = snapshot.candidateSeeds.filterKeys(::available))
+        pendingRevisions = snapshot.pendingRevisions.filterKeys(::available), candidateSeeds = snapshot.candidateSeeds.filterKeys(::available), formationProgress = null)
 }
-
-
-
-
-
-
-
-
 
 /** Safe minimum direct cosine when only two similarities to a shared anchor are known. */
 private fun cosineLowerBound(left: Float, right: Float): Float {
@@ -320,11 +338,12 @@ private fun supportedHeading(heading: String?, members: List<TopicMembership>): 
 }
 
 /** Bounded literal n-grams from one source, supported by at least two distinct Notes. */
-private fun sharedSourcePhrase(source: SemanticPassage, members: List<TopicMembership>): String? {
+internal fun sharedSourcePhrase(source: SemanticPassage, members: List<TopicMembership>, minimumSupport: Int = 2, requireAll: Boolean = false): String? {
     val stops = setOf("the", "a", "an", "and", "or", "to", "of", "in", "is", "are", "be", "it", "this", "that",
         "with", "as", "for", "from", "on", "by", "at", "not", "never", "must", "should", "will", "may", "can", "have", "has", "when", "then", "all", "only", "which", "its", "i", "you", "we", "they", "he", "she", "my", "your", "our", "their", "one", "someone", "something", "need", "needs", "feel", "feels", "seem", "seems")
     val words = Regex("[\\p{L}\\p{N}][\\p{L}\\p{N}'’-]*").findAll(source.excerpt).take(48).toList()
-    val samples = members.distinctBy { it.pageId }.take(12)
+    val distinct = members.distinctBy { canonicalSemanticId(it.pageId) }
+    val samples = if (requireAll) distinct else distinct.take(12)
     data class Phrase(val text: String, val support: Int, val content: Int, val position: Int)
     val candidates = mutableListOf<Phrase>()
     for (start in words.indices) for (length in 2..5) {
@@ -338,7 +357,7 @@ private fun sharedSourcePhrase(source: SemanticPassage, members: List<TopicMembe
         if (selected.any { it.value.lowercase() in setOf("i", "you", "we", "they", "he", "she", "one", "someone", "something") }) continue
         val support = samples.count { it.passage.excerpt.contains(literal, ignoreCase = true) ||
             it.passage.sectionTitle.orEmpty().contains(literal, ignoreCase = true) }
-        if (support >= 2) candidates += Phrase(literal, support, content, start)
+        if (support >= if (requireAll) samples.size else minimumSupport) candidates += Phrase(literal, support, content, start)
     }
     return candidates.sortedWith(compareByDescending<Phrase> { it.support * minOf(3, it.content) }
         .thenByDescending { minOf(3, it.content) }.thenBy { it.text.length }.thenBy { it.position }).firstOrNull()?.text

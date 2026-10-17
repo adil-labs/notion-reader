@@ -9,6 +9,34 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class FileTopicStoreTest {
+    @Test fun experimentalCandidatesBeyondLegacyAnchorLimitRemainPersistable() = runBlocking {
+        val identity = EmbeddingIdentity("many-subjects", 70)
+        val records = (0 until 70).map { n ->
+            val heading = "Subject number $n"
+            val p = SemanticPassage("p$n", "n$n", "s$n", heading, "b$n", "c$n", 0, 80,
+                "$heading has independent explanatory body evidence.", "$heading body", 0)
+            SemanticRecord("n$n", "r1", identity, SemanticMetadata("n$n"),
+                listOf(EmbeddedPassage(p, List(70) { if (it == n) 1f else 0f })))
+        }
+        val snapshot = SectionHierarchicalEngine(identity).discover(records, null, TopicPolicy())
+        assertEquals(70, snapshot.topics.size)
+        val store = FileTopicStore(temporary.newFolder())
+        assertEquals(TopicWriteResult.Written, store.writeDetailed(snapshot))
+        assertEquals(snapshot, store.read())
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.CandidateBound),
+            store.writeDetailed(snapshot.copy(engineVersion = 0)))
+    }
+
+    @Test fun malformedFormationCheckpointCannotReplaceThePreviousGeneration() = runBlocking {
+        val store = FileTopicStore(temporary.newFolder())
+        val prior = TopicSnapshot(generation = 4)
+        assertTrue(store.write(prior))
+        val corrupt = prior.copy(engineVersion = SectionHierarchicalEngine.VERSION,
+            formationProgress = TopicFormationProgress("signature", 2, listOf(listOf(0), listOf(0))))
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidSnapshotProgress),
+            store.writeDetailed(corrupt))
+        assertEquals(prior, store.read())
+    }
     @Test fun revisedCheckpointBranchesRemainPersistableWithoutReusingAnIdentity() = runBlocking {
         val model = EmbeddingIdentity("checkpoint-branches", 2)
         fun record(page: String, axis: Int, revision: String = "r1"): SemanticRecord {

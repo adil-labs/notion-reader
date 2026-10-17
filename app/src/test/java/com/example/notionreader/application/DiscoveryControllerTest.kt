@@ -14,6 +14,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryControllerTest {
+    @Test fun searchTimingIncludesEmbeddingAndNeverContainsTheQuery() = runBlocking {
+        val dir = Files.createTempDirectory("search-timing").toFile()
+        try {
+            val samples = mutableListOf<Map<String, Long>>()
+            val provider = Provider().apply { onEmbed = { Thread.sleep(25) } }
+            val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")),
+                FileSemanticIndexStore(dir.resolve("index")), FileDiscoveryInterestStore(dir.resolve("interests")),
+                provider, queryTimings = { samples += it })
+            controller.search("private query text")
+            val timing = samples.last()
+            assertTrue("Whole search timing must include inference", timing.getValue("searchTotalNs") >= timing.getValue("embeddingNs"))
+            assertTrue(timing.getValue("embeddingNs") >= 20_000_000L)
+            assertEquals(1L, timing.getValue("completed"))
+            assertEquals(setOf("searchTotalNs", "waitNs", "embeddingNs", "retrievalNs", "completed"), timing.keys)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun aFailingTimingObserverCannotTurnSuccessfulSearchIntoAnError() = runBlocking {
+        val dir = Files.createTempDirectory("search-observer").toFile()
+        try {
+            val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")),
+                FileSemanticIndexStore(dir.resolve("index")), FileDiscoveryInterestStore(dir.resolve("interests")),
+                Provider(), queryTimings = { error("diagnostic failure") })
+            controller.search("query")
+            assertNull(controller.state.value.message)
+            assertFalse(controller.state.value.searching)
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun editingOneParagraphReusesUnchangedPassageEmbeddings() = runBlocking {
         val dir = Files.createTempDirectory("discovery-incremental").toFile()
         try {

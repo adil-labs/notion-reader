@@ -108,9 +108,10 @@ class ShippingTopicInferenceTest {
             controller.refreshTopics()
             val totalMs = (System.nanoTime() - started) / 1e6
             val records = index.pageIds().sorted().mapNotNull { index.read(it) }
-            fun measure(split: String, policy: TopicPolicy = TopicPolicy()): Triple<Double, Double, TopicSnapshot> {
+            fun measure(split: String, policy: TopicPolicy = TopicPolicy(), published: Boolean = false): Triple<Double, Double, TopicSnapshot> {
                 val selected = records.filter { splits[it.pageId] == split }
-                val result = TopicBuilder(null, provider.identity, policy).apply { selected.forEach(::accept) }.finish()
+                val candidates = TopicBuilder(null, provider.identity, policy).apply { selected.forEach(::accept) }.finish()
+                val result = if (published) candidates.copy(topics = publishableDiscoveryTopics(candidates.topics)) else candidates
                 val expected = selected.flatMap { r -> r.passages.mapNotNull { truth[it.passage.id]?.let { t -> r.pageId to t } } }.toSet()
                 val predicted = result.topics.flatMap { t -> t.members.map { it.pageId to truth[t.labelSource.id] } }.toSet()
                 val evidence = result.topics.flatMap { t -> t.members.map { truth[it.passage.id] != null && truth[it.passage.id] == truth[t.labelSource.id] } }
@@ -130,6 +131,7 @@ class ShippingTopicInferenceTest {
             assertNotNull("Calibration must produce an eligible policy", selectedPolicy)
             assertEquals("Shipping admission must match calibration", selectedPolicy!!.first.admission, TopicPolicy().admission)
             val calibration = measure("calibration"); val held = measure("heldOut")
+            val publishedHeld = measure("heldOut", published = true)
             val snapshot = controller.state.value.topicSnapshot
             val truthPairs = corpus.getJSONArray("heldOutConnectionPairs").let { pairs ->
                 (0 until pairs.length()).map { i -> pairs.getJSONArray(i).let { setOf(it.getString(0), it.getString(1)) } }.toSet()
@@ -143,6 +145,7 @@ class ShippingTopicInferenceTest {
             val report = JSONObject().put("documents", documents.length()).put("passages", records.sumOf { it.passages.size })
                 .put("calibrationPrecision", calibration.first).put("calibrationRecall", calibration.second)
                 .put("heldOutPrecision", held.first).put("heldOutRecall", held.second)
+                .put("publishedHeldOutPrecision", publishedHeld.first).put("publishedHeldOutRecall", publishedHeld.second)
                 .put("pairPrecision", pairPrecision).put("heldOutPairs", pairs.size).put("requiredPairsFound", requiredFound)
                 .put("topics", snapshot.topics.size).put("initialIndexAndTopicsMs", totalMs)
                 .put("derivedBytes", index.bytes() + topics.bytes()).put("nativeHeapBytes", android.os.Debug.getNativeHeapAllocatedSize())
@@ -150,6 +153,8 @@ class ShippingTopicInferenceTest {
             assertTrue("Calibration precision: $report", calibration.first >= .8)
             assertTrue("Held-out precision: $report", held.first >= .8)
             assertTrue("Held-out recall: $report", held.second >= .8)
+            assertTrue("Published held-out precision: $report", publishedHeld.first >= .8)
+            assertTrue("Published held-out recall: $report", publishedHeld.second >= .8)
             assertEquals(setOf("music", "astronomy"), mixed.mapNotNull { truth[it.labelSource.id] }.toSet())
             assertEquals(2, mixed.flatMap { t -> t.members.filter { it.pageId == "mixedheld" }.map { it.passage.id } }.distinct().size)
             assertTrue("Held-out pair precision: $report", pairPrecision >= .8)
