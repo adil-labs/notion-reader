@@ -1,23 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
+    <!-- Only these portable stores participate. Android always excludes noBackupFilesDir. -->
     <cloud-backup>
         <include domain="file" path="datastore/user_settings.preferences_pb" />
         <include domain="file" path="datastore/listening_history.preferences_pb" />
         <include domain="file" path="datastore/saved_queues.preferences_pb" />
         <include domain="file" path="datastore/smart_queues.preferences_pb" />
-        <exclude domain="file" path="datastore/" />
-        <exclude domain="no_backup" path="." />
-        <exclude domain="database" path="." />
-        <exclude domain="sharedpref" path="." />
     </cloud-backup>
     <device-transfer>
         <include domain="file" path="datastore/user_settings.preferences_pb" />
         <include domain="file" path="datastore/listening_history.preferences_pb" />
         <include domain="file" path="datastore/saved_queues.preferences_pb" />
         <include domain="file" path="datastore/smart_queues.preferences_pb" />
-        <exclude domain="file" path="datastore/" />
-        <exclude domain="no_backup" path="." />
-        <exclude domain="database" path="." />
-        <exclude domain="sharedpref" path="." />
     </device-transfer>
 </data-extraction-rules>
