@@ -1,0 +1,194 @@
+{
+  "status": "passed",
+  "scope": "Isolated public synthetic corpus; shipping source code; no reader library access",
+  "abi": "arm64-v8a",
+  "sdk": 37,
+  "notes": 100,
+  "passages": 10000,
+  "syntheticRepeatedEmbeddings": true,
+  "samples": 20,
+  "coldEmbedIncludingSessionMs": 403.111247,
+  "hundredPassageInferenceMs": 1215.839438,
+  "persistMs": 3234.411378,
+  "queryP50Ms": 908.267457,
+  "queryP95Ms": 1019.655965,
+  "targetP95Ms": 2000,
+  "querySamplesMs": [
+    388.034871,
+    696.124757,
+    826.805623,
+    860.336914,
+    865.364096,
+    875.895305,
+    884.985678,
+    887.974243,
+    895.356446,
+    908.267457,
+    923.139974,
+    927.74589,
+    930.706096,
+    959.88086,
+    960.067139,
+    974.495444,
+    982.34607,
+    1018.415365,
+    1019.655965,
+    1059.141358
+  ],
+  "searchPhasesNs": [
+    {
+      "searchTotalNs": 2113673340,
+      "waitNs": 160848,
+      "embeddingNs": 12062826,
+      "retrievalNs": 2101245688,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 982240235,
+      "waitNs": 76375,
+      "embeddingNs": 7669108,
+      "retrievalNs": 974251587,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 974386801,
+      "waitNs": 70191,
+      "embeddingNs": 10463013,
+      "retrievalNs": 963610515,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 696073284,
+      "waitNs": 79428,
+      "embeddingNs": 11357666,
+      "retrievalNs": 684539877,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 387998576,
+      "waitNs": 28198,
+      "embeddingNs": 3405518,
+      "retrievalNs": 384469930,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 826699626,
+      "waitNs": 28971,
+      "embeddingNs": 4214600,
+      "retrievalNs": 822184367,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 923024618,
+      "waitNs": 91431,
+      "embeddingNs": 11369262,
+      "retrievalNs": 911264283,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 895267619,
+      "waitNs": 77636,
+      "embeddingNs": 12171468,
+      "retrievalNs": 882811565,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 887888754,
+      "waitNs": 66569,
+      "embeddingNs": 9351033,
+      "retrievalNs": 878240926,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 959787965,
+      "waitNs": 74422,
+      "embeddingNs": 9496215,
+      "retrievalNs": 949965251,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 1059057496,
+      "waitNs": 89681,
+      "embeddingNs": 11679362,
+      "retrievalNs": 1047083008,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 884877361,
+      "waitNs": 62175,
+      "embeddingNs": 9317789,
+      "retrievalNs": 875200888,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 908152833,
+      "waitNs": 79102,
+      "embeddingNs": 11463379,
+      "retrievalNs": 896342733,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 930594646,
+      "waitNs": 83252,
+      "embeddingNs": 10754598,
+      "retrievalNs": 919488852,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 959955486,
+      "waitNs": 85409,
+      "embeddingNs": 11436157,
+      "retrievalNs": 948147421,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 1019541586,
+      "waitNs": 86019,
+      "embeddingNs": 11656006,
+      "retrievalNs": 1007526083,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 1018304078,
+      "waitNs": 79020,
+      "embeddingNs": 12712768,
+      "retrievalNs": 1005242880,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 927634115,
+      "waitNs": 79427,
+      "embeddingNs": 10935221,
+      "retrievalNs": 916333781,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 865263062,
+      "waitNs": 88134,
+      "embeddingNs": 11871989,
+      "retrievalNs": 853083252,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 875798584,
+      "waitNs": 77799,
+      "embeddingNs": 9336955,
+      "retrievalNs": 866141357,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 860226645,
+      "waitNs": 72795,
+      "embeddingNs": 10242309,
+      "retrievalNs": 849621623,
+      "completed": 1
+    }
+  ],
+  "indexBytes": 19304090,
+  "totalPssKiB": 215049,
+  "nativeHeapAllocatedBytes": 48009696,
+  "runId": "bc08f67a-6e12-4545-9138-2e766b0d0d3a",
+  "apkSha256": "afb22ca6b1d7154ca02b76b2a64d3b768367b3c8a36f5f65bf7edf682b675ffe",
+  "deviceType": "physical",
+  "hardware": "husky"
+}

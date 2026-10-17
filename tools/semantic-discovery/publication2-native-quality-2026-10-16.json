@@ -1,0 +1,20 @@
+{
+  "documents": 19,
+  "passages": 46,
+  "calibrationPrecision": 1,
+  "calibrationRecall": 1,
+  "heldOutPrecision": 1,
+  "heldOutRecall": 1,
+  "publishedHeldOutPrecision": 1,
+  "publishedHeldOutRecall": 1,
+  "pairPrecision": 1,
+  "heldOutPairs": 3,
+  "requiredPairsFound": 1,
+  "topics": 5,
+  "initialIndexAndTopicsMs": 2313.710097,
+  "derivedBytes": 188707,
+  "nativeHeapBytes": 45865088,
+  "discoveryPolicyVersion": 9,
+  "publicationPolicyVersion": 2,
+  "environment": "API36 x86_64 emulator; public mapper-shaped corpus; not private-library acceptance"
+}

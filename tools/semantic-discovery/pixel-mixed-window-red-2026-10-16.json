@@ -1,0 +1,203 @@
+{
+  "status": "failed",
+  "reportFormatVersion": 2,
+  "requestedQueryDelaySeconds": 60,
+  "readyEpochMs": 1792150914161,
+  "readyElapsedRealtimeMs": 662186884,
+  "queryWindowStartEpochMs": 1792150974167,
+  "queryWindowEndEpochMs": 1792151065742,
+  "queryWindowStartElapsedRealtimeMs": 662246890,
+  "queryWindowEndElapsedRealtimeMs": 662338465,
+  "scope": "Isolated public synthetic corpus; shipping source code; no reader library access",
+  "abi": "arm64-v8a",
+  "sdk": 37,
+  "notes": 100,
+  "passages": 10000,
+  "syntheticRepeatedEmbeddings": true,
+  "samples": 20,
+  "coldEmbedIncludingSessionMs": 384.067017,
+  "hundredPassageInferenceMs": 922.295329,
+  "persistMs": 3081.473635,
+  "queryP50Ms": 3228.164105,
+  "queryP95Ms": 3963.251141,
+  "targetP95Ms": 2000,
+  "querySamplesMs": [
+    865.57011,
+    888.328776,
+    898.880941,
+    904.571371,
+    2592.19389,
+    2874.96749,
+    2963.70923,
+    3135.460736,
+    3219.060874,
+    3228.164105,
+    3258.037559,
+    3270.120404,
+    3303.546836,
+    3369.338462,
+    3479.582155,
+    3500.35189,
+    3591.401938,
+    3844.915896,
+    3963.251141,
+    38419.814471
+  ],
+  "searchPhasesNs": [
+    {
+      "searchTotalNs": 2160072022,
+      "waitNs": 235961,
+      "embeddingNs": 11431966,
+      "retrievalNs": 2148239300,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3844531618,
+      "waitNs": 464478,
+      "embeddingNs": 56987142,
+      "retrievalNs": 3785975995,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3962887372,
+      "waitNs": 257202,
+      "embeddingNs": 40354329,
+      "retrievalNs": 3921063356,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3257158693,
+      "waitNs": 303263,
+      "embeddingNs": 37647827,
+      "retrievalNs": 3217798178,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3590999717,
+      "waitNs": 436402,
+      "embeddingNs": 41368530,
+      "retrievalNs": 3548200278,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3499995648,
+      "waitNs": 342488,
+      "embeddingNs": 33616211,
+      "retrievalNs": 3464325116,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3303272585,
+      "waitNs": 241496,
+      "embeddingNs": 22469808,
+      "retrievalNs": 3279918987,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3218708294,
+      "waitNs": 203817,
+      "embeddingNs": 20689657,
+      "retrievalNs": 3196905193,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3368241457,
+      "waitNs": 274862,
+      "embeddingNs": 26399740,
+      "retrievalNs": 3337623700,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3479150108,
+      "waitNs": 364950,
+      "embeddingNs": 37676676,
+      "retrievalNs": 3440157391,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3227770875,
+      "waitNs": 303670,
+      "embeddingNs": 22736125,
+      "retrievalNs": 3203898602,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3269722210,
+      "waitNs": 253744,
+      "embeddingNs": 24313029,
+      "retrievalNs": 3243987144,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 3135056398,
+      "waitNs": 330363,
+      "embeddingNs": 33605225,
+      "retrievalNs": 3099995241,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 2591893474,
+      "waitNs": 258789,
+      "embeddingNs": 23776245,
+      "retrievalNs": 2567021445,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 2963343182,
+      "waitNs": 200074,
+      "embeddingNs": 21751139,
+      "retrievalNs": 2940369305,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 2874542726,
+      "waitNs": 290853,
+      "embeddingNs": 29885499,
+      "retrievalNs": 2843374391,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 38419574482,
+      "waitNs": 524129,
+      "embeddingNs": 28891235,
+      "retrievalNs": 38389712299,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 904468140,
+      "waitNs": 266439,
+      "embeddingNs": 44967692,
+      "retrievalNs": 858967163,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 865466431,
+      "waitNs": 80119,
+      "embeddingNs": 9356202,
+      "retrievalNs": 855799967,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 888224732,
+      "waitNs": 72021,
+      "embeddingNs": 12691610,
+      "retrievalNs": 875195354,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 898781169,
+      "waitNs": 83414,
+      "embeddingNs": 11556478,
+      "retrievalNs": 886876140,
+      "completed": 1
+    }
+  ],
+  "indexBytes": 19304090,
+  "totalPssKiB": 164739,
+  "nativeHeapAllocatedBytes": 49663616,
+  "runId": "e0137069-193c-430d-9cad-c7c95407e6cf",
+  "apkSha256": "32abb2c27301fe053af764213ad9074148efea559d1cfd14473afba475bf5949",
+  "deviceType": "physical",
+  "hardware": "husky",
+  "measurementCondition": "Mixed benchmark visibility; reader speech did not cover entire window. Failed result retained; not clean foreground contention acceptance."
+}

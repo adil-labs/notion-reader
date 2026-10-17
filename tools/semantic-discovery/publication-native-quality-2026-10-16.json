@@ -1,0 +1,17 @@
+{
+  "documents": 19,
+  "passages": 46,
+  "calibrationPrecision": 1,
+  "calibrationRecall": 1,
+  "heldOutPrecision": 1,
+  "heldOutRecall": 1,
+  "publishedHeldOutPrecision": 1,
+  "publishedHeldOutRecall": 1,
+  "pairPrecision": 1,
+  "heldOutPairs": 3,
+  "requiredPairsFound": 1,
+  "topics": 5,
+  "initialIndexAndTopicsMs": 2329.681544,
+  "derivedBytes": 188707,
+  "nativeHeapBytes": 45609408
+}

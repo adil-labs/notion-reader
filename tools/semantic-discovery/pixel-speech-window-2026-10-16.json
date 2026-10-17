@@ -1,0 +1,203 @@
+{
+  "status": "passed",
+  "reportFormatVersion": 2,
+  "requestedQueryDelaySeconds": 60,
+  "readyEpochMs": 1792166919999,
+  "readyElapsedRealtimeMs": 678192722,
+  "queryWindowStartEpochMs": 1792166980004,
+  "queryWindowEndEpochMs": 1792166987939,
+  "queryWindowStartElapsedRealtimeMs": 678252727,
+  "queryWindowEndElapsedRealtimeMs": 678260662,
+  "scope": "Isolated public synthetic corpus; shipping source code; no reader library access",
+  "abi": "arm64-v8a",
+  "sdk": 37,
+  "notes": 100,
+  "passages": 10000,
+  "syntheticRepeatedEmbeddings": true,
+  "samples": 20,
+  "coldEmbedIncludingSessionMs": 233.844849,
+  "hundredPassageInferenceMs": 555.638591,
+  "persistMs": 1735.488078,
+  "queryP50Ms": 374.879517,
+  "queryP95Ms": 456.808961,
+  "targetP95Ms": 2000,
+  "querySamplesMs": [
+    360.551229,
+    361.123901,
+    362.696981,
+    363.841756,
+    366.423259,
+    369.376547,
+    369.713542,
+    370.436483,
+    370.804728,
+    374.879517,
+    376.058228,
+    380.537598,
+    386.310954,
+    401.191325,
+    401.569824,
+    404.248332,
+    410.389811,
+    442.701945,
+    456.808961,
+    604.374146
+  ],
+  "searchPhasesNs": [
+    {
+      "searchTotalNs": 1133497599,
+      "waitNs": 58878,
+      "embeddingNs": 6943400,
+      "retrievalNs": 1126398804,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 404130575,
+      "waitNs": 236410,
+      "embeddingNs": 10669515,
+      "retrievalNs": 393075643,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 442657186,
+      "waitNs": 26571,
+      "embeddingNs": 5514607,
+      "retrievalNs": 437010050,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 376012451,
+      "waitNs": 31983,
+      "embeddingNs": 5288371,
+      "retrievalNs": 370595866,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 374837565,
+      "waitNs": 31535,
+      "embeddingNs": 4935344,
+      "retrievalNs": 369777303,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 401531494,
+      "waitNs": 29988,
+      "embeddingNs": 5003703,
+      "retrievalNs": 396417156,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 363806641,
+      "waitNs": 28361,
+      "embeddingNs": 5606527,
+      "retrievalNs": 358087768,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 362656047,
+      "waitNs": 29867,
+      "embeddingNs": 4457804,
+      "retrievalNs": 358070638,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 360504232,
+      "waitNs": 30843,
+      "embeddingNs": 5809286,
+      "retrievalNs": 354574992,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 369331177,
+      "waitNs": 28361,
+      "embeddingNs": 5574666,
+      "retrievalNs": 363634074,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 380480795,
+      "waitNs": 27873,
+      "embeddingNs": 4987793,
+      "retrievalNs": 375313558,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 386253093,
+      "waitNs": 36866,
+      "embeddingNs": 6750366,
+      "retrievalNs": 379349487,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 604328410,
+      "waitNs": 37679,
+      "embeddingNs": 7580567,
+      "retrievalNs": 596604249,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 370392049,
+      "waitNs": 33813,
+      "embeddingNs": 4823039,
+      "retrievalNs": 365440023,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 361088664,
+      "waitNs": 30396,
+      "embeddingNs": 4917968,
+      "retrievalNs": 356054321,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 401144531,
+      "waitNs": 27384,
+      "embeddingNs": 4535604,
+      "retrievalNs": 396476318,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 366377441,
+      "waitNs": 34871,
+      "embeddingNs": 5284139,
+      "retrievalNs": 360958944,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 369666341,
+      "waitNs": 33040,
+      "embeddingNs": 5664713,
+      "retrievalNs": 363868042,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 370763875,
+      "waitNs": 32348,
+      "embeddingNs": 5015869,
+      "retrievalNs": 365608154,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 456767009,
+      "waitNs": 31779,
+      "embeddingNs": 5438680,
+      "retrievalNs": 451187541,
+      "completed": 1
+    },
+    {
+      "searchTotalNs": 410346232,
+      "waitNs": 30355,
+      "embeddingNs": 4863403,
+      "retrievalNs": 405348266,
+      "completed": 1
+    }
+  ],
+  "indexBytes": 19304090,
+  "totalPssKiB": 166117,
+  "nativeHeapAllocatedBytes": 48213008,
+  "runId": "942a18b8-383f-4a9e-8ae9-55b51ba1c5a0",
+  "apkSha256": "aacee64aadb5ef5c460f171435a1d1d65a657a008ed226cd2b1c2a6db7de89ca",
+  "deviceType": "physical",
+  "hardware": "husky",
+  "measurementCondition": "Benchmark remained foreground; Reader foreground-service speech ran in a separate UID. Native utterance 48 spans query-window start; 48 and 49 completed within the window; 50 started before window end and completed at its rounded epoch boundary. No stop/error/cancel in that window. Native callbacks do not establish human audible acceptance."
+}
