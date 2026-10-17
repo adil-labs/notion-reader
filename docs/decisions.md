@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§73)](#73-current-implementation-open-work-and-documentation-map-2026-10-17)
+[current implementation and open work (§76)](#76-single-discovery-engine-and-safe-derived-state-upgrade-2026-10-17)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -8291,3 +8291,298 @@ playback coexistence and human TalkBack/listening gates listed in §73 remain op
 The previously measured physical additional-memory overrun is not resolved by
 these integration checks. The debug trial remains enabled and release retains
 the baseline. No remote push is part of this local integration request.
+
+## 75. Discovery correctness, background service and responsive work (2026-10-17)
+
+This is the current runtime/audit entrypoint; §73 still describes the outstanding
+general-release acceptance work and §74 records the earlier integration tree.
+The user requested a Discovery correctness audit, responsive UI and service-owned
+heavy work, and explicitly chose to amend the former no-indexing-service rule.
+Amended Product first and reviewed Integration/UI ownership, patched the live
+Product and Integration paragraphs, regenerated every mirror and inspected the
+diff. Only those two mirrors have semantic changes; domain-model code blocks
+were not patched. `tools/amend-discovery-service.ps1` defaults to dry run, checks
+the exact live source and recognizes the applied text on rerun.
+
+### Findings and final behavior
+
+1. Bulk indexing already used a process background dispatcher, but it had no
+   Android service owner. The application now binds one private non-exported
+   `DiscoveryService`. Its Default-dispatcher scope owns the single reconciliation
+   collector and is canceled on destruction. A process mutex serializes any
+   replacement worker against the previous service's cancellation. Activity/task
+   lifetimes do not own it. Binding does not permit bulk work during playback,
+   backgrounding or memory pressure; existing pause rules remain. No foreground
+   notification, sticky restart, new model, automatic download or second indexing
+   collector was added.
+2. Experimental formation checked coroutine cancellation but not current playback,
+   foreground or resource eligibility inside CPU work. The collector uses
+   `collect`, so those input changes did not cancel its current context. Formation
+   and explicit-reference retrieval now check eligibility and waiting foreground
+   queries at their cooperative checkpoints. A policy pause releases the bulk
+   gate without canceling the collector; the last durable quantum remains and
+   work completes when eligible again. An interrupted quantum may be repeated.
+3. The ONNX adapter already dispatched inference, but controller entrypoints did
+   not themselves guarantee main safety. Search, interest inference,
+   recommendations and reconciliation now dispatch CPU work. Topic publication,
+   status checks and connection evidence preparation also run off the UI thread,
+   keyed to the inspected evidence; changed source keys immediately discard the
+   previous prepared presentation rather than keeping withdrawn passages visible.
+4. Independent explicit references bypassed the common connection exposure cap.
+   Apply deterministic selection to the combined explicit/semantic collection,
+   after explicit pair deduplication, and repair loaded legacy generations before
+   showing them. One Note cannot dominate the displayed collection. Full unique
+   current-title citation rules, literal provenance, thematic body requirements,
+   emerging/established publication and overlapping subject logic remain intact.
+5. Reconciliation previously checked only page presence for search, related,
+   recommendation and preview excerpts. An edit could leave old text visible for
+   an otherwise still-cached Note. Validate displayed passages/metadata against
+   the current source revision and indexed record. Withdraw stale matches; retain
+   an unavailable preview entry's position without its old excerpt/input.
+6. Independent review found two races introduced during the audit. Disk validation
+   now applies only to its captured list references, preserving a search or preview
+   published concurrently. Search assigns request identity and lightweight state
+   before background dispatch, so reversed dispatcher execution cannot give an
+   older query ownership. Publication guards run inside atomic state updates.
+   Cleanup belongs to the public request's `finally`, including cancellation
+   before the background body starts, so search cannot remain stuck busy.
+
+### Regression evidence
+
+`tools/proof-discovery-scheduling.ps1` mutates only the named production guards,
+checks the exact failing test set and restores original bytes in `finally`.
+Both complete controller/integration classes run in each proof; other tests must
+remain green. The tool deletes its two old XML reports before invoking Gradle,
+requires the source-derived test count and refuses errors/skips, so a compile
+failure or partial run cannot reuse stale reassuring evidence. The initial cancellation test was also observed failing before its
+public-finally fix. No assertions were deleted, relaxed or ignored.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Main dispatch, current passage validation, cooperative eligibility/query yield and combined connection caps (`-Case Guards`) | Exactly five intended failures: off-caller inference, edited-source withdrawal, playback eligibility, query priority and reference exposure/legacy repair |
+| Captured-list reconciliation (`-Case Reconciliation`) | Only `reconciliationPreservesAConcurrentSearchAndPreview` |
+| Request identity before dispatch (`-Case SearchOrder`) | Only `theNewestSearchKeepsOwnershipWhenBackgroundDispatchRunsInReverseOrder` |
+| Cleanup when canceled before background entry (initial red run) | Only `cancellationBeforeBackgroundDispatchDoesNotLeaveSearchBusy` |
+
+The race tests control dispatcher order or suspend actual index reads; they do
+not rely on repeated timing luck. The scheduling tests resume the same coordinator
+after the pause and require a complete published generation. Review of the fixes
+found no further important issue in those two races.
+
+### Verification and remaining limits
+
+- JVM suite: 873 tests, no failures/errors/skips. `assembleDebug` and
+  `compileDebugAndroidTestKotlin` pass.
+- Repository-wrapper device runs on `DiscoveryUiReview`, emulator-5554, API 36:
+  topic navigation 17/17, Discovery navigation 3/3 and Discovery polish 3/3,
+  no failures/errors/skips. These are targeted classes, not a full instrumented run.
+  Topic navigation was rerun on the final runtime tree and again passed 17/17.
+  A physical device appeared near the end of that run, making untargeted cleanup
+  ambiguous; restored and read back the emulator's timeout/plugged-in settings
+  explicitly. The service probe now takes `-Device`, targets every adb/CLI command
+  to that device and was rerun successfully with the emulator selected.
+- `tools/probe-discovery-service.ps1` installs the current debug APK and reads the
+  real service record, foreground app, CLI UI tree and Activity relaunch events.
+  One bound service token and one `mainThread=false` worker survive a measured
+  Activity relaunch, Home/background and return; Discover responds. Font scale is
+  restored in `finally`. A missing service dump is rejected by its self-check.
+  Probe artifacts live in ignored build storage; the probe itself is repository
+  tooling. No Note content or query text is added to worker diagnostics.
+- The default `medium_phone` AVD did not finish a usable boot; the wrapper refused
+  its offline device. That was no app verdict. A cold headless boot of the existing
+  API 36 `DiscoveryUiReview` AVD provided the usable environment above.
+
+The audit fixes the demonstrated correctness and main-thread paths; it does not
+certify arbitrary-library recommendation quality or every Android/device workload.
+The §73 general-release gates remain open: independent developer-owned human
+topic/reference quality evaluation, realistic varied/model-loaded physical
+processing and playback contention, the previously measured additional-memory
+overrun, and human TalkBack/listening observation. No acceptance threshold or
+release flag changed. The debug trial remains enabled and release retains the
+baseline. The new APK was verified on the emulator, not installed on a physical
+Pixel in this round. No commit, integration or remote push was requested here.
+
+
+## 76. Single discovery engine and safe derived-state upgrade (2026-10-17)
+
+The user explicitly retired the streaming64anchors/TopicBuilder algorithm and
+build split, and authorized source amendments followed by implementation. Product,
+UI and Integration were amended live using `tools/adopt-single-discovery-engine.ps1`
+(dry-run plan inspected before Apply); all Notion mirrors were regenerated with
+`tools/export-notion-doc.ps1 -All`. No generated paragraph was hand-edited.
+
+### Architecture and behavioral corrections
+
+All builds now use one concrete `SectionHierarchicalEngine`, with no switching
+interface, legacy wrapper, BuildConfig flag, Gradle rollback property or legacy
+migration execution. TopicBuilder and its coordinator sweep/config/checkpoint
+fields are removed. Shared evidence invalidation/naming moved into TopicEvidence.
+The application-bound Android Service and off-main controller/query-priority,
+playback-pressure and source-reconciliation corrections from §75 remain.
+
+Formation, passage projection, evidence validation, naming, publication,
+independent connections and persistence have separate entrypoints. A source-backed
+representative name need not occur in every semantic member. The experimental
+publication marker and alternate legacy publication policy are gone. Authored
+sections contribute every distinct passage direction, avoiding the previous loss
+of an independent late subject when a long section was averaged into one vector.
+Identical directions are contracted with all supporting passages retained.
+Focused projection and its checkpoint reconstruction use semantic scores rather
+than a literal heading gate. Broad and focused candidates can share a label; equal
+wording cannot consolidate independent nonoverlapping source evidence.
+
+Semantic connections now visit all eligible passages with a persisted intra-Note
+cursor and up to 256 opportunities per quantum. The former first-three-sections
+limit is gone. Explicit named references remain independently retrieved, while
+canonical pair/exposure rules remain shared. Formation defaults to 250,000
+comparison units per durable quantum; cooperative checks remain every 64 units
+and during preparation. Work size is not an admission/topic count ceiling.
+
+Engine version 4 separates authored section counts from passage opportunities.
+Header-only store identification rejects incompatible derived generations before
+materializing their memberships. Compatible embeddings, source cache, confirmed
+interests, settings, histories and queues are not cleared. Old hierarchical work
+resumes only when engine/model/source/policy/progress agree; incompatible progress
+safely restarts. Membership direction (`subjectVector`) is persisted separately
+from the actual representative passage embedding. Reanchor lower bounds use the
+actual direction against which the stored scores were measured.
+
+Opaque continuity fingerprints include source text/input as well as span identity;
+rewriting a passage in place cannot inherit a different subject's identity through
+its stable span ID or Note membership alone. Permanent removal preserves only
+fingerprints backed by surviving members instead of clearing all continuity when
+one Note disappears. No removed source text is retained in the opaque registry.
+
+### Regression evidence
+
+Each listed targeted regression was observed failing for the intended reason and
+then passing with the production correction restored. Source mutations were
+restored in finally; incomplete/hung historical attempts were not counted green.
+
+| Defect/guard removed | Tests that noticed |
+| --- | --- |
+| Legacy generation/checkpoint accepted | migration generation/checkpoint guards (three initial red tests) |
+| Legacy runtime/config/progress still present | three sole-engine architecture guards |
+| Label repeated in every member required | semanticMembershipDoesNotRequireACommonLiteralLabel |
+| Alternate experimental publication policy retained | publicationCannotSwitchToAnExperimentalEvidencePolicy |
+| Long section represented by one mean | independentSubjectsInsideOneLongSectionBothReceiveCandidates |
+| First-three-section connection truncation restored | aRestartResumesConnectionsBeyondTheFirstThreeSectionsInsideANote |
+| Content-insensitive continuity | aRewrittenSubjectCannotInheritIdentityThroughUnchangedPassageIds |
+| Equal labels collapse independent evidence | equalAuthoredLabelsCannotCollapseIndependentPassageSubjects |
+| Permanent deletion clears surviving fingerprints | deletingOneMemberPreservesContinuityOfUnchangedSurvivors |
+| Literal heading projection restored | focusedAuthoredSubjectsRemainCandidatesInsideTheBroadLinkageFamily |
+| Representative vector used for centroid scores | replacingALabelSourceUsesTheActualMembershipScoreDirection |
+| A paused connection scan returns an empty replacement | pausingAConnectionQuantumCannotPublishAnEmptyReplacement |
+| Unsupported backup domain / masking exclusions | both BackupPolicyTest checks |
+
+Thirteen JVM tests solely exercising retired sweep/anchor-cap/wrapper mechanics
+were intentionally removed; shared product scenarios were migrated to the sole
+engine. The old merge fixture rewrote Astronomy into Gardening: it now retains
+source text while controlled vectors converge, making the merge claim genuine.
+Focused fixtures now have actual distinct directions and a semantic bridge rather
+than identical vectors separated only by headings. Navigation source-loss fixtures
+now respect the established/Emerging contract: surviving evidence remains, and the
+missing-topic focus test removes all contributing Notes while retaining unrelated
+cached content. No accessibility assertion was disabled or ignored.
+
+Obsolete executable Python greedy clustering/ablation tooling, its research-only
+tests and the legacy mutation proof were removed. The private review entrypoint
+is `:app:reviewDiscoveryEngine` and exports the sole engine without automatic human
+judgments. Historical results remain in the decision record.
+
+### Verification and scoped measurements
+
+The targeted discovery navigation wrapper completed all 17 tests with zero failures
+on the API36 DiscoveryUiReview emulator. Two earlier red runs exposed outdated
+min-three-member fixtures, then a duplicate text matcher; the final assertions
+check retained current members, withdrawn text, interest preservation and real
+focus rather than suppressing those failures. The service probe passed with an
+explicit emulator serial: one bound service and an off-main worker survived
+Activity relaunch/background/return, and Discover responded.
+
+A varied public formation fixture uses 10,000 passages, 2,500 uneven sections and
+section-specific vector perturbations, with the pinned shipping model loaded
+before the idle memory baseline. On the API36 emulator it completed 35 persisted
+quanta in 42,790.6 ms (40,503.1 ms measured thread CPU), sampling 49,001,200 added
+Java/native bytes (46.7 MiB) over 6,726 valid samples. The XML wrapper passed both
+scale/sampler tests. This is scoped emulator/synthetic evidence. The prior physical
+repeated-direction 189 MiB run remains a failed historical measurement; this new
+run does not retroactively pass it or establish physical playback/heat behavior.
+
+Release building initially exhausted D: during native symbol processing. The
+tracked `tools/release-build-location.init.gradle.kts` changes only the output
+location via an explicit absolute NOTION_READER_RELEASE_BUILD_DIR (C: temporary
+output used), with no alternate sources/engine. Release lint then found unsupported
+`no_backup` XML domains and broad datastore exclusions masking portable includes.
+Two failing-first backup tests now enforce supported domains and the exact four
+portable store includes. Android CLI autobackup documentation confirms that
+noBackupFilesDir is always excluded; semantic/cache evidence remains excluded.
+A build-output cleanup attempt was automatically rejected; it was not retried.
+
+### Acceptance limits and still open
+
+The existing provisional policy-vector corpus reports calibration precision 0.80 /
+recall 1.00 and held-out precision 0.8462 / recall 1.00. Calibration-only membership
+thresholds 0.60–0.80 and grouping distances 0.20–0.35 did not improve precision, so
+no policy was tuned against held-out results. The false assignments are emerging
+singletons whose truth entries are null (Travel/Binary search trees in calibration),
+so this historical multi-Note corpus also needs independent review for the new
+single-Note semantics. Do not relabel/exclude these items to manufacture a pass.
+Current numbers do not satisfy the >=90% precision gate, and neither provisional
+annotations nor candidate counts establish independently reviewed human quality.
+
+Independent label usefulness/false-publication/recall review, varied physical ARM64
+model-loaded resource/thermal checks, real playback coexistence and human TalkBack
+speech/listening acceptance remain unmeasured. All acceptance thresholds remain in
+force. Architecture adoption and functional tests do not certify these gates.
+Final build/test/resource verification results are appended below after execution.
+
+
+Follow-up functional checks: a transient eligibility pause during connection work
+now abandons that quantum without publishing an empty replacement. Restoring the
+old empty-return behavior failed the targeted new regression; restoring the guard
+passed the full JVM suite. Dead legacy separation/publication-version config was
+removed; TopicPolicy version 11 safely restarts incompatible work. This cleanup
+changes no measured formation/scoring algorithm.
+
+After a cold restart of the same DiscoveryUiReview API36 emulator, both shipping
+MiniLM topic/query tests passed through the wrapper. The repeated-embedding
+10,000-passage workload measured warm samples 556.8, 339.2, 321.9, 316.5 and 329.1 ms
+(small-sample p95/max 556.8 ms), cold search 611.2 ms and derived index/topics
+19,892,683 bytes. This is query-priority/repeated-embedding evidence, not varied
+quality acceptance. Before restart, both failed before inference with the platform
+UiAutomation already-registered/not-connected errors after the service/UI probe;
+that attempt remains red and is not inference evidence. The repository-default
+medium_phone snapshot boot did not become reliably online; its identified helper
+and emulator processes were stopped and the existing DiscoveryUiReview AVD was
+cold-booted headless using the documented Android CLI options.
+
+The subsequent current-schema eight-subject scale run measured 54,974.1 ms,
+50,970,368 added bytes (48.6 MiB), and cancellation in 0.465 ms. A forty-subject
+variation (same passage/section counts, separate section perturbations) measured
+43,817.0 ms, 70,525,040 added bytes (67.3 MiB), and cancellation in 0.460 ms. Both
+use model-loaded baselines; the latter wrapper run also repeats the eight-subject
+case. Final wrapper verdict and eight-subject repeat are recorded on completion.
+
+
+Final verification: 880 JVM tests, zero failures/errors; debug assembly, explicit
+androidTest Kotlin compilation and release assembly/lint all passed on final
+production sources. Source-derived accounting is prior 873, minus 13 deliberately
+retired mechanism tests, plus 20 new architecture/migration/backup/behavior tests.
+The final wrapper completed all three scale/sampler tests with zero failures;
+the repeated eight-subject case measured 42,928.4 ms, 53,536,720 added bytes
+(51.1 MiB), and cancellation in 1.926 ms. Native query/quality checks passed 2/2,
+navigation accessibility 17/17, and the real service lifecycle probe passed.
+Independent reviewer findings (equal-label consolidation, literal focused
+membership, partial-deletion continuity) were fixed with regression evidence and
+re-reviewed without a remaining critical finding. `git diff --check` passed;
+production/tooling scans and both generated BuildConfig files have no retired
+engine/selection flag. New source, tests, design/plan and repository tools are
+intentionally tracked; private review data and transient proof helpers are not.
+
+Provisional quality denominators: calibration 8 correct / 10 predicted distinct
+Note-subject assignments, 8 expected; held-out 11 / 13 predicted, 11 expected.
+Recall is 8/8 and 11/11 respectively. Neither corpus has the independent human
+provenance needed for acceptance. No held-out annotations were relabeled to make
+these figures green. Functional implementation verification is complete; the
+independent human/physical acceptance gates listed above remain open.

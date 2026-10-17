@@ -7,14 +7,13 @@ The live Product, UI and Integration contracts, including their 2026-10-17 amend
 control Discovery semantics. [decisions.md](decisions.md) preserves investigation,
 verification and superseded-policy history.
 
-## Current engine selection
+## Current discovery engine
 
-Debug builds enable Trustworthy Discovery through
-`BuildConfig.EXPERIMENTAL_DISCOVERY=true` for the authorized Android trial.
-Release builds retain the `streaming64anchors` baseline. Pass
-`-PexperimentalDiscovery=false` to build a debug rollback. Trial enablement does
-not establish release acceptance; failed or unmeasured gates below remain open.
-No private-library review, cache reset or model replacement is required.
+All debug and release builds use the sole section-aware hierarchical engine; legacy
+streaming execution, wrappers, switching flags and rollback properties are retired.
+The application-bound Android Service owns the worker lifetime. See
+[single-engine design](single-engine-discovery-design.md) for stages and migration.
+This adoption does not certify failed or unmeasured acceptance gates.
 
 ## Product and surfaces
 
@@ -130,7 +129,12 @@ Extend cache enumeration without touching LRU timestamps. Observe all puts,
 removals, clears, pruning, corruption deletion and internal budget eviction. One
 process-scoped worker reconciles on launch/cache/index changes. Bulk indexing
 pauses during playback, app backgrounding and resource pressure; resume on next
-eligible launch. Do not add a persistent service or force a workspace download.
+eligible launch. The application binds the private, non-exported Android Discovery
+service, which owns the single bulk coroutine on a background dispatcher and cancels
+it on destruction. Activity recreation does not own or replace this work. A binding
+does not override playback/background/resource-pressure pauses; no foreground
+notification, sticky restart or second indexing loop is introduced. Query inference,
+tokenization and publication filtering are main-safe too. Do not force a workspace download.
 
 Persist atomic per-document records and a versioned manifest. Publish a completed
 document only after source revision, cache membership, model identity and reset
@@ -157,7 +161,7 @@ and the current replacement requirements below take precedence.
 
 Use overlapping passage-supported membership, never an exclusive document
 partition. The legacy engine retains its bounded anchor implementation while the
-experimental replacement uses complete, bounded, resumable section opportunity.
+sole engine uses complete, bounded, resumable section opportunity.
 The replacement publishes established topics with at least two distinct eligible
 Notes and validated single-Note subjects separately as Emerging topics. Version/calibrate
 topic thresholds separately from recommendation thresholds. Process source changes
@@ -227,10 +231,10 @@ The north-star metric is the number of distinct, meaningful, evidence-supported 
 
 The authoritative Product/UI/Integration amendments dated 2026-10-17 supersede
 earlier publication minima and capacity-limited terminal sweeps. Historical policy
-descriptions in the baseline section below do not authorize source truncation
-or a three-Note minimum for the replacement engine.
+descriptions in decisions.md do not authorize source truncation
+or a three-Note minimum for the sole engine.
 
-- Retain MiniLM, exact similarity and the experimental flag. Form candidates,
+- Retain MiniLM, exact similarity and one engine across all builds. Form candidates,
   validate relevant body evidence, name specific source-supported subjects, and
   publish separately. Retain uncertain candidates internally. Do not optimize
   topic count, force unrelated material together, or merge on member overlap alone.
@@ -252,10 +256,10 @@ or a three-Note minimum for the replacement engine.
   and source-removal/privacy rules. Inspected snapshots change only on Refresh
   except mandatory eligibility removals; only Play changes playback.
 
-### Independent reference retrieval in the experimental engine
+### Independent reference retrieval in the sole engine
 
 The live Product/UI/Integration contracts require independent reference retrieval
-in the experimental engine. Retrieve explicit
+in the sole engine. Retrieve explicit
 instructions/citations naming a unique complete current eligible cached Note title
 independently of semantic thresholds, cross-topic membership and thematic prose
 admission. Reference lists may provide reference evidence, never topic membership
@@ -264,9 +268,8 @@ ambiguous mentions and negated instructions. Both endpoints must be currently
 cached/indexed at their accepted revisions. Show the literal referring passage and
 literal target context, explicitly identifying the latter as context rather than
 proof of thematic similarity or a verified hyperlink. Keep canonical unordered pair
-identities, source invalidation, explicit Refresh and session isolation. The baseline
-classification policy remains unchanged. Engine selection follows the debug-trial
-and release rules in Current engine selection.
+identities, source invalidation, explicit Refresh and session isolation.
+All builds use this same retrieval/publication policy.
 
 ### Quality and Android acceptance gates
 
@@ -303,12 +306,7 @@ binding. Record cold/warm times, process/native/Java peaks, storage, device/API 
 repeated observations. Bulk work pauses during playback; require no new errors,
 skips or session mutations attributable to Discovery. Host performance is not
 Android evidence. Human TalkBack speech/listening acceptance stays pending until
-observed. Failed or unmeasured gates block general release enablement. The
-2026-10-17 user-authorized debug trial enables the replacement through
-BuildConfig.EXPERIMENTAL_DISCOVERY without asserting that these gates passed.
-Release builds keep the baseline; `-PexperimentalDiscovery=false` restores it in
-debug builds. No private-library review, cache reset or model replacement is
-required for the trial.
+observed. Failed or unmeasured gates block general release enablement. All builds now use the sole engine; adoption does not mark acceptance passed.
 
 ### Current evidence limits
 
@@ -321,67 +319,8 @@ heat, playback coexistence or human TalkBack acceptance. Candidate totals and
 provisional editorial annotations are not independently verified human judgments.
 Keep those failed or unmeasured gates open; see decisions.md for scoped evidence.
 
-## Release baseline and historical tuning
+## Superseded mechanics
 
-Release builds retain the `streaming64anchors` baseline. The following policy
-mechanics explain that bounded implementation and its calibration history. They
-are not replacement publication or complete-processing requirements: terminal
-anchor capacity and the baseline multi-Note label rule do not supersede the
-current established/Emerging contract. Shared privacy, persistence, source-removal,
-explicit-Refresh and playback-isolation guarantees continue to apply to both engines.
-Detailed round evidence and superseded proposals remain in decisions.md.
-
-### Anchor opportunity and calibration (policy 5)
-
-Historical policy version 5 excludes standalone heading blocks from automatic topic and
-connection evidence, using the normalized mapper's section/source-block identity.
-Heading embeddings remain available to ordinary semantic search. Each Note may
-introduce at most two new candidate anchors in one pass; all body passages still
-match retained anchors for independent multi-label assignments. Rotate document
-order and long-Note passage opportunity between passes. Persist a bounded candidate
-sweep through all body positions plus a final reconciliation pass. Stop once that
-sweep is exhausted or all anchor slots contain supported topics; unchanged
-capacity-limited sources retain an honest incomplete-coverage status. Source or
-policy changes permit a fresh round. Persist the per-Note seeding budget through
-mid-document checkpoints. Candidate expiry after two passes is separate from
-the full source sweep.
-Overlapping windows from the same source block can count as equivalent evidence
-within the same reader chunk for consolidation when at least half the shorter span overlaps; common Note
-membership alone never merges independent themes.
-
-Quality evaluation must include production-shaped heading chunks and repeated
-generic headings. Check the selected representative passage's theme, in addition
-to Note-level membership precision/recall. Synthetic quality success does not
-establish real-library relevance or the performance gate.
-
-Generic-heading calibration selected admission .65, retention .59 and separation
-.75 from a fixed grid using calibration precision >=80%, then maximum recall and
-the highest admission tie-breaker. Held-out labels are evaluated afterward.
-
-### Evidence policy 7
-
-Automatic evidence excludes standalone headings, explicit reference/link-only lists, specification-routing boilerplate and short question-only checklist prompts. Reference headings need explanatory prose (at least ten words with a sentence, or eight words with two sentences, plus an English prose verb); this conservative English-first heuristic may suppress useful short entries. It does not remove text from semantic search, Browse or manual reading.
-
-Near-duplicate neighborhood consolidation requires member/source evidence overlap and compatible anchors. A bounded ordered four-word-window overlap of at least 0.85 recognizes formatting/near-copy duplication across different blocks; differing negation markers reject that shortcut. It is not a semantic equivalence or contradiction detector. Independent passage themes and multi-label membership remain supported. Labels reject generic reference headings and pronoun fragments, retain supported source phrases and explicit source fallback, and preserve opaque identities during improvements.
-
-Connection ranking keeps the existing calibrated cosine floor, canonical pair identities, and score/ID order. Greedy selection caps each Note at two exposures across at most twenty pairs, including during bounded candidate pruning; sparse supported results are acceptable. No novelty/causal explanation is inferred.
-
-Evaluation uses the original disjoint-theme corpus plus a public 29-Note/33-passage hard-negative extension. Report calibration and held-out membership precision/recall separately. Developer tooling may use Python; the Android runtime does not. The actual Pixel sample exposed a checklist/reference false match not represented by the first synthetic extension, now guarded independently. Synthetic quality is not real-library human relevance acceptance.
-
-### Publication policies 8 and 9
-
-Candidate retention is separate from publication. Keep eligible candidates, passage evidence and opaque identities internally. The displayed topic collection withholds generic Notes related to… fallbacks, generic/reference headings, fragment labels and labels lacking literal source support in at least two canonical member body contexts. This is conservative source grounding, not generated conceptual naming; limited publication must not be described as proof that the library has no themes.
-
-Order eligible topics by persistent created order and ID. Greedily suppress another near-identical member family (canonical member Jaccard at least .75) unless distinct supported labels, anchors below the existing .75 separation threshold and independent nonduplicate body passages on at least two shared Notes justify both. Independent spans in the same source block qualify when their half-open offsets do not overlap; a source block is not a topic partition. This publication filter does not merge identities, rewrite interests, remove source records or alter exact search.
-
-Connection grouping uses published topics. A hidden or ungrouped Note remains independently discoverable, including supported pairs where neither Note has a published topic. Shared published membership alone does not establish an extra cross-topic relationship. Existing score floors, canonical-pair deduplication and per-Note exposure limits remain. Policy 8 invalidates old processing checkpoints without recomputing unchanged embeddings; inspected generations still change through explicit Refresh.
-
-Publication policy 2 (discovery policy 9) additionally rejects negative/modal predicate fragments through conservative lexical edges. Literal repetition alone is not a subject. A label matching a title-family prefix before an explicit separator on at least three and sixty percent of canonical members is withheld unless at least two current body-section headings independently support it. This bounded structural check is not a semantic product/subject classifier; it can withhold useful ambiguous labels. Candidates, continuity, interests, search and individual connections remain intact. More specific grounded reconstruction remains a separate quality task.
-
-Grouping metadata signatures cover only cache-eligible metadata actually written to vector records, ordered by canonical page identity. Browse ordering and uncached metadata cannot restart the sweep. Actual cached metadata changes still reconcile without recomputing unchanged vectors. A legacy signature may require one fresh grouping reconciliation; subsequent unchanged coordinator restarts resume progress.
-
-A completed connection sweep can be reused between grouping passes, including after process recreation, only when its persisted source/model/policy/metadata signature matches and the published Note-to-topic memberships used for cross-topic eligibility are identical. Provisional candidates and grouping pass numbers alone are not connection inputs. Changed eligibility memberships or metadata require fresh connection reconciliation. This preserves existing pair evidence and ordering; it does not claim complete grouping coverage or improve passage selection.
-
-### Baseline connection classification
-
-Existing eligible pairs are annotated as Named reference only when current cached metadata identifies a unique full target title and a body passage explicitly instructs or cites that Note. Canonical aliases, title freshness and both source eligibilities are checked. Ambiguous, partial, stale and incidental mentions remain Similar passages. This adds no admission bypass, embedding rebuild, score change or verified-link claim. Complete lists separate the types with counts, preserve within-type order and canonical pair focus, and provide a real heading fallback if a source disappears. Preview creation remains session-neutral. Future private reviews expose the type separately; changing a type never makes a previously reviewed pair held-out.
+The streaming anchor engine, its 64-anchor admission limits and calibration sweep
+are retired. Historical rationale and measurements remain in decisions.md; they
+are not executable alternatives or current processing requirements.

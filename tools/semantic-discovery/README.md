@@ -169,16 +169,16 @@ Run the recorded-provenance audit without exposing case content:
 ```powershell
 python tools/semantic-discovery/quality_audit.py app/build/private-discovery-review/human-judgments-phase2.json
 python -m unittest discover -s tools/semantic-discovery -p test_quality_audit.py
-.\gradlew.bat :app:compareDiscoveryEngines '-PdiscoveryReviewDirectory=app/build/private-discovery-review/2026-10-16-baseline'
+.\gradlew.bat :app:reviewDiscoveryEngine '-PdiscoveryReviewDirectory=app/build/private-discovery-review/2026-10-16-baseline'
 ```
 
-The comparison reads the same cache-current records for both engines and writes
+The review reads cache-current records through the sole engine and writes
 complete candidate evidence under the explicitly selected ignored snapshot.
 Previously exposed cases are review material, not held-out evidence. Provisional
 editorial decisions require per-case human confirmation before they contribute to
 human-review statistics. Topic counts never establish quality acceptance.
 
-The experimental formation benchmark uses public synthetic 384-dimensional
+The synthetic formation benchmark uses public synthetic 384-dimensional
 records: 10,000 passages across 2,500 uneven sections. It measures actual Android
 elapsed/thread CPU time and sampled additional Java/native allocated memory,
 persists each work slice, and resumes through fresh stores and engine instances:
@@ -187,13 +187,14 @@ persists each work slice, and resumes through fresh stores and engine instances:
 pwsh -NoProfile -File tools/run-accessibility-tests.ps1 -Class com.example.notionreader.discovery.TopicFormationScalabilityDeviceTest
 ```
 
-The synthetic corpus uses eight repeated vector directions, stored in the same
-primitive representation as the shipping index. Exact duplicate contraction
-preserves all 2,500 sections and their linkage weights; this is not a benchmark
-of 2,500 different semantic directions.
+The corpus uses eight- and forty-subject variations with section-specific vector perturbations:
+2,500 distinct section directions and 10,000 passages in the primitive index
+representation. It loads the shipping MiniLM provider before its idle memory
+baseline, persists each slice and checks cooperative CPU cancellation within one
+second. This controlled synthetic distribution is not independently judged real
+library quality; it does not measure process PSS peaks, heat, physical playback or
+TalkBack listening. Sampling is not an allocation profiler.
 
-This benchmark does not load MiniLM, measure process PSS peaks or heat, or establish
-physical-device playback/TalkBack acceptance. Sampling is not an allocation profiler.
-General release remains gated. The user-authorized debug trial enables the new
-engine without requiring users to review their private Notes; developer quality
-evaluation uses public, consented or purpose-built representative Notes.
+The legacy streaming engine, obsolete clustering/ablation runner, research-only
+clustering tests and legacy mutation proof are retired. The sole runtime is used
+across builds. Architecture adoption does not declare human or physical acceptance.

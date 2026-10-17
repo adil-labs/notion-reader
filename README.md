@@ -446,7 +446,9 @@ ordering and labels through explicit Refresh, while revoked or evicted source co
 immediately. An unavailable preview entry retains its position without source text and requires
 recaching or removal before Play/Save.
 
-The process-scoped indexing worker pauses during playback, backgrounding and memory pressure.
+The private application-bound Android Discovery service owns the single indexing worker;
+its CPU work and inference run off the main thread. It pauses during playback,
+backgrounding and memory pressure, and cancels work when the service is destroyed.
 Versioned durable checkpoints resume eligible work; unchanged passages reuse embeddings. All derived
 vectors, topics, connections and checkpoints share the private 64 MiB budget. Exact cosine search
 streams per-document vectors. Clearing the index pauses rebuilding until Resume/Rebuild; deleting
@@ -454,19 +456,18 @@ the model clears the index and automatic continuity while preserving explicit in
 reset clears interests too. Cache eviction removes derived content but retains opaque recache
 continuity; confirmed deletion or access loss removes that continuity as well.
 
-### Engine selection and acceptance
+### Discovery architecture and acceptance
 
-Release builds use the bounded `streaming64anchors` baseline. Debug builds enable the experimental
-Trustworthy Discovery replacement through `BuildConfig.EXPERIMENTAL_DISCOVERY`; build with
-`-PexperimentalDiscovery=false` for a debug rollback. The replacement processes complete resumable
-section opportunities, discovers broad and focused overlapping subjects, and separates established
-topics (at least two supporting Notes) from Emerging topics (exactly one supporting Note). Both
-require specific source-supported labels and substantive body evidence and use the same Follow
-confirmation. Substantive discussion under a non-goal heading can support a topic without asserting
-that a capability exists. Independent Named reference retrieval is experimental; the baseline retains
-its semantic-pair classification policy.
+All builds use one section-aware hierarchical engine, owned by the application-bound
+Android Service. Indexing, candidate formation, passage projection, evidence validation,
+naming, publication, independent connections and persistence run off the UI thread.
+There is no build flag, fallback engine or legacy migration execution. Incompatible
+old derived generations restart while compatible embeddings and explicit user state
+remain. Broad/focused subjects may overlap; established topics require two Notes and
+Emerging topics one. Labels come from retained evidence independently of membership
+wording. Connection progress includes passages late within a Note.
 
-The debug trial is authorized; general release acceptance is still open. The physical Pixel
+Architecture adoption does not establish quality or resource acceptance. The prior physical Pixel
 10,000-passage/2,500-section synthetic formation benchmark completed in about 15 seconds but measured
 about 189 MiB added Java/native memory against a 128 MiB limit. This model-free repeated-direction
 workload does not establish varied real-library quality, model-loaded resource use, playback
@@ -479,3 +480,10 @@ Users do not need to label, approve or submit their private library to use Disco
 is optional. See the [implementation and acceptance contract](docs/semantic-discovery-implementation-spec.md),
 [reproducible model/device evaluation](tools/semantic-discovery/README.md) and
 [decision and verification history](docs/decisions.md) for thresholds, evidence and outstanding gates.
+
+
+The subsequent API36 emulator formation check used section-specific perturbations,
+10,000 passages / 2,500 uneven sections and a model-loaded idle baseline: 42.8 s
+with 46.7 MiB sampled added Java/native memory. This scoped synthetic result does
+not certify physical playback, human quality or TalkBack listening acceptance.
+See decisions.md §76 for migration, regression proofs and remaining gates.

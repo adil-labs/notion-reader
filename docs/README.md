@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#73-current-implementation-open-work-and-documentation-map-2026-10-17)
+[the current decision-record entry](decisions.md#76-single-discovery-engine-and-safe-derived-state-upgrade-2026-10-17)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
