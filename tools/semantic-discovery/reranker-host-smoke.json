@@ -1,0 +1,45 @@
+{
+  "status": "public_example_smoke_passed_not_discovery_quality",
+  "scope": "Host ONNX CPU only; public publisher example; no reader/private content access",
+  "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+  "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+  "modelSha256": "3573b6b9593cb2f75987a31815d409ca3dd8808629118fd20451bb1a5d90cec7",
+  "artifactBytes": 23200716,
+  "licenseMetadata": "apache-2.0",
+  "host": {
+    "system": "Windows",
+    "machine": "AMD64",
+    "ort": "1.31.0"
+  },
+  "providers": [
+    "CPUExecutionProvider"
+  ],
+  "threads": 1,
+  "inputs": {
+    "input_ids": "tensor(int64)",
+    "attention_mask": "tensor(int64)",
+    "token_type_ids": "tensor(int64)"
+  },
+  "tokenizerSha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+  "pairTokenCounts": [
+    34,
+    22
+  ],
+  "rawLogitsInPublisherExampleOrder": [
+    8.803133964538574,
+    -11.218788146972656
+  ],
+  "initializationMs": 97.372,
+  "warmSamples": 20,
+  "warmInferenceOnlyP50Ms": 2.9885,
+  "warmInferenceOnlyP95Ms": 4.2287,
+  "warmInferenceOnlyMeanMs": 3.19504,
+  "unmeasured": [
+    "Android native loading/ABIs/API26",
+    "Android tokenizer parity",
+    "Discovery usefulness/precision",
+    "Note-pair symmetry and support",
+    "memory/thermal/playback contention",
+    "topic naming or multi-label membership"
+  ]
+}

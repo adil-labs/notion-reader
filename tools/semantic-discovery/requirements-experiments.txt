@@ -1,0 +1,13 @@
+# Experimental environment dependencies for Topic Discovery, Reranking, NLI & Labeling
+# Python 3.13 on native Windows
+torch>=2.5.0
+torchvision
+sentence-transformers>=3.0.0
+transformers>=4.45.0
+scikit-learn>=1.5.0
+hdbscan>=0.8.38
+onnxruntime>=1.20.0
+tokenizers>=0.20.0
+pandas>=2.2.0
+numpy>=2.0.0
+scipy>=1.14.0

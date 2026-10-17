@@ -95,7 +95,18 @@ python tools/semantic-discovery/export-private-review.py --device <serial> --out
 python tools/semantic-discovery/render-private-review.py app/build/private-discovery-review/<new-snapshot>/review.json
 ```
 
-The explicit main is not a normal test or application runtime. It copies the export before replaying the shipping coordinator/store, reports structural failures and exits nonzero on rejection. Snapshot capture is best-effort across atomic files; pause/background indexing before export. Review cases are frozen, purposive held-out samples, separate from public calibration, with pending human judgments. Unshown pairs are only candidates for review. Never upload/commit snapshots, excerpts or judgments. Host elapsed times are not physical-device query benchmarks.
+Replay defaults to 32 rounds/60 seconds. To observe a longer bounded sweep, add
+`'-PdiscoveryReviewRounds=2048' '-PdiscoveryReviewSeconds=600'` (limits: 4096 rounds,
+1800 seconds). Each invocation copies the original snapshot into a new replay
+directory and leaves frozen cases/judgments unchanged. Progress prints every sixteen
+rounds. The final report distinguishes round/time budget exhaustion, persistence
+failure and a worker stopping; inspect final grouping/connection coverage and pass
+limits before describing that stop as complete. Host replay remains separate from
+physical-device latency and human quality acceptance.
+
+The explicit main is not a normal test or application runtime. It copies the export before replaying the shipping coordinator/store, reports structural failures and exits nonzero on rejection. Replay reconstructs the shipping metadata hash from cache-current records and reports exact source-signature agreement. Missing metadata or a differing/legacy signature cannot establish unchanged-input checkpoint resumption. Snapshot capture is best-effort across atomic files; pause/background indexing before export. Review cases are frozen local samples, separate from public calibration. Audit prior exposure before calling a sample held-out; pass earlier review files to the renderer with repeatable `--prior-review <path>` arguments. Exposure compares canonical Note pairs across shown/unshown kinds and topic member sets across label/ID changes. It does not prove statistical independence or assign human precision. Unshown pairs are only candidates for review. Never upload/commit snapshots, excerpts or judgments. Host elapsed times are not physical-device query benchmarks.
+
+Run the public review-renderer regression checks with `python -m unittest discover -s tools/semantic-discovery -p test_private_review.py`.
 
 `policy-evaluation.json` extends the original multi-label corpus with independently authored public reference/routing hard negatives, using disjoint calibration/held-out vocabularies. There are 29 Notes and 33 passages. Generate real host vectors with:
 
@@ -115,3 +126,74 @@ pwsh -NoProfile -File tools/semantic-discovery/probe-gemma2.ps1
 ```
 
 The nonzero result is expected: ARMv7 and x86 are absent, and native loading, prompt/tokenizer parity, quantized quality and playback contention are unmeasured. Only the 20.9MB development AAR is downloaded; the 484,622,336-byte model artifact is not downloaded or installed. Published LFS checksum is metadata, not a locally verified model hash. Static minSdk24 compatibility is not an API26 execution pass. The app keeps MiniLM/ONNX and its explicit download semantics.
+
+## Isolated physical shipping-search benchmark
+
+```powershell
+pwsh -NoProfile -File tools/semantic-discovery/check-benchmark-verdict.ps1
+pwsh -NoProfile -File tools/semantic-discovery/run-shipping-benchmark.ps1 -Device <physical-serial>
+```
+
+The separate no-permissions Android package copies shipping domain, cache, binary index, provider and controller sources at build time. It does not install/uninstall the reader, access its UID or use private content. Public model assets must already exist under app/build/discovery-feasibility/probe-assets; runtime model/vocabulary checksums are verified. Build output includes all native ABIs and is a developer artifact, not a distribution recommendation.
+
+The runner always builds incrementally, rejects emulator targets, checks generated copies, records the APK SHA256, and accepts only the current run ID. Reports remain available on failure. The shared verdict validates 100 Notes, 10000 passages, 20 finite query samples and nearest-rank p50/p95; self-checks reject slow, incomplete, invalid-percentile, nonfinite and error reports. Removing the threshold guard makes the slow-report self-check fail.
+
+On Pixel 8 Pro API37 ARM64, two current binary-format runs produced p95 991ms and 1020ms (20 samples each), under the unchanged 2000ms target. The second public report is pixel-binary-benchmark-2026-10-16.json. It uses repeated synthetic embeddings with actual file persistence and exact search, not representative private-library relevance. Cold embedding includes session creation, tokenization and inference; it is not a session-initialization-only measurement. The historical JSON-format performance failure remains in shipping-json-benchmark-red.json. Other devices/API combinations, worst-case metadata filters and 10000 passages concurrent with real playback are not covered by these runs.
+
+Debug reader builds emit numeric-only DiscoveryTiming maps. searchTotalNs includes inference/bulk wait, embedding and retrieval; completed=1 identifies a published successful search. Existing totalNs remains retrieval-only. Incomplete/cancelled/blank/unavailable operations have completed=0 and must not be mixed into successful-query percentiles. Diagnostic observer failures do not change search behavior. No query text, IDs or excerpts are included.
+
+Debug `SpeechTrace` contains static event names plus numeric utterance counters/statuses, never speech text, Note IDs or voice identities. Native start/done/stop/error, enqueue returns and reader cancellations distinguish an interrupted engine request from an app cancellation. A native done callback is stronger evidence than a fake completion; it still does not establish human audible/listening acceptance. Keep traces from private-library probes in ignored local storage.
+
+
+Connection review exports now include evidenceKind and connectionEvidencePolicyVersion. The renderer shows Named reference or Similar passages; older frozen cases remain explicitly unclassified. Pair exposure ignores classification, so reclassification cannot manufacture held-out evidence.
+
+The benchmark supports -QueryDelaySeconds (0–120) and records a current-run ready marker plus epoch and elapsed query windows. Delay alone is not playback evidence. Window self-checks reject partial/impossible windows and insufficient sample duration. The Pixel foreground benchmark with separate Reader service speech produced p50 374.88ms/p95 456.81ms; see pixel-speech-window-2026-10-16.json for scope. Native speech progressed across the query window without stop/error/cancel; this is not human listening acceptance or a same-process UI measurement. Retained pixel-mixed-window-red-2026-10-16.json failed at p95 3963.25ms with mixed benchmark visibility and incomplete speech coverage. These differing conditions do not support a claim that playback improves query speed. Snapshot memory is not peak memory.
+
+
+## Auxiliary labeling/classification research
+
+See docs/auxiliary-discovery-model-evaluation.md and auxiliary-model-candidates.json for task-specific, unqualified candidates. This research does not change the reader or upload private Notes. Reproduce the host reranker smoke with existing requirements:
+
+```powershell
+hf download cross-encoder/ms-marco-MiniLM-L6-v2 onnx/model_qint8_arm64.onnx config.json tokenizer.json tokenizer_config.json vocab.txt special_tokens_map.json --revision 233902d25c440f23af6f7d6e94d2946bac0bee0a --local-dir app/build/discovery-feasibility/auxiliary-reranker
+python tools/semantic-discovery/probe_reranker.py --assets app/build/discovery-feasibility/auxiliary-reranker --report tools/semantic-discovery/reranker-host-smoke.json
+python -m unittest discover -s tools/semantic-discovery -p test_reranker_probe.py
+```
+
+The published graph size/hash is checked before inference. Removing that guard fails both corruption properties while the valid-artifact property still passes. All probe acceptance checks remain active under Python optimization. Raw logits are not user confidence percentages. Host public-example ordering and inference-only timings do not qualify Android execution or Note discovery quality.
+
+## Trustworthy Discovery review and coverage
+
+Run the recorded-provenance audit without exposing case content:
+
+```powershell
+python tools/semantic-discovery/quality_audit.py app/build/private-discovery-review/human-judgments-phase2.json
+python -m unittest discover -s tools/semantic-discovery -p test_quality_audit.py
+.\gradlew.bat :app:compareDiscoveryEngines '-PdiscoveryReviewDirectory=app/build/private-discovery-review/2026-10-16-baseline'
+```
+
+The comparison reads the same cache-current records for both engines and writes
+complete candidate evidence under the explicitly selected ignored snapshot.
+Previously exposed cases are review material, not held-out evidence. Provisional
+editorial decisions require per-case human confirmation before they contribute to
+human-review statistics. Topic counts never establish quality acceptance.
+
+The experimental formation benchmark uses public synthetic 384-dimensional
+records: 10,000 passages across 2,500 uneven sections. It measures actual Android
+elapsed/thread CPU time and sampled additional Java/native allocated memory,
+persists each work slice, and resumes through fresh stores and engine instances:
+
+```powershell
+pwsh -NoProfile -File tools/run-accessibility-tests.ps1 -Class com.example.notionreader.discovery.TopicFormationScalabilityDeviceTest
+```
+
+The synthetic corpus uses eight repeated vector directions, stored in the same
+primitive representation as the shipping index. Exact duplicate contraction
+preserves all 2,500 sections and their linkage weights; this is not a benchmark
+of 2,500 different semantic directions.
+
+This benchmark does not load MiniLM, measure process PSS peaks or heat, or establish
+physical-device playback/TalkBack acceptance. Sampling is not an allocation profiler.
+General release remains gated. The user-authorized debug trial enables the new
+engine without requiring users to review their private Notes; developer quality
+evaluation uses public, consented or purpose-built representative Notes.
