@@ -380,6 +380,6 @@ Commit subjects are prose summaries of the round, not Conventional Commits. A mu
 
 ## 13. Current work
 
-Do not copy the current backlog into this file. Use `docs/decisions.md` §20.4 and the latest **Still open** section as the source of truth for slice ordering and outstanding work.
+Start with `docs/README.md` for the documentation map and the current entrypoint at the top of `docs/decisions.md`. Do not copy the current backlog into this file. Use the latest numbered current-slice / **Still open** section for outstanding work; §20.4 preserves the historical slice plan and is not an instruction to repeat completed work. Earlier decision rounds record the state observed at that time, not current completion claims.
 
 Some acceptance gates require human observation (for example, TalkBack speech/listening behavior that automated semantics tests cannot observe). Do not claim those gates passed from code or emulator evidence alone.
