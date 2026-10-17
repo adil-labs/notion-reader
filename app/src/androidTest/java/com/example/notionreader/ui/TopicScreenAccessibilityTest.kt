@@ -107,8 +107,8 @@ class TopicScreenAccessibilityTest {
         compose.onNodeWithText("Remove Unavailable Note").assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
         assertEquals("missing", removed)
-        compose.onNodeWithText("Play").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("Save to queue").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Play").assertIsReachable().assertIsNotEnabled()
+        compose.onNodeWithText("Save to queue").assertIsReachable().assertIsNotEnabled()
     }
 
 }

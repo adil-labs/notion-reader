@@ -72,7 +72,7 @@ class DiscoveryScreenAccessibilityTest {
             .performSemanticsAction(SemanticsActions.OnClick)
         assertEquals("a", removed)
         assertEquals(0, plays)
-        compose.onNodeWithText("Play").performScrollTo().assertIsReachable()
+        compose.onNodeWithText("Play").assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(1, plays)
     }

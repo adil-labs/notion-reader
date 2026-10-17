@@ -45,27 +45,34 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     }
     private data class Fixture(val app: ReaderApp, val cache: FileDocumentCache, val entries: List<ReaderIndexEntry>)
 
-    private fun fixture(emptyInitial: Boolean = false): Fixture = runBlocking {
+    private fun fixture(emptyInitial: Boolean = false, fallbackLabel: Boolean = false,
+        namedReference: Boolean = false, mixedConnections: Boolean = false, emerging: Boolean = false,
+        independentReference: Boolean = false): Fixture = runBlocking {
         val provider = FixedProvider()
         val documents = listOf("a" to "Alpha", "b" to "Beta", "c" to "Gamma").map { (id, title) ->
-            ReaderDocument.fromChunkTexts(id, title, listOf("Forest water evidence for $title"))
+            ReaderDocument.fromChunkTexts(id, title, listOf(if ((namedReference || independentReference) && id == "a")
+                "Open Beta. Forest water evidence explains how trees protect river habitat." else "Forest water evidence for $title"))
         }
         val cache = FileDocumentCache(directory.resolve("cache"))
         val index = FileSemanticIndexStore(directory.resolve("index"))
         val members = documents.mapIndexed { order, document ->
             cache.put(CachedDocument(document, null, Instant.EPOCH))
-            val passage = SemanticPassage("p-${document.pageId}", document.pageId, "section", "Ecology",
-                "block-${document.pageId}", "chunk-${document.pageId}", 0, "Forest water evidence for ${document.title}".length,
-                "Forest water evidence for ${document.title}", "Forest ecology", order)
+            val text = document.sections.flatMap { it.chunks }.single().text
+            val passage = SemanticPassage("p-${document.pageId}", document.pageId, "section", "Forest ecology",
+                "block-${document.pageId}", "chunk-${document.pageId}", 0, text.length,
+                text, "Forest ecology", order)
             val metadata = SemanticMetadata(document.title)
             index.write(SemanticRecord(document.pageId, semanticRevision(document), provider.identity,
                 metadata, listOf(EmbeddedPassage(passage, listOf(1f, 0f)))))
             TopicMembership(document.pageId, metadata, passage, .9f, passage, semanticRevision(document))
         }
-        val topic = DiscoveredTopic("forest", "Forest ecology", members.first().passage,
-            EmbeddedPassage(members.first().passage, listOf(1f, 0f)), members, 1)
+        val topic = DiscoveredTopic("forest", if (fallbackLabel) "Notes related to Alpha" else "Forest ecology", members.first().passage,
+            EmbeddedPassage(members.first().passage, listOf(1f, 0f)), if (emerging) members.take(1) else members, 1,
+            experimentalEvidenceValidated = emerging)
         val store = MemoryTopics(TopicSnapshot(topics = if (emptyInitial) emptyList() else listOf(topic), identity = provider.identity,
-            generation = 1, complete = !emptyInitial, connections = if (emptyInitial) emptyList() else listOf(NoteConnection("pair-ab", members[0], members[1], .9f))))
+            generation = 1, complete = !emptyInitial, connections = if (emptyInitial) emptyList() else
+                listOfNotNull(NoteConnection("pair-ab", members[0], members[1], .9f, independentNamedReference = independentReference),
+                    if (mixedConnections) NoteConnection("pair-bc", members[1], members[2], .8f) else null)))
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(directory.resolve("interests")),
             provider, topicStore = store)
         val entries = documents.map { ReaderIndexEntry(it.pageId, it.title) }
@@ -90,6 +97,46 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     private fun openTopic() {
         compose.onNodeWithText("Forest ecology").performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
+    }
+
+    @Test fun fallbackCandidatesRemainStoredWithoutBecomingTopicCards() {
+        val (app, _, _) = fixture(fallbackLabel = true)
+        show(app)
+        compose.onNodeWithText("Notes related to Alpha").assertDoesNotExist()
+        compose.onNodeWithText("See all topics").assertDoesNotExist()
+        assertEquals("forest", app.discovery!!.state.value.topicSnapshot.topics.single().id)
+    }
+
+    @Test fun emergingSubjectsHaveASeparateCollectionAndUseTheExplicitFollowConfirmation() {
+        val (app, _, _) = fixture(emerging = true)
+        val before = app.session.queueState.value
+        show(app)
+        compose.onNodeWithText("Emerging topics").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("1 available Note").assertIsReachable()
+        openTopic()
+        compose.onNodeWithText("Emerging topic").assertIsReadable()
+        compose.onNodeWithText("Follow topic").performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(0, app.discovery!!.state.value.interests.size)
+        compose.onNodeWithText("Save interest").assertIsReachable().performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.discovery!!.state.value.interests.size == 1 }
+        compose.runOnIdle {
+            assertEquals(1, app.discovery!!.state.value.interests.size)
+            assertEquals(before, app.session.queueState.value)
+        }
+    }
+
+    @Test fun returningFromAllTopicsAfterSourceLossFocusesTheTopicsHeading() {
+        val (app, cache, entries) = fixture()
+        show(app)
+        compose.onNodeWithText("See all topics").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle {
+            runBlocking { cache.remove("a"); app.discovery!!.reconcile(entries, false) }
+            app.back()
+        }
+        compose.waitUntil(timeoutMillis = 5000) {
+            compose.onAllNodes(hasText("Topics in your Notes") and isFocused()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Topics in your Notes").assertIsFocused()
     }
 
     @Test fun interestCardsKeepTheirMatchingNotesOutOfTheMainFeed() {
@@ -118,7 +165,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Remove Alpha").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(before, app.session.queueState.value)
-        compose.onNodeWithText("Play").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Play").assertIsReachable().performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { runBlocking { app.loadPendingQueueNote() } }
         assertEquals(listOf("b", "c"), app.session.queueState.value.queue!!.items.map { it.pageId })
         assertEquals(com.example.notionreader.domain.queue.QueueOrigin.Discovery("Interest: Woodland listening"), app.session.queueState.value.queue!!.origin)
@@ -223,6 +270,58 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf("a", "b"), app.discovery!!.state.value.preview.map { it.pageId })
         assertEquals(before, app.session.state.value)
+    }
+
+    @Test fun aNamedReferenceKeepsBothSourcesAndUsesItsOwnListeningOrigin() {
+        val (app, _, _) = fixture(namedReference = true)
+        val before = app.session.state.value
+        val queueBefore = app.session.queueState.value
+        show(app)
+        compose.onNodeWithText("Named reference").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("Compare passages").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Named reference").assertIsReadable()
+        compose.onNodeWithText("Open Beta").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { app.back() }
+        compose.onNodeWithText("Open Beta").assertIsFocused()
+        compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(listOf("a", "b"), app.discovery!!.state.value.preview.map { it.pageId })
+        assertEquals("Named reference", app.discovery!!.state.value.previewLabel)
+        assertEquals(before, app.session.state.value)
+        assertEquals(queueBefore, app.session.queueState.value)
+    }
+
+    @Test fun independentReferencesExplainTheTargetExcerptAsContext() {
+        val (app, _, _) = fixture(independentReference = true)
+        val before = app.session.queueState.value
+        show(app)
+        compose.onNodeWithText("Compare passages").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Target context; not evidence of thematic similarity").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("These indexed passages matched by similarity.").assertDoesNotExist()
+        compose.onNodeWithText("Open Beta").performScrollTo().assertIsReachable()
+        assertEquals(before, app.session.queueState.value)
+    }
+
+    @Test fun allConnectionsSeparateReferenceAndSimilarityCounts() {
+        val (app, _, _) = fixture(namedReference = true, mixedConnections = true)
+        show(app)
+        compose.onNodeWithText("See all connections").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Similar passages (1)").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("Named references (1)").performScrollTo().assertIsReadable()
+    }
+
+    @Test fun returningToConnectionsAfterSourceLossFocusesTheListHeading() {
+        val (app, cache, entries) = fixture(namedReference = true)
+        show(app)
+        compose.onNodeWithText("See all connections").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Compare passages").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle {
+            runBlocking { cache.remove("a"); app.discovery!!.reconcile(entries, false) }
+            app.back()
+        }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Connections between Notes") and isFocused()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Connections between Notes").assertIsFocused()
     }
 
     @Test fun completedBackgroundTopicsRequireExplicitRefreshToChangeTheInspectedCount() {
