@@ -2,6 +2,10 @@ package com.example.notionreader
 
 import android.app.Application
 import android.content.Context
+import android.content.ComponentName
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.util.Log
 import com.example.notionreader.application.DefaultLoadReaderDocument
 import com.example.notionreader.application.DocumentLoadCoordinator
@@ -38,6 +42,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The composition root's lifetime half: the object graph now belongs to the process, not to a task.
@@ -64,6 +70,25 @@ class ReaderApplication : Application() {
     private val discoveryForeground = MutableStateFlow(false)
     private val discoveryResourcesAvailable = MutableStateFlow(true)
     private var processDiscovery: com.example.notionreader.application.DiscoveryController? = null
+    private lateinit var discoveryWork: suspend () -> Unit
+    private val discoveryWorkerLock = Mutex()
+    private val discoveryConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) = Unit
+        override fun onServiceDisconnected(name: ComponentName) = Unit
+        override fun onBindingDied(name: ComponentName) {
+            unbindService(this)
+            bindService(Intent(this@ReaderApplication, DiscoveryService::class.java), this, Context.BIND_AUTO_CREATE)
+        }
+    }
+
+    internal fun startDiscoveryWorker(scope: CoroutineScope) = scope.launch {
+        // A replacement binding must await cancellation of the previous service's worker.
+        discoveryWorkerLock.withLock {
+            if (BuildConfig.DEBUG) Log.d("DiscoveryWorker", "started mainThread=${android.os.Looper.myLooper() == android.os.Looper.getMainLooper()}")
+            try { discoveryWork() }
+            finally { if (BuildConfig.DEBUG) Log.d("DiscoveryWorker", "stopped") }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -209,7 +234,7 @@ class ReaderApplication : Application() {
         )
 
         discoveryApp = app
-        discoveryScope.launch {
+        discoveryWork = {
             discoveryModel.checkInstalled()
             val inputs = combine(
                 documentCache.revision,
@@ -239,6 +264,9 @@ class ReaderApplication : Application() {
             built.start()
             built.startQueuePrefetch()
             built.startRecentNotesPrefetch()
+            check(bindService(Intent(this, DiscoveryService::class.java), discoveryConnection, Context.BIND_AUTO_CREATE)) {
+                "Discovery service binding failed"
+            }
         }
     }
 

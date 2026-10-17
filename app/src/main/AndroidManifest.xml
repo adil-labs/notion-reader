@@ -72,6 +72,10 @@
             a user-initiated playback command rather than lazily once the screen has gone off.
         -->
         <service
+            android:name=".DiscoveryService"
+            android:exported="false" />
+
+        <service
             android:name=".PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
