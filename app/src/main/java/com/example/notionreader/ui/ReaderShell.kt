@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -161,7 +162,11 @@ fun ReaderShell(
 
     // The mini-player is deliberately absent on the Player, whose full surface already owns the same
     // controls, and absent when there is no resumable session.
-    val miniPlayerVisible = app.isSessionResumable && current != ReaderDestination.Player
+    // Read the collected snapshots here: merely declaring delegated collectAsState values
+    // does not observe them on destinations that never access their delegates (e.g. Discover).
+    val miniPlayerCard = remember(sessionState, sessionDocument, queueState, history) {
+        app.continueListeningCard()
+    }
 
     // Each destination keeps its own `rememberSaveable` state while another destination is on screen —
     // Browse's position in its result list, most visibly. Without this the `when (current)` below removes
@@ -476,15 +481,12 @@ fun ReaderShell(
             }
         }
 
-        if (miniPlayerVisible) {
-            val card = app.continueListeningCard()
-            if (card != null) {
-                MiniPlayer(
-                    session = card,
-                    onOpenPlayer = app::continueListening,
-                    onPlayPause = app::togglePlayPause
-                )
-            }
+        if (miniPlayerCard != null && current != ReaderDestination.Player) {
+            MiniPlayer(
+                session = miniPlayerCard,
+                onOpenPlayer = app::continueListening,
+                onPlayPause = app::togglePlayPause
+            )
         }
 
         // Bottom navigation is shown only while the currently rendered destination is a top-level
