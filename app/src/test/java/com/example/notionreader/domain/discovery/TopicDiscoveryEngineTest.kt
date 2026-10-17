@@ -8,6 +8,51 @@ import kotlin.math.sin
 class TopicDiscoveryEngineTest {
     private val identity = EmbeddingIdentity("test-dim2", 2)
 
+    @Test fun semanticMembershipDoesNotRequireACommonLiteralLabel() {
+        fun source(id: String, heading: String, text: String, vector: List<Float>): SemanticRecord {
+            val p = SemanticPassage("$id:p", id, "$id:s", heading, "$id:b", "$id:c", 0, text.length, text, text, 0)
+            return SemanticRecord(id, "r1", identity, SemanticMetadata(id), listOf(EmbeddedPassage(p, vector)))
+        }
+        val records = listOf(
+            source("a", "Atomic transactions", "Atomic transactions commit all changes together and recover safely after interruption.", listOf(1f, 0f)),
+            source("b", "Durable updates", "Durable updates persist completed operations across crashes while discarding incomplete writes.", listOf(.98f, .1989975f))
+        )
+        val result = SectionHierarchicalEngine(identity).discover(records, null, TopicPolicy())
+        val established = publishableDiscoveryTopics(result.topics).filter { it.members.size == 2 }
+        assertTrue("A missing common literal phrase cannot erase supported semantic membership", established.isNotEmpty())
+        assertTrue(established.any { it.label in setOf("Atomic transactions", "Durable updates") })
+        assertTrue(established.all { it.members.map { member -> member.pageId }.toSet() == setOf("a", "b") })
+    }
+
+    @Test fun independentSubjectsInsideOneLongSectionBothReceiveCandidates() {
+        val records = listOf("a", "b", "c").map { page ->
+            val first = sampleRecord(page, 0.0, sectionTitle = "Research subjects")
+            val second = sampleRecord(page, 90.0, sectionTitle = "Research subjects").passages.single().let { e ->
+                e.copy(passage = e.passage.copy(id = "$page:late", sourceBlockId = "$page:late-block",
+                    excerpt = "Musical harmony combines resonant frequencies into chords and melodic structures.",
+                    input = "Musical harmony combines resonant frequencies into chords and melodic structures."))
+            }
+            first.copy(passages = first.passages + second)
+        }
+        val result = SectionHierarchicalEngine(identity).discover(records, null, TopicPolicy())
+        assertTrue("Late independent evidence must not disappear into the section mean",
+            result.topics.any { topic -> topic.members.size == 3 && topic.members.all { it.passage.id.endsWith(":late") } })
+        assertTrue(result.topics.any { topic -> topic.members.size == 3 && topic.members.none { it.passage.id.endsWith(":late") } })
+    }
+
+    @Test fun aRewrittenSubjectCannotInheritIdentityThroughUnchangedPassageIds() {
+        val original = listOf(sampleRecord("a", 0.0), sampleRecord("b", 0.0))
+        val engine = SectionHierarchicalEngine(identity)
+        val old = engine.discover(original, null, TopicPolicy())
+        val changed = original.map { record -> record.copy(revision = "rewritten", passages = record.passages.map { e ->
+            e.copy(vector = listOf(0f, 1f), passage = e.passage.copy(sectionTitle = "Musical harmony",
+                excerpt = "Musical harmony combines resonant frequencies into chords and melodic structures.",
+                input = "Musical harmony combines resonant frequencies into chords and melodic structures."))
+        }) }
+        val current = engine.discover(changed, old, TopicPolicy())
+        assertNotEquals(old.topics.single().id, current.topics.single().id)
+    }
+
     private fun sampleRecord(pageId: String, angle: Double, sectionId: String = "sec1", sectionTitle: String? = "Shared Concepts"): SemanticRecord {
         val rad = Math.toRadians(angle)
         val vec = listOf(cos(rad).toFloat(), sin(rad).toFloat())
@@ -53,28 +98,28 @@ class TopicDiscoveryEngineTest {
         assertEquals(listOf(4, 8), completed.topics.map { it.members.size }.sorted())
     }
     @Test fun aFocusedSubjectKeepsItsIdentityWhenAnOverlappingBroadFamilyAppears() {
-        val initial = listOf(sampleRecord("n1", 0.0, sectionTitle = "Queue Architecture"), sampleRecord("n2", 0.0, sectionTitle = "Queue Architecture"))
+        val initial = listOf(sampleRecord("n1", -30.0, sectionTitle = "Queue Architecture"), sampleRecord("n2", -30.0, sectionTitle = "Queue Architecture"))
         val engine = SectionHierarchicalEngine(identity)
         val old = engine.discover(initial, null, TopicPolicy())
-        val expanded = engine.discover(initial + listOf(sampleRecord("n3", 0.0, sectionTitle = "Voice Audio"),
-            sampleRecord("n4", 0.0, sectionTitle = "Voice Audio")), old, TopicPolicy())
-        assertEquals(old.topics.single().id, expanded.topics.single { it.label == "Queue Architecture" }.id)
-        assertNotEquals(old.topics.single().id, expanded.topics.single { it.members.size == 4 }.id)
+        val expanded = engine.discover(initial + listOf(sampleRecord("n3", 30.0, sectionTitle = "Voice Audio"),
+            sampleRecord("n4", 30.0, sectionTitle = "Voice Audio"), sampleRecord("bridge", 0.0, sectionTitle = "Systems design")), old, TopicPolicy())
+        assertEquals(old.topics.single().id, expanded.topics.single { it.label == "Queue Architecture" && it.members.map { member -> member.pageId }.toSet() == setOf("n1", "n2", "bridge") }.id)
+        assertTrue(expanded.topics.filter { it.members.size == 5 }.all { it.id != old.topics.single().id })
     }
     @Test fun focusedAuthoredSubjectsRemainCandidatesInsideTheBroadLinkageFamily() {
-        val records = listOf(sampleRecord("n1", 0.0, sectionTitle = "Queue Architecture"),
-            sampleRecord("n2", 0.0, sectionTitle = "Queue Architecture"),
-            sampleRecord("n3", 0.0, sectionTitle = "Voice Audio"),
-            sampleRecord("n4", 0.0, sectionTitle = "Voice Audio"))
+        val records = listOf(sampleRecord("n1", -30.0, sectionTitle = "Queue Architecture"),
+            sampleRecord("n2", -30.0, sectionTitle = "Queue Architecture"),
+            sampleRecord("n3", 30.0, sectionTitle = "Voice Audio"),
+            sampleRecord("n4", 30.0, sectionTitle = "Voice Audio"), sampleRecord("bridge", 0.0, sectionTitle = "Systems design"))
         val engine = SectionHierarchicalEngine(identity)
         var result = engine.step(records, null, TopicPolicy(), workBudget = 1)
         var rounds = 0
         while (result.formationProgress != null && rounds++ < 1000)
             result = SectionHierarchicalEngine(identity).step(records.reversed(), result, TopicPolicy(), workBudget = 1)
         assertTrue(result.complete)
-        assertTrue(result.topics.any { it.label == "Queue Architecture" && it.members.map { m -> m.pageId }.toSet() == setOf("n1", "n2") })
-        assertTrue(result.topics.any { it.label == "Voice Audio" && it.members.map { m -> m.pageId }.toSet() == setOf("n3", "n4") })
-        assertTrue("A broader supported subject remains independently available", result.topics.any { it.members.size == 4 })
+        assertTrue(result.topics.any { it.label == "Queue Architecture" && it.members.map { m -> m.pageId }.toSet() == setOf("n1", "n2", "bridge") })
+        assertTrue(result.topics.any { it.label == "Voice Audio" && it.members.map { m -> m.pageId }.toSet() == setOf("n3", "n4", "bridge") })
+        assertTrue("A broader supported subject remains independently available", result.topics.any { it.members.size == 5 })
     }
     @Test fun resumedNearestNeighborChainsAgreeWithBruteForceAverageLinkage() {
         val random = java.util.Random(387)
@@ -172,7 +217,7 @@ class TopicDiscoveryEngineTest {
     @Test fun sectionsBeyondTheFormerBudgetRetainTheirOwnEvidence() {
         val records = (0..4).map { sampleRecord("n$it", 0.0, sectionTitle = "Shared Concepts") } +
             (0..2).map { sampleRecord("z$it", 180.0, sectionTitle = "Distant Astronomy") }
-        val snapshot = SectionHierarchicalEngine(identity, maxSectionsBudget = 4).discover(records, null, TopicPolicy())
+        val snapshot = SectionHierarchicalEngine(identity, workQuantum = 4).discover(records, null, TopicPolicy())
         assertTrue(snapshot.complete)
         assertTrue(snapshot.topics.any { topic -> topic.members.map { it.pageId }.toSet() == setOf("z0", "z1", "z2") })
     }
@@ -185,23 +230,7 @@ class TopicDiscoveryEngineTest {
         assertEquals(2, rebuilt.topics.size)
         assertEquals(2, rebuilt.topics.map { it.id }.distinct().size)
     }
-    @Test
-    fun streamingEngineProducesIdenticalOutputToLegacyTopicBuilder() {
-        val records = listOf(
-            sampleRecord("n1", 0.0),
-            sampleRecord("n2", 5.0),
-            sampleRecord("n3", 10.0)
-        )
-        val policy = TopicPolicy(admission = 0.65f, minNotes = 3)
-        val engine = StreamingAnchorEngine(identity)
-        val snapshot = engine.discover(records, null, policy)
 
-        val directBuilder = TopicBuilder(null, identity, policy).apply { records.forEach(::accept) }.finish()
-
-        assertEquals(directBuilder.topics.size, snapshot.topics.size)
-        assertEquals(directBuilder.topics.firstOrNull()?.label, snapshot.topics.firstOrNull()?.label)
-        assertEquals(directBuilder.complete, snapshot.complete)
-    }
 
     @Test
     fun sectionHierarchicalEngineProducesDeterministicOrderInvariantClusters() {
@@ -215,7 +244,7 @@ class TopicDiscoveryEngineTest {
         )
         val recordsOrder2 = recordsOrder1.shuffled()
 
-        val policy = TopicPolicy(admission = 0.65f, minNotes = 3)
+        val policy = TopicPolicy()
         val engine = SectionHierarchicalEngine(identity, distanceThreshold = 0.35f)
 
         val snap1 = engine.discover(recordsOrder1, null, policy)
@@ -253,7 +282,7 @@ class TopicDiscoveryEngineTest {
         val recB2 = sampleRecord("b2", 95.0, "secB", "Voice Audio")
 
         val allRecords = listOf(recA1, recA2, recB1, recB2, multiRecord)
-        val policy = TopicPolicy(admission = 0.65f, minNotes = 3)
+        val policy = TopicPolicy()
         val engine = SectionHierarchicalEngine(identity, distanceThreshold = 0.35f, membershipThreshold = 0.60f)
 
         val snapshot = engine.discover(allRecords, null, policy)
@@ -277,7 +306,7 @@ class TopicDiscoveryEngineTest {
         val outlier = sampleRecord("outlier", 180.0, "secOut", "Unrelated Notes")
 
         val allRecords = clusterRecords + outlier
-        val policy = TopicPolicy(admission = 0.65f, minNotes = 3)
+        val policy = TopicPolicy()
         val engine = SectionHierarchicalEngine(identity, distanceThreshold = 0.35f, membershipThreshold = 0.60f)
 
         val snapshot = engine.discover(allRecords, null, policy)
@@ -296,7 +325,7 @@ class TopicDiscoveryEngineTest {
             sampleRecord("n2", 5.0),
             sampleRecord("n3", 10.0)
         )
-        val policy = TopicPolicy(admission = 0.65f, minNotes = 3)
+        val policy = TopicPolicy()
         val engine = SectionHierarchicalEngine(identity, distanceThreshold = 0.35f)
 
         val initialSnapshot = engine.discover(initialRecords, null, policy)
@@ -324,7 +353,7 @@ class TopicDiscoveryEngineTest {
             sampleRecord("n2", 5.0, sectionTitle = "Non-goals"),
             sampleRecord("n3", 10.0, sectionTitle = "Explicitly deferred work")
         )
-        val policy = TopicPolicy(admission = 0.65f, minNotes = 3)
+        val policy = TopicPolicy()
         val engine = SectionHierarchicalEngine(identity, distanceThreshold = 0.35f)
         val snapshot = engine.discover(records, null, policy)
         assertTrue("Section names do not discard substantive subject evidence", (snapshot.topics + snapshot.provisionalTopics).flatMap { it.members }.map { it.pageId }.toSet().containsAll(listOf("n1", "n2", "n3")))

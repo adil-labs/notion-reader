@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -52,7 +53,8 @@ class DiscoveryController(
     private val topicPolicy: TopicPolicy = TopicPolicy(),
     private val mayContinueIndexing: () -> Boolean = { true },
     private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
-    private val useExperimentalClustering: Boolean = false
+    private val formationWorkBudget: Int = 250_000,
+    private val workDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
     val state = mutable.asStateFlow()
@@ -78,11 +80,15 @@ class DiscoveryController(
         }, changed = { view -> mutable.update { it.copy(topicSnapshot = view.snapshot,
             topicsUpdated = view.updated, topicStatus = view.status) } },
         invalidationAcknowledgementLimit = invalidationAcknowledgementLimit,
-        engine = if (useExperimentalClustering) SectionHierarchicalEngine(provider.identity) else null) }
+        formationWorkBudget = formationWorkBudget,
+        shouldYield = { foregroundQueries.get() > 0 }) }
 
     fun refreshTopics() { topics?.refresh() }
     fun sourcePageId(id: String): String = state.value.cachedSourceIds[canonicalSemanticId(id)] ?: id
     suspend fun loadInterestMatches(id: String, force: Boolean = false) {
+        withContext(workDispatcher) { loadInterestMatchesInBackground(id, force) }
+    }
+    private suspend fun loadInterestMatchesInBackground(id: String, force: Boolean) {
         val interest = interestStore.read().firstOrNull { it.id == id }
         val sourceRevision = cache.revision.value
         val key = "$interest|$sourceRevision|${provider.identity}|${generation.get()}|${state.value.indexedRevision}"
@@ -144,8 +150,10 @@ class DiscoveryController(
         .firstOrNull { it.id == connectionId }?.let { listOf(it.left.toMatch(), it.right.toMatch()) }.orEmpty()
 
     suspend fun reconcile(entries: List<ReaderIndexEntry>, mayIndex: Boolean) {
+        withContext(workDispatcher) { reconcileInBackground(entries, mayIndex) }
+    }
+    private suspend fun reconcileInBackground(entries: List<ReaderIndexEntry>, mayIndex: Boolean) {
         val epoch = generation.get()
-        topics?.eligibility(mayIndex)
         try {
             var sourceGeneration = cache.revision.value
             var snapshots = bulkStep { cache.snapshot() }
@@ -161,23 +169,45 @@ class DiscoveryController(
             commits.withLock { (index.pageIds() - ids).forEach { index.remove(it) } }
             val paused = index.isPaused()
             val interests = interestStore.read()
-            val preview = state.value.preview.map { match ->
-                if (match.pageId !in ids) match.copy(metadata = SemanticMetadata("Unavailable Note"),
-                    passage = match.passage.copy(sectionTitle = null, excerpt = "", input = "", start = 0, end = 0))
-                else if (match.pageId in state.value.unavailablePreviewIds) {
-                    val record = index.read(match.pageId)?.takeIf { it.identity == provider.identity && it.revision == semanticRevision(sources.getValue(match.pageId).document) }
+            val displayed = state.value
+            val displayedIds = (displayed.results + displayed.related + displayed.recommendations +
+                displayed.older + displayed.preview).map { it.pageId }.distinct()
+            val currentRecords = mutableMapOf<String, SemanticRecord>()
+            for (id in displayedIds) {
+                val source = sources[id] ?: continue
+                index.read(id)?.takeIf { it.identity == provider.identity && it.revision == semanticRevision(source.document) }
+                    ?.let { currentRecords[id] = it }
+            }
+            fun currentEvidence(match: SemanticMatch): Boolean = currentRecords[match.pageId]?.let { record ->
+                record.metadata == match.metadata && record.passages.any { it.passage == match.passage }
+            } == true
+            val preview = displayed.preview.map { match ->
+                if (match.pageId in ids && match.pageId in displayed.unavailablePreviewIds) {
+                    val record = currentRecords[match.pageId]
                     record?.passages?.find { it.passage.id == match.passage.id }?.let {
                         SemanticMatch(match.pageId, record.metadata, it.passage, match.score)
                     } ?: match
-                } else match
+                } else if (!currentEvidence(match)) match.copy(metadata = SemanticMetadata("Unavailable Note"),
+                    passage = match.passage.copy(sectionTitle = null, excerpt = "", input = "", start = 0, end = 0))
+                else match
             }
             val unavailable = preview.filter { it.pageId !in ids || it.passage.excerpt.isEmpty() }.map { it.pageId }.toSet()
-            mutable.update { s -> s.copy(cachedPageIds = ids, cachedSourceIds = sources.mapValues { it.value.document.pageId }, cachedRevision = sourceGeneration, indexedCount = minOf(s.indexedCount, ids.size), cachedTitles = sources.mapValues { it.value.document.title }, paused = paused, interests = interests,
-                interestMatches = if (interestResultsRevision != sourceGeneration) emptyList() else s.interestMatches.filter { it.pageId in ids },
-                results = s.results.filter { it.pageId in ids }, related = s.related.filter { it.pageId in ids },
-                recommendations = s.recommendations.filter { it.pageId in ids }, older = s.older.filter { it.pageId in ids },
-                preview = preview, unavailablePreviewIds = unavailable,
-                previewStatus = if (unavailable.isEmpty()) null else "Some preview Notes are unavailable. Remove them or recache them before playing or saving.") }
+            mutable.update { s ->
+                // Only reconcile the captured lists. Foreground queries and preview edits can
+                // publish newer state while disk validation is suspended.
+                val samePreview = s.preview === displayed.preview
+                s.copy(cachedPageIds = ids, cachedSourceIds = sources.mapValues { it.value.document.pageId }, cachedRevision = sourceGeneration, indexedCount = minOf(s.indexedCount, ids.size), cachedTitles = sources.mapValues { it.value.document.title }, paused = paused, interests = interests,
+                    interestMatches = if (s.interestMatches !== displayed.interestMatches) s.interestMatches
+                        else if (interestResultsRevision != sourceGeneration) emptyList() else s.interestMatches.filter { it.pageId in ids },
+                    results = if (s.results === displayed.results) s.results.filter(::currentEvidence) else s.results,
+                    related = if (s.related === displayed.related) s.related.filter(::currentEvidence) else s.related,
+                    recommendations = if (s.recommendations === displayed.recommendations) s.recommendations.filter(::currentEvidence) else s.recommendations,
+                    older = if (s.older === displayed.older) s.older.filter(::currentEvidence) else s.older,
+                    preview = if (samePreview) preview else s.preview,
+                    unavailablePreviewIds = if (samePreview) unavailable else s.unavailablePreviewIds,
+                    previewStatus = if (!samePreview) s.previewStatus else if (unavailable.isEmpty()) null
+                        else "Some preview Notes are unavailable. Remove them or recache them before playing or saving.")
+            }
             val metadata = entries.associateBy { canonicalSemanticId(it.pageId) }
             // Only metadata actually stored with eligible cached vectors affects grouping.
             // Browse order and uncached Notes must not restart the bounded candidate sweep.
@@ -244,16 +274,21 @@ class DiscoveryController(
 
     suspend fun search(text: String, filters: BrowseQuery = state.value.filters) {
         val started = System.nanoTime()
+        val request = queryGeneration.incrementAndGet()
+        val epoch = generation.get()
+        mutable.update { it.copy(query = text, filters = filters, searching = true, message = null) }
+        try { withContext(workDispatcher) { searchInBackground(text, filters, request, epoch, started) } }
+        finally { mutable.update { if (request == queryGeneration.get()) it.copy(searching = false) else it } }
+    }
+    private suspend fun searchInBackground(text: String, filters: BrowseQuery, request: Long, epoch: Long, started: Long) {
+        if (request != queryGeneration.get() || epoch != generation.get()) return
         var waitNs = 0L
         var embeddingNs = 0L
         var retrievalNs = 0L
         var completed = 0L
-        val request = queryGeneration.incrementAndGet()
-        val epoch = generation.get()
-        mutable.update { it.copy(query = text, filters = filters, searching = true, message = null) }
         try {
-            if (text.isBlank()) { mutable.update { it.copy(results = emptyList()) }; return }
-            if (!modelAvailable()) { mutable.update { it.copy(results = emptyList(), message = "Download the Discovery model to search cached Notes.") }; return }
+            if (text.isBlank()) { mutable.update { if (request == queryGeneration.get() && epoch == generation.get()) it.copy(results = emptyList()) else it }; return }
+            if (!modelAvailable()) { mutable.update { if (request == queryGeneration.get() && epoch == generation.get()) it.copy(results = emptyList(), message = "Download the Discovery model to search cached Notes.") else it }; return }
             foregroundQueries.incrementAndGet()
             val results = try { bulkGate.withLock {
                 val vector = inference.withLock {
@@ -265,13 +300,12 @@ class DiscoveryController(
                 retrieve(vector, filters, 20).also { retrievalNs = System.nanoTime() - retrievalStarted }
             } } finally { foregroundQueries.decrementAndGet() }
             if (request == queryGeneration.get() && epoch == generation.get()) {
-                mutable.update { it.copy(results = results) }
+                mutable.update { if (request == queryGeneration.get() && epoch == generation.get()) it.copy(results = results) else it }
                 completed = 1L
             }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { if (request == queryGeneration.get()) mutable.update { it.copy(message = "Semantic search failed. Try again or rebuild the index.") } }
+        catch (_: Exception) { mutable.update { if (request == queryGeneration.get() && epoch == generation.get()) it.copy(message = "Semantic search failed. Try again or rebuild the index.") else it } }
         finally {
-            if (request == queryGeneration.get()) mutable.update { it.copy(searching = false) }
             recordTiming(mapOf("searchTotalNs" to System.nanoTime() - started, "waitNs" to waitNs,
                 "embeddingNs" to embeddingNs, "retrievalNs" to retrievalNs, "completed" to completed))
         }
@@ -363,6 +397,9 @@ class DiscoveryController(
     }
 
     suspend fun refreshRecommendations() {
+        withContext(workDispatcher) { refreshRecommendationsInBackground() }
+    }
+    private suspend fun refreshRecommendationsInBackground() {
         if (!modelAvailable()) return
         val epoch = generation.get()
         val interestsEpoch = interestGeneration.get()
@@ -410,7 +447,7 @@ class DiscoveryController(
     }
     suspend fun clearInterests() = interestWrites.withLock { interestStore.write(emptyList()); interestGeneration.incrementAndGet(); mutable.update { it.copy(interests = emptyList(), recommendations = emptyList(), older = emptyList(), selectedInterestId = null, interestMatches = emptyList()) } }
     suspend fun pause() { index.setPaused(true); mutable.update { it.copy(paused = true) }; wake.value++ }
-    suspend fun resume() { index.setPaused(false); topics?.resetWorkBudget(); mutable.update { it.copy(paused = false) }; wake.value++ }
+    suspend fun resume() { index.setPaused(false); mutable.update { it.copy(paused = false) }; wake.value++ }
     suspend fun clearIndex(preserveTopicContinuity: Boolean = false) = commits.withLock {
         generation.incrementAndGet(); queryGeneration.incrementAndGet(); relatedGeneration.incrementAndGet(); index.clear()
         interestResultsKey = null; interestRequest.incrementAndGet()

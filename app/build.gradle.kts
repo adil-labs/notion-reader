@@ -9,8 +9,6 @@ plugins {
 // Credentials are resolved before the android block, because script property initialisers run in
 // declaration order and defaultConfig reads these values.
 val notionEnvFile = parseEnvFile(rootProject.file(".env"))
-val experimentalDiscoveryDebug = providers.gradleProperty("experimentalDiscovery")
-    .map { it.toBooleanStrict() }.orElse(true)
 
 val notionToken = credential(
     keys = listOf("NOTION_TOKEN", "NOTION_API_KEY", "NOTION_API_SECRET"),
@@ -56,14 +54,6 @@ android {
         // local development. A shipped app must fetch the token at runtime instead.
         buildConfigField("String", "NOTION_TOKEN", quote(notionToken))
         buildConfigField("String", "NOTION_PAGE_ID", quote(notionPageId))
-        buildConfigField("boolean", "EXPERIMENTAL_DISCOVERY", "false")
-    }
-
-    buildTypes {
-        getByName("debug") {
-            // Authorized Android trial; release remains subject to the separate acceptance gates.
-            buildConfigField("boolean", "EXPERIMENTAL_DISCOVERY", experimentalDiscoveryDebug.get().toString())
-        }
     }
 
     compileOptions {
@@ -264,12 +254,12 @@ tasks.register<JavaExec>("privateDiscoveryReview") {
         providers.gradleProperty("discoveryReviewSeconds").getOrElse("60"))
 }
 
-tasks.register<JavaExec>("compareDiscoveryEngines") {
+tasks.register<JavaExec>("reviewDiscoveryEngine") {
     group = "verification"
-    description = "Compare both engines on identical cache-current records; export private evidence without quality claims"
+    description = "Review the sole engine on cache-current records; export private evidence without quality claims"
     dependsOn("compileDebugUnitTestKotlin")
     classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
-    mainClass.set("com.example.notionreader.tooling.TrustworthyDiscoveryComparison")
+    mainClass.set("com.example.notionreader.tooling.DiscoveryEngineReview")
     workingDir(rootProject.projectDir)
     args(providers.gradleProperty("discoveryReviewDirectory").getOrElse(""))
 }

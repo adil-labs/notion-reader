@@ -33,7 +33,7 @@ class DiscoveryPolicyInferenceTest {
             val report = JSONObject().put("policyVersion", TopicPolicy().version).put("source", "public synthetic hard-negative corpus; real native inference")
             for (split in listOf("calibration", "heldOut")) {
                 val selected = records.getValue(split)
-                val result = TopicBuilder(null, provider.identity).apply { selected.forEach(::accept) }.finish()
+                val result = SectionHierarchicalEngine(provider.identity).discover(selected, null, TopicPolicy())
                 val expected = selected.flatMap { r -> r.passages.mapNotNull { truth[it.passage.id]?.let { t -> r.pageId to t } } }.toSet()
                 val predicted = result.topics.flatMap { t -> t.members.map { it.pageId to truth[t.labelSource.id] } }.toSet()
                 val correct = predicted.count { it in expected }

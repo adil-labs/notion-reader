@@ -25,26 +25,20 @@ internal class TopicCoordinator(
     private val waitForQueries: suspend () -> Unit,
     private val changed: (TopicView) -> Unit,
     private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
-    private val engine: TopicDiscoveryEngine? = null
+    private val formationWorkBudget: Int = 250_000,
+    private val shouldYield: () -> Boolean = { false }
 ) {
+    private class WorkPaused : RuntimeException()
     private val writes = Mutex()
     private var loaded = false
     @Volatile private var latest = TopicSnapshot()
     @Volatile private var view = TopicView()
     @Volatile private var epoch = 0L
-    private var builtToken: String? = null
     private var connectionCursor = 0
-    private var experimentalPending: TopicSnapshot? = null
+    private var connectionPassageCursor = 0
+    private var pendingFormation: TopicSnapshot? = null
     var needsMoreWork: Boolean = false
         private set
-    private var roundsThisForeground = 0
-    private var wasEligible = false
-    fun resetWorkBudget() { roundsThisForeground = 0 }
-    fun eligibility(eligible: Boolean) {
-        if (eligible && !wasEligible) resetWorkBudget()
-        wasEligible = eligible
-    }
-
     fun refresh() { view = TopicView(latest, status = latest.message); changed(view) }
 
     private suspend fun <T> bulk(action: suspend () -> T): T {
@@ -77,8 +71,9 @@ internal class TopicCoordinator(
             }
             return invalidateTopics(snapshot, ids, permanent, replacements)
         }
-        var next = remove(latest, stale, permanent = false)
-        var shown = remove(view.snapshot, stale, permanent = false)
+        fun capped(snapshot: TopicSnapshot) = snapshot.copy(connections = selectDiscoveryConnections(snapshot.connections))
+        var next = capped(remove(latest, stale, permanent = false))
+        var shown = capped(remove(view.snapshot, stale, permanent = false))
         if ((next.connections + shown.connections).any { it.independentNamedReference }) {
             val currentTitles = linkedMapOf<String, String>()
             for (id in sources.keys.sorted()) {
@@ -107,9 +102,8 @@ internal class TopicCoordinator(
         }
         if (next != latest || events.isNotEmpty()) {
             epoch++
-            experimentalPending = null
+            pendingFormation = null
             checkpoint?.clear()
-            builtToken = null
             // Withdraw immediately even when a storage error prevents acknowledgement.
             latest = next
             view = view.copy(snapshot = shown)
@@ -133,133 +127,11 @@ internal class TopicCoordinator(
 
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long) {
         if (cache.revision.value != cacheRevision || !mayWork()) return
-        if (engine is SectionHierarchicalEngine) {
-            buildExperimental(sources, metadataVersion, cacheRevision, engine)
-            return
-        }
-        val token = semanticHash(identity().toString() + policy.toString() + metadataVersion + sources.toSortedMap().toString())
-        if (builtToken == null && latest.sourceSignature == token) builtToken = token
-        // Sweep bounded candidate opportunities, then stop unchanged work. A full
-        // set of supported anchors cannot admit additional candidates.
-        val canAdvanceCandidates = latest.groupingPass < latest.candidatePassLimit && latest.topics.size < policy.maxAnchors
-        val retryGrouping = builtToken == token && canAdvanceCandidates &&
-            (!latest.complete || latest.provisionalTopics.isNotEmpty())
-        if (builtToken == token && latest.connectionPassComplete && !retryGrouping) { needsMoreWork = false; return }
-        if (roundsThisForeground >= 16) {
-            needsMoreWork = false
-            changed(view.copy(status = "Topic coverage is incomplete. Processing resumes on the next eligible foreground or Resume indexing."))
-            return
-        }
-        roundsThisForeground++
-        val startEpoch = epoch
-        val model = identity()
-        val saved = checkpoint?.read()?.takeIf { it.identity == model && it.policyVersion == policy.version && !it.complete }?.let { saved ->
-            invalidateTopics(saved, saved.topics.flatMap { it.members }.filter { sources[it.pageId] != it.revision }.map { it.pageId }.toSet(), false)
-        }
-        val builder = TopicBuilder(saved ?: latest.copy(complete = true, acceptedRevisions = emptyMap(), pendingRevisions = emptyMap()), model, policy)
-        var processed = 0
-        var candidatePassLimit = maxOf(saved?.candidatePassLimit ?: 2, if (builtToken == token) latest.candidatePassLimit else 2)
-        val candidateRound = if (builtToken == token) latest.groupingPass else 0
-        changed(view.copy(status = "Finding topics in indexed cached Notes…"))
-        val allRecords = index.pageIds().sorted()
-        val cursor = latest.candidateCursor.coerceAtLeast(0) % maxOf(1, allRecords.size)
-        val records = allRecords.drop(cursor) + allRecords.take(cursor)
-        val continueConnections = builtToken == token && !(retryGrouping && latest.connectionPassComplete)
-        val grouped = if (continueConnections) {
-            latest
-        } else if (engine != null) {
-            val recordList = mutableListOf<SemanticRecord>()
-            for (id in records) {
-                currentCoroutineContext().ensureActive()
-                waitForQueries()
-                if (startEpoch != epoch || index.isPaused() || !mayWork()) return
-                val record = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision } ?: continue
-                recordList.add(record)
-            }
-            bulk { engine.discover(recordList, saved ?: latest, policy) }
-        } else {
-            for (id in records) {
-                currentCoroutineContext().ensureActive()
-                waitForQueries()
-                if (startEpoch != epoch || index.isPaused() || !mayWork()) return
-                val record = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision } ?: continue
-                if (saved?.acceptedRevisions?.get(id) == record.revision) continue
-                val body = record.passages.filter { it.passage.isBodyEvidence() }
-                candidatePassLimit = maxOf(candidatePassLimit, (body.size + 1) / 2 + 1)
-                // Rotate candidate opportunity within long Notes; all passages still match
-                // every retained anchor, independent of this traversal order.
-                val offset = if (body.isEmpty()) 0 else (candidateRound * 2) % body.size
-                val ordered = body.drop(offset) + body.take(offset)
-                if (ordered.isEmpty()) builder.accept(record.copy(passages = emptyList()))
-                for ((partIndex, passages) in ordered.chunked(64).withIndex()) {
-                    if (!mayWork()) return
-                    waitForQueries()
-                    bulk { builder.acceptPartial(record.copy(passages = passages), completed = (partIndex + 1) * 64 >= ordered.size) }
-                    processed += passages.size
-                    if (processed >= 64) {
-                        if (cache.revision.value != cacheRevision || startEpoch != epoch) return
-                        val checkpointWritten = writes.withLock {
-                            if (cache.revision.value != cacheRevision || startEpoch != epoch) return
-                            bulk { checkpoint?.writeDetailed(builder.checkpoint().copy(candidatePassLimit = candidatePassLimit)) }
-                        }
-                        if (checkpointWritten is TopicWriteResult.Rejected) {
-                            changed(view.copy(status = persistenceFailureMessage(checkpointWritten, checkpoint = true))); return
-                        }
-                        processed = 0
-                        yield()
-                    }
-                }
-            }
-            if (builder.reanchorMissing()) {
-                for (id in records) {
-                    if (!mayWork()) return
-                    currentCoroutineContext().ensureActive()
-                    val record = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision } ?: continue
-                    for ((part, passages) in record.passages.chunked(64).withIndex()) {
-                        bulk { builder.acceptPartial(record.copy(passages = passages), (part + 1) * 64 >= record.passages.size) }
-                    }
-                }
-            }
-            bulk { builder.finish() }
-        }
-        // Connection retrieval depends on current records and published memberships,
-        // not provisional anchors or the grouping pass number. Preserve a completed
-        // sweep when those inputs are unchanged, including after process recreation.
-        val reuseConnections = !continueConnections && builtToken == token && latest.connectionPassComplete &&
-            connectionMemberships(latest) == connectionMemberships(grouped)
-        connectionCursor = if (reuseConnections) sources.size else if (continueConnections) latest.connectionCursor else 0
-        val connections = if (reuseConnections) latest.connections else connections(grouped, sources, model)
-        val complete = grouped.copy(connections = connections,
-            generation = latest.generation + 1, connectionCursor = connectionCursor,
-            connectionPassComplete = connectionCursor >= sources.size,
-            candidateCursor = if (allRecords.isEmpty()) 0 else if (continueConnections) cursor else (cursor + 1) % allRecords.size,
-            groupingPass = if (continueConnections) latest.groupingPass else if (builtToken == token) latest.groupingPass + 1 else 1,
-            sourceSignature = token, candidatePassLimit = candidatePassLimit)
-        writes.withLock {
-            if (startEpoch != epoch || cache.revision.value != cacheRevision || identity() != model || index.isPaused() || !mayWork()) return
-            val publicationWrite = bulk { store.writeDetailed(complete) }
-            if (publicationWrite is TopicWriteResult.Rejected) {
-                changed(view.copy(status = persistenceFailureMessage(publicationWrite))); return
-            }
-            if (cache.revision.value != cacheRevision || startEpoch != epoch) {
-                store.clear(); return
-            }
-            checkpoint?.clear()
-            val initial = view.snapshot.topics.isEmpty() && view.snapshot.generation == 0L
-            latest = complete
-            builtToken = token
-            needsMoreWork = !complete.connectionPassComplete || complete.topics.size < policy.maxAnchors && complete.groupingPass < complete.candidatePassLimit &&
-                (!complete.complete || complete.provisionalTopics.isNotEmpty())
-            val visibleChange = view.snapshot.topics != complete.topics || view.snapshot.connections != complete.connections ||
-                view.snapshot.complete != complete.complete || view.snapshot.connectionPassComplete != complete.connectionPassComplete
-            view = if (initial) TopicView(complete, status = complete.message)
-                else view.copy(updated = visibleChange, status = complete.message)
-            changed(view)
-        }
+        buildGeneration(sources, metadataVersion, cacheRevision,
+            SectionHierarchicalEngine(identity(), workQuantum = formationWorkBudget))
     }
-
-    /** Experimental formation is bounded by comparisons, never by admitted source sections. */
-    private suspend fun buildExperimental(sources: Map<String, String>, metadataVersion: Int,
+    /** Formation is bounded by comparisons, never by admitted source sections. */
+    private suspend fun buildGeneration(sources: Map<String, String>, metadataVersion: Int,
         cacheRevision: Long, worker: SectionHierarchicalEngine) {
         val model = identity()
         val token = semanticHash(model.toString() + policy.toString() + metadataVersion +
@@ -269,7 +141,7 @@ internal class TopicCoordinator(
         }
         val startEpoch = epoch
         val context = currentCoroutineContext()
-        val resume = (checkpoint?.read() ?: experimentalPending)?.takeIf { it.sourceSignature == token && it.identity == model &&
+        val resume = (checkpoint?.read() ?: pendingFormation)?.takeIf { it.sourceSignature == token && it.identity == model &&
             it.policyVersion == policy.version && it.engineVersion == SectionHierarchicalEngine.VERSION &&
             it.formationProgress != null }
         var referenceRecords: List<SemanticRecord>? = null
@@ -283,8 +155,16 @@ internal class TopicCoordinator(
             }
             referenceRecords = records
             changed(view.copy(status = "Finding topics in all indexed cached Notes…"))
-            bulk { worker.step(records, resume ?: latest, policy, checkActive = { context.ensureActive() }) }
-                .copy(sourceSignature = token)
+            try {
+                bulk { worker.step(records, resume ?: latest, policy, checkActive = {
+                    context.ensureActive()
+                    if (!mayWork() || shouldYield() || startEpoch != epoch || cache.revision.value != cacheRevision) throw WorkPaused()
+                }) }.copy(sourceSignature = token)
+            } catch (_: WorkPaused) {
+                // Keep the last durable quantum. A policy pause must not cancel the service collector.
+                needsMoreWork = true
+                return
+            }
         }
         if (!grouped.complete) {
             writes.withLock {
@@ -295,17 +175,23 @@ internal class TopicCoordinator(
                     changed(view.copy(status = persistenceFailureMessage(result, checkpoint = true))); return
                 }
                 needsMoreWork = true
-                experimentalPending = grouped
+                pendingFormation = grouped
                 changed(view.copy(status = grouped.message))
             }
             yield(); return
         }
         connectionCursor = if (latest.sourceSignature == token) latest.connectionCursor else 0
-        val semantic = connections(grouped, sources, model)
-        val explicit = referenceRecords?.let { discoverExplicitNoteReferences(it) { context.ensureActive() } }
-            ?: latest.connections.filter { it.independentNamedReference }
-        val connected = (explicit + semantic).distinctBy { it.id }
-        val result = grouped.copy(connections = connected, connectionCursor = connectionCursor,
+        connectionPassageCursor = if (latest.sourceSignature == token) latest.connectionPassageCursor else 0
+        val semantic = try { connections(grouped, sources, model) }
+            catch (_: WorkPaused) { needsMoreWork = true; return }
+        val explicit = try {
+            referenceRecords?.let { discoverExplicitNoteReferences(it) {
+                context.ensureActive()
+                if (!mayWork() || shouldYield() || startEpoch != epoch || cache.revision.value != cacheRevision) throw WorkPaused()
+            } } ?: latest.connections.filter { it.independentNamedReference }
+        } catch (_: WorkPaused) { needsMoreWork = true; return }
+        val connected = selectDiscoveryConnections((explicit + semantic).distinctBy { it.id })
+        val result = grouped.copy(connections = connected, connectionCursor = connectionCursor, connectionPassageCursor = connectionPassageCursor,
             connectionPassComplete = connectionCursor >= sources.size, generation = latest.generation + 1,
             sourceSignature = token)
         writes.withLock {
@@ -316,7 +202,7 @@ internal class TopicCoordinator(
             }
             checkpoint?.clear()
             val initial = view.snapshot.generation == 0L && view.snapshot.topics.isEmpty()
-            latest = result; builtToken = token; experimentalPending = null
+            latest = result; pendingFormation = null
             needsMoreWork = !result.connectionPassComplete
             val visibleChange = view.snapshot.topics != result.topics || view.snapshot.connections != result.connections ||
                 view.snapshot.complete != result.complete || view.snapshot.connectionPassComplete != result.connectionPassComplete
@@ -340,15 +226,20 @@ internal class TopicCoordinator(
         }
         val pairs = latest.connections.filter { it.left.passage.isBodyEvidence() && it.right.passage.isBodyEvidence() && sources[it.left.pageId] == it.left.revision && sources[it.right.pageId] == it.right.revision && crosses(it.left.pageId, it.right.pageId) }
             .associateBy { it.id }.toMutableMap()
-        repeat(minOf(4, ids.size - connectionCursor.coerceAtMost(ids.size))) { offset ->
-            val seedId = ids[(connectionCursor + offset) % ids.size]
-            val seed = readRecord(seedId)?.takeIf { it.identity == model && sources[seedId] == it.revision } ?: return@repeat
-            for (passage in seed.passages.filter { it.passage.isBodyEvidence() }.distinctBy { it.passage.sectionId }.take(3)) {
+        var remaining = 256
+        while (connectionCursor < ids.size && remaining > 0) {
+            val seedId = ids[connectionCursor]
+            val seed = readRecord(seedId)?.takeIf { it.identity == model && sources[seedId] == it.revision }
+            val passages = seed?.passages.orEmpty().filter { it.passage.isBodyEvidence() }.sortedBy { it.passage.id }
+            if (seed == null || connectionPassageCursor >= passages.size) {
+                connectionCursor++; connectionPassageCursor = 0; continue
+            }
+            val passage = passages[connectionPassageCursor]
                 waitForQueries(); currentCoroutineContext().ensureActive()
                 var matches = emptyList<SemanticMatch>()
                 val revisions = mutableMapOf<String, String>()
                 for (id in ids) {
-                    if (!mayWork()) return emptyList()
+                    if (!mayWork()) throw WorkPaused()
                     waitForQueries()
                     if (id == seedId || !crosses(seedId, id)) continue
                     val other = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision } ?: continue
@@ -369,14 +260,14 @@ internal class TopicCoordinator(
                     val keep = selectDiscoveryConnections(pairs.values)
                     pairs.clear(); keep.forEach { pairs[it.id] = it }
                 }
-            }
+            connectionPassageCursor++; remaining--
+            if (connectionPassageCursor >= passages.size) { connectionCursor++; connectionPassageCursor = 0 }
         }
-        connectionCursor = minOf(connectionCursor + 4, ids.size)
         return selectDiscoveryConnections(pairs.values)
     }
 
     suspend fun clear() = writes.withLock {
-        epoch++; store.clear(); checkpoint?.clear(); experimentalPending = null; latest = TopicSnapshot(); builtToken = null
+        epoch++; store.clear(); checkpoint?.clear(); pendingFormation = null; latest = TopicSnapshot()
         view = TopicView(); changed(view)
     }
     suspend fun bytes(): Long = store.bytes() + (checkpoint?.bytes() ?: 0)

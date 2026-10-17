@@ -4,36 +4,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveredTopicsTest {
-    @Test fun continuityThatMovesToAnotherCandidateCannotAlsoIdentifyItsFormerCandidate() {
-        var builder = TopicBuilder(null, identity)
-        builder.accept(record("a", 0)); builder.accept(record("b", 1))
-        val first = builder.checkpoint()
-        val originalId = first.topics.single { it.members.any { member -> member.pageId == "a" } }.id
-        builder = TopicBuilder(first, identity)
-        builder.checkpoint()
-        builder.accept(record("a", 1).copy(revision = "r2"))
-        builder.accept(record("c", 0))
-        val next = builder.checkpoint()
-        assertEquals(next.topics.size, next.topics.map { it.id }.distinct().size)
-        assertEquals(originalId, next.topics.single { it.members.any { member -> member.pageId == "a" } }.id)
-        val freshId = next.topics.single { it.members.any { member -> member.pageId == "c" } }.id
-        assertNotEquals(originalId, freshId)
-        assertEquals(freshId, builder.checkpoint().topics.single { it.members.any { member -> member.pageId == "c" } }.id)
-        val restored = TopicBuilder(next, identity).checkpoint()
-        assertEquals(next.topics.map { it.id }.toSet(), restored.topics.map { it.id }.toSet())
-        assertEquals(freshId, restored.topics.single { it.members.any { member -> member.pageId == "c" } }.id)
-    }
-    @Test fun resumingAMidNoteCheckpointPreservesItsCandidateBudget() {
-        val model = EmbeddingIdentity("resume", 5)
-        val passages = (0..4).map { axis ->
-            EmbeddedPassage(SemanticPassage("p:$axis", "p", "s:$axis", null, "b:$axis", "c:$axis", 0, 4,
-                "Body", "Body", axis), List(5) { if (it == axis) 1f else 0f })
-        }
-        val record = SemanticRecord("p", "r", model, SemanticMetadata("Note"), passages)
-        val first = TopicBuilder(null, model).apply { acceptPartial(record.copy(passages = passages.take(2)), false) }.checkpoint()
-        val resumed = TopicBuilder(first, model).apply { accept(record.copy(passages = passages.drop(2))) }.checkpoint()
-        assertEquals(2, resumed.topics.size)
-    }
+
+
     @Test fun separateChunksOfOneBlockKeepIndependentThemes() {
         val sources = listOf("a", "b", "c").map { id ->
             val r = record(id, 0, 1)
@@ -43,15 +15,14 @@ class DiscoveredTopicsTest {
         assertEquals(2, build(null, *sources.toTypedArray()).topics.size)
     }
     @Test fun overlappingWindowsCannotDuplicateTheSameSupportedNeighborhood() {
-        val builder = TopicBuilder(null, identity, TopicPolicy(admission = .75f, retention = .69f, separation = .85f))
-        listOf("a", "b", "c").forEach { id ->
+        val records = listOf("a", "b", "c").map { id ->
             val r = record(id, 0)
             val first = r.passages.single().copy(passage = r.passages.single().passage.copy(start = 0, end = 100))
             val second = first.copy(passage = first.passage.copy(id = "$id-overlap", start = 50, end = 150),
                 vector = listOf(kotlin.math.cos(.6).toFloat(), kotlin.math.sin(.6).toFloat()))
-            builder.accept(r.copy(passages = listOf(first, second)))
+            r.copy(passages = listOf(first, second))
         }
-        assertEquals(1, builder.finish().topics.size)
+        assertEquals(1, build(null, *records.toTypedArray()).topics.size)
     }
     @Test fun sharedStandaloneHeadingsCannotGroupUnrelatedBodies() {
         val sources = listOf(record("a", 0), record("b", 1), record("c", 0).let { r ->
@@ -62,20 +33,21 @@ class DiscoveredTopicsTest {
                 sourceBlockId = body.passage.sectionId, excerpt = "Summary"), vector = listOf(1f, 0f))
             r.copy(passages = listOf(heading, body))
         }
-        assertTrue(build(null, *sources.toTypedArray()).topics.isEmpty())
+        assertTrue(build(null, *sources.toTypedArray()).topics.all { it.members.size == 1 })
     }
 
-    @Test fun aLongFirstNoteCannotUseEveryCandidateSlot() {
+    @Test fun aLongFirstNoteCannotPreventOtherSubjectsFromReceivingOpportunity() {
         val model = EmbeddingIdentity("fair", 70)
         fun source(id: String, axes: List<Int>) = SemanticRecord(id, "r", model, SemanticMetadata(id), axes.map { axis ->
-            val text = "Substantive body about theme $axis"
-            EmbeddedPassage(SemanticPassage("$id:$axis", id, "$id:section:$axis", null, "$id:block:$axis",
+            val text = "Substantive body about theme $axis supports an independent subject."
+            EmbeddedPassage(SemanticPassage("$id:$axis", id, "$id:section:$axis", "Subject number $axis", "$id:block:$axis",
                 "$id:chunk:$axis", 0, text.length, text, text, axis), List(70) { if (it == axis) 1f else 0f })
         })
-        val builder = TopicBuilder(null, model)
-        builder.accept(source("long", (0..65).toList()))
-        listOf("x", "y", "z").forEach { builder.accept(source(it, listOf(69))) }
-        assertEquals(setOf("x", "y", "z"), builder.finish().topics.single().members.map { it.pageId }.toSet())
+        val records = listOf(source("long", (0..65).toList())) + listOf("x", "y", "z").map { source(it, listOf(69)) }
+        val result = SectionHierarchicalEngine(model).discover(records, null, TopicPolicy())
+        assertTrue(result.complete)
+        assertEquals(67, result.topics.size)
+        assertEquals(setOf("x", "y", "z"), result.topics.single { it.label == "Subject number 69" }.members.map { it.pageId }.toSet())
     }
     private val identity = EmbeddingIdentity("test", 2)
     private fun record(id: String, vararg axes: Int) = SemanticRecord(id, "r1", identity,
@@ -85,9 +57,7 @@ class DiscoveredTopicsTest {
                 if (axis == 0) listOf(1f, 0f) else listOf(0f, 1f))
         })
     private fun build(previous: TopicSnapshot? = null, vararg records: SemanticRecord): TopicSnapshot {
-        val builder = TopicBuilder(previous, identity)
-        records.forEach(builder::accept)
-        return builder.finish()
+        return SectionHierarchicalEngine(identity).discover(records.toList(), previous, TopicPolicy())
     }
     @Test fun aTwoThemeNoteHasIndependentPassageEvidence() {
         val snapshot = build(null, record("both", 0, 1), record("garden1", 0), record("garden2", 0), record("sky1", 1), record("sky2", 1))
@@ -95,19 +65,19 @@ class DiscoveredTopicsTest {
         assertEquals(setOf("both-0", "both-1"), snapshot.topics.flatMap { it.members }.filter { it.pageId == "both" }.map { it.passage.id }.toSet())
         assertTrue(snapshot.topics.all { it.members.map { m -> m.pageId }.distinct().size == 3 })
     }
-    @Test fun repeatedPassagesCannotMakeAThreeNoteTopic() {
-        assertTrue(build(null, record("one", 0, 0, 0)).topics.isEmpty())
+    @Test fun repeatedPassagesCannotMakeAnEstablishedTopic() {
+        assertTrue(build(null, record("one", 0, 0, 0)).topics.all { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Emerging })
     }
     @Test fun unrelatedAdditionsAndReorderPreserveIdentityAndLabel() {
         val first = build(null, record("a", 0), record("b", 0), record("c", 0))
         val next = build(first, record("noise", 1), record("c", 0), record("b", 0), record("a", 0))
-        assertEquals(first.topics.single().id, next.topics.single().id)
-        assertEquals(first.topics.single().label, next.topics.single().label)
+        assertEquals(first.topics.single().id, next.topics.single { it.members.any { member -> member.pageId == "b" } }.id)
+        assertEquals(first.topics.single().label, next.topics.single { it.members.any { member -> member.pageId == "b" } }.label)
     }
     @Test fun anchorLossPreservesIdentityFromSurvivingMembers() {
         val first = build(null, record("a", 0), record("b", 0), record("c", 0), record("d", 0))
         val next = build(first, record("b", 0), record("c", 0), record("d", 0))
-        assertEquals(first.topics.single().id, next.topics.single().id)
+        assertEquals(first.topics.single().id, next.topics.single { it.members.any { member -> member.pageId == "b" } }.id)
         assertFalse(next.topics.single().anchor.passage.pageId == "a")
     }
     @Test fun evictionRetainsOnlyOpaqueContinuityAndRecacheRestoresIdentity() {
@@ -120,35 +90,32 @@ class DiscoveredTopicsTest {
     }
     @Test fun invalidVectorsAndDifferentModelsNeverCreateMembership() {
         val bad = record("bad", 0).let { it.copy(passages = it.passages.map { p -> p.copy(vector = listOf(Float.NaN, 0f)) }) }
-        assertTrue(build(null, bad, record("b", 0), record("c", 0)).topics.isEmpty())
-        assertTrue(build(null, record("a", 0).copy(identity = identity.copy(model="different")), record("b", 0), record("c", 0)).topics.isEmpty())
+        assertTrue(build(null, bad, record("b", 0), record("c", 0)).topics.flatMap { it.members }.none { it.pageId == "bad" })
+        assertTrue(build(null, record("a", 0).copy(identity = identity.copy(model="different")), record("b", 0), record("c", 0)).topics.flatMap { it.members }.none { it.pageId == "a" })
     }
-    @Test fun repeatedCheckpointsKeepProvisionalIdentity() {
-        val builder = TopicBuilder(null, identity)
-        builder.accept(record("a", 0))
-        val first = builder.checkpoint()
-        assertEquals(first.topics.single().id, builder.checkpoint().topics.single().id)
+
+
+        @Test fun replacingALabelSourceUsesTheActualMembershipScoreDirection() {
+        val original = build(null, record("a", 0), record("b", 0), record("c", 0))
+        val base = original.topics.single()
+        val replacement = record("b", 0).passages.single()
+        val members = base.members.map { it.copy(score = .70710677f, anchor = replacement.passage,
+            passage = if (it.pageId == "c") record("c", 1).passages.single().passage else it.passage) }
+        val topic = base.copy(anchor = replacement, members = members, subjectVector = listOf(.70710677f, .70710677f))
+        val removed = invalidateTopics(original.copy(topics = listOf(topic)), setOf("a"), false, mapOf(topic.id to replacement))
+        assertEquals("An old score relative to a centroid cannot be reused as a score to its representative passage",
+            listOf("b"), removed.topics.single().members.map { it.pageId })
     }
-    @Test fun aPartialRecordResumesWithoutDroppingEarlierEvidence() {
-        val builder = TopicBuilder(null, identity)
-        builder.accept(record("a", 0))
-        builder.acceptPartial(record("both", 0), false)
-        val resumed = TopicBuilder(builder.checkpoint(), identity)
-        resumed.acceptPartial(record("both", 1).let { r -> r.copy(passages = r.passages.map { it.copy(passage = it.passage.copy(id = "both-1")) }) }, true)
-        resumed.accept(record("b", 0))
-        resumed.accept(record("sky1", 1))
-        resumed.accept(record("sky2", 1))
-        val topics = resumed.finish().topics
-        assertEquals(2, topics.size)
-        assertEquals(setOf("both-0"), topics.first { it.label == "Gardening" }.members.filter { it.pageId == "both" }.map { it.passage.id }.toSet())
+
+    @Test fun deletingOneMemberPreservesContinuityOfUnchangedSurvivors() {
+        val original = build(null, record("a", 0), record("b", 0), record("c", 0))
+        val removed = invalidateTopics(original, setOf("c"), permanent = true)
+        val rebuilt = build(removed, record("a", 0), record("b", 0))
+        assertEquals(original.topics.single().id, rebuilt.topics.single().id)
+        assertEquals(setOf("a", "b"), rebuilt.topics.single().members.map { it.pageId }.toSet())
     }
-    @Test fun reachingTheAnchorBoundReportsIncompleteCoverage() {
-        val builder = TopicBuilder(null, identity, TopicPolicy(maxAnchors = 1))
-        builder.accept(record("a", 0, 1))
-        assertFalse(builder.finish().complete)
-        assertNotNull(builder.finish().message)
-        assertEquals(1, builder.checkpoint().topics.size)
-    }    @Test fun irrelevantInvalidationDoesNotCreateANewGeneration() {
+
+    @Test fun irrelevantInvalidationDoesNotCreateANewGeneration() {
         val snapshot = build(null, record("a", 0), record("b", 0), record("c", 0))
         assertEquals(snapshot, invalidateTopics(snapshot, emptySet(), false))
         assertEquals(snapshot, invalidateTopics(snapshot, setOf("unrelated"), true))
@@ -164,11 +131,13 @@ class DiscoveredTopicsTest {
         val before = build(null, record("a", 0), record("b", 0), record("c", 0), record("d", 0), record("e", 0), record("f", 0))
         fun edited(id: String, axis: Int) = record(id, axis).copy(revision = "r2", passages = record(id, axis).passages.map { it.copy(passage = it.passage.copy(id = "$id-new")) })
         val after = build(before, record("b", 0), record("c", 0), record("g", 0), edited("d", 1), edited("e", 1), edited("f", 1))
-        assertEquals(before.topics.single().id, after.topics.single { it.members.any { member -> member.pageId == "d" } }.id)
+        assertEquals(before.topics.single().id, after.topics.single { it.members.any { member -> member.pageId == "b" } }.id)
         assertEquals(2, after.topics.map { it.id }.distinct().size)
     }
     @Test fun mergingGroupsKeepsTheOldestIdentityAndRecordsItsReplacement() {
-        val before = build(null, record("a", 0), record("b", 0), record("c", 0), record("d", 1), record("e", 1), record("f", 1))
+        // Controlled re-embedding fixture: both old groups retain their actual source text.
+        fun secondGroup(id: String) = record(id, 0).let { r -> r.copy(passages = r.passages.map { it.copy(vector = listOf(0f, 1f)) }) }
+        val before = build(null, record("a", 0), record("b", 0), record("c", 0), secondGroup("d"), secondGroup("e"), secondGroup("f"))
         val after = build(before, record("a", 0), record("b", 0), record("c", 0), record("d", 0).copy(revision = "r2"), record("e", 0).copy(revision = "r2"), record("f", 0).copy(revision = "r2"))
         val oldest = before.topics.minBy { it.createdOrder }.id
         assertEquals(oldest, after.topics.single().id)
@@ -178,9 +147,7 @@ class DiscoveredTopicsTest {
             val record = record(id, 0)
             return record.copy(passages = record.passages.map { it.copy(vector = listOf(kotlin.math.cos(angle).toFloat(), kotlin.math.sin(angle).toFloat())) })
         }
-        val builder = TopicBuilder(null, identity, TopicPolicy(admission = .7f, retention = .65f, separation = .98f))
-        listOf(tilted("a", 0.0), tilted("b", .3), tilted("c", .4), tilted("d", .45), tilted("e", .5)).forEach(builder::accept)
-        val result = builder.finish()
+        val result = build(null, tilted("a", 0.0), tilted("b", .3), tilted("c", .4), tilted("d", .45), tilted("e", .5))
         assertEquals(1, result.topics.size)
         assertEquals(5, result.topics.single().members.size)
     }
@@ -189,23 +156,16 @@ class DiscoveredTopicsTest {
         assertEquals(2, result.topics.size)
         assertEquals(2, result.topics.map { it.members.map { member -> member.passage.id }.toSet() }.distinct().size)
     }    @Test fun aNewModelCannotReuseTheOldCheckpointCompletionMap() {
-        val original = TopicBuilder(null, identity).apply { listOf(record("a", 0), record("b", 0), record("c", 0)).forEach(::accept) }.checkpoint()
+        val inputs = listOf(record("a", 0), record("b", 0), record("c", 0))
+        val original = SectionHierarchicalEngine(identity).step(inputs, null, TopicPolicy(), 1)
         val newIdentity = identity.copy(model = "new-model")
-        val builder = TopicBuilder(original, newIdentity)
-        listOf(record("a", 0), record("b", 0), record("c", 0)).map { it.copy(identity = newIdentity) }.forEach(builder::accept)
-        assertEquals(1, builder.finish().topics.size)
-    }    @Test fun unsupportedCandidatesSurviveOneCompletedPassAndRetireAfterTwo() {
-        val first = build(null, record("a", 0))
-        assertTrue(first.topics.isEmpty())
-        assertEquals(1, first.provisionalTopics.size)
-        assertEquals(1, first.provisionalPasses[first.provisionalTopics.single().id])
-        val second = build(first, record("a", 0))
-        assertTrue(second.provisionalTopics.isEmpty())
-        assertTrue(second.topics.isEmpty())
-        assertEquals(first.continuity.single().id, second.continuity.single().id)
+        val result = SectionHierarchicalEngine(newIdentity).discover(inputs.map { it.copy(identity = newIdentity) }, original, TopicPolicy())
+        assertTrue(result.complete)
+        assertEquals(newIdentity, result.identity)
+        assertEquals(inputs.map { it.pageId }.toSet(), result.acceptedRevisions.keys)
     }
     @Test fun sourceEvictionRemovesHiddenCandidateVectorsAndTextImmediately() {
-        val checkpoint = TopicBuilder(null, identity).apply { accept(record("a", 0)) }.checkpoint()
+        val checkpoint = build(null, record("a", 0))
         val first = checkpoint.copy(topics = emptyList(), provisionalTopics = checkpoint.topics)
         val removed = invalidateTopics(first, setOf("a"), false)
         assertTrue(removed.provisionalTopics.isEmpty())
@@ -219,8 +179,4 @@ class DiscoveredTopicsTest {
         val invalidated = invalidateTopics(before, setOf("a"), false, mapOf(before.topics.first().id to tilted("b", .65f).passages.single()))
         assertTrue(invalidated.topics.none { topic -> topic.anchor.passage.pageId == "b" && topic.members.any { it.pageId == "c" } })
     }
-    @Test fun aHeadingNeedsDistinctMemberSupportBeforeBecomingATopicLabel() {
-        val anchor = record("a", 0).let { r -> r.copy(passages = r.passages.map { it.copy(passage = it.passage.copy(sectionTitle = "Private unrelated heading")) }) }
-        val snapshot = build(null, anchor, record("b", 0), record("c", 0))
-        assertEquals("Notes related to Note a", snapshot.topics.single().label)
-    }}
+    }

@@ -9,7 +9,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class FileTopicStoreTest {
-    @Test fun experimentalCandidatesBeyondLegacyAnchorLimitRemainPersistable() = runBlocking {
+    @Test fun allSupportedSubjectsRemainPersistableWithoutAnAnchorLimit() = runBlocking {
         val identity = EmbeddingIdentity("many-subjects", 70)
         val records = (0 until 70).map { n ->
             val heading = "Subject number $n"
@@ -23,7 +23,7 @@ class FileTopicStoreTest {
         val store = FileTopicStore(temporary.newFolder())
         assertEquals(TopicWriteResult.Written, store.writeDetailed(snapshot))
         assertEquals(snapshot, store.read())
-        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.CandidateBound),
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidIdentity),
             store.writeDetailed(snapshot.copy(engineVersion = 0)))
     }
 
@@ -46,12 +46,10 @@ class FileTopicStoreTest {
             return SemanticRecord(page, revision, model, SemanticMetadata(page),
                 listOf(EmbeddedPassage(passage, if (axis == 0) listOf(1f, 0f) else listOf(0f, 1f))))
         }
-        val initial = TopicBuilder(null, model).apply { accept(record("a", 0)); accept(record("b", 1)) }.checkpoint()
-        val builder = TopicBuilder(initial, model)
+        val initial = SectionHierarchicalEngine(model).step(listOf(record("a", 0), record("b", 1)), null, TopicPolicy(), 1)
         val store = FileTopicStore(temporary.newFolder())
-        assertEquals(TopicWriteResult.Written, store.writeDetailed(builder.checkpoint()))
-        builder.accept(record("a", 1, "r2")); builder.accept(record("c", 0))
-        val revised = builder.checkpoint()
+        assertEquals(TopicWriteResult.Written, store.writeDetailed(initial))
+        val revised = SectionHierarchicalEngine(model).step(listOf(record("a", 1, "r2"), record("b", 1), record("c", 0)), initial, TopicPolicy(), 1)
         assertEquals(TopicWriteResult.Written, store.writeDetailed(revised))
         assertEquals(revised, store.read())
     }
@@ -60,8 +58,8 @@ class FileTopicStoreTest {
         val store = FileTopicStore(directory)
         val prior = TopicSnapshot(generation = 4)
         assertTrue(store.write(prior))
-        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.CandidateBound),
-            store.writeDetailed(prior.copy(candidatePassLimit = 1)))
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidIdentity),
+            store.writeDetailed(prior.copy(schemaVersion = -1)))
         assertEquals(prior, store.read())
     }
     @Test fun peakBudgetFailureHasAnExplicitOutcome() = runBlocking {

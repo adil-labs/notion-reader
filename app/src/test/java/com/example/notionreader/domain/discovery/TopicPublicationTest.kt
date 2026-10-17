@@ -69,6 +69,17 @@ class TopicPublicationTest {
         val repeated = topic("repeat", order = 2, pages = listOf("a", "b", "c", "d"), theme = "Energy transfer")
         assertEquals(listOf(first), publishableDiscoveryTopics(listOf(repeated, first)))
     }
+    @Test fun equalAuthoredLabelsCannotCollapseIndependentPassageSubjects() {
+        val first = topic("one", "Architecture", order = 0)
+        val second = topic("two", "Architecture", order = 1).let { candidate ->
+            val members = candidate.members.map { member -> member.copy(passage = member.passage.copy(
+                id = member.passage.id + ":other", sourceBlockId = member.passage.sourceBlockId + ":other",
+                excerpt = "Separate physical components connect through acoustic channels with independent transmission constraints.")) }
+            candidate.copy(members = members, labelSource = members.first().passage)
+        }
+        assertEquals(listOf(first, second), publishableDiscoveryTopics(listOf(first, second)))
+    }
+
     @Test fun independentPassageThemesSurviveIdenticalMembers() {
         val orbit = topic("orbit", order = 1)
         val music = topic("music", "Musical harmony", 2, theme = "Musical harmony", vector = listOf(0f, 1f))
@@ -84,14 +95,14 @@ class TopicPublicationTest {
         assertSame(z, result.last())
         assertEquals(listOf(z, a), input)
     }
-    @Test fun oneSupportingNoteAndSubstringMatchesDoNotPublishALabel() {
+    @Test fun representativeLabelsAndSemanticMembershipAreValidatedIndependently() {
         val candidate = topic("weak")
         val weak = candidate.copy(members = candidate.members.mapIndexed { index, member ->
             if (index == 0) member else member.copy(passage = member.passage.copy(
                 sectionTitle = "Other research", excerpt = "A separate subject explains processes in a different field."))
         })
         val substring = topic("substring", "Orbital mechanic", theme = "Orbital mechanics")
-        assertTrue(publishableDiscoveryTopics(listOf(weak, substring)).isEmpty())
+        assertEquals(listOf(weak), publishableDiscoveryTopics(listOf(weak, substring)))
     }
     @Test fun differentLabelsAndDistantVectorsAloneCannotProveIndependentThemes() {
         val first = topic("first", order = 1)
@@ -105,39 +116,39 @@ class TopicPublicationTest {
         val music = topic("music", "Musical harmony", 2, vector = listOf(0f, 1f)).let { candidate ->
             candidate.copy(members = candidate.members.mapIndexed { index, member -> member.copy(passage =
                 member.passage.copy(sourceBlockId = orbit.members[index].passage.sourceBlockId,
-                    start = 500, end = 500 + member.passage.excerpt.length)) })
+                    start = 500, end = 500 + member.passage.excerpt.length)) }).let { it.copy(labelSource = it.members.first().passage) }
         }
         assertEquals(listOf(orbit, music), publishableDiscoveryTopics(listOf(orbit, music)))
         val overlapping = music.copy(members = music.members.map { member -> member.copy(passage =
-            member.passage.copy(start = 0, end = member.passage.excerpt.length)) })
+            member.passage.copy(start = 0, end = member.passage.excerpt.length)) }).let { it.copy(labelSource = it.members.first().passage) }
         assertEquals(listOf(orbit), publishableDiscoveryTopics(listOf(orbit, overlapping)))
     }
     @Test fun aValidatedSingleNoteSubjectIsPublishedAsEmerging() {
-        val emerging = topic("emerging", pages = listOf("one")).copy(experimentalEvidenceValidated = true)
+        val emerging = topic("emerging", pages = listOf("one"))
         assertEquals(listOf(emerging), publishableDiscoveryTopics(listOf(emerging)))
     }
-    @Test fun anUnvalidatedSingleNoteCandidateStaysInternal() {
-        assertTrue(publishableDiscoveryTopics(listOf(topic("candidate", pages = listOf("one")))).isEmpty())
+    @Test fun aSingleNoteWithoutBodyEvidenceStaysInternal() {
+        val candidate = topic("candidate", pages = listOf("one"))
+        val heading = candidate.members.single().passage.let { it.copy(sourceBlockId = it.sectionId) }
+        assertTrue(publishableDiscoveryTopics(listOf(candidate.copy(members = listOf(candidate.members.single().copy(passage = heading)), labelSource = heading))).isEmpty())
     }
-    @Test fun experimentalPublicationRequiresEveryMemberToSupportTheSubject() {
-        val candidate = topic("weak").copy(experimentalEvidenceValidated = true)
+    @Test fun publicationRequiresBodyEvidenceFromEveryMember() {
+        val candidate = topic("weak")
         val weak = candidate.copy(members = candidate.members.mapIndexed { index, member ->
-            if (index < 2) member else member.copy(passage = member.passage.copy(
-                sectionTitle = "Other research", excerpt = "A separate subject explains processes in a different field."))
+            if (index < 2) member else member.copy(passage = member.passage.copy(sourceBlockId = member.passage.sectionId))
         })
         assertTrue(publishableDiscoveryTopics(listOf(weak)).isEmpty())
     }
     @Test fun validatedDistinctSubjectsSurviveSharedMembersAndNearbyVectors() {
-        val orbit = topic("orbit").copy(experimentalEvidenceValidated = true)
-        val music = topic("music", "Musical harmony", order = 1).copy(experimentalEvidenceValidated = true)
+        val orbit = topic("orbit")
+        val music = topic("music", "Musical harmony", order = 1)
         assertEquals(listOf(orbit, music), publishableDiscoveryTopics(listOf(orbit, music)))
     }
     @Test fun alternativeLabelsDoNotDuplicateTheSameExperimentalEvidence() {
         val first = topic("first").let { candidate ->
             val members = candidate.members.map { member -> member.copy(passage = member.passage.copy(
                 excerpt = "Orbital mechanics and energy transfer explain how bodies move through space over long periods.")) }
-            candidate.copy(members = members, labelSource = members.first().passage,
-                experimentalEvidenceValidated = true)
+            candidate.copy(members = members, labelSource = members.first().passage)
         }
         val alternative = first.copy(id = "alternative", label = "energy transfer", createdOrder = 1)
         assertEquals(listOf(first), publishableDiscoveryTopics(listOf(first, alternative)))

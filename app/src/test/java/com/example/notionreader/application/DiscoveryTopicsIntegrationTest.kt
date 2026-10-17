@@ -10,10 +10,83 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
+    @Test fun explicitReferencesRespectTheSharedConnectionExposureLimit() = runBlocking {
+        val dir = Files.createTempDirectory("reference-exposure").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val model = EmbeddingIdentity("references", 6)
+            val sources = (0..5).associate { n ->
+                val id = "p$n"
+                val text = if (n == 0) (1..5).joinToString(" ") { "See Target $it." } else "Target context."
+                val p = SemanticPassage("$id:p", id, "$id:s", null, "$id:b", "$id:c", 0, text.length, text, text, 0)
+                index.write(SemanticRecord(id, "r", model, SemanticMetadata(if (n == 0) "Source" else "Target $n"),
+                    listOf(EmbeddedPassage(p, List(6) { if (it == n) 1f else 0f }))))
+                id to "r"
+            }
+            index.setPaused(false)
+            val store = Store()
+            val worker = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
+                kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, formationWorkBudget = 25_000)
+            worker.invalidate(sources)
+            worker.build(sources, 0, cache.revision.value)
+            assertEquals("References must remain available", 2, store.value!!.connections.size)
+            assertTrue(store.value!!.connections.all { it.independentNamedReference })
+            assertTrue(store.value!!.connections.flatMap { listOf(it.left.pageId, it.right.pageId) }
+                .groupingBy { it }.eachCount().values.all { it <= 2 })
+            // A completed generation saved by the old engine must also be repaired on load.
+            val uncapped = discoverExplicitNoteReferences(sources.keys.map { index.read(it)!! })
+            store.value = store.value!!.copy(connections = uncapped)
+            val restarted = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
+                kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, formationWorkBudget = 25_000)
+            restarted.invalidate(sources)
+            assertEquals("Old completed snapshots must not bypass the current cap", 2, store.value!!.connections.size)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun formationChecksPlaybackEligibilityInsideItsCpuWork() = pausedFormationRemainsResumable(false)
+    @Test fun formationYieldsToAWaitingForegroundQueryInsideItsCpuWork() = pausedFormationRemainsResumable(true)
+
+    private fun pausedFormationRemainsResumable(query: Boolean) = runBlocking {
+        val dir = Files.createTempDirectory("formation-pause").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val backing = FileSemanticIndexStore(dir.resolve("index"))
+            val model = EmbeddingIdentity("pause", 2)
+            val text = "Forest roots absorb rainfall and protect woodland soil from erosion."
+            val passages = (0..128).map { n ->
+                val p = SemanticPassage("p:$n", "p", "s$n", "Ecology", "b$n", "c$n", 0, text.length, text, text, n)
+                EmbeddedPassage(p, listOf(1f, 0f))
+            }
+            backing.write(SemanticRecord("p", "r", model, SemanticMetadata("Forest"), passages))
+            backing.setPaused(false)
+            var inFormation = false
+            var pauseRequested = true
+            var observedEligibilityChecks = 0
+            val store = Store()
+            val worker = TopicCoordinator(cache, backing, store, null, { model }, TopicPolicy(),
+                kotlinx.coroutines.sync.Mutex(), {
+                    if (!query && inFormation && pauseRequested) { observedEligibilityChecks++; false } else true
+                }, {}, { if (it.status == "Finding topics in all indexed cached Notes…") inFormation = true },
+                formationWorkBudget = 25_000, shouldYield = {
+                    if (query && inFormation && pauseRequested) { observedEligibilityChecks++; true } else false
+                })
+            worker.invalidate(mapOf("p" to "r"))
+            worker.build(mapOf("p" to "r"), 0, cache.revision.value)
+            assertTrue("CPU formation must observe playback/background eligibility", observedEligibilityChecks > 0)
+            assertNull("Paused formation must preserve the prior published generation", store.value)
+            assertTrue("Paused work must remain resumable", worker.needsMoreWork)
+            pauseRequested = false
+            worker.build(mapOf("p" to "r"), 0, cache.revision.value)
+            assertTrue("The same worker must finish when playback/background pressure clears", store.value!!.complete)
+            assertTrue(store.value!!.connectionPassComplete)
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun aDuplicateCurrentTitleWithdrawsAnIndependentReferenceFromTheInspectedGeneration() = runBlocking {
         val dir = Files.createTempDirectory("reference-title-invalidation").toFile()
         try {
@@ -31,7 +104,7 @@ class DiscoveryTopicsIntegrationTest {
             assertEquals(1, store.value!!.connections.size)
             var shown = TopicView()
             val coordinator = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, { shown = it }, engine = SectionHierarchicalEngine(model))
+                kotlinx.coroutines.sync.Mutex(), { true }, {}, { shown = it }, formationWorkBudget = 25_000)
             coordinator.invalidate(mapOf("a" to "r1", "b" to "r1"))
             assertEquals(1, shown.snapshot.connections.size)
             index.write(record("c", "Target Note", "An unrelated duplicate title."))
@@ -59,7 +132,7 @@ class DiscoveryTopicsIntegrationTest {
             }
             index.setPaused(false)
             fun worker() = TopicCoordinator(cache, index, store, checkpoint, { model }, TopicPolicy(),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, engine = SectionHierarchicalEngine(model, maxSectionsBudget = 1))
+                kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, formationWorkBudget = 1)
             var coordinator = worker(); coordinator.invalidate(sources)
             coordinator.build(sources, 0, cache.revision.value)
             assertNull("Partial work must not replace the published generation", store.value)
@@ -76,60 +149,7 @@ class DiscoveryTopicsIntegrationTest {
             assertNull(checkpoint.read())
         } finally { dir.deleteRecursively() }
     }
-    @Test fun unchangedPublishedMembershipReusesCompletedConnectionsAcrossGroupingAndRestart() = connectionReuseFixture(false)
-    @Test fun newlyPublishedMembershipRecomputesConnectionsAndRemovesWithinTopicPairs() = connectionReuseFixture(true)
-    private fun connectionReuseFixture(grounded: Boolean) = runBlocking {
-        val dir = Files.createTempDirectory("topic-connection-reuse").toFile()
-        try {
-            val cache = FileDocumentCache(dir.resolve("cache"))
-            val disk = FileSemanticIndexStore(dir.resolve("index"))
-            var reads = 0
-            val index = object : SemanticIndexStore by disk {
-                override suspend fun read(pageId: String): SemanticRecord? { reads++; return disk.read(pageId) }
-            }
-            val model = EmbeddingIdentity("connection-reuse", 13)
-            val sources = (0..2).associate { "p$it" to "r" }
-            for ((n, id) in sources.keys.withIndex()) {
-                val passages = ((0..3).map { if (n == 1 && it == 0) 0 else n * 4 + it } + 12).mapIndexed { position, axis ->
-                    val text = if (grounded) "Forest evidence for habitat $axis." else "Habitat$n Woodland$n Ecosystem$n Evidence$axis."
-                    EmbeddedPassage(SemanticPassage("$id:$position", id, "$id:s$position", null, "$id:b$position",
-                        "$id:c$position", 0, text.length, text, text, position), List(13) { if (it == axis) 1f else 0f })
-                }
-                disk.write(SemanticRecord(id, "r", model, SemanticMetadata(id), passages))
-            }
-            disk.setPaused(false)
-            val store = Store()
-            fun coordinator() = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            var worker = coordinator()
-            worker.invalidate(sources); worker.build(sources, 0, cache.revision.value)
-            val first = store.value!!
-            assertTrue(first.connectionPassComplete)
-            assertTrue("The retained result must be nonempty", first.connections.isNotEmpty())
-            assertTrue(publishableDiscoveryTopics(first.topics).isEmpty())
-            reads = 0
-            worker.build(sources, 0, cache.revision.value)
-            assertEquals(2, store.value!!.groupingPass)
-            if (grounded) {
-                assertTrue(publishableDiscoveryTopics(store.value!!.topics).isNotEmpty())
-                assertTrue("A newly published shared topic excludes its within-topic pair", store.value!!.connections.isEmpty())
-                assertEquals("Grouping and the newly required seed sweep both read the three Notes", 6, reads)
-                return@runBlocking
-            }
-            assertEquals(first.connections, store.value!!.connections)
-            assertTrue(store.value!!.connectionPassComplete)
-            assertTrue("Grouping must not repeat completed exact connection searches: reads=$reads", reads <= 6)
-            worker = coordinator(); worker.invalidate(sources); reads = 0
-            worker.build(sources, 0, cache.revision.value)
-            assertEquals(3, store.value!!.groupingPass)
-            assertEquals(first.connections, store.value!!.connections)
-            assertTrue("A process restart must preserve safe reuse: reads=$reads", reads <= 6)
-            reads = 0
-            worker.build(sources, 1, cache.revision.value)
-            assertEquals(1, store.value!!.groupingPass)
-            assertTrue("Changed metadata must reconcile connection evidence", reads > 6)
-        } finally { dir.deleteRecursively() }
-    }
+
     @Test fun browseOrderingAndUncachedMetadataDoNotRestartTheCandidateSweep() = runBlocking {
         val dir = Files.createTempDirectory("topic-metadata-order").toFile()
         try {
@@ -158,26 +178,94 @@ class DiscoveryTopicsIntegrationTest {
             var controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
                 provider, topicStore = store, topicCheckpointStore = Store())
             controller.reconcile(entries, true)
-            assertEquals(1, store.value!!.groupingPass)
+            assertEquals(1L, store.value!!.generation)
             controller.reconcile(entries.reversed(), true)
-            assertEquals("Browse order is not a semantic input", 2, store.value!!.groupingPass)
+            assertEquals("Browse order is not a semantic input", 1L, store.value!!.generation)
             controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
                 provider, topicStore = store, topicCheckpointStore = Store())
             controller.reconcile(entries + com.example.notionreader.domain.ReaderIndexEntry("uncached", "Other", null), true)
-            assertEquals("A new coordinator resumes unchanged cached inputs despite uncached changes", 3, store.value!!.groupingPass)
+            assertEquals("A new coordinator resumes unchanged cached inputs despite uncached changes", 1L, store.value!!.generation)
             val updated = entries.map { if (it.pageId == "p0") it.copy(title = "Updated forest title") else it }
             controller.reconcile(updated, true)
-            assertEquals("Changed cached metadata must still start a fresh reconciliation", 1, store.value!!.groupingPass)
+            assertEquals("Changed cached metadata must still start a fresh reconciliation", 2L, store.value!!.generation)
             assertEquals("Updated forest title", index.read("p0")!!.metadata.title)
         } finally { dir.deleteRecursively() }
     }
+    @Test fun pausingAConnectionQuantumCannotPublishAnEmptyReplacement() = runBlocking {
+        val dir = Files.createTempDirectory("connection-pause").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val backing = FileSemanticIndexStore(dir.resolve("index"))
+            val model = EmbeddingIdentity("connection-pause", 2)
+            val text = "It is what it is and we are who we are."
+            fun record(id: String): SemanticRecord {
+                val p = SemanticPassage("$id:p", id, "$id:s", null, "$id:b", "$id:c", 0, text.length, text, text, 0)
+                return SemanticRecord(id, "r", model, SemanticMetadata(id), listOf(EmbeddedPassage(p, listOf(1f, 0f))))
+            }
+            val a = record("a"); val b = record("b")
+            backing.write(a); backing.write(b); backing.setPaused(false)
+            fun member(r: SemanticRecord) = TopicMembership(r.pageId, r.metadata, r.passages.single().passage, 1f,
+                r.passages.single().passage, "r")
+            val prior = NoteConnection("prior", member(a), member(b), 1f)
+            val store = Store().apply { value = TopicSnapshot(identity = model, complete = true,
+                connections = listOf(prior), acceptedRevisions = mapOf("a" to "r", "b" to "r")) }
+            var reads = 0
+            var pauseOnce = false
+            val index = object : SemanticIndexStore by backing {
+                override suspend fun read(pageId: String): SemanticRecord? {
+                    if (pageId == "a" && ++reads == 2) pauseOnce = true
+                    return backing.read(pageId)
+                }
+            }
+            val worker = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
+                kotlinx.coroutines.sync.Mutex(), { if (pauseOnce) { pauseOnce = false; false } else true }, {}, {})
+            val sources = mapOf("a" to "r", "b" to "r")
+            worker.invalidate(sources); worker.build(sources, 0, cache.revision.value)
+            assertEquals(listOf(prior), store.value!!.connections)
+            assertTrue(worker.needsMoreWork)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun aRestartResumesConnectionsBeyondTheFirstThreeSectionsInsideANote() = runBlocking {
+        val dir = Files.createTempDirectory("late-connection-resume").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val model = EmbeddingIdentity("late-connection", 2)
+            val text = "It is what it is and we are who we are."
+            fun evidence(page: String, n: Int, vector: List<Float>): EmbeddedPassage {
+                val id = "$page:${n.toString().padStart(4, '0')}"
+                return EmbeddedPassage(SemanticPassage(id, page, "$id:s", null, "$id:b", "$id:c",
+                    0, text.length, text, text, n), vector)
+            }
+            index.write(SemanticRecord("a", "r", model, SemanticMetadata("A"),
+                (0 until 256).map { evidence("a", it, listOf(1f, 0f)) } + evidence("a", 256, listOf(0f, 1f))))
+            index.write(SemanticRecord("b", "r", model, SemanticMetadata("B"), listOf(evidence("b", 0, listOf(0f, 1f)))))
+            index.setPaused(false)
+            val store = Store()
+            fun worker() = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
+                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
+            val sources = mapOf("a" to "r", "b" to "r")
+            val first = worker(); first.invalidate(sources); first.build(sources, 0, cache.revision.value)
+            assertTrue(store.value!!.connections.isEmpty())
+            assertEquals(0, store.value!!.connectionCursor)
+            assertEquals(256, store.value!!.connectionPassageCursor)
+            assertFalse(store.value!!.connectionPassComplete)
+            val restarted = worker(); restarted.invalidate(sources); restarted.build(sources, 0, cache.revision.value)
+            assertEquals(1, store.value!!.connections.size)
+            assertEquals("a:0256", store.value!!.connections.single().left.passage.id)
+            assertTrue(store.value!!.connectionPassComplete)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun supportedIndividualConnectionsDoNotRequireEitherNoteToHaveATopic() = runBlocking {
         val dir = Files.createTempDirectory("ungrouped-connections").toFile()
         try {
             val cache = FileDocumentCache(dir.resolve("cache"))
             val index = FileSemanticIndexStore(dir.resolve("index"))
             for (id in listOf("a", "b")) cache.put(CachedDocument(ReaderDocument.fromChunkTexts(id, "Forest $id",
-                listOf("Forest ecosystems retain water and shelter diverse animals.")), null, Instant.EPOCH))
+                // Controlled vectors with no publishable subject phrase, not a human quality corpus.
+                listOf("It is what it is and we are who we are.")), null, Instant.EPOCH))
             index.setPaused(false)
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(),
                 topicStore = Store(), topicCheckpointStore = Store())
@@ -211,7 +299,7 @@ class DiscoveryTopicsIntegrationTest {
                 }
                 var view = TopicView()
                 val coordinator = TopicCoordinator(cache, index, store, checkpoint, { model }, TopicPolicy(),
-                    kotlinx.coroutines.sync.Mutex(), { true }, {}, { view = it })
+                    kotlinx.coroutines.sync.Mutex(), { true }, {}, { view = it }, formationWorkBudget = 1)
                 coordinator.invalidate(mapOf("p" to "r"))
                 coordinator.build(mapOf("p" to "r"), 0, cache.revision.value)
                 assertTrue("The checkpoint boundary must actually be reached", attempted)
@@ -274,42 +362,13 @@ class DiscoveryTopicsIntegrationTest {
                 kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
             repeat(10) { coordinator.build(sources, 0, cache.revision.value) }
             assertFalse("Later body evidence must receive a candidate opportunity", store.value!!.topics.isEmpty())
-            assertEquals(sources.keys, store.value!!.topics.single().members.map { it.pageId }.toSet())
-            assertTrue(store.value!!.topics.single().members.all { it.passage.order == 4 })
+            val established = store.value!!.topics.single { it.members.size == sources.size }
+            assertEquals(sources.keys, established.members.map { it.pageId }.toSet())
+            assertTrue(established.members.all { it.passage.order == 4 })
             assertFalse(coordinator.needsMoreWork)
         } finally { dir.deleteRecursively() }
     }
-    @Test fun unchangedCapacityLimitedSourcesStopRescanningAndRotateCandidates() = runBlocking {
-        val dir = Files.createTempDirectory("topic-capacity").toFile()
-        try {
-            val cache = FileDocumentCache(dir.resolve("cache"))
-            val index = FileSemanticIndexStore(dir.resolve("index"))
-            val store = Store()
-            val model = Provider().identity
-            val sources = (0..2).associate { "p$it" to "r" }
-            for (id in sources.keys) {
-                val passages = (0..1).map { axis ->
-                    val text = "Body evidence $axis"
-                    EmbeddedPassage(SemanticPassage("$id:$axis", id, "$id:s$axis", null, "$id:b$axis",
-                        "$id:c$axis", 0, text.length, text, text, axis), if (axis == 0) listOf(1f, 0f) else listOf(0f, 1f))
-                }
-                index.write(SemanticRecord(id, "r", model, SemanticMetadata(id), passages))
-            }
-            index.setPaused(false)
-            val coordinator = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(maxAnchors = 1),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            coordinator.build(sources, 0, cache.revision.value)
-            assertEquals(1, store.value!!.candidateCursor)
-            repeat(5) { coordinator.build(sources, 0, cache.revision.value) }
-            val finished = store.value!!
-            assertFalse(finished.complete)
-            assertTrue(finished.connectionPassComplete)
-            assertFalse(coordinator.needsMoreWork)
-            assertTrue(finished.groupingPass <= finished.candidatePassLimit)
-            coordinator.build(sources, 0, cache.revision.value)
-            assertEquals(finished.generation, store.value!!.generation)
-        } finally { dir.deleteRecursively() }
-    }
+
     private class Provider : EmbeddingProvider {
         override val identity = EmbeddingIdentity("topics-test", 2)
         override val tokenizer = object : SemanticTokenizer {
@@ -360,10 +419,10 @@ class DiscoveryTopicsIntegrationTest {
             val cache = FileDocumentCache(dir.resolve("cache"))
             val index = FileSemanticIndexStore(dir.resolve("index"))
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(), topicStore = Store())
-            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest")), null, Instant.EPOCH)) }
+            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
             index.setPaused(false); controller.reconcile(emptyList(), true); controller.refreshTopics()
             val original = controller.state.value.topicSnapshot
-            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p3", "Forest 3", listOf("forest")), null, Instant.EPOCH))
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p3", "Forest 3", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH))
             controller.reconcile(emptyList(), true)
             assertTrue(controller.state.value.topicsUpdated)
             assertEquals(original.topics.single().id, controller.state.value.topicSnapshot.topics.single().id)
@@ -382,7 +441,7 @@ class DiscoveryTopicsIntegrationTest {
             val index = FileSemanticIndexStore(dir.resolve("index")); val store = Store()
             val interests = FileDiscoveryInterestStore(dir.resolve("interests"))
             val controller = DiscoveryController(cache, index, interests, Provider(), topicStore = store)
-            repeat(4) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest")), null, Instant.EPOCH)) }
+            repeat(4) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
             index.setPaused(false); controller.reconcile(emptyList(), true); controller.refreshTopics()
             val topic = controller.state.value.topicSnapshot.topics.single()
             controller.followTopic(topic.id, "My forest", "forest ecosystem")
@@ -404,7 +463,7 @@ class DiscoveryTopicsIntegrationTest {
             val index = FileSemanticIndexStore(dir.resolve("index")); val store = Store()
             val interests = FileDiscoveryInterestStore(dir.resolve("interests"))
             val initial = DiscoveryController(cache, index, interests, Provider(), topicStore = store)
-            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest")), null, Instant.EPOCH)) }
+            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
             val ungrouped = ReaderDocument.fromChunkTexts("q", "Other", listOf("old private evidence"))
             cache.put(CachedDocument(ungrouped, null, Instant.EPOCH))
             index.setPaused(false); initial.reconcile(emptyList(), true)
@@ -412,7 +471,7 @@ class DiscoveryTopicsIntegrationTest {
             val record = index.read("q")!!
             val right = TopicMembership("q", record.metadata, record.passages.first().passage, .8f, left.passage, record.revision)
             store.value = store.value!!.copy(connections = listOf(NoteConnection("pair", left, right, .8f)),
-                provisionalTopics = emptyList(), provisionalPasses = emptyMap())
+                provisionalTopics = emptyList())
             val controller = DiscoveryController(cache, index, interests, Provider(), topicStore = store)
             controller.reconcile(emptyList(), false)
             assertEquals(1, controller.state.value.topicSnapshot.connections.size)
@@ -438,9 +497,10 @@ class DiscoveryTopicsIntegrationTest {
             }
             repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", List(32) { "forest" }), null, Instant.EPOCH)) }
             index.setPaused(false)
-            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(), topicStore = store, topicCheckpointStore = gated)
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(), topicStore = store, topicCheckpointStore = gated,
+                formationWorkBudget = 1)
             val build = async { controller.reconcile(emptyList(), true) }
-            entered.await()
+            withTimeout(5_000) { entered.await() }
             val clear = async { controller.clearIndex() }
             yield(); release.complete(Unit); clear.await(); build.await()
             assertNull(checkpoint.value)
@@ -454,7 +514,7 @@ class DiscoveryTopicsIntegrationTest {
         try {
             val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
             val store = Store(); val interests = FileDiscoveryInterestStore(dir.resolve("interests"))
-            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest")), null, Instant.EPOCH)) }
+            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
             index.setPaused(false)
             DiscoveryController(cache, index, interests, Provider(), topicStore = store).reconcile(emptyList(), true)
             // A legacy completed generation has no persisted build signature; it must still be safe.
@@ -480,7 +540,7 @@ class DiscoveryTopicsIntegrationTest {
         try {
             val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(), topicStore = Store())
-            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest")), null, Instant.EPOCH)) }
+            repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
             index.setPaused(false); controller.reconcile(emptyList(), true); controller.refreshTopics()
             controller.preparePreview(controller.topicPreview(controller.state.value.topicSnapshot.topics.single().id))
             val before = controller.state.value.preview.map { it.pageId }
@@ -504,7 +564,7 @@ class DiscoveryTopicsIntegrationTest {
             val cache = object : com.example.notionreader.domain.document.DocumentCache by backing {
                 override suspend fun snapshot(): List<CachedDocument> { enumerations++; return backing.snapshot() }
             }
-            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("forest")), null, Instant.EPOCH))
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH))
             val index = FileSemanticIndexStore(dir.resolve("index"))
             index.setPaused(false)
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
@@ -517,50 +577,6 @@ class DiscoveryTopicsIntegrationTest {
             assertTrue(controller.state.value.results.isEmpty())
         } finally { dir.deleteRecursively() }
     }
-    @Test fun boundedConnectionPruningRetainsSupportedPairsOutsideTheHub() = runBlocking {
-        val dir = Files.createTempDirectory("connection-diversity").toFile()
-        try {
-            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
-            val model = EmbeddingIdentity("diversity", 32); val policy = TopicPolicy()
-            val ids = listOf("a0", "c0", "d0") + (0..24).map { "b%02d".format(it) }
-            val sources = ids.associateWith { "r" }
-            val members = ids.associateWith { id ->
-                val text = "Forest roots absorb rainfall and protect woodland soil from erosion."
-                val passage = SemanticPassage("$id:p", id, "$id:s", "Ecology", "$id:b", "$id:c", 0, text.length, text, text, 0)
-                // Early a0/b19 passages introduce one new strong pair to a full 20-pair reservoir.
-                // Other private axes cannot regenerate the disjoint c0/d0 shared passage.
-                val privateVector = List(32) { if (it == if (id == "b19") 0 else ids.indexOf(id)) 1f else 0f }
-                val sharedVector = List(32) { axis -> when (axis) { 30 -> if (id.startsWith("b")) .95f else if (id == "d0") .85f else 1f
-                    31 -> if (id.startsWith("b")) .3122499f else if (id == "d0") .5267827f else 0f
-                    else -> 0f } }
-                val early = (0..2).map { n -> EmbeddedPassage(passage.copy(id = "$id:private$n", sectionId = "$id:private-section$n"), privateVector) }
-                index.write(SemanticRecord(id, "r", model, SemanticMetadata(id), early + EmbeddedPassage(passage, sharedVector)))
-                TopicMembership(id, SemanticMetadata(id), passage, 1f, passage, "r")
-            }
-            fun topic(id: String, pageIds: List<String>, order: Long): DiscoveredTopic {
-                val selected = pageIds.map { members.getValue(it) }
-                return DiscoveredTopic(id, "Ecology", selected.first().passage,
-                    EmbeddedPassage(selected.first().passage, List(32) { if (it == 30) 1f else 0f }), selected, order)
-            }
-            fun pair(a: String, b: String, score: Float) = NoteConnection(semanticHash(listOf(a, b).sorted().joinToString("|")),
-                members.getValue(a), members.getValue(b), score)
-            val diverse = pair("c0", "d0", .85f)
-            val oldPairs = (0..18).map { pair("a0", "b%02d".format(it), .95f) } + diverse
-            val token = semanticHash(model.toString() + policy.toString() + 0 + sources.toSortedMap().toString())
-            val store = Store().apply { value = TopicSnapshot(topics = listOf(
-                topic("left", listOf("a0", "c0"), 0), topic("right", ids.filter { it != "a0" && it != "c0" }, 1)),
-                identity = model, complete = true, connections = oldPairs, sourceSignature = token,
-                policyVersion = policy.version, groupingPass = 1, candidatePassLimit = 1) }
-            index.setPaused(false)
-            val coordinator = TopicCoordinator(cache, index, store, null, { model }, policy,
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            coordinator.invalidate(sources)
-            coordinator.build(sources, 0, cache.revision.value)
-            assertTrue("Score-only reservoir pruning must not discard the independent supported pair",
-                store.value!!.connections.any { it.id == diverse.id })
-            assertTrue(store.value!!.connections.flatMap { listOf(it.left.pageId, it.right.pageId) }
-                .groupingBy { it }.eachCount().values.all { it <= 2 })
-        } finally { dir.deleteRecursively() }
-    }
+
 
 }

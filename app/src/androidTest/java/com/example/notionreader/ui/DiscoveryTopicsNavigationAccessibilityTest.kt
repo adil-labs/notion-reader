@@ -67,8 +67,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
             TopicMembership(document.pageId, metadata, passage, .9f, passage, semanticRevision(document))
         }
         val topic = DiscoveredTopic("forest", if (fallbackLabel) "Notes related to Alpha" else "Forest ecology", members.first().passage,
-            EmbeddedPassage(members.first().passage, listOf(1f, 0f)), if (emerging) members.take(1) else members, 1,
-            experimentalEvidenceValidated = emerging)
+            EmbeddedPassage(members.first().passage, listOf(1f, 0f)), if (emerging) members.take(1) else members, 1)
         val store = MemoryTopics(TopicSnapshot(topics = if (emptyInitial) emptyList() else listOf(topic), identity = provider.identity,
             generation = 1, complete = !emptyInitial, connections = if (emptyInitial) emptyList() else
                 listOfNotNull(NoteConnection("pair-ab", members[0], members[1], .9f, independentNamedReference = independentReference),
@@ -130,7 +129,10 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         show(app)
         compose.onNodeWithText("See all topics").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle {
-            runBlocking { cache.remove("a"); app.discovery!!.reconcile(entries, false) }
+            runBlocking {
+                cache.put(CachedDocument(ReaderDocument.fromChunkTexts("unrelated", "Other", listOf("Independent cached material.")), null, Instant.EPOCH))
+                cache.remove("a"); cache.remove("b"); cache.remove("c"); app.discovery!!.reconcile(entries, false)
+            }
             app.back()
         }
         compose.waitUntil(timeoutMillis = 5000) {
@@ -236,8 +238,12 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val (app, cache, entries) = fixture()
         runBlocking { app.discovery!!.followTopic("forest", "Saved forests", "forest water") }
         show(app); openTopic()
+        compose.onNodeWithText("Why these Notes?").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onAllNodesWithText("Forest water evidence for Beta")[0].assertIsReadable()
         compose.runOnIdle { runBlocking { cache.remove("b"); app.discovery!!.reconcile(entries, false) } }
-        compose.onNodeWithText("Topic currently unavailable").assertIsReadable()
+        compose.onNodeWithText("Topic currently unavailable").assertDoesNotExist()
+        val surviving = app.discovery!!.state.value.topicSnapshot.topics.single()
+        assertEquals(setOf("a", "c"), surviving.members.map { it.pageId }.toSet())
         compose.onNodeWithText("Forest water evidence for Beta").assertDoesNotExist()
         assertEquals("forest water", app.discovery!!.state.value.interests.single().text)
         assertEquals(ReaderDestination.DiscoveryTopic, app.navigator.state.value.current)

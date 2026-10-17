@@ -12,7 +12,7 @@ class DiscoveryEvidencePolicyTest {
         SemanticRecord(id, "r", identity, SemanticMetadata("Note $i"),
             listOf(EmbeddedPassage(passage(text, heading, id), listOf(1f, 0f))))
     }
-    private fun build(records: List<SemanticRecord>) = TopicBuilder(null, identity).apply { records.forEach(::accept) }.finish()
+    private fun build(records: List<SemanticRecord>) = SectionHierarchicalEngine(identity).discover(records, null, TopicPolicy())
 
     @Test fun explicitReferenceListsDoNotEstablishTopicOrConnectionEvidence() {
         assertFalse(passage("Related: Shared Meaning; Cultural Identity.").isBodyEvidence())
@@ -43,15 +43,14 @@ class DiscoveryEvidencePolicyTest {
         assertTrue(texts.any { it.contains(topic.label, ignoreCase = true) } || topic.label.startsWith("Notes related to "))
     }
     @Test fun nearDuplicatePassagesInDifferentBlocksDoNotCreateDuplicateNeighborhoods() {
-        val builder = TopicBuilder(null, identity, TopicPolicy(admission = .7f, retention = .65f, separation = .98f))
-        repeat(3) { i ->
+        val records = (0..2).map { i ->
             val first = passage("Forest roots absorb rainfall and protect woodland soil from erosion.", id = "n$i")
             val second = first.copy(id = "n$i:other", sourceBlockId = "n$i:other-block", readerChunkId = "n$i:other-chunk",
                 excerpt = "Forest roots absorb rainfall and protect woodland soil from erosion!")
-            builder.accept(SemanticRecord("n$i", "r", identity, SemanticMetadata("Woodland $i"), listOf(
-                EmbeddedPassage(first, listOf(1f, 0f)), EmbeddedPassage(second, listOf(.94f, .341174f)))))
+            SemanticRecord("n$i", "r", identity, SemanticMetadata("Woodland $i"), listOf(
+                EmbeddedPassage(first, listOf(1f, 0f)), EmbeddedPassage(second, listOf(.94f, .341174f))))
         }
-        assertEquals(1, builder.finish().topics.size)
+        assertEquals(1, build(records).topics.size)
     }
     @Test fun repeatedHubNotesDoNotCrowdOtherSupportedConnectionsOutOfTheCollection() {
         fun pair(a: String, b: String, score: Float): NoteConnection {
@@ -71,7 +70,7 @@ class DiscoveryEvidencePolicyTest {
         val references = records(List(3) { "Forest roots absorb rainfall and protect woodland soil from erosion." })
         val old = TopicSnapshot(identity = identity, complete = false, policyVersion = 5,
             acceptedRevisions = references.associate { it.pageId to it.revision })
-        val rebuilt = TopicBuilder(old, identity).apply { references.forEach(::accept) }.finish()
+        val rebuilt = SectionHierarchicalEngine(identity).discover(references, old, TopicPolicy())
         assertEquals(TopicPolicy().version, rebuilt.policyVersion)
         assertEquals(references.map { it.pageId }.toSet(), rebuilt.acceptedRevisions.keys)
         assertEquals(1, rebuilt.topics.size)
@@ -82,7 +81,7 @@ class DiscoveryEvidencePolicyTest {
         val first = build(records)
         val oldTopic = first.topics.single().copy(label = "I fear one")
         val old = first.copy(topics = listOf(oldTopic))
-        val result = TopicBuilder(old, identity).apply { records.forEach(::accept) }.finish().topics.single()
+        val result = SectionHierarchicalEngine(identity).discover(records, old, TopicPolicy()).topics.single()
         assertEquals(oldTopic.id, result.id)
         assertNotEquals("I fear one", result.label)
     }

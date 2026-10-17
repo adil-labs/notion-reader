@@ -124,7 +124,6 @@ object PrivateDiscoveryReview {
         val inputSignatureMatches = metadataComplete && initial.sourceSignature == replaySignature
         var stopReason = "roundBudget"
         for (round in 0 until roundLimit) {
-            if (round % 16 == 0) coordinator.resetWorkBudget()
             val before = topics.read()
             val begin = System.nanoTime()
             coordinator.build(sources, replayMetadataVersion, cache.revision.value)
@@ -134,20 +133,20 @@ object PrivateDiscoveryReview {
             rounds += buildJsonObject {
                 put("round", round); put("elapsedMs", elapsedMs); put("needsMoreWork", coordinator.needsMoreWork)
                 put("stage", when {
-                    after?.generation != before?.generation && after?.groupingPass != before?.groupingPass -> "groupingAndConnections"
+                    after?.generation != before?.generation && after?.sourceSignature != before?.sourceSignature -> "groupingAndConnections"
                     after?.generation != before?.generation -> "connections"
                     savedWork != null -> "checkpointOnly"
                     else -> "noPublication"
                 })
-                put("generation", after?.generation); put("groupingPass", after?.groupingPass)
-                put("candidatePassLimit", after?.candidatePassLimit); put("connectionCursor", after?.connectionCursor)
+                put("generation", after?.generation); put("formationComparisons", savedWork?.formationProgress?.comparisonsCompleted)
+                put("connectionCursor", after?.connectionCursor)
                 put("connectionPassComplete", after?.connectionPassComplete ?: false)
                 put("candidateTopics", after?.topics?.size ?: 0)
                 put("publishedTopics", publishableDiscoveryTopics(after?.topics.orEmpty()).size)
                 put("checkpointAcceptedNotes", savedWork?.acceptedRevisions?.size ?: 0)
-                put("checkpointPendingNotes", savedWork?.pendingRevisions?.size ?: 0)
+                put("checkpointPendingNotes", savedWork?.formationProgress?.totalSections ?: 0)
             }
-            if ((round + 1) % 16 == 0) println("Replay progress: rounds=${round + 1}, groupingPass=${after?.groupingPass}, moreWork=${coordinator.needsMoreWork}")
+            if ((round + 1) % 16 == 0) println("Replay progress: rounds=${round + 1}, formationComparisons=${savedWork?.formationProgress?.comparisonsCompleted}, moreWork=${coordinator.needsMoreWork}")
             stopReason = when {
                 failures.isNotEmpty() -> "persistenceFailure"
                 !coordinator.needsMoreWork -> "workerStopped"
@@ -163,8 +162,6 @@ object PrivateDiscoveryReview {
             put("finalNeedsMoreWork", coordinator.needsMoreWork)
             put("finalGroupingComplete", finalSnapshot?.complete ?: false)
             put("finalConnectionComplete", finalSnapshot?.connectionPassComplete ?: false)
-            put("finalGroupingPass", finalSnapshot?.groupingPass)
-            put("finalCandidatePassLimit", finalSnapshot?.candidatePassLimit)
             put("inputSignatureMatchesSnapshot", inputSignatureMatches)
             put("resumeEvidence", if (inputSignatureMatches) "Exact shipping signature reconstructed from cache-current records"
                 else "Input signature differs or metadata is incomplete; not unchanged-input resume evidence")

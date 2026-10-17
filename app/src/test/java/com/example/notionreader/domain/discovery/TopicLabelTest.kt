@@ -13,7 +13,7 @@ class TopicLabelTest {
             val p = SemanticPassage("p$i", "n$i", "s$i", null, "b$i", "c$i", 0, text.length, text, text, 0)
             SemanticRecord("n$i", "r$i", identity, SemanticMetadata("Shared document title"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))
         }
-        val topic = TopicBuilder(null, identity).apply { records.forEach(::accept) }.finish().topics.single()
+        val topic = SectionHierarchicalEngine(identity).discover(records, null, TopicPolicy()).topics.single()
         assertFalse(topic.label.startsWith("Notes related to "))
         assertTrue(texts.count { it.contains(topic.label, ignoreCase = true) } >= 2)
         assertEquals("p0", topic.labelSource.id)

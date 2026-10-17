@@ -7,7 +7,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+
+/** Header-only decoding skips unknown payloads without constructing legacy topic memberships. */
+@Serializable
+private data class TopicStoreHeader(val schemaVersion: Int = 0, val engineVersion: Int = 0)
 
 /** Store under the app's noBackupFilesDir. Budget includes the old file during atomic staging. */
 class FileTopicStore(private val directory: File, private val maxBytes: Long = 64L * 1024 * 1024,
@@ -21,24 +26,23 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
         directory.listFiles { f -> f.extension == "tmp" }?.forEach { check(it.delete()) }
     }
     private fun validationFailure(snapshot: TopicSnapshot): TopicValidationReason? {
+        if (snapshot.schemaVersion != 1 || snapshot.engineVersion != SectionHierarchicalEngine.VERSION)
+            return TopicValidationReason.InvalidIdentity
         val identity = snapshot.identity
         val anchors = snapshot.topics + snapshot.provisionalTopics
-        if (snapshot.candidatePassLimit < 2 || snapshot.candidateSeeds.values.any { it !in 0..2 }) return TopicValidationReason.CandidateBound
-        if (snapshot.engineVersion == 0 && anchors.size > 64) return TopicValidationReason.CandidateBound
-        if (snapshot.engineVersion !in 0..SectionHierarchicalEngine.VERSION) return TopicValidationReason.InvalidIdentity
         snapshot.formationProgress?.let { work ->
             val indices = work.clusters.flatten()
             if (snapshot.engineVersion != SectionHierarchicalEngine.VERSION || snapshot.complete ||
-                work.inputSignature.isBlank() || work.totalSections < 0 || work.clusters.size != work.totalSections ||
-                indices.size != work.totalSections || indices.toSet() != (0 until work.totalSections).toSet() ||
+                work.inputSignature.isBlank() || work.totalSections < 0 || work.totalSections > work.totalOpportunities || work.totalOpportunities < 0 || work.clusters.size != work.totalOpportunities ||
+                indices.size != work.totalOpportunities || indices.toSet() != (0 until work.totalOpportunities).toSet() ||
                 work.chain.distinct().size != work.chain.size ||
                 work.chain.any { it !in work.clusters.indices || work.clusters[it].isEmpty() } ||
                 work.outerCursor !in 0..work.clusters.size || work.neighborCursor !in 0..work.clusters.size ||
                 work.bestNeighbor !in -1 until work.clusters.size || !work.bestDistance.isFinite() ||
                 work.bestDistance !in 0f..2f || work.projectionCluster !in 0..work.candidateGroups.size ||
                 work.projectionPassage < 0 || work.comparisonsCompleted < 0 ||
-                work.candidateGroups.any { group -> group.isEmpty() || group.distinct().size != group.size || group.any { it !in 0 until work.totalSections } } ||
-                work.groupingComplete && (work.outerCursor != work.totalSections || work.chain.isNotEmpty() || work.neighborCursor != 0 || work.bestNeighbor != -1) ||
+                work.candidateGroups.any { group -> group.isEmpty() || group.distinct().size != group.size || group.any { it !in 0 until work.totalOpportunities } } ||
+                work.groupingComplete && (work.outerCursor != work.totalOpportunities || work.chain.isNotEmpty() || work.neighborCursor != 0 || work.bestNeighbor != -1) ||
                 !work.groupingComplete && (work.projectionCluster != 0 || work.projectionPassage != 0 || work.projectionMembers.isNotEmpty() || anchors.isNotEmpty()) ||
                 work.emptyProjectionClusters.distinct().size != work.emptyProjectionClusters.size ||
                 work.emptyProjectionClusters.any { it !in 0 until work.projectionCluster || work.candidateGroups[it].isEmpty() } ||
@@ -50,12 +54,15 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
                 return TopicValidationReason.InvalidSnapshotProgress
         }
         if (anchors.map { it.id }.distinct().size != anchors.size) return TopicValidationReason.DuplicateTopicId
+        if (snapshot.connectionCursor < 0 || snapshot.connectionPassageCursor < 0)
+            return TopicValidationReason.InvalidSnapshotProgress
         if (snapshot.generation < 0) return TopicValidationReason.InvalidGeneration
         if (json.encodeToString(snapshot.continuity).toByteArray(Charsets.UTF_8).size > 1024 * 1024) return TopicValidationReason.ContinuityBound
         if (anchors.isNotEmpty() && (identity == null || identity.dimensions <= 0)) return TopicValidationReason.InvalidIdentity
         for (topic in anchors) {
             if (topic.id.isBlank() || topic.label.isBlank() || topic.anchor.vector.size != identity!!.dimensions ||
-                topic.anchor.vector.any { !it.isFinite() } || topic.anchor.vector.none { it != 0f }) return TopicValidationReason.InvalidTopic
+                topic.anchor.vector.any { !it.isFinite() } || topic.anchor.vector.none { it != 0f } || topic.subjectVector.size != identity.dimensions ||
+                topic.subjectVector.any { !it.isFinite() } || topic.subjectVector.none { it != 0f }) return TopicValidationReason.InvalidTopic
             if (topic.members.map { canonicalSemanticId(it.pageId) }.distinct().size != topic.members.size ||
                 topic.members.any { member -> !member.score.isFinite() || member.score !in -1f..1f ||
                     canonicalSemanticId(member.passage.pageId) != canonicalSemanticId(member.pageId) ||
@@ -70,7 +77,12 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
         if (!file.isFile) return@withLock null
         val result = runCatching {
             require(file.length() <= maxBytes)
-            json.decodeFromString<TopicSnapshot>(file.readText()).also { require(validationFailure(it) == null) }
+            val payload = file.readText()
+            val header = json.decodeFromString<TopicStoreHeader>(payload)
+            // Engine zero is derived legacy state, never a reason to execute the old algorithm.
+            // Deleting it is idempotent across interrupted upgrades and leaves all other stores alone.
+            require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..1)
+            json.decodeFromString<TopicSnapshot>(payload).also { require(validationFailure(it) == null) }
         }.getOrNull()
         if (result == null) check(file.delete() || !file.exists()) { "Unable to discard corrupt topic evidence" }
         result

@@ -9,11 +9,120 @@ import com.example.notionreader.domain.document.CachedDocument
 import com.example.notionreader.domain.discovery.*
 import java.nio.file.Files
 import java.time.Instant
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import kotlin.coroutines.CoroutineContext
 import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryControllerTest {
+    @Test fun cancellationBeforeBackgroundDispatchDoesNotLeaveSearchBusy() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-search-cancel").toFile()
+        try {
+            val queued = java.util.concurrent.ConcurrentLinkedDeque<Runnable>()
+            val dispatcher = object : CoroutineDispatcher() {
+                override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
+            }
+            val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")),
+                FileSemanticIndexStore(dir.resolve("index")), FileDiscoveryInterestStore(dir.resolve("interests")),
+                Provider(), workDispatcher = dispatcher)
+            val search = async(start = CoroutineStart.UNDISPATCHED) { controller.search("forest") }
+            assertTrue(controller.state.value.searching)
+            search.cancel()
+            withTimeout(5_000) { while (!search.isCompleted) { queued.pollFirst()?.run(); yield() } }
+            assertFalse(controller.state.value.searching)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun theNewestSearchKeepsOwnershipWhenBackgroundDispatchRunsInReverseOrder() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-search-order").toFile()
+        try {
+            val queued = java.util.concurrent.ConcurrentLinkedDeque<Runnable>()
+            val dispatcher = object : CoroutineDispatcher() {
+                override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
+            }
+            val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")),
+                FileSemanticIndexStore(dir.resolve("index")), FileDiscoveryInterestStore(dir.resolve("interests")),
+                Provider(), workDispatcher = dispatcher)
+            val old = async(start = CoroutineStart.UNDISPATCHED) { controller.search("old") }
+            val newest = async(start = CoroutineStart.UNDISPATCHED) { controller.search("newest") }
+            withTimeout(5_000) {
+                while (!old.isCompleted || !newest.isCompleted) { queued.pollLast()?.run(); yield() }
+            }
+            old.await(); newest.await()
+            assertEquals("newest", controller.state.value.query)
+            assertFalse(controller.state.value.searching)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun reconciliationPreservesAConcurrentSearchAndPreview() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-reconcile-query").toFile()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val backing = FileSemanticIndexStore(dir.resolve("index"))
+            val held = CompletableDeferred<Unit>()
+            val armed = java.util.concurrent.atomic.AtomicBoolean(false)
+            val index = object : SemanticIndexStore by backing {
+                override suspend fun read(pageId: String): SemanticRecord? {
+                    if (pageId == "a" && armed.compareAndSet(true, false)) { held.complete(Unit); release.await() }
+                    return backing.read(pageId)
+                }
+            }
+            val entries = listOf("a", "b").map { id ->
+                cache.put(CachedDocument(ReaderDocument.fromChunkTexts(id, id, listOf("forest roots")), null, Instant.EPOCH))
+                ReaderIndexEntry(id, id, area = id)
+            }
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            index.setPaused(false); controller.reconcile(entries, true)
+            controller.search("forest", BrowseQuery(selectedArea = "a"))
+            controller.preparePreview(controller.state.value.results)
+            armed.set(true)
+            val reconciliation = async { controller.reconcile(entries, false) }
+            withTimeout(5_000) { held.await() }
+            controller.search("forest", BrowseQuery(selectedArea = "b"))
+            assertEquals(listOf("b"), controller.state.value.results.map { it.pageId })
+            controller.preparePreview(controller.state.value.results)
+            release.complete(Unit); reconciliation.await()
+            assertEquals("Reconciliation cannot overwrite newer results", listOf("b"), controller.state.value.results.map { it.pageId })
+            assertEquals(listOf("b"), controller.state.value.preview.map { it.pageId })
+            assertTrue(controller.state.value.unavailablePreviewIds.isEmpty())
+            assertEquals("forest roots", controller.state.value.preview.single().passage.excerpt)
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
+    @Test fun replacingCachedTextWithdrawsOldSearchAndPreviewEvidence() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-edited-evidence").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            val original = ReaderDocument.fromChunkTexts("p", "Title", listOf("forest one"))
+            cache.put(CachedDocument(original, null, Instant.EPOCH)); index.setPaused(false)
+            controller.reconcile(emptyList(), true); controller.search("forest")
+            val match = controller.state.value.results.single()
+            controller.preparePreview(listOf(match))
+            val edited = original.copy(sections = original.sections.map { section ->
+                section.copy(chunks = section.chunks.map { it.copy(text = "desert two") })
+            })
+            cache.put(CachedDocument(edited, null, Instant.EPOCH))
+            controller.reconcile(emptyList(), false)
+            assertTrue("Old excerpts cannot remain search evidence for an edited cached Note", controller.state.value.results.isEmpty())
+            assertEquals(listOf("p"), controller.state.value.preview.map { it.pageId })
+            assertEquals("", controller.state.value.preview.single().passage.excerpt)
+            assertEquals(setOf("p"), controller.state.value.unavailablePreviewIds)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun searchInferenceDoesNotRunOnTheCallingUiThread() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-thread").toFile()
+        try {
+            val caller = Thread.currentThread()
+            var inferenceThread: Thread? = null
+            val provider = Provider().apply { onEmbed = { inferenceThread = Thread.currentThread() } }
+            val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")),
+                FileSemanticIndexStore(dir.resolve("index")), FileDiscoveryInterestStore(dir.resolve("interests")), provider)
+            controller.search("forest")
+            assertNotNull(inferenceThread)
+            assertNotSame("Blocking inference must be main-safe even when its provider does not dispatch", caller, inferenceThread)
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun searchTimingIncludesEmbeddingAndNeverContainsTheQuery() = runBlocking {
         val dir = Files.createTempDirectory("search-timing").toFile()
         try {

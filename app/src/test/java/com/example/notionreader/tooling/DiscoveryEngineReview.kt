@@ -9,7 +9,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
 /** Explicit local review export. Never an automatic human quality verdict. */
-object TrustworthyDiscoveryComparison {
+object DiscoveryEngineReview {
     @JvmStatic fun main(args: Array<String>) = runBlocking {
         require(args.size == 1 && args[0].isNotBlank()) { "Explicit private snapshot required" }
         val root = File(args[0]).canonicalFile
@@ -30,12 +30,12 @@ object TrustworthyDiscoveryComparison {
                 it.passage.id + ":" + it.vector.hashCode()
             }
         })
-        val output = File(root, "comparison-${System.currentTimeMillis()}").apply { mkdirs() }
+        val output = File(root, "review-${System.currentTimeMillis()}").apply { mkdirs() }
         val json = Json { prettyPrint = true; encodeDefaults = true }
         val policy = TopicPolicy()
-        val engines = listOf("streamingBaseline" to StreamingAnchorEngine(identity),
-            "resumableExperimental" to SectionHierarchicalEngine(identity))
-        for ((name, engine) in engines) {
+        val name = "sectionHierarchical"
+        val engine = SectionHierarchicalEngine(identity)
+        run {
             val started = System.nanoTime()
             val snapshot = engine.discover(records, null, policy)
             val elapsedMs = (System.nanoTime() - started) / 1e6
@@ -73,6 +73,6 @@ object TrustworthyDiscoveryComparison {
             }))
             println("$name: candidates=${snapshot.topics.size + snapshot.provisionalTopics.size}, published=${published.size}, complete=${snapshot.complete}, hostMs=$elapsedMs")
         }
-        println("Private paired evidence saved under $output")
+        println("Private sole-engine evidence saved under $output")
     }
 }

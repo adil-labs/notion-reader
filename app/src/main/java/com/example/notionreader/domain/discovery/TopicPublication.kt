@@ -1,10 +1,7 @@
 package com.example.notionreader.domain.discovery
 
-import kotlin.math.sqrt
 
 /** Display-only policy: candidate persistence and opaque continuity retain every input topic. */
-const val TOPIC_PUBLICATION_POLICY_VERSION = 3
-
 enum class TopicPublicationStatus { Established, Emerging }
 
 fun discoveryTopicPublicationStatus(topic: DiscoveredTopic): TopicPublicationStatus? {
@@ -18,9 +15,7 @@ fun publishableDiscoveryTopics(topics: List<DiscoveredTopic>): List<DiscoveredTo
     topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
         .filter(::hasPublishedSubject).forEach { candidate ->
             if (kept.none { prior ->
-                if (prior.experimentalEvidenceValidated || candidate.experimentalEvidenceValidated)
-                    sameExperimentalSubject(prior, candidate)
-                else sameMemberFamily(prior, candidate) && !independentThemes(prior, candidate)
+                sameSubjectEvidence(prior, candidate)
             }) kept += candidate
         }
     return kept
@@ -54,29 +49,20 @@ private fun hasSubjectLabel(topic: DiscoveredTopic): Boolean {
 private fun supportsLabel(passage: SemanticPassage, label: String): Boolean =
     passage.sectionTitle?.trim()?.equals(label, true) == true || literalIn(passage.excerpt, label)
 
-/** Recheck persisted evidence; the experimental marker alone is never a publication decision. */
-internal fun experimentalTopicEvidenceIsValid(topic: DiscoveredTopic): Boolean =
+/** Labels are source-backed; semantic membership is validated independently of label wording. */
+internal fun topicEvidenceIsValid(topic: DiscoveredTopic): Boolean =
     hasSubjectLabel(topic) && topic.members.isNotEmpty() && topic.labelSource.isBodyEvidence() &&
         topic.members.any { it.passage == topic.labelSource } &&
         topic.members.all { member ->
             canonicalSemanticId(member.pageId) == canonicalSemanticId(member.passage.pageId) &&
-                member.passage.isBodyEvidence() && supportsLabel(member.passage, topic.label.trim())
+                member.passage.isBodyEvidence() && member.score.isFinite() && member.score >= TopicPolicy().retention
         }
 
-private fun hasPublishedSubject(topic: DiscoveredTopic): Boolean {
-    if (topic.experimentalEvidenceValidated) return experimentalTopicEvidenceIsValid(topic)
-    if (!hasSubjectLabel(topic)) return false
-    return topic.members.filter { it.passage.isBodyEvidence() && supportsLabel(it.passage, topic.label.trim()) }
-        .map { canonicalSemanticId(it.pageId) }.distinct().size >= 2
-}
+private fun hasPublishedSubject(topic: DiscoveredTopic): Boolean = topicEvidenceIsValid(topic)
 
-private fun sameExperimentalSubject(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
+private fun sameSubjectEvidence(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
     if (!sameMemberFamily(a, b)) return false
-    val right = membersByPage(b)
-    return membersByPage(a).all { (page, member) ->
-        right[page]?.let { other -> member.passage.id == other.passage.id ||
-            nearDuplicateDiscoveryPassages(member.passage, other.passage) } == true
-    }
+    return !independentThemes(a, b)
 }
 
 private fun membersByPage(topic: DiscoveredTopic) = topic.members.associateBy { canonicalSemanticId(it.pageId) }
@@ -88,15 +74,6 @@ private fun sameMemberFamily(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
     return union.isNotEmpty() && left.intersect(right).size.toDouble() / union.size >= .75
 }
 private fun independentThemes(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
-    if (a.label.trim().equals(b.label.trim(), true)) return false
-    val x = a.anchor.vector
-    val y = b.anchor.vector
-    if (x.isEmpty() || x.size != y.size || x.any { !it.isFinite() } || y.any { !it.isFinite() }) return false
-    val xx = x.sumOf { it.toDouble() * it }
-    val yy = y.sumOf { it.toDouble() * it }
-    if (xx == 0.0 || yy == 0.0) return false
-    val cosine = x.indices.sumOf { x[it].toDouble() * y[it] } / sqrt(xx * yy)
-    if (cosine >= TopicPolicy().separation) return false
     val right = membersByPage(b)
     return membersByPage(a).count { (page, member) ->
         val other = right[page]?.passage ?: return@count false
@@ -104,5 +81,5 @@ private fun independentThemes(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
         passage.id != other.id && (passage.sourceBlockId != other.sourceBlockId ||
             passage.end <= other.start || other.end <= passage.start) &&
             passage.isBodyEvidence() && other.isBodyEvidence() && !nearDuplicateDiscoveryPassages(passage, other)
-    } >= 2
+    } >= minOf(2, membersByPage(a).size, membersByPage(b).size)
 }

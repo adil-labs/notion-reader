@@ -110,7 +110,7 @@ class ShippingTopicInferenceTest {
             val records = index.pageIds().sorted().mapNotNull { index.read(it) }
             fun measure(split: String, policy: TopicPolicy = TopicPolicy(), published: Boolean = false): Triple<Double, Double, TopicSnapshot> {
                 val selected = records.filter { splits[it.pageId] == split }
-                val candidates = TopicBuilder(null, provider.identity, policy).apply { selected.forEach(::accept) }.finish()
+                val candidates = SectionHierarchicalEngine(provider.identity).discover(selected, null, policy)
                 val result = if (published) candidates.copy(topics = publishableDiscoveryTopics(candidates.topics)) else candidates
                 val expected = selected.flatMap { r -> r.passages.mapNotNull { truth[it.passage.id]?.let { t -> r.pageId to t } } }.toSet()
                 val predicted = result.topics.flatMap { t -> t.members.map { it.pageId to truth[t.labelSource.id] } }.toSet()
@@ -120,16 +120,7 @@ class ShippingTopicInferenceTest {
                 return Triple(minOf(evidencePrecision, if (predicted.isEmpty()) 0.0 else correct.toDouble() / predicted.size),
                     if (expected.isEmpty()) 0.0 else correct.toDouble() / expected.size, result)
             }
-            val candidates = listOf(.55f, .6f, .65f, .7f, .75f, .8f, .82f).map { threshold ->
-                val policy = TopicPolicy(admission = threshold, retention = threshold - .06f, separation = minOf(1f, threshold + .1f))
-                val measured = measure("calibration", policy)
-                Triple(policy, measured.first, measured.second)
-            }
-            val selectedPolicy = candidates.filter { it.second >= .8 }.maxWithOrNull(
-                compareBy<Triple<TopicPolicy, Double, Double>> { it.third }.thenBy { it.first.admission })
-            android.util.Log.i("DiscoveryTopics", "genericHeadingCalibration=$candidates selected=$selectedPolicy")
-            assertNotNull("Calibration must produce an eligible policy", selectedPolicy)
-            assertEquals("Shipping admission must match calibration", selectedPolicy!!.first.admission, TopicPolicy().admission)
+            // Evaluate the frozen sole-engine policy; there is no legacy admission sweep.
             val calibration = measure("calibration"); val held = measure("heldOut")
             val publishedHeld = measure("heldOut", published = true)
             val snapshot = controller.state.value.topicSnapshot

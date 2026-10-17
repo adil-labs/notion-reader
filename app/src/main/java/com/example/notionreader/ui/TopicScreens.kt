@@ -11,18 +11,54 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
+import com.example.notionreader.application.DiscoveryState
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private data class PreparedDiscovery(
+    val topics: List<Pair<DiscoveredTopic, TopicPublicationStatus>>,
+    val connections: List<NoteConnection>,
+    val evidence: Map<String, ConnectionEvidence>
+)
+
+@Composable
+private fun preparedDiscovery(state: DiscoveryState): PreparedDiscovery? {
+    val topics = state.topicSnapshot.topics
+    val connections = state.topicSnapshot.connections
+    val titles = state.cachedTitles
+    // Reset immediately on source changes; never retain withdrawn passages during preparation.
+    var prepared by remember(topics, connections, titles) { mutableStateOf<PreparedDiscovery?>(null) }
+    LaunchedEffect(topics, connections, titles) {
+        prepared = withContext(Dispatchers.Default) {
+            val published = publishableDiscoveryTopics(topics).mapNotNull { topic ->
+                discoveryTopicPublicationStatus(topic)?.let { topic to it }
+            }
+            val evidence = connections.associate { it.id to classifyConnectionEvidence(it, titles) }
+            PreparedDiscovery(published, connections.filter {
+                !it.independentNamedReference || evidence.getValue(it.id).kind == ConnectionEvidenceKind.NamedReference
+            }, evidence)
+        }
+    }
+    return prepared
+}
 
 @Composable
 internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
     val controller = app.discovery ?: return
     val state by controller.state.collectAsState()
     val nav by app.navigator.state.collectAsState()
-    val topics = publishableDiscoveryTopics(state.topicSnapshot.topics)
-    val connections = visibleDiscoveryConnections(state.topicSnapshot.connections, state.cachedTitles)
-    val established = topics.filter { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Established }
-    val emerging = topics.filter { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Emerging }
+    val prepared = preparedDiscovery(state)
+    if (prepared == null) {
+        Text("Preparing topics…")
+        return
+    }
+    val published = prepared.topics
+    val topics = published.map { it.first }
+    val connections = prepared.connections
+    val established = published.filter { it.second == TopicPublicationStatus.Established }.map { it.first }
+    val emerging = published.filter { it.second == TopicPublicationStatus.Emerging }.map { it.first }
     Text("Topics in your Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
         (target == "all_topics" && topics.isEmpty()) ||
             (target == "all_connections" && connections.isEmpty()) ||
@@ -70,7 +106,7 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
         Text("Connections between Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
             target.startsWith("connection:") && connections.none { "connection:${it.id}" == target }
         }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-        ConnectionRows(app, connections.take(2))
+        ConnectionRows(app, connections.take(2), prepared.evidence)
         if (connections.isNotEmpty()) TextButton(onClick = {
             app.navigator.open(ReaderDestination.DiscoveryConnections, "all_connections")
         }, modifier = Modifier.restoreFocusOn(nav.focusTarget, "all_connections", app::focusHandled)) { Text("See all connections") }
@@ -78,12 +114,11 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
 }
 
 @Composable
-private fun ConnectionRows(app: ReaderApp, connections: List<NoteConnection>) {
+private fun ConnectionRows(app: ReaderApp, connections: List<NoteConnection>, evidenceById: Map<String, ConnectionEvidence>) {
     val nav by app.navigator.state.collectAsState()
-    val cachedTitles = app.discovery?.state?.collectAsState()?.value?.cachedTitles.orEmpty()
     Column(Modifier.semantics { collectionInfo = CollectionInfo(connections.size, 1) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         connections.forEach { connection -> key(connection.id) {
-            val evidence = classifyConnectionEvidence(connection, cachedTitles)
+            val evidence = evidenceById.getValue(connection.id)
             ConnectionNavigationRow(connection, {
                 app.navigator.open(ReaderDestination.DiscoveryConnection, "connection:${connection.id}", connection.id)
             }, nav.focusTarget, app::focusHandled, evidence.kind, connectionPreviewExcerpt(connection, evidence))
@@ -128,7 +163,9 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
     val nav by app.navigator.state.collectAsState()
     val scope = rememberCoroutineScope()
     val subject = nav.currentSubjectId
-    val connections = visibleDiscoveryConnections(state.topicSnapshot.connections, state.cachedTitles)
+    val prepared = preparedDiscovery(state)
+    if (prepared == null) { Text("Preparing discoveries…"); return }
+    val connections = prepared.connections
     var following by rememberSaveable(subject) { mutableStateOf(false) }
     var visibleMembers by rememberSaveable(subject) { mutableStateOf(20) }
     var evidenceExpanded by rememberSaveable(subject) { mutableStateOf(false) }
@@ -140,13 +177,13 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
                 Text("Connections between Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
                     target.startsWith("connection:") && connections.none { "connection:${it.id}" == target }
                 }, nav.focusTarget, app::focusHandled).semantics { heading(); paneTitle = "Connections between Notes" })
-                val groups = connections.groupBy { classifyConnectionEvidence(it, state.cachedTitles).kind }
+                val groups = connections.groupBy { prepared.evidence.getValue(it.id).kind }
                 listOf(ConnectionEvidenceKind.SimilarPassages to "Similar passages",
                     ConnectionEvidenceKind.NamedReference to "Named references").forEach { (kind, title) ->
                     val pairs = groups[kind].orEmpty()
                     if (pairs.isNotEmpty()) {
                         Text("$title (${pairs.size})", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                        ConnectionRows(app, pairs)
+                        ConnectionRows(app, pairs, prepared.evidence)
                     }
                 }
                 if (groups.isEmpty()) Text("No connections in this snapshot.")
@@ -157,7 +194,7 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
                     nav.focusTarget?.takeIf { target -> target != "preview_guided" && target != "topic_follow:$subject" && topic?.members.orEmpty().none { it.pageId == target } },
                     nav.focusTarget, app::focusHandled).semantics { heading(); paneTitle = "Topic details" }, style = MaterialTheme.typography.headlineMedium)
                 if (topic != null) {
-                    if (discoveryTopicPublicationStatus(topic) == TopicPublicationStatus.Emerging)
+                    if (prepared.topics.any { it.first.id == topic.id && it.second == TopicPublicationStatus.Emerging })
                         Text("Emerging topic", style = MaterialTheme.typography.labelLarge)
                     topicSourceContext(topic)?.let { Text("Source: $it", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -212,7 +249,7 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
                 Text("Compare passages", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { connection == null },
                     nav.focusTarget, app::focusHandled).semantics { heading(); paneTitle = "Connection details" }, style = MaterialTheme.typography.headlineMedium)
                 if (connection == null) Text("Connection currently unavailable") else {
-                    val evidence = classifyConnectionEvidence(connection, state.cachedTitles)
+                    val evidence = prepared.evidence.getValue(connection.id)
                     val kind = evidence.kind
                     Text(kind.label(), style = MaterialTheme.typography.titleSmall)
                     Text(if (connection.independentNamedReference && kind == ConnectionEvidenceKind.NamedReference)

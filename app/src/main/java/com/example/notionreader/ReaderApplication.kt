@@ -201,7 +201,6 @@ class ReaderApplication : Application() {
                 if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
             },
             topicStore = topicStore, topicCheckpointStore = topicCheckpointStore,
-            useExperimentalClustering = BuildConfig.EXPERIMENTAL_DISCOVERY,
             invalidationAcknowledgementLimit = { recentNotes.processedInvalidationGeneration },
             mayContinueIndexing = { discoveryForeground.value && discoveryResourcesAvailable.value &&
                 discoveryModel.state.value.installed && !discoveryApp.session.state.value.isPlaying }
