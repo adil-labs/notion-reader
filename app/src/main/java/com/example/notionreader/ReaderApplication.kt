@@ -172,7 +172,11 @@ class ReaderApplication : Application() {
             com.example.notionreader.data.discovery.OnnxEmbeddingProvider(discoveryModel.modelDirectory),
             modelAvailable = { discoveryModel.state.value.installed },
             recommendationThreshold = com.example.notionreader.data.discovery.OnnxEmbeddingProvider.RECOMMENDATION_THRESHOLD,
+            queryTimings = { timings ->
+                if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
+            },
             topicStore = topicStore, topicCheckpointStore = topicCheckpointStore,
+            useExperimentalClustering = BuildConfig.EXPERIMENTAL_DISCOVERY,
             invalidationAcknowledgementLimit = { recentNotes.processedInvalidationGeneration },
             mayContinueIndexing = { discoveryForeground.value && discoveryResourcesAvailable.value &&
                 discoveryModel.state.value.installed && !discoveryApp.session.state.value.isPlaying }
