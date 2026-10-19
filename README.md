@@ -5,10 +5,13 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#95-automatic-discovery-and-process-recovery-2026-10-18)).
+Discovery refinement is in progress ([current round](docs/decisions.md#99-inspecting-discoveries-reuses-prepared-results-2026-10-19)).
 Validated Note connections are retained independently of topic membership and
 homepage limits, with separate reference/similarity evidence, on-demand catalog reads,
 pinned inspection, bounded lazy browsing and privacy-safe page retirement.
+Topic publication is prepared in the background generation. Opening topic or
+connection details reads saved evidence without starting model inference; paged
+connections may briefly load from local storage.
 Subject details can expose source-supported broader subjects, subtopics and related
 subjects. The initial hierarchy requires affirmative source statements; general
 automatic hierarchy recall, representative evaluation and

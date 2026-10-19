@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§98)](#98-int4-default-and-discovery-efficiency-2026-10-19)
+[current implementation and open work (§99)](#99-inspecting-discoveries-reuses-prepared-results-2026-10-19)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -9876,3 +9876,50 @@ long-library exact-formation scaling and analysis-time estimation. Prior indepen
 release gates remain binding. Automatic background completion depends on Android
 execution windows and existing battery/playback/user-pause policy. No push or merge
 is authorized by the request for focused commits.
+
+## 99. Inspecting discoveries reuses prepared results (2026-10-19)
+
+The user reported that selecting a topic/connection appeared to restart inference.
+Tracing navigation found no embedding call: detail composition instead repeated
+whole-generation publication filtering and displayed Preparing discoveries. In
+addition, reconciliation advertised indexing before checking whether any embeddings
+were missing, making validation of a completed generation look like fresh inference.
+These are preparation ownership and truthful-status defects under the existing
+pinned-inspection contract, not new Discovery semantics.
+
+Publication filtering/statuses now finish in the controller's background generation
+callback before that generation reaches the screen. An unchanged generation reuses
+the prepared publication list. Mandatory source invalidation regenerates it before
+withdrawn members can remain visible. Topic detail navigation consumes these results
+synchronously and no longer enters whole-generation preparation. Connection details
+only read the selected saved catalog entry and validate current eligibility; their
+short local I/O state says Loading saved connection. Large catalogs remain paged.
+The indexing flag is set only after actual embedding jobs are identified. This does
+not suspend automatic background work for genuinely changed/new sources.
+
+Failing-first evidence: the new completedDiscoveriesArePreparedBeforeInspectionWithoutMoreInference
+integration property first failed because published results were absent before
+inspection. After preparation moved, its added state observer failed because an
+unchanged completed generation briefly advertised inference. Both pass after the
+fixes. The test also requires unchanged-generation publication object reuse, zero
+additional embedding calls for repeated topic/connection preview reads and prompt
+removal of an evicted source from the prepared publication.
+
+Final verification: 1,004 JVM tests pass; debug assembly and androidTest Kotlin
+compilation pass. The navigation accessibility class initially passed 19/20: its
+source-loss test tried to select a paged row before the merged accessible control
+was ready. It now uses the existing five-second catalog-read readiness pattern,
+retaining the exact control and focus assertions. After an owned-emulator restart,
+the class passed 20/20 in two consecutive wrapper runs (40/40). No retry classified
+the initial assertion as a harness failure. Fresh review found no material issue.
+The updated APK was installed on S25 with replacement installation; no model
+download, app uninstall or data clear was requested or performed in this round.
+No governing mirrors required amendment: this restores the existing inspection,
+privacy and automatic generation contracts. Source changes may still trigger real
+background work, and saved catalog reads remain local I/O rather than inference.
+
+### Still open
+
+The independent acceptance gates and failed final recovery observation from §98
+remain open. This fix does not establish physical Pixel deployment, human relevance,
+TalkBack speech or bounded background-scheduler latency.

@@ -418,6 +418,10 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val (app, cache, entries) = fixture(namedReference = true)
         show(app)
         compose.onNodeWithText("See all connections").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        // Catalog disk reads are independent of Compose idling. Wait for the actual merged control.
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Compare passages") and hasClickAction()).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText("Compare passages").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle {
             runBlocking { cache.remove("a"); app.discovery!!.reconcile(entries, false) }

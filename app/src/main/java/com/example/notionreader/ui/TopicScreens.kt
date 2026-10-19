@@ -15,44 +15,47 @@ import com.example.notionreader.application.DiscoveryState
 import com.example.notionreader.application.DiscoveryController
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 private data class PreparedDiscovery(
     val topics: List<Pair<DiscoveredTopic, TopicPublicationStatus>>,
     val connections: List<NoteConnection>,
     val evidence: Map<String, ConnectionEvidence>,
     val relationships: List<SubjectRelationship>,
-    val sourceTitles: Map<String, String>
+    val sourceTitles: Map<String, String>,
+    val loadingConnection: Boolean = false
 )
 
 @Composable
 private fun preparedDiscovery(state: DiscoveryState, controller: DiscoveryController,
-    selectedConnectionId: String? = null, previewConnections: Boolean = false): PreparedDiscovery? {
-    val topics = state.topicSnapshot.topics
+    selectedConnectionId: String? = null, previewConnections: Boolean = false): PreparedDiscovery {
+    val published = state.publishedTopics
     val connections = state.topicSnapshot.connections
     val titles = state.cachedTitles
     val relationships = state.topicSnapshot.subjectRelationships
     val reference = state.topicSnapshot.catalogReference
-    // Reset immediately on source changes; never retain withdrawn passages during preparation.
-    var prepared by remember(topics, connections, titles, relationships, reference, state.cachedRevision, selectedConnectionId, previewConnections) { mutableStateOf<PreparedDiscovery?>(null) }
-    LaunchedEffect(topics, connections, titles, relationships, reference, state.cachedRevision, selectedConnectionId, previewConnections) {
-        prepared = withContext(Dispatchers.Default) {
-            val published = publishableDiscoveryTopics(topics).mapNotNull { topic ->
-                discoveryTopicPublicationStatus(topic)?.let { topic to it }
-            }
-            val page = if (reference != null && selectedConnectionId != null)
-                controller.connectionWindow(state.topicSnapshot, selectedId = selectedConnectionId,
-                    expectedCacheRevision = state.cachedRevision)
-                else ConnectionCatalogPageResult(connections, reference?.count ?: connections.size)
-            val presentation = if (previewConnections) prepareConnectionPreview(page.connections, titles)
-                else prepareConnectionWindow(page.connections, titles, limit = 0, selectedId = selectedConnectionId)
-            PreparedDiscovery(published, presentation.connections, presentation.evidence,
-                relationships.filter { edge -> canonicalSemanticId(edge.evidence.pageId) in titles &&
-                published.any { it.first.id == edge.parentId } && published.any { it.first.id == edge.childId } }, titles)
+    val storedSelection = reference != null && selectedConnectionId != null
+    // Only saved catalog I/O can wait here. Topic publication was completed by the worker.
+    // Source changes immediately discard loaded evidence, including while a read is suspended.
+    var page by remember(connections, reference, titles, state.cachedRevision, selectedConnectionId) {
+        mutableStateOf(if (storedSelection) null else ConnectionCatalogPageResult(connections, connections.size))
+    }
+    LaunchedEffect(connections, reference, titles, state.cachedRevision, selectedConnectionId) {
+        if (storedSelection) page = controller.connectionWindow(state.topicSnapshot, selectedId = selectedConnectionId,
+            expectedCacheRevision = state.cachedRevision)
+    }
+    val presentation = remember(page, titles, previewConnections, selectedConnectionId) {
+        val rows = page?.connections.orEmpty()
+        if (previewConnections) prepareConnectionPreview(rows, titles)
+            else prepareConnectionWindow(rows, titles, limit = 0, selectedId = selectedConnectionId)
+    }
+    val visibleRelationships = remember(published, relationships, titles) {
+        val ids = published.mapTo(hashSetOf()) { it.first.id }
+        relationships.filter { edge -> canonicalSemanticId(edge.evidence.pageId) in titles &&
+            edge.parentId in ids && edge.childId in ids
         }
     }
-    return prepared
+    return PreparedDiscovery(published, presentation.connections, presentation.evidence,
+        visibleRelationships, titles, storedSelection && page == null)
 }
 
 @Composable
@@ -61,10 +64,6 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
     val state by controller.state.collectAsState()
     val nav by app.navigator.state.collectAsState()
     val prepared = preparedDiscovery(state, controller, previewConnections = !all)
-    if (prepared == null) {
-        Text("Preparing topics…")
-        return
-    }
     val published = prepared.topics
     val topics = published.map { it.first }
     val connections = prepared.connections
@@ -229,7 +228,6 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
     }
     val prepared = preparedDiscovery(state, controller,
         selectedConnectionId = subject.takeIf { nav.current == ReaderDestination.DiscoveryConnection })
-    if (prepared == null) { Text("Preparing discoveries…"); return }
     val connections = prepared.connections
     var following by rememberSaveable(subject) { mutableStateOf(false) }
     var visibleMembers by rememberSaveable(subject) { mutableStateOf(20) }
@@ -303,7 +301,8 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
                 val connection = connections.firstOrNull { it.id == subject }
                 Text("Compare passages", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { connection == null },
                     nav.focusTarget, app::focusHandled).semantics { heading(); paneTitle = "Connection details" }, style = MaterialTheme.typography.headlineMedium)
-                if (connection == null) Text("Connection currently unavailable") else {
+                if (prepared.loadingConnection) Text("Loading saved connection…")
+                else if (connection == null) Text("Connection currently unavailable") else {
                     val evidence = prepared.evidence.getValue(connection.id)
                     val kind = evidence.kind
                     Text(kind.label(), style = MaterialTheme.typography.titleSmall)

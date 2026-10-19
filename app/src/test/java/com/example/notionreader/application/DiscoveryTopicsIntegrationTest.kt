@@ -18,6 +18,53 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
+    @Test fun completedDiscoveriesArePreparedBeforeInspectionWithoutMoreInference() = runBlocking {
+        val dir = Files.createTempDirectory("prepared-discovery-inspection").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            var inferences = 0
+            val provider = object : EmbeddingProvider by Provider() {
+                override suspend fun embed(text: String): List<Float> { inferences++; return listOf(1f, 0f) }
+            }
+            repeat(3) { i ->
+                val document = ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf(
+                    "Forest ecology explains how trees shelter wildlife and support healthy woodland habitats."))
+                cache.put(CachedDocument(document.copy(sections = document.sections.map {
+                    it.copy(title = "Forest ecology") }), null, Instant.EPOCH))
+            }
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
+                provider, topicStore = Store())
+            index.setPaused(false)
+            controller.reconcile(emptyList(), true)
+            assertFalse(controller.hasPendingWork)
+            val ready = controller.state.value
+            assertTrue("Publication must finish before discoveries become inspectable", ready.publishedTopics.isNotEmpty())
+            assertTrue("The inspection proof must include discovered connections", ready.topicSnapshot.connections.isNotEmpty())
+            assertEquals(publishableDiscoveryTopics(ready.topicSnapshot.topics), ready.publishedTopics.map { it.first })
+            val calls = inferences
+            repeat(3) {
+                ready.publishedTopics.forEach { assertTrue(controller.topicPreview(it.first.id).isNotEmpty()) }
+                ready.topicSnapshot.connections.forEach { assertEquals(2, controller.connectionPreview(it.id).size) }
+            }
+            assertEquals("Reading discovered evidence must never invoke the model", calls, inferences)
+            controller.reconcile(emptyList(), false)
+            assertSame("An unchanged inspected generation reuses its prepared publication", ready.publishedTopics,
+                controller.state.value.publishedTopics)
+            var advertisedInference = false
+            val observer = launch(kotlinx.coroutines.Dispatchers.Unconfined,
+                start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                controller.state.collect { if (it.indexing) advertisedInference = true }
+            }
+            controller.reconcile(emptyList(), true)
+            observer.cancelAndJoin()
+            assertFalse("A completed generation must not advertise fresh inference during validation", advertisedInference)
+            assertEquals(calls, inferences)
+            cache.remove("p0")
+            controller.reconcile(emptyList(), false)
+            assertTrue(controller.state.value.publishedTopics.flatMap { it.first.members }.none { it.pageId == "p0" })
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun metadataChangesKeepAutomaticAnalysisPendingWhileBulkWorkIsDeferred() = runBlocking {
         val dir = Files.createTempDirectory("automatic-metadata-work").toFile()
         try {

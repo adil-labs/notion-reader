@@ -30,6 +30,7 @@ data class DiscoveryState(
     val indexing: Boolean = false, val searching: Boolean = false, val paused: Boolean = true,
     val bytes: Long = 0, val message: String? = null,
     val topicSnapshot: TopicSnapshot = TopicSnapshot(), val topicsUpdated: Boolean = false,
+    val publishedTopics: List<Pair<DiscoveredTopic, TopicPublicationStatus>> = emptyList(),
     val topicStatus: String? = null, val previewLabel: String = "Discovery recommendations",
     val unavailablePreviewIds: Set<String> = emptySet(), val previewStatus: String? = null,
     val selectedInterestId: String? = null, val interestMatches: List<SemanticMatch> = emptyList(),
@@ -100,8 +101,15 @@ class DiscoveryController(
         { provider.identity }, topicPolicy, bulkGate = bulkGate, mayWork = ::mayContinueWork, waitForQueries = {
             while (foregroundQueries.get() > 0) delay(10)
             currentCoroutineContext().ensureActive()
-        }, changed = { view -> mutable.update { it.copy(topicSnapshot = view.snapshot,
-            topicsUpdated = view.updated, topicStatus = view.status) } },
+        }, changed = { view -> mutable.update {
+            // Publication belongs to the background generation, never to detail navigation.
+            val published = if (it.topicSnapshot.topics == view.snapshot.topics) it.publishedTopics
+                else publishableDiscoveryTopics(view.snapshot.topics).mapNotNull { topic ->
+                    discoveryTopicPublicationStatus(topic)?.let { status -> topic to status }
+                }
+            it.copy(topicSnapshot = view.snapshot, publishedTopics = published,
+                topicsUpdated = view.updated, topicStatus = view.status)
+        } },
         invalidationAcknowledgementLimit = invalidationAcknowledgementLimit,
         formationWorkBudget = formationWorkBudget,
         shouldYield = { foregroundQueries.get() > 0 }) }
@@ -270,7 +278,7 @@ class DiscoveryController(
             }
             var indexed = 0
             val jobs = mutableListOf<Pair<String, Int>>()
-            mutable.update { it.copy(indexing = mayIndex && !paused && modelAvailable() && mayContinueWork(), message = null) }
+            mutable.update { it.copy(message = null) }
             for ((id, source) in sources) {
                 currentCoroutineContext().ensureActive()
                 if (mayIndex && !mayContinueWork()) return
@@ -314,6 +322,7 @@ class DiscoveryController(
             fun publishWork() { mutable.update { it.copy(embeddingWork = DiscoveryEmbeddingWork(
                 remainingNotes, remainingPassages, timeEstimator.remaining(remainingPassages))) } }
             publishWork()
+            mutable.update { it.copy(indexing = jobs.isNotEmpty()) }
             for ((id, _) in jobs) {
                 currentCoroutineContext().ensureActive()
                 if (generation.get() != epoch || cache.revision.value != sourceGeneration || index.isPaused() || !mayContinueWork()) return
