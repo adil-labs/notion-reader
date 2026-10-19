@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#99-inspecting-discoveries-reuses-prepared-results-2026-10-19)
+[the current decision-record entry](decisions.md#100-clearing-discovery-rejects-in-flight-connection-evidence-2026-10-19)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

@@ -18,6 +18,59 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
+    @Test fun clearingDiscoveryRejectsConnectionPagesAlreadyInFlight() = assertResetRejectsRead("page")
+    @Test fun clearingDiscoveryRejectsConnectionDetailsAlreadyInFlight() = assertResetRejectsRead("details")
+    @Test fun clearingDiscoveryRejectsConnectionPreviewsAlreadyInFlight() = assertResetRejectsRead("preview")
+
+    private fun assertResetRejectsRead(request: String) = runBlocking {
+        val dir = Files.createTempDirectory("connection-reset-$request").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val backing = Store()
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val store = object : TopicStore by backing {
+                override suspend fun connectionPage(snapshot: TopicSnapshot, offset: Int, limit: Int): ConnectionCatalogPageResult {
+                    val captured = backing.connectionPage(snapshot, offset, limit)
+                    entered.complete(Unit); release.await()
+                    return captured
+                }
+                override suspend fun findConnection(snapshot: TopicSnapshot, id: String): ConnectionCatalogPageResult {
+                    val captured = backing.findConnection(snapshot, id)
+                    entered.complete(Unit); release.await()
+                    return captured
+                }
+            }
+            repeat(3) { i ->
+                cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf(
+                    "Forest ecology explains how trees shelter wildlife and support healthy woodland habitats.")), null, Instant.EPOCH))
+            }
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
+                Provider(), topicStore = store)
+            index.setPaused(false)
+            controller.reconcile(emptyList(), true)
+            val inspected = controller.state.value.topicSnapshot
+            assertTrue("The reset proof needs real connection evidence", inspected.connections.isNotEmpty())
+            val id = inspected.connections.first().id
+            val revision = cache.revision.value
+            val read = async {
+                when (request) {
+                    "page" -> controller.connectionWindow(inspected).connections.size
+                    "details" -> controller.connectionWindow(inspected, selectedId = id).connections.size
+                    else -> controller.connectionPreview(id, inspected, revision).size
+                }
+            }
+            try {
+                withTimeout(5_000) { entered.await() }
+                controller.clearIndex()
+                assertNull("The fake must preserve destructive clearing", backing.value)
+                assertEquals("Index clearing must leave the source cache unchanged", revision, cache.revision.value)
+            } finally { release.complete(Unit) }
+            assertEquals("Cleared evidence must not return from an in-flight $request read", 0, read.await())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun completedDiscoveriesArePreparedBeforeInspectionWithoutMoreInference() = runBlocking {
         val dir = Files.createTempDirectory("prepared-discovery-inspection").toFile()
         try {

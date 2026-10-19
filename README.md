@@ -11,7 +11,8 @@ homepage limits, with separate reference/similarity evidence, on-demand catalog 
 pinned inspection, bounded lazy browsing and privacy-safe page retirement.
 Topic publication is prepared in the background generation. Opening topic or
 connection details reads saved evidence without starting model inference; paged
-connections may briefly load from local storage.
+connections may briefly load from local storage. Clearing the Discovery index also
+rejects connection reads already in flight, including listening-preview requests.
 Subject details can expose source-supported broader subjects, subtopics and related
 subjects. The initial hierarchy requires affirmative source statements; general
 automatic hierarchy recall, representative evaluation and

@@ -179,6 +179,7 @@ class DiscoveryController(
         .firstOrNull { it.id == topicId }?.members.orEmpty().take(5).map { it.toMatch() }
     suspend fun connectionWindow(snapshot: TopicSnapshot, offset: Int = 0, limit: Int = 20,
         selectedId: String? = null, expectedCacheRevision: Long? = null): ConnectionCatalogPageResult = withContext(workDispatcher) {
+        val epoch = generation.get()
         val revision = cache.revision.value
         if (expectedCacheRevision != null && revision != expectedCacheRevision)
             return@withContext ConnectionCatalogPageResult(emptyList(), snapshot.catalogReference?.count ?: snapshot.connections.size, false)
@@ -189,7 +190,10 @@ class DiscoveryController(
         else topicStore?.connectionPage(snapshot, offset, limit)
             ?: ConnectionCatalogPageResult(snapshot.connections.drop(offset).take(limit), snapshot.connections.size)
         val eligible = eligibleRevisions()
-        if (cache.revision.value != revision) ConnectionCatalogPageResult(emptyList(), page.totalCount, false)
+        // Clearing derived data does not mutate the source cache. Reject reads that
+        // captured evidence before a reset, just as semantic retrieval does.
+        if (generation.get() != epoch || cache.revision.value != revision)
+            ConnectionCatalogPageResult(emptyList(), page.totalCount, false)
         else page.copy(connections = page.connections.filter {
             eligible[canonicalSemanticId(it.left.pageId)] == it.left.revision && eligible[canonicalSemanticId(it.right.pageId)] == it.right.revision
         })

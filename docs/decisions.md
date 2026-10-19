@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§99)](#99-inspecting-discoveries-reuses-prepared-results-2026-10-19)
+[current implementation and open work (§100)](#100-clearing-discovery-rejects-in-flight-connection-evidence-2026-10-19)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -9923,3 +9923,47 @@ background work, and saved catalog reads remain local I/O rather than inference.
 The independent acceptance gates and failed final recovery observation from §98
 remain open. This fix does not establish physical Pixel deployment, human relevance,
 TalkBack speech or bounded background-scheduler latency.
+
+## 100. Clearing Discovery rejects in-flight connection evidence (2026-10-19)
+
+Reviewed the recent prepared-inspection implementation and its connection retrieval,
+source eligibility and reset boundaries against the Product, UI and Integration
+contracts and rounds 98–99. Found a reset race in application-owned catalog reads:
+connectionWindow checked the source-cache revision after suspended storage reads,
+but clearing the derived index intentionally leaves that revision unchanged. A
+captured connection page/detail or listening preview could therefore return cleared
+evidence after the reset completed.
+
+Connection retrieval now captures and checks the controller reset generation as
+well as the source revision, matching the existing semantic retrieval boundary.
+The common application guard protects pages, selected entries and listening
+previews without putting reset policy in Compose or changing pinned-generation
+semantics. No new product behavior or governing mirror amendment was needed.
+
+Three integration regressions suspend a captured real connection result, perform
+an actual destructive store clear, verify the source cache revision is unchanged,
+and then release the read. This deterministically tests the interleaving rather
+than relying on device timing.
+
+Guard absent | Tests that noticed
+--- | ---
+Reset-generation check absent | clearingDiscoveryRejectsConnectionPagesAlreadyInFlight returned 3 cleared rows
+Reset-generation check absent | clearingDiscoveryRejectsConnectionDetailsAlreadyInFlight returned 1 cleared entry
+Reset-generation check absent | clearingDiscoveryRejectsConnectionPreviewsAlreadyInFlight returned 2 cleared preview Notes
+
+The full failing-first run executed 1,007 tests: exactly these three failed and
+1,004 passed. With the guard restored, 1,007 JVM tests passed with zero failures,
+errors or skips. Debug assembly and androidTest Kotlin compilation passed. The
+20-test DiscoveryTopicsNavigationAccessibilityTest class passed on emulator-5554
+through the repository wrapper on its first attempt; device settings were restored.
+An independent code review found no actionable issue. The deterministic application
+regressions establish the reset interleaving; the device class verifies existing
+navigation/semantics, not a timing-dependent physical-device reproduction.
+
+### Still open
+
+Independent acceptance gates and the unobserved final recovery result from §98
+remain open, including physical Pixel deployment, human relevance, TalkBack speech,
+sustained resources and background completion latency. This focused review does
+not certify every earlier Discovery implementation or those gates. No commit,
+push, model download, physical-device install or data clear was performed.
