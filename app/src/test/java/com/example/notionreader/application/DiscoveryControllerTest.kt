@@ -187,6 +187,29 @@ class DiscoveryControllerTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun identicalInputsAcrossNotesReuseInferenceButKeepCurrentIndependentEvidence() = runBlocking {
+        val dir = Files.createTempDirectory("exact-embedding-reuse").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val provider = Provider()
+            val entries = (1..3).map { n ->
+                val id = "p$n"
+                cache.put(CachedDocument(ReaderDocument.fromChunkTexts(id, "Shared title", listOf("Exact common body evidence")), null, Instant.EPOCH))
+                ReaderIndexEntry(id, "Shared title", area = "area$n")
+            }
+            index.setPaused(false)
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), provider)
+            controller.reconcile(entries, true)
+            assertEquals(1, provider.calls)
+            val records = index.pageIds().map { index.read(it)!! }
+            assertEquals(3, records.size)
+            assertEquals(3, records.flatMap { it.passages }.map { it.passage.id }.distinct().size)
+            assertEquals(setOf("area1", "area2", "area3"), records.map { it.metadata.area }.toSet())
+            records.forEach { record -> assertTrue(record.passages.all { it.passage.pageId == record.pageId }) }
+        } finally { dir.deleteRecursively() }
+    }
+
     private class Provider(private val version: String = "test") : EmbeddingProvider {
         var calls = 0
         var onEmbed: (suspend () -> Unit)? = null

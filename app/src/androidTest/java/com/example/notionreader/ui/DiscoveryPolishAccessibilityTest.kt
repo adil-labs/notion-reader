@@ -12,6 +12,20 @@ import org.junit.Test
 
 class DiscoveryPolishAccessibilityTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun discoveryEffortChoicesAreReachableAndExposeTheirSelection() {
+        val effort = mutableStateOf(com.example.notionreader.domain.settings.DiscoveryEffort.BALANCED)
+        compose.setContent {
+            com.example.notionreader.ui.settings.DiscoverySettingsScreen(
+                com.example.notionreader.ui.settings.DiscoverySettingsUi("Gemma INT8", effort = effort.value),
+                {}, {}, {}, {}, {}, {}, {}, {}, {}, onEffortChange = { effort.value = it })
+        }
+        compose.onNodeWithText("Balanced").performScrollTo().assertIsReachable().assertIsSelected()
+        compose.onNodeWithText("Charging only").performScrollTo().assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Charging only").assertIsSelected()
+        compose.onNodeWithText("Balanced").assertIsNotSelected()
+        compose.onNodeWithText("Continue discovery").assertDoesNotExist()
+    }
     @Test fun anEmptyQueryHasNoDisabledSearchButtonAndBothSearchActionsSubmitEnteredText() {
         val query = mutableStateOf(""); var searches = 0
         compose.setContent { DiscoveryScreen(query.value, { query.value = it }, 3, 3, emptyList(), emptyList(),

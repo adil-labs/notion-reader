@@ -6,6 +6,42 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryPresentationTest {
+    @Test fun chargingOnlyAndAndroidWaitingExplainAutomaticDeferralWithoutAContinueAction() {
+        val charging = DiscoveryState(paused = false,
+            effort = com.example.notionreader.domain.settings.DiscoveryEffort.CHARGING_ONLY,
+            power = com.example.notionreader.application.DiscoveryPowerState(90))
+        assertEquals("Waiting for power: Charging only is selected. Connect a charger.", discoveryProgress(charging).message)
+        assertNull(discoveryProgress(charging).action)
+        val waiting = charging.copy(effort = com.example.notionreader.domain.settings.DiscoveryEffort.BALANCED,
+            waitingForExecution = true)
+        assertEquals("Waiting for an Android processing window. Discovery resumes automatically.", discoveryProgress(waiting).message)
+        assertNull(discoveryProgress(waiting).action)
+        assertEquals("Discovery is paused. Resume indexing in Settings.", discoveryProgress(waiting.copy(paused = true)).message)
+    }
+    @Test fun largeModelDownloadsExposeBoundedReadableProgressUntilInstallation() {
+        val model = com.example.notionreader.domain.discovery.DiscoveryModelState(downloading = true,
+            downloadedBytes = 173_198_616, totalBytes = 346_397_233)
+        assertEquals("Downloading model: 173 of 346 MB (49%).", discoveryModelDownloadProgress(model))
+        assertEquals("Downloading model: 346 of 346 MB (100%).", discoveryModelDownloadProgress(model.copy(downloadedBytes = Long.MAX_VALUE)))
+        assertEquals("Downloading model…", discoveryModelDownloadProgress(model.copy(totalBytes = 0)))
+        assertNull(discoveryModelDownloadProgress(model.copy(downloading = false)))
+    }
+
+    @Test fun powerWaitingIsDistinctFromUserPauseAndDoesNotReplaceReadyUpdates() {
+        val waiting = DiscoveryState(paused = false, power = DiscoveryPowerState(15), indexing = true)
+        assertEquals("Waiting for power: connect a charger or reach 30% battery.", discoveryProgress(waiting).message)
+        assertEquals("New discoveries available", discoveryProgress(waiting.copy(topicsUpdated = true)).message)
+        assertEquals("Discovery is paused. Resume indexing in Settings.", discoveryProgress(waiting.copy(paused = true)).message)
+    }
+    @Test fun embeddingTimeIsCoarseAndNeverPresentedAsWholeDiscoveryTime() {
+        val state = DiscoveryState(paused = false, embeddingWork = DiscoveryEmbeddingWork(3, 25, ProcessingTimeRange(70, 170)))
+        val text = discoveryWorkDescription(state)!!
+        assertTrue(text.contains("3 Notes"))
+        assertTrue(text.contains("25 passages"))
+        assertTrue(text.contains("2–3 minutes"))
+        assertTrue(text.contains("Subject and connection analysis is additional"))
+        assertTrue(discoveryWorkDescription(state.copy(embeddingWork = DiscoveryEmbeddingWork(3, 25)))!!.contains("Estimating on this device"))
+    }
     @Test fun independentReferencePreviewsQuoteTheReferencingPassageRegardlessOfPairOrder() {
         fun member(id: String, text: String): TopicMembership {
             val passage = SemanticPassage(id, id, "$id:section", "References", "$id:block", "$id:chunk",
@@ -42,11 +78,11 @@ class DiscoveryPresentationTest {
         assertEquals("Discovery is paused. Resume indexing in Settings.", discoveryProgress(DiscoveryState(paused = true)).message)
         assertEquals("Preparing cached Notes…", discoveryProgress(DiscoveryState(paused = false, indexing = true)).message)
     }
-    @Test fun exhaustedForegroundWorkOffersAnExplicitContinueInsteadOfLookingBusy() {
+    @Test fun unfinishedWorkContinuesAutomaticallyWithoutAResumeAction() {
         val ui = discoveryProgress(DiscoveryState(paused = false, indexedCount = 4,
             topicStatus = "Topic coverage is incomplete. Processing resumes on the next eligible foreground or Resume indexing."))
-        assertEquals("More discoveries can be prepared.", ui.message)
-        assertEquals(DiscoveryProgressAction.Resume, ui.action)
+        assertEquals("Discovery continues automatically when processing is available.", ui.message)
+        assertNull(ui.action)
     }
     @Test fun completedEmptyDiscoveryIsDifferentFromWorkStillInProgress() {
         assertEquals("No supported groups yet. Search your Notes or add an interest.", discoveryProgress(
@@ -69,10 +105,10 @@ class DiscoveryPresentationTest {
             topicStatus = progress, topicSnapshot = TopicSnapshot())).message)
     }
     @Test fun incompleteGroupingReportsEligibleSectionsAndActualWorkWithoutClaimingCompletion() {
-        val ui = discoveryProgress(DiscoveryState(paused = false, indexedCount = 1,
+        val ui = discoveryProgress(DiscoveryState(paused = false, indexedCount = 51,
             topicSnapshot = TopicSnapshot(engineVersion = 1, formationProgress = TopicFormationProgress(
-                "signature", 2401, listOf(listOf(0)), comparisonsCompleted = 12))))
-        assertEquals("Comparing 2401 eligible sections; 12 comparisons completed. 0 of 2401 sections finalized.", ui.message)
+                "signature", 750, listOf(listOf(0)), comparisonsCompleted = 14_000_000, totalOpportunities = 4218))))
+        assertEquals("Finding topics in 51 indexed Notes (4218 passage groups across 750 sections). 14000000 similarity checks completed so far. Progress is saved.", ui.message)
     }
     @Test fun evidenceProgressCountsCandidatesRatherThanEmptyClusterSlots() {
         val ui = discoveryProgress(DiscoveryState(paused = false, indexedCount = 1,

@@ -616,11 +616,12 @@ class ReaderApp(
     suspend fun openNote(
         pageId: String,
         knownRemoteLastEditedAt: java.time.Instant? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        fromFocusId: String = pageId
     ) {
         // The page id is the activated element: a Browse row is identified by the page it opens, which is
         // also its `key` in the list, so Back can find the row the listener actually left.
-        navigator.open(ReaderDestination.Note, fromFocusId = pageId)
+        navigator.open(ReaderDestination.Note, fromFocusId = fromFocusId)
         val openedStop = navigator.state.value.secondary.last()
         val generation = recentNotes?.generation
         if (noteViewer.load(discovery?.sourcePageId(pageId) ?: pageId, loadDocument, knownRemoteLastEditedAt, forceRefresh)) {

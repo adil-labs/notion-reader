@@ -218,15 +218,20 @@ fun ReaderShell(
                     ReaderDestination.SettingsDiscovery -> {
                         app.discovery?.let { controller ->
                             val discovery by controller.state.collectAsState()
+                            val discoverySettings by app.settings.collectAsState()
                             val modelManager = app.discoveryModel
                             val model = modelManager?.state?.collectAsState()?.value
                             DiscoverySettingsScreen(
                                 DiscoverySettingsUi(modelDescription = model?.description ?: "Model unavailable in this configuration",
+                                    effort = discoverySettings.discoveryEffort,
+                                    downloadProgress = discoveryModelDownloadProgress(model),
                                     modelInstalled = model?.installed ?: false,
                                     downloading = model?.downloading ?: false,
                                     wifiOnly = model?.wifiOnly ?: true,
                                     indexingPaused = discovery.paused,
                                     progress = "${discovery.indexedCount} of ${discovery.cachedPageIds.size} cached Notes indexed",
+                                    workDescription = listOfNotNull(discoveryPowerDescription(discovery), discoverySchedulingDescription(discovery), discoveryWorkDescription(discovery))
+                                        .joinToString("\n").ifEmpty { null },
                                     storageDescription = "${discovery.bytes} bytes of 64 MiB used",
                                     error = model?.message ?: discovery.message,
                                     downloadAllowed = modelManager != null),
@@ -238,7 +243,10 @@ fun ReaderShell(
                                 onResume = { scope.launch { controller.resume() } },
                                 onClearIndex = { scope.launch { controller.clearIndex() } },
                                 onRebuild = { scope.launch { controller.clearIndex(); controller.resume() } },
-                                onBack = { app.back() })
+                                onBack = { app.back() },
+                                onEffortChange = { effort -> scope.launch {
+                                    app.settingsRepo.updateSettings { it.copy(discoveryEffort = effort) }
+                                } })
                         }
                     }
 

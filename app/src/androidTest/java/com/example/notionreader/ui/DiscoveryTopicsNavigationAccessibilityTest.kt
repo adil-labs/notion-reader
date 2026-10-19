@@ -2,11 +2,12 @@ package com.example.notionreader.ui
 
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import com.example.notionreader.application.*
 import com.example.notionreader.data.local.FileDiscoveryInterestStore
 import com.example.notionreader.data.local.FileDocumentCache
 import com.example.notionreader.data.local.FileSemanticIndexStore
+import com.example.notionreader.data.local.FileTopicStore
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.ReaderIndexEntry
 import com.example.notionreader.domain.document.CachedDocument
@@ -47,10 +48,14 @@ class DiscoveryTopicsNavigationAccessibilityTest {
 
     private fun fixture(emptyInitial: Boolean = false, fallbackLabel: Boolean = false,
         namedReference: Boolean = false, mixedConnections: Boolean = false, emerging: Boolean = false,
-        independentReference: Boolean = false): Fixture = runBlocking {
+        independentReference: Boolean = false, hierarchy: Boolean = false, fullCatalog: Boolean = false): Fixture = runBlocking {
         val provider = FixedProvider()
-        val documents = listOf("a" to "Alpha", "b" to "Beta", "c" to "Gamma").map { (id, title) ->
-            ReaderDocument.fromChunkTexts(id, title, listOf(if ((namedReference || independentReference) && id == "a")
+        val notes = listOf("a" to "Alpha", "b" to "Beta", "c" to "Gamma") +
+            if (fullCatalog) (3..7).map { "n$it" to "Forest $it" } else emptyList()
+        val documents = notes.map { (id, title) ->
+            ReaderDocument.fromChunkTexts(id, title, listOf(if (hierarchy && id == "a")
+                "River ecosystems is a part of Forest ecology. Rivers sustain wildlife across woodland habitats."
+                else if ((namedReference || independentReference) && id == "a")
                 "Open Beta. Forest water evidence explains how trees protect river habitat." else "Forest water evidence for $title"))
         }
         val cache = FileDocumentCache(directory.resolve("cache"))
@@ -58,7 +63,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val members = documents.mapIndexed { order, document ->
             cache.put(CachedDocument(document, null, Instant.EPOCH))
             val text = document.sections.flatMap { it.chunks }.single().text
-            val passage = SemanticPassage("p-${document.pageId}", document.pageId, "section", "Forest ecology",
+            val passage = SemanticPassage("p-${document.pageId}", document.pageId, "section", if (hierarchy && document.pageId == "b") "River ecosystems" else "Forest ecology",
                 "block-${document.pageId}", "chunk-${document.pageId}", 0, text.length,
                 text, "Forest ecology", order)
             val metadata = SemanticMetadata(document.title)
@@ -68,10 +73,22 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         }
         val topic = DiscoveredTopic("forest", if (fallbackLabel) "Notes related to Alpha" else "Forest ecology", members.first().passage,
             EmbeddedPassage(members.first().passage, listOf(1f, 0f)), if (emerging) members.take(1) else members, 1)
-        val store = MemoryTopics(TopicSnapshot(topics = if (emptyInitial) emptyList() else listOf(topic), identity = provider.identity,
+        val child = if (hierarchy) DiscoveredTopic("river", "River ecosystems", members[1].passage,
+            EmbeddedPassage(members[1].passage, listOf(1f, 0f)), listOf(members[1]), 2) else null
+        val topics = listOfNotNull(topic, child)
+        val relationships = if (hierarchy) buildSubjectRelationships(topics, documents.map { index.read(it.pageId)!! }) else emptyList()
+        val snapshot = TopicSnapshot(topics = if (emptyInitial) emptyList() else topics, identity = provider.identity,
+            subjectRelationships = relationships,
             generation = 1, complete = !emptyInitial, connections = if (emptyInitial) emptyList() else
-                listOfNotNull(NoteConnection("pair-ab", members[0], members[1], .9f, independentNamedReference = independentReference),
-                    if (mixedConnections) NoteConnection("pair-bc", members[1], members[2], .8f) else null)))
+                if (fullCatalog) members.flatMapIndexed { i, left -> members.drop(i + 1).map { right ->
+                    NoteConnection("pair-${left.pageId}-${right.pageId}", left, right, .9f)
+                } } else listOfNotNull(NoteConnection("pair-ab", members[0], members[1], .9f, independentNamedReference = independentReference),
+                    if (mixedConnections) NoteConnection("pair-bc", members[1], members[2], .8f) else null))
+        val store: TopicStore = if (fullCatalog) FileTopicStore(directory.resolve("topics")).also { disk ->
+            check(disk.write(snapshot.copy(topics = snapshot.topics.map { t ->
+                t.copy(members = t.members.map { it.copy(anchor = t.anchor.passage) })
+            })))
+        } else MemoryTopics(snapshot)
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(directory.resolve("interests")),
             provider, topicStore = store)
         val entries = documents.map { ReaderIndexEntry(it.pageId, it.title) }
@@ -96,6 +113,66 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     private fun openTopic() {
         compose.onNodeWithText("Forest ecology").performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
+    }
+
+    @Test fun catalogPaginationRetainsEveryConnectionBeyondPreviewLimits() {
+        val (app, _, _) = fixture(fullCatalog = true)
+        show(app)
+        compose.onNodeWithText("See all connections").performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Showing 20 of 28 connections").fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText("Showing 20 of 28 connections").assertIsReadable()
+        compose.onNodeWithText("More connections").assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Showing 28 of 28 connections").fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText("Showing 28 of 28 connections").assertIsReadable()
+        compose.onNodeWithContentDescription("Connection catalog").performScrollToIndex(27)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Compare passages").fetchSemanticsNodes().isNotEmpty() }
+        org.junit.Assert.assertTrue("Only viewport rows should be composed",
+            compose.onAllNodesWithText("Compare passages").fetchSemanticsNodes().size < 20)
+        compose.onAllNodesWithText("Compare passages").onLast().performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.navigator.state.value.current == ReaderDestination.DiscoveryConnection }
+        compose.runOnIdle { app.back() }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Compare passages") and isFocused()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Showing 28 of 28 connections").assertIsReadable()
+        compose.onNodeWithText("More connections").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Connection catalog").performScrollToIndex(0)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Compare passages").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("More connections").assertDoesNotExist()
+        assertEquals(28, app.discovery!!.state.value.topicSnapshot.catalogReference!!.count)
+        assertEquals(2, app.discovery!!.state.value.topicSnapshot.connections.size)
+    }
+
+    @Test fun childSubjectsNavigateToTheirBroaderSubjectWithSourceEvidence() {
+        val (app, _, _) = fixture(hierarchy = true)
+        show(app)
+        compose.onNodeWithText("See all topics").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Major subjects").assertIsReadable()
+        compose.onNodeWithText("River ecosystems").performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Broader subjects").fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText("Broader subjects").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("Open broader subject: Forest ecology").performScrollTo().assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals("forest", app.navigator.state.value.currentSubjectId)
+        compose.onNodeWithText("Subtopics").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("Open subtopic: River ecosystems").performScrollTo().assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Open relationship source Note").performScrollTo().assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { app.back() }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Open relationship source Note") and isFocused()).fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText("Open relationship source Note").assertIsFocused()
     }
 
     @Test fun fallbackCandidatesRemainStoredWithoutBecomingTopicCards() {
@@ -274,7 +351,24 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("Open Alpha").assertIsReachable()
         compose.onNodeWithText("Open Beta").assertIsReachable()
         compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.navigator.state.value.current == ReaderDestination.GuidedListening }
         assertEquals(listOf("a", "b"), app.discovery!!.state.value.preview.map { it.pageId })
+        assertEquals(before, app.session.state.value)
+    }
+
+    @Test fun aSourceLostBeforePreviewLoadingCannotOpenAnEmptyListeningDestination() {
+        val (app, cache, _) = fixture()
+        val before = app.session.state.value
+        show(app)
+        compose.onNodeWithText("Compare passages").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { runBlocking { cache.remove("a") } }
+        compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Connection currently unavailable. Refresh discoveries.").fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText("Connection currently unavailable. Refresh discoveries.").performScrollTo().assertIsReadable()
+        assertEquals(ReaderDestination.DiscoveryConnection, app.navigator.state.value.current)
+        assertEquals(emptyList<String>(), app.discovery!!.state.value.preview.map { it.pageId })
         assertEquals(before, app.session.state.value)
     }
 
@@ -290,6 +384,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.runOnIdle { app.back() }
         compose.onNodeWithText("Open Beta").assertIsFocused()
         compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.navigator.state.value.current == ReaderDestination.GuidedListening }
         assertEquals(listOf("a", "b"), app.discovery!!.state.value.preview.map { it.pageId })
         assertEquals("Named reference", app.discovery!!.state.value.previewLabel)
         assertEquals(before, app.session.state.value)
@@ -311,7 +406,11 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val (app, _, _) = fixture(namedReference = true, mixedConnections = true)
         show(app)
         compose.onNodeWithText("See all connections").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithText("Similar passages (1)").performScrollTo().assertIsReadable()
+        // Lazy rows beyond this device's viewport do not have semantics until scrolled into view.
+        compose.onNodeWithContentDescription("Connection catalog").performScrollToIndex(1)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Similar passages (1)").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Similar passages (1)").assertIsReadable()
+        compose.onNodeWithContentDescription("Connection catalog").performScrollToIndex(0)
         compose.onNodeWithText("Named references (1)").performScrollTo().assertIsReadable()
     }
 

@@ -114,7 +114,7 @@ internal fun DiscoveryContent(app: ReaderApp, onOpenNote: (String) -> Unit) {
         },
         focusTarget = navigation.focusTarget, onFocusHandled = app::focusHandled,
         status = state.message ?: when {
-            model?.downloading == true -> "Downloading discovery model: ${model.downloadedBytes} of ${model.totalBytes} bytes"
+            model?.downloading == true -> discoveryModelDownloadProgress(model)
             model != null && !model.installed -> "Download the optional on-device model in Discovery settings to search cached Notes."
             state.searching -> "Searching cached Notes…"
             state.query.isNotBlank() && state.results.isEmpty() -> "No matching cached Notes."

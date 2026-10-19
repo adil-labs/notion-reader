@@ -26,6 +26,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 
 private val Context.userSettingsDataStore by preferencesDataStore(name = "user_settings")
@@ -42,6 +43,7 @@ class DataStoreSettingsRepository(
     @Suppress("UNUSED_PARAMETER") onClearCacheCallback: (suspend () -> Unit)? = null,
     @Suppress("UNUSED_PARAMETER") onClearAllCallback: (suspend () -> Unit)? = null
 ) : SettingsRepository {
+    suspend fun readCurrentSettings(): ReaderSettings = decode(context.userSettingsDataStore.data.first())
 
     override val settings: StateFlow<ReaderSettings> = context.userSettingsDataStore.data
         .map { decode(it) }
@@ -71,6 +73,7 @@ class DataStoreSettingsRepository(
 
     private fun decode(prefs: Preferences): ReaderSettings {
         return ReaderSettings(
+            discoveryEffort = com.example.notionreader.domain.settings.DiscoveryEffort.fromStored(prefs[KEY_DISCOVERY_EFFORT]),
             defaultNavigationUnit = prefs[KEY_NAV_UNIT]?.let { runCatching { NavigationUnit.valueOf(it) }.getOrNull() }
                 ?: NavigationUnit.SECTION,
             continueToNextNote = prefs[KEY_CONTINUE_NEXT] ?: true,
@@ -104,6 +107,7 @@ class DataStoreSettingsRepository(
     }
 
     private fun encode(settings: ReaderSettings, prefs: androidx.datastore.preferences.core.MutablePreferences) {
+        prefs[KEY_DISCOVERY_EFFORT] = settings.discoveryEffort.name
         prefs[KEY_NAV_UNIT] = settings.defaultNavigationUnit.name
         prefs[KEY_CONTINUE_NEXT] = settings.continueToNextNote
         prefs[KEY_PAUSE_NOTES] = settings.pauseBetweenNotes.name
@@ -128,6 +132,7 @@ class DataStoreSettingsRepository(
     }
 
     private companion object {
+        val KEY_DISCOVERY_EFFORT = stringPreferencesKey("discovery_effort")
         val KEY_NAV_UNIT = stringPreferencesKey("default_navigation_unit")
         val KEY_CONTINUE_NEXT = booleanPreferencesKey("continue_to_next_note")
         val KEY_PAUSE_NOTES = stringPreferencesKey("pause_between_notes")

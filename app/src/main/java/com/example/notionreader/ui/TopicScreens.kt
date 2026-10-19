@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
 import com.example.notionreader.application.DiscoveryState
+import com.example.notionreader.application.DiscoveryController
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -20,25 +21,35 @@ import kotlinx.coroutines.withContext
 private data class PreparedDiscovery(
     val topics: List<Pair<DiscoveredTopic, TopicPublicationStatus>>,
     val connections: List<NoteConnection>,
-    val evidence: Map<String, ConnectionEvidence>
+    val evidence: Map<String, ConnectionEvidence>,
+    val relationships: List<SubjectRelationship>,
+    val sourceTitles: Map<String, String>
 )
 
 @Composable
-private fun preparedDiscovery(state: DiscoveryState): PreparedDiscovery? {
+private fun preparedDiscovery(state: DiscoveryState, controller: DiscoveryController,
+    selectedConnectionId: String? = null, previewConnections: Boolean = false): PreparedDiscovery? {
     val topics = state.topicSnapshot.topics
     val connections = state.topicSnapshot.connections
     val titles = state.cachedTitles
+    val relationships = state.topicSnapshot.subjectRelationships
+    val reference = state.topicSnapshot.catalogReference
     // Reset immediately on source changes; never retain withdrawn passages during preparation.
-    var prepared by remember(topics, connections, titles) { mutableStateOf<PreparedDiscovery?>(null) }
-    LaunchedEffect(topics, connections, titles) {
+    var prepared by remember(topics, connections, titles, relationships, reference, state.cachedRevision, selectedConnectionId, previewConnections) { mutableStateOf<PreparedDiscovery?>(null) }
+    LaunchedEffect(topics, connections, titles, relationships, reference, state.cachedRevision, selectedConnectionId, previewConnections) {
         prepared = withContext(Dispatchers.Default) {
             val published = publishableDiscoveryTopics(topics).mapNotNull { topic ->
                 discoveryTopicPublicationStatus(topic)?.let { topic to it }
             }
-            val evidence = connections.associate { it.id to classifyConnectionEvidence(it, titles) }
-            PreparedDiscovery(published, connections.filter {
-                !it.independentNamedReference || evidence.getValue(it.id).kind == ConnectionEvidenceKind.NamedReference
-            }, evidence)
+            val page = if (reference != null && selectedConnectionId != null)
+                controller.connectionWindow(state.topicSnapshot, selectedId = selectedConnectionId,
+                    expectedCacheRevision = state.cachedRevision)
+                else ConnectionCatalogPageResult(connections, reference?.count ?: connections.size)
+            val presentation = if (previewConnections) prepareConnectionPreview(page.connections, titles)
+                else prepareConnectionWindow(page.connections, titles, limit = 0, selectedId = selectedConnectionId)
+            PreparedDiscovery(published, presentation.connections, presentation.evidence,
+                relationships.filter { edge -> canonicalSemanticId(edge.evidence.pageId) in titles &&
+                published.any { it.first.id == edge.parentId } && published.any { it.first.id == edge.childId } }, titles)
         }
     }
     return prepared
@@ -49,7 +60,7 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
     val controller = app.discovery ?: return
     val state by controller.state.collectAsState()
     val nav by app.navigator.state.collectAsState()
-    val prepared = preparedDiscovery(state)
+    val prepared = preparedDiscovery(state, controller, previewConnections = !all)
     if (prepared == null) {
         Text("Preparing topics…")
         return
@@ -57,8 +68,10 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
     val published = prepared.topics
     val topics = published.map { it.first }
     val connections = prepared.connections
-    val established = published.filter { it.second == TopicPublicationStatus.Established }.map { it.first }
-    val emerging = published.filter { it.second == TopicPublicationStatus.Emerging }.map { it.first }
+    val parentIds = if (all) prepared.relationships.filter { it.kind == SubjectRelationshipKind.ParentChild }.map { it.parentId }.toSet() else emptySet()
+    val major = topics.filter { it.id in parentIds }
+    val established = published.filter { it.second == TopicPublicationStatus.Established && it.first.id !in parentIds }.map { it.first }
+    val emerging = published.filter { it.second == TopicPublicationStatus.Emerging && it.first.id !in parentIds }.map { it.first }
     Text("Topics in your Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
         (target == "all_topics" && topics.isEmpty()) ||
             (target == "all_connections" && connections.isEmpty()) ||
@@ -66,7 +79,7 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
             (target.startsWith("connection:") && connections.none { "connection:${it.id}" == target })
     }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
     val progress = discoveryProgress(state)
-    if (established.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
+    if (established.isEmpty() && major.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
         style = MaterialTheme.typography.bodyMedium)
     val scope = rememberCoroutineScope()
     progress.message?.let { message ->
@@ -75,11 +88,21 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
             Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             when (progress.action) {
-                DiscoveryProgressAction.Refresh -> TextButton(onClick = controller::refreshTopics) { Text("Refresh") }
-                DiscoveryProgressAction.Resume -> TextButton(onClick = { scope.launch { controller.resume() } }) { Text("Continue discovery") }
+                DiscoveryProgressAction.Refresh -> TextButton(onClick = { scope.launch { controller.refreshTopics() } }) { Text("Refresh") }
                 null -> Unit
             }
         }
+    }
+    discoveryWorkDescription(state)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    if (major.isNotEmpty()) {
+        Text("Major subjects", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        Column(Modifier.semantics { collectionInfo = CollectionInfo(major.size, 1) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            major.forEach { topic -> key(topic.id) {
+                TopicNavigationRow(topic, { app.navigator.open(ReaderDestination.DiscoveryTopic, "topic:${topic.id}", topic.id) },
+                    nav.focusTarget, app::focusHandled)
+            } }
+        }
+        if (established.isNotEmpty()) Text("Other subjects", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
     }
     Column(Modifier.semantics { collectionInfo = CollectionInfo(if (all) established.size else minOf(3, established.size), 1) },
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -106,7 +129,7 @@ internal fun TopicPreviews(app: ReaderApp, all: Boolean = false) {
         Text("Connections between Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
             target.startsWith("connection:") && connections.none { "connection:${it.id}" == target }
         }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-        ConnectionRows(app, connections.take(2), prepared.evidence)
+        ConnectionRows(app, connections, prepared.evidence)
         if (connections.isNotEmpty()) TextButton(onClick = {
             app.navigator.open(ReaderDestination.DiscoveryConnections, "all_connections")
         }, modifier = Modifier.restoreFocusOn(nav.focusTarget, "all_connections", app::focusHandled)) { Text("See all connections") }
@@ -157,41 +180,72 @@ private fun ConnectionEvidenceKind.label(): String = when (this) {
 }
 
 @Composable
+private fun SubjectRelationshipRows(app: ReaderApp, topic: DiscoveredTopic, prepared: PreparedDiscovery) {
+    val nav by app.navigator.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val edges = prepared.relationships.filter { it.parentId == topic.id || it.childId == topic.id }
+    val groups = listOf("Broader subjects", "Subtopics", "Related subjects")
+    for (title in groups) {
+        val selected = edges.filter { edge -> when (title) {
+            "Broader subjects" -> edge.kind == SubjectRelationshipKind.ParentChild && edge.childId == topic.id
+            "Subtopics" -> edge.kind == SubjectRelationshipKind.ParentChild && edge.parentId == topic.id
+            else -> edge.kind == SubjectRelationshipKind.Related
+        } }
+        if (selected.isEmpty()) continue
+        Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        Column(Modifier.semantics { collectionInfo = CollectionInfo(selected.size, 1) },
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            selected.forEach { edge -> key(edge.id) {
+                val otherId = if (edge.parentId == topic.id) edge.childId else edge.parentId
+                val other = prepared.topics.first { it.first.id == otherId }.first
+                val action = when (title) { "Broader subjects" -> "broader subject"; "Subtopics" -> "subtopic"; else -> "related subject" }
+                TextButton(onClick = { app.navigator.open(ReaderDestination.DiscoveryTopic, "relationship:${edge.id}", other.id) },
+                    modifier = Modifier.restoreFocusOn(nav.focusTarget, "relationship:${edge.id}", app::focusHandled)) {
+                    Text("Open $action: ${other.label}")
+                }
+                Text(edge.evidence.excerpt, style = MaterialTheme.typography.bodyMedium)
+                Text("Source Note: ${prepared.sourceTitles[canonicalSemanticId(edge.evidence.pageId)]}",
+                    style = MaterialTheme.typography.bodySmall)
+                edge.evidence.sectionTitle?.let { Text("Section: $it", style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = { scope.launch { app.openNote(edge.evidence.pageId, fromFocusId = "relationship_source:${edge.id}") } },
+                    modifier = Modifier.restoreFocusOn(nav.focusTarget, "relationship_source:${edge.id}", app::focusHandled)) {
+                    Text("Open relationship source Note")
+                }
+            } }
+        }
+    }
+}
+
+@Composable
 internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Unit) {
     val controller = app.discovery ?: return
     val state by controller.state.collectAsState()
     val nav by app.navigator.state.collectAsState()
     val scope = rememberCoroutineScope()
     val subject = nav.currentSubjectId
-    val prepared = preparedDiscovery(state)
+    if (nav.current == ReaderDestination.DiscoveryConnections) {
+        ConnectionCatalogContent(app)
+        return
+    }
+    val prepared = preparedDiscovery(state, controller,
+        selectedConnectionId = subject.takeIf { nav.current == ReaderDestination.DiscoveryConnection })
     if (prepared == null) { Text("Preparing discoveries…"); return }
     val connections = prepared.connections
     var following by rememberSaveable(subject) { mutableStateOf(false) }
     var visibleMembers by rememberSaveable(subject) { mutableStateOf(20) }
     var evidenceExpanded by rememberSaveable(subject) { mutableStateOf(false) }
     var labelSourceActivated by rememberSaveable(subject) { mutableStateOf(false) }
+    var preparingConnection by remember(subject) { mutableStateOf(false) }
+    var connectionPreviewMessage by remember(subject) { mutableStateOf<String?>(null) }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when (nav.current) {
             ReaderDestination.DiscoveryTopics -> TopicPreviews(app, all = true)
-            ReaderDestination.DiscoveryConnections -> {
-                Text("Connections between Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
-                    target.startsWith("connection:") && connections.none { "connection:${it.id}" == target }
-                }, nav.focusTarget, app::focusHandled).semantics { heading(); paneTitle = "Connections between Notes" })
-                val groups = connections.groupBy { prepared.evidence.getValue(it.id).kind }
-                listOf(ConnectionEvidenceKind.SimilarPassages to "Similar passages",
-                    ConnectionEvidenceKind.NamedReference to "Named references").forEach { (kind, title) ->
-                    val pairs = groups[kind].orEmpty()
-                    if (pairs.isNotEmpty()) {
-                        Text("$title (${pairs.size})", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                        ConnectionRows(app, pairs, prepared.evidence)
-                    }
-                }
-                if (groups.isEmpty()) Text("No connections in this snapshot.")
-            }
             ReaderDestination.DiscoveryTopic -> {
                 val topic = state.topicSnapshot.topics.firstOrNull { it.id == subject }
+                val edges = prepared.relationships.filter { it.parentId == subject || it.childId == subject }
+                val relationshipTargets = edges.flatMap { listOf("relationship:${it.id}", "relationship_source:${it.id}") }.toSet()
                 Text(topic?.let { topicPreviewTitle(it.label) } ?: "Topic currently unavailable", Modifier.restoreFocusOn(
-                    nav.focusTarget?.takeIf { target -> target != "preview_guided" && target != "topic_follow:$subject" && topic?.members.orEmpty().none { it.pageId == target } },
+                    nav.focusTarget?.takeIf { target -> target != "preview_guided" && target != "topic_follow:$subject" && target !in relationshipTargets && topic?.members.orEmpty().none { it.pageId == target } },
                     nav.focusTarget, app::focusHandled).semantics { heading(); paneTitle = "Topic details" }, style = MaterialTheme.typography.headlineMedium)
                 if (topic != null) {
                     if (prepared.topics.any { it.first.id == topic.id && it.second == TopicPublicationStatus.Emerging })
@@ -199,6 +253,7 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
                     topicSourceContext(topic)?.let { Text("Source: $it", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     Text(topicNoteCount(topic), style = MaterialTheme.typography.labelLarge)
+                    SubjectRelationshipRows(app, topic, prepared)
                     Button(onClick = { app.prepareDiscoveryPreview(controller.topicPreview(topic.id), "Topic: ${topic.label}") },
                         modifier = Modifier.restoreFocusOn(nav.focusTarget, "preview_guided", app::focusHandled)) { Text("Preview listening") }
                     val follow = state.interests.firstOrNull { it.originTopicId == topic.id }
@@ -263,8 +318,22 @@ internal fun TopicDestinationContent(app: ReaderApp, onOpenNote: (String) -> Uni
                         }) Text("Target context; not evidence of thematic similarity", style = MaterialTheme.typography.labelLarge)
                         DiscoveryNoteRow(member.toMatch().noteUi(), onOpenNote, nav.focusTarget, app::focusHandled, excerptMaxLines = Int.MAX_VALUE)
                     }
-                    Button(onClick = { app.prepareDiscoveryPreview(controller.connectionPreview(connection.id), kind.label()) },
-                        modifier = Modifier.restoreFocusOn(nav.focusTarget, "preview_guided", app::focusHandled)) { Text("Preview listening") }
+                    Button(onClick = {
+                        preparingConnection = true; connectionPreviewMessage = null
+                        val inspected = state.topicSnapshot
+                        val revision = state.cachedRevision
+                        scope.launch {
+                            try {
+                                val matches = controller.connectionPreview(connection.id, inspected, revision)
+                                if (matches.size == 2) app.prepareDiscoveryPreview(matches, kind.label())
+                                else connectionPreviewMessage = "Connection currently unavailable. Refresh discoveries."
+                            } finally { preparingConnection = false }
+                        }
+                    }, enabled = !preparingConnection,
+                        modifier = Modifier.restoreFocusOn(nav.focusTarget, "preview_guided", app::focusHandled)) {
+                        Text(if (preparingConnection) "Preparing listening preview…" else "Preview listening")
+                    }
+                    connectionPreviewMessage?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 }
             }
             ReaderDestination.DiscoveryInterest -> {

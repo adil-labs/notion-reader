@@ -7,6 +7,7 @@ package com.example.notionreader.domain.settings
  * on the shape of user preferences without violating layer boundaries.
  */
 data class ReaderSettings(
+    val discoveryEffort: DiscoveryEffort = DiscoveryEffort.BALANCED,
     // Playback
     val defaultNavigationUnit: NavigationUnit = NavigationUnit.SECTION,
     val continueToNextNote: Boolean = true,
@@ -32,6 +33,13 @@ data class ReaderSettings(
     val appTheme: AppTheme = AppTheme.SYSTEM_DEFAULT,
     val readerSpacing: ReaderSpacing = ReaderSpacing.COMFORTABLE
 )
+
+enum class DiscoveryEffort(val label: String) {
+    BALANCED("Balanced"), CHARGING_ONLY("Charging only");
+    companion object {
+        fun fromStored(value: String?): DiscoveryEffort = entries.firstOrNull { it.name == value } ?: BALANCED
+    }
+}
 
 enum class NavigationUnit(val label: String) {
     SECTION("Section"),
