@@ -3,7 +3,7 @@
 Hand-authored implementation companion to the seven governing specifications listed
 in [the documentation map](README.md). This file records concrete implementation
 choices and acceptance procedures; it is not an additional governing specification.
-The live Product, UI and Integration contracts, including their 2026-10-17 amendments,
+The live Product, UI and Integration contracts, including their 2026-10-17 and 2026-10-18 amendments,
 control Discovery semantics. [decisions.md](decisions.md) preserves investigation,
 verification and superseded-policy history.
 
@@ -11,9 +11,43 @@ verification and superseded-policy history.
 
 All debug and release builds use the sole section-aware hierarchical engine; legacy
 streaming execution, wrappers, switching flags and rollback properties are retired.
-The application-bound Android Service owns the worker lifetime. See
+The process-owned host coordinates bounded foreground and persistent WorkManager execution windows. See
 [single-engine design](single-engine-discovery-design.md) for stages and migration.
 This adoption does not certify failed or unmeasured acceptance gates.
+
+### Current hierarchy/catalog refinement
+
+The 2026-10-17 governing amendments introduce explicit subject relationships and
+complete catalog retention; see [the current round](decisions.md#77-subject-hierarchy-and-complete-connection-catalog-in-progress-2026-10-17).
+The initial hierarchy recognizes affirmative literal body statements of
+subtopic/type/kind/part relationships, independently of vector similarity or heading
+ancestry. Related-subject statements form a separate edge kind. Relationships retain
+source revision and literal passage provenance, reject ambiguity/cycles and withdraw
+on source/endpoint loss. This initial path does not establish general hierarchy recall.
+
+TopicPolicy 12 removes equal/subset-topic admission exclusions, per-passage top-five
+truncation and persisted exposure selection. Homepage diversity selection consumes
+the full retained catalog. Canonical semantic pairs and explicit references have
+separate identities and classifications. `FileConnectionCatalog` stores immutable
+64-entry digest-checked pages, committed by `FileTopicStore` through an atomic
+generation manifest; pages and staging count against the shared storage budget.
+UI pagination and direct store page reads exist, but coordinator/inspected snapshots
+still materialize complete catalogs; bounded-memory controller/candidate handling
+and its performance verification remain required.
+
+Connection work quanta count 256 target-Note comparisons, with durable Note,
+passage and target cursors and the declared target-source count. Restart resumes
+inside a passage rather than rescanning every target. Exact ranking checks
+cooperative cancellation every 64 passages and applies body admission in the
+streaming loop; a one-Note library has no pair opportunities. JVM checks establish
+those work units and guard behavior; real Android latency gates remain separate.
+
+Presentation classifies only the requested visible connection window or selected
+comparison and retains only two candidates for the homepage preview. Growing the
+visible window keeps prior content mounted during preparation; source changes
+discard stale presentation immediately. This bounds extra evidence preparation
+by the explicitly displayed window, while full store/coordinator snapshot residency
+still requires a separate persistence/ownership change.
 
 ## Product and surfaces
 
@@ -93,13 +127,27 @@ artifacts, preprocessing/chunker versions, dimensions and storage version.
 
 ## Model and privacy
 
-Current optional model: English sentence-transformers/all-MiniLM-L6-v2, Apache-2.0, publisher
-ARM64 INT8 ONNX export, 384 dimensions. ONNX Runtime CPU is MIT. Preserve exact
-BERT uncased tokenization, attention-mask mean pooling and L2 normalization.
-Before production adoption prove actual API26 loading, ABI/native packaging,
-licensing, tokenizer/output parity, physical memory and retrieval quality. A failed
-gate blocks adoption; do not raise minSdk or substitute a model silently. Record
-comparison with LiteRT conversion and multilingual MiniLM.
+Current optional model: text-only EmbeddingGemma 2 INT4, 768 dimensions, using
+community ONNX export revision `daa72c51243991dfcaf9f9137d2c573d8f7790c0` and Gemma
+terms. ONNX Runtime Android 1.31.0 validates Vulkan execution against CPU on the first real input and falls back to two-thread CPU on unavailable, failed or invalid GPU output. The 206,696,682-byte
+pack includes a pinned graph, external weights, tokenizer and configuration assets.
+Use the exported `sentence_embedding`, with L2 normalization, never mean pooling
+its hidden states. Native Hugging Face Tokenizers 0.22.1 supplies exact BPE token
+IDs and converted UTF-16 evidence offsets. The clustering instruction and BOS/EOS
+are included; the provider rejects inputs over 8,192 tokens without truncation.
+Bounded source windows remain complete and overlapping rather than using the
+whole context for every passage.
+
+The user-requested governing amendment authorizes this integration; host proxy
+quality does not establish general release acceptance. Model/tokenizer/preprocessing
+identity changes invalidate incompatible vectors and derived checkpoints, preserving
+explicit interests and listening state. Policy 16 retains exact-formation distance
+0.10, membership 0.90, retention 0.89, semantic connection 0.90 and recommendation
+0.90. These decisions are separate from search's unthresholded top-20 ranking and
+from named-reference admission. The actual shipping formation path was tested on
+500 public WOS Notes, and real inference plus a six-Note end-to-end journey on a
+Pixel 8 Pro/API37. Other runtime ABI/API combinations, full-scale resource limits,
+independent quality and human speech/listening gates remain unqualified.
 
 Model acquisition is explicit and optional, showing exact size/source/license,
 storage impact and network choice. Pin immutable revisions, SHA-256 and byte
@@ -121,19 +169,19 @@ reset generation, removes automatic topics/connections/continuity and persists
 paused state until explicit resume/rebuild. Model deletion does the same;
 full local reset also clears interests.
 
-EmbeddingGemma 2 was assessed as a replacement candidate, not adopted. Pinned LiteRT-LM 0.18.0 lacks ARMv7/x86 libraries; its manifest minSdk24 and 16KiB ELF alignment do not prove API26 runtime loading, tokenizer/prompt parity or Pixel playback contention. The pinned generic converted model advertises 484,622,336 bytes. Default migration remains blocked; current optional MiniLM/ONNX stays installed. See tools/semantic-discovery/gemma2-gate-report.json and the reproducible static probe. No minimum Android/ABI support was changed and no model was silently downloaded or replaced.
+Historical LiteRT-LM static evaluation rejected a different generic converted artifact; it does not apply to the now-integrated text-only ONNX INT8 export. See `tools/semantic-discovery/gemma2-gate-report.json` for that historical probe and decisions §94 for current Android evidence. No minimum SDK or ABI support was removed.
 
 ## Index lifecycle and retrieval
 
 Extend cache enumeration without touching LRU timestamps. Observe all puts,
 removals, clears, pruning, corruption deletion and internal budget eviction. One
 process-scoped worker reconciles on launch/cache/index changes. Bulk indexing
-pauses during playback, app backgrounding and resource pressure; resume on next
-eligible launch. The application binds the private, non-exported Android Discovery
-service, which owns the single bulk coroutine on a background dispatcher and cancels
-it on destruction. Activity recreation does not own or replace this work. A binding
-does not override playback/background/resource-pressure pauses; no foreground
-notification, sticky restart or second indexing loop is introduced. Query inference,
+pauses during playback and resource pressure. A process coordinator serializes
+foreground and persistent WorkManager execution windows through one gate. Ordinary
+bounded background windows may run with the screen off. Balanced requires thirty
+percent battery or external power; Charging only requires external power. Explicit
+Pause remains persisted. Activity recreation does not own or replace this work;
+no foreground notification, sticky restart or second indexing loop is introduced. Query inference,
 tokenization and publication filtering are main-safe too. Do not force a workspace download.
 
 Persist atomic per-document records and a versioned manifest. Publish a completed
@@ -167,7 +215,7 @@ Notes and validated single-Note subjects separately as Emerging topics. Version/
 topic thresholds separately from recommendation thresholds. Process source changes
 incrementally; no unbounded pair matrix or Python runtime. Grouping and connection
 work shares the existing single process-scoped worker and its
-query/playback/background/memory scheduling policy.
+query/playback/memory scheduling policy and Android-granted background windows.
 
 Persist stable opaque topic identities independent of label/order. Reconcile
 surviving source/member evidence across anchor changes, splits and merges. Never
@@ -194,7 +242,40 @@ An explicitly requested developer review may export a private snapshot to ignore
 
 Policy version is persisted independently of EmbeddingIdentity. The grouping source signature includes policy settings; incompatible checkpoints cannot reuse accepted-document flags. Reprocess existing vectors, preserve eligible continuity/interest definitions, and expose replacement snapshots through explicit Refresh. No new content download or embedding regeneration is required by policy changes.
 
+Policy 14 also withholds generic document containers Body, Abstract, Main text and
+Full text as subject labels, while retaining candidates and allowing eligible
+literal source-phrase naming. Focused candidate formation shares that generic-label
+set. The [WOS diagnostic](discovery-wos-evaluation.md) records the failing-first
+publication proof and host MiniLM/BGE/EmbeddingGemma 2 comparisons. Those source
+splits are not family-held-out human acceptance. Runtime model and thresholds
+remain unchanged. The earlier LiteRT-LM static gate is separate from the new
+text-only Gemma ONNX host experiment; neither establishes Android qualification
+for the other runtime.
+
+Requested bulk work additionally requires external power or at least 30% battery;
+unknown unplugged charge waits. The process-owned listener feeds the existing
+worker gate without delaying source withdrawal or foreground search. Recheck
+eligibility after query/mutex waits before inference. Pending non-reused passages
+drive a bounded device-rate estimate of active embedding time; source/reset/model
+changes withdraw incompatible estimates. Passive UI text distinguishes waiting
+from user pause and explicitly excludes unestimated subject/connection duration.
+
 ## Accessibility and verification procedures
+
+Shipping connection state contains a bounded preview and an opaque catalog
+reference. Load collection windows and selected comparisons asynchronously against
+that generation; never expose a file-backed list to UI equality or rendering.
+Retain the inspected generation until explicit Refresh, and retire released pages.
+Source withdrawal must purge both current and pinned evidence before acknowledgement;
+failed mandatory cleanup discards derived catalog storage and reports recovery.
+Reject stale compound-window reads rather than combine cache revisions. Named
+reference opportunities share the resumable passage/target sweep with independent
+admission and evidence identity. Persist the title uniqueness index with that
+source/model/policy-bound cursor and remove source titles on withdrawal. The lazy
+connection collection retains a viewport-adjacent window of at most sixty evidence
+rows while preserving explicitly revealed positions and saved scroll/focus on
+return. Earlier rows reload when revisited. Small metadata and bounded row counts
+alone do not establish the Android memory acceptance gate.
 
 Home is the default resume surface; Discover contains no listening-history or
 queue preview. A shared Your interests collection is reached through Home's
@@ -234,7 +315,7 @@ earlier publication minima and capacity-limited terminal sweeps. Historical poli
 descriptions in decisions.md do not authorize source truncation
 or a three-Note minimum for the sole engine.
 
-- Retain MiniLM, exact similarity and one engine across all builds. Form candidates,
+- Use the current pinned Gemma INT4 pipeline, exact similarity and one engine across all builds. Form candidates,
   validate relevant body evidence, name specific source-supported subjects, and
   publish separately. Retain uncertain candidates internally. Do not optimize
   topic count, force unrelated material together, or merge on member overlap alone.
@@ -324,3 +405,29 @@ Keep those failed or unmeasured gates open; see decisions.md for scoped evidence
 The streaming anchor engine, its 64-anchor admission limits and calibration sweep
 are retired. Historical rationale and measurements remain in decisions.md; they
 are not executable alternatives or current processing requirements.
+
+
+## Prepared analysis and authored metadata acceleration
+
+A single coordinator-owned generation retains records, normalized evidence, cluster
+sums and current projection state across slices. Its key includes exact source
+revisions, metadata signature, model/policy/engine and cache revision. Imported
+checkpoints are fully validated; only unchanged process-owned results skip repeated
+validation and prefix replay. Orderly query/power/window yields retain completed
+work; source/model/reset invalidation remains a hard abort. Completed formation
+checkpoints survive interruption before connections. Memory release drops optional
+workspace references and interrupts in-flight work without deleting durable progress.
+
+Authored `area` and `topics` organize optional evidence vector balls. Cauchy bounds,
+including float-rounding margins, may exclude a bucket only when every member is
+provably below the existing threshold. Unlabelled and cross-label evidence remains
+eligible; uncertain bounds use exact scores. This changes evaluation cost, not the
+publication policy, source coverage, similarity threshold or strongest-passage tie.
+A bounded identity+exact-input memo avoids repeated inference; current passages
+provide current offsets, source IDs and metadata. Clears advance a generation token
+so an older in-flight call cannot repopulate private cached inputs afterward.
+
+Comparison counters describe completed checks over passage opportunities, not a
+forecast of Note pairs or a whole-pipeline ETA. INT4 reduces embedding cost but
+keeps 768-dimensional comparison vectors. See the architecture review and decisions
+for evidence and limits; the exact hierarchy remains quadratic in the worst case.
