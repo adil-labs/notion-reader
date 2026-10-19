@@ -19,7 +19,10 @@ import org.junit.Test
 import kotlin.math.ln
 import kotlin.math.sqrt
 
-/** Explicit model fixture required: tools/semantic-discovery/prepare-device.ps1. Never skips. */
+/** Historical MiniLM baseline, despite the retained runner class name. Not active Gemma qualification.
+ * Explicit fixture: tools/semantic-discovery/prepare-device.ps1. Never skips.
+ * Active model checks: GemmaDeviceIntegrationTest and GemmaDiscoveryJourneyTest.
+ */
 class ShippingDiscoveryInferenceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext

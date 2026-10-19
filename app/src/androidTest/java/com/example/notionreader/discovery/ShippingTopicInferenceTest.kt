@@ -17,6 +17,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /** Native evidence uses the shipping provider and cache/index/controller, never fabricated vectors. */
+/** Historical MiniLM inference baseline. Current Gemma integration has separate explicit device tests. */
 class ShippingTopicInferenceTest {
     @Test fun tenThousandPassageTopicWorkYieldsToForegroundSearch() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

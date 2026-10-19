@@ -12,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
 
-/** Varied public synthetic formation with model-loaded baseline; not a human quality corpus. */
+/** Historical MiniLM-loaded synthetic formation baseline; not a Gemma resource or human quality gate. */
 class TopicFormationScalabilityDeviceTest {
     private fun stableJavaHeapBytes(total: () -> Long, free: () -> Long): Long? {
         val before = total()

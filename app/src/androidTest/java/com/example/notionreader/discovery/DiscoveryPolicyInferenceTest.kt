@@ -8,7 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 
-/** Public synthetic quality corpus, real shipping tokenizer/provider; never reads the user's library. */
+/** Historical MiniLM synthetic baseline; not active Gemma quality acceptance. Never reads the user's library. */
 class DiscoveryPolicyInferenceTest {
     @Test fun nativeEvidencePoliciesRejectHardNegativesAndRetainOverlappingThemes() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

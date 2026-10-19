@@ -83,6 +83,8 @@
 param(
     [string]$Class = '',
     [string]$Device = '',
+    [switch]$HeadlessInference,
+    [switch]$DeployModel,
 
     <#
         Turns off `touch_exploration_enabled` for the run and restores it afterwards.
@@ -97,6 +99,44 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Test-ModelDeploymentSelection([string]$Class, [bool]$Requested) {
+    $allowed = @('com.example.notionreader.ui.GemmaDeploymentDeviceTest', 'com.example.notionreader.ui.GemmaAcquisitionDeviceTest')
+    if ($Requested) {
+        if ($Class -cnotin $allowed) { throw 'DeployModel requires exactly one explicitly selected model deployment class.' }
+        return $true
+    }
+    if (@($Class -split ',' | Where-Object { $_.Trim() -match '(?:^|\.)Gemma(?:Deployment|Acquisition)DeviceTest$' }).Count -gt 0) {
+        throw 'This class can install a production model; explicitly request DeployModel to run it.'
+    }
+    return $false
+}
+
+function Test-HeadlessInferenceSelection([string]$Class, [bool]$Requested) {
+    if (-not $Requested) { return $false }
+    $allowed = @(
+        'com.example.notionreader.ui.GemmaBackendBenchmarkTest',
+        'com.example.notionreader.ui.GemmaXnnpackMatchedThreadsBenchmarkTest',
+        'com.example.notionreader.ui.GemmaQnnProbeTest',
+        'com.example.notionreader.ui.GemmaVulkanProbeTest',
+        'com.example.notionreader.ui.GemmaDeploymentDeviceTest'
+    )
+    if ($Class -cnotin $allowed) { throw 'HeadlessInference permits only the five explicit non-UI Gemma device classes, selected individually.' }
+    return $true
+}
+
+function Get-KeyguardShowing([string]$Window) {
+    $states = [regex]::Matches($Window, '\bisKeyguardShowing=(true|false)\b')
+    # API26 publishes the live state in KeyguardStateMonitor instead. The delegate's
+    # showingAndNotOccluded can remain true after dismissal, so it is not a substitute.
+    $monitor = [regex]::Match($Window, '(?m)^[ \t]*KeyguardStateMonitor[ \t]*\r?\n(?<body>(?:[ \t]+m\w+=[^\r\n]*(?:\r?\n|$))+)')
+    $legacy = [regex]::Matches($monitor.Groups['body'].Value, '(?m)^[ \t]*mIsShowing=(true|false)[ \t]*$')
+    $restricted = [regex]::Matches($monitor.Groups['body'].Value, '(?m)^[ \t]*mInputRestricted=(true|false)[ \t]*$')
+    $known = @($states) + @($legacy) + @($restricted)
+    if (@($known | Where-Object { $_.Groups[1].Value -ceq 'true' }).Count -gt 0) { return 'isKeyguardShowing=true' }
+    if ($states.Count -eq 0 -and ($legacy.Count -eq 0 -or $restricted.Count -eq 0)) { return $null }
+    return 'isKeyguardShowing=false'
+}
 
 <#
 .SYNOPSIS
@@ -263,11 +303,15 @@ function Invoke-TestAttempt {
         # is returned alongside the result object and the caller ends up holding a list of Gradle's log
         # lines with the attempt somewhere inside it. `Out-Host` writes them to the console instead,
         # which is where they were going when this code ran at script scope.
-        if ($Class) {
+        if ($Class -and $deploymentRun) {
+            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=$Class" '-Pandroid.testInstrumentationRunnerArguments.allowModelDeployment=true' | Out-Host
+        }
+        elseif ($Class) {
             & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=$Class" | Out-Host
         }
         else {
-            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain | Out-Host
+            # Default verification excludes opt-in acquisition; source completeness applies the identical exclusions.
+            & .\gradlew.bat :app:connectedDebugAndroidTest --console=plain '-Pandroid.testInstrumentationRunnerArguments.notClass=com.example.notionreader.ui.GemmaDeploymentDeviceTest,com.example.notionreader.ui.GemmaAcquisitionDeviceTest' | Out-Host
         }
         $gradleExit = $LASTEXITCODE
     }
@@ -475,6 +519,8 @@ function Test-IsRetryable($result) {
     return ($result.HarnessFailures.Count -eq $result.Failures)
 }
 
+$deploymentRun = Test-ModelDeploymentSelection -Class $Class -Requested ([bool]$DeployModel)
+$headlessRun = Test-HeadlessInferenceSelection -Class $Class -Requested ([bool]$HeadlessInference)
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
 <#
@@ -498,6 +544,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 #>
 $expectedTests = @(
     Get-ChildItem (Join-Path $repoRoot 'app\src\androidTest') -Recurse -Filter '*.kt' -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -cnotin @('GemmaDeploymentDeviceTest', 'GemmaAcquisitionDeviceTest') } |
         ForEach-Object { Select-String -Path $_.FullName -Pattern '^\s*@Test\b' }
 ).Count
 
@@ -789,6 +836,9 @@ if ($originalTouchExploration -eq '1' -and -not $DisableTouchExploration) {
     `docs/decisions.md` 23.29, which also records that a green run on an emulator is NOT evidence about
     this device's focus assertions -- see the note where the suite is reported.
 #>
+if ($headlessRun) {
+    Write-Output 'Explicit native inference benchmark: no Activity or UI; keyguard and display may remain unchanged.'
+} else {
 $keyguardDismissed = $false
 $credentialRequired = $false
 for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -797,8 +847,7 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 
     # `dumpsys window` is the only place this is published; the lock settings do not report it.
     $window = & $adb shell dumpsys window
-    $keyguardState = ($window | Select-String -Pattern 'isKeyguardShowing=\w+' |
-        Select-Object -First 1).Matches.Value
+    $keyguardState = Get-KeyguardShowing ($window -join "`n")
     $credentialRequired = ($window | Select-String -Pattern 'inputRestricted=true' | Measure-Object).Count -gt 0
 
     if ($keyguardState -eq 'isKeyguardShowing=false') { $keyguardDismissed = $true; break }
@@ -809,6 +858,9 @@ if (-not $keyguardDismissed) {
         "'No compose hierarchies found in the app', which is indistinguishable from a total regression " +
         'and is not one.')
 
+    if ($null -eq $keyguardState) {
+        throw ('Cannot establish the keyguard state from this device window dump. ' + $becauseItIsLocked)
+    }
     if ($credentialRequired) {
         throw ("The device is locked and its lock requires a credential " +
             "(isKeyguardShowing=$keyguardState, inputRestricted=true). No command can pass this: " +
@@ -857,6 +909,8 @@ if ($wakefulness -and $wakefulness -ne 'mWakefulness=Awake') {
     throw ("The device is not awake ($wakefulness) and would not wake. With the display off every Compose " +
         "test fails with 'No compose hierarchies found in the app', which is indistinguishable from a total " +
         'regression and is not one. Wake it and re-run: adb shell input keyevent KEYCODE_WAKEUP.')
+}
+
 }
 
 $isCharging = (& $adb shell dumpsys battery | Select-String -Pattern '(AC|USB|Wireless) powered: true' |
