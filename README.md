@@ -5,6 +5,21 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
+Discovery refinement is in progress ([current round](docs/decisions.md#95-automatic-discovery-and-process-recovery-2026-10-18)).
+Validated Note connections are retained independently of topic membership and
+homepage limits, with separate reference/similarity evidence, on-demand catalog reads,
+pinned inspection, bounded lazy browsing and privacy-safe page retirement.
+Subject details can expose source-supported broader subjects, subtopics and related
+subjects. The initial hierarchy requires affirmative source statements; general
+automatic hierarchy recall, representative evaluation and
+full-scale physical-device/human acceptance remain open. The optional embedding pipeline now uses EmbeddingGemma 2 INT4.
+The [500-document public experiment](docs/discovery-wos-evaluation.md) exercised
+MiniLM, BGE-small and EmbeddingGemma 2, exposed generic container labels and led to
+a publication fix. The user subsequently requested Gemma integration and device verification; category-pair diagnostics do not establish human relevance acceptance.
+Requested preparation waits for at least 30% battery or external power, with
+device-based remaining embedding-time estimates. Subject and connection analysis
+is additional; its duration is not yet estimated.
+
 For the governing contracts, current implementation boundary and historical evidence, start with the
 [documentation reading map](docs/README.md). This README is a derived repository summary.
 
@@ -288,6 +303,12 @@ runs offline in CI against real API data.
 
 ## Build and test
 
+The native Gemma tokenizer build also requires Rust/cargo, PowerShell 7 and Android
+NDK 29.0.13846066. Gradle builds the locked native crate for the supported Android
+ABIs and Windows JVM host. See [model/device tooling](tools/semantic-discovery/README.md#active-gemma-int8-android-verification)
+for prerequisites, explicit fixture staging and device checks. The optional model
+is downloaded only through Discovery settings.
+
 ```
 ./gradlew.bat :app:testDebugUnitTest
 ./gradlew.bat :app:assembleDebug
@@ -421,10 +442,10 @@ interface is *usable* with one, which is a different thing from coordinating wit
 ## Local semantic discovery
 
 Discovery is optional and automatic. Settings → Discovery → Download model (also reached through
-Discover's Set up Discovery) installs the English MiniLM-L6-v2 model and vocabulary. Downloads
-use a pinned revision and verified checksums; Wi-Fi-only is the default. ONNX Runtime CPU inference
+Discover's Set up Discovery) installs the text-only EmbeddingGemma 2 INT4 pack (207 MB, including its tokenizer). Downloads
+use a pinned community ONNX export revision and verified graph, external-weight and tokenizer checksums; Wi-Fi-only is the default. ONNX Runtime CPU inference
 runs locally. Note content and queries are not sent to an embedding service, and model binaries
-are not bundled in the APK. Browse and listening work without the model.
+are not bundled in the APK. Native Hugging Face tokenization and 768-dimensional sentence embeddings replace incompatible MiniLM derived data while preserving explicit interests and listening state. Browse and listening work without the model.
 
 Only cached Notes are indexed. Semantic search has its own metadata filters and relevance order;
 Browse keyword search and Smart Queues retain their behavior. Results show literal source passages.
@@ -446,9 +467,12 @@ ordering and labels through explicit Refresh, while revoked or evicted source co
 immediately. An unavailable preview entry retains its position without source text and requires
 recaching or removal before Play/Save.
 
-The private application-bound Android Discovery service owns the single indexing worker;
-its CPU work and inference run off the main thread. It pauses during playback,
-backgrounding and memory pressure, and cancels work when the service is destroyed.
+One process-owned coordinator serializes Discovery work off the main thread.
+After setup it continues automatically in bounded foreground or ordinary WorkManager
+background windows, including screen-off operation. Playback, memory pressure and
+explicit Pause suspend processing. Balanced requires 30% battery or external power;
+Charging only requires external power. Android may defer execution. Durable passage
+progress lets long Notes resume across windows without restarting their embeddings.
 Versioned durable checkpoints resume eligible work; unchanged passages reuse embeddings. All derived
 vectors, topics, connections and checkpoints share the private 64 MiB budget. Exact cosine search
 streams per-document vectors. Clearing the index pauses rebuilding until Resume/Rebuild; deleting
@@ -458,8 +482,8 @@ continuity; confirmed deletion or access loss removes that continuity as well.
 
 ### Discovery architecture and acceptance
 
-All builds use one section-aware hierarchical engine, owned by the application-bound
-Android Service. Indexing, candidate formation, passage projection, evidence validation,
+All builds use one section-aware hierarchical engine, owned by the process coordinator.
+Indexing, candidate formation, passage projection, evidence validation,
 naming, publication, independent connections and persistence run off the UI thread.
 There is no build flag, fallback engine or legacy migration execution. Incompatible
 old derived generations restart while compatible embeddings and explicit user state
@@ -487,3 +511,20 @@ The subsequent API36 emulator formation check used section-specific perturbation
 with 46.7 MiB sampled added Java/native memory. This scoped synthetic result does
 not certify physical playback, human quality or TalkBack listening acceptance.
 See decisions.md §76 for migration, regression proofs and remaining gates.
+
+
+Device backend research is recorded in [the Gemma benchmark](docs/gemma-device-backends-2026-10-18.md).
+The current default is INT4 with automatic, numerically validated Vulkan selection
+and CPU fallback. QNN NPU remains a fixed-length research prototype; those results
+do not establish general Note or Discovery quality acceptance.
+
+The [Vulkan follow-up](docs/gemma-vulkan-2026-10-19.md) verifies Gemma GPU
+execution on S25 through ONNX Runtime WebGPU/Dawn. Pixel basic Vulkan compute
+works, but Gemma GPU readback fails. The default is now INT4 with validated automatic Vulkan and CPU fallback.
+
+
+Discovery efficiency now retains one prepared generation across processing slices,
+saves progress at orderly yields and phase handoffs, and uses authored areas/topics
+only for conservative numerical exclusion of nonmatching evidence. Exact-input
+embedding reuse is bounded and cleared on reset/source withdrawal/resource release.
+See [the architecture review](docs/discovery-architecture-review-2026-10-19.md).

@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§76)](#76-single-discovery-engine-and-safe-derived-state-upgrade-2026-10-17)
+[current implementation and open work (§98)](#98-int4-default-and-discovery-efficiency-2026-10-19)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -8586,3 +8586,1293 @@ Recall is 8/8 and 11/11 respectively. Neither corpus has the independent human
 provenance needed for acceptance. No held-out annotations were relabeled to make
 these figures green. Functional implementation verification is complete; the
 independent human/physical acceptance gates listed above remain open.
+
+## 77. Subject hierarchy and complete connection catalog — in progress (2026-10-17)
+
+The user approved `discovery-subject-hierarchy-proposal.md` and explicitly requested
+implementation. The executable plan is
+`superpowers/plans/2026-10-17-subject-hierarchy-and-connection-catalog.md`.
+This round retains MiniLM and the sole formation engine; it does not certify
+semantic quality, resource acceptance or human TalkBack listening.
+
+### Findings and implemented work so far
+
+The old `crosses` predicate excluded equal/subset topic memberships. Per-passage
+top-five and persisted twenty-pair/two-uses-per-Note selectors lost validated
+relationships before UI display. Retrieval now scans current body evidence
+independently of topic membership, retains all validated pairs and selects only
+the homepage preview for diversity. Named references have separate pair identities
+and explicit semantic retrieval markers prevent a semantic pair being relabelled
+as a second Named reference. TopicPolicy 12 restarts old pruned connection sweeps.
+
+The live Product, UI and Integration contracts were amended and all Notion mirrors
+regenerated; diffs contain the requested appendices and metadata timestamps.
+The first hierarchy policy accepts literal affirmative subtopic/type/kind/part
+body statements and separate related-subject statements. It rejects heading-only,
+similarity-only, ambiguous labels, negation, hypothetical clauses, self-links and
+cycles. Current source revision and endpoint validity control persistence/removal.
+This conservative path is not proof of broad automatic hierarchy recall on a real
+library. That capability must still be evaluated, and expanded through governing
+amendments if the initial evidence rule misses independently supported subjects.
+
+Connections are stored in immutable 64-entry pages with digests. `topics.json`
+commits a manifest only after all referenced pages are durable. Page reads cross
+boundaries without decoding the entire catalog. Budget refusal removes staged
+pages and preserves the prior manifest/catalog; missing pages invalidate the whole
+generation. Startup removes orphan pages from interrupted writes. All pages and
+staging participate in existing store byte accounting and reset/source-removal paths.
+The coordinator/UI snapshot still materializes the full catalog: fully bounded
+candidate processing and on-demand controller consumption remain open work.
+
+Subject details now expose broader subjects, subtopics and separate related subjects
+with literal evidence, source Note/section and navigation. The all-topics collection
+identifies major subjects. Connections render twenty at a time with an accessible
+More connections control, independently of the two-card Discover preview.
+The new source-evidence Back test exposed a real return-focus bug: generic Note
+navigation recorded the page ID instead of the activated source control. An optional
+explicit `fromFocusId` preserves that control while ordinary Note routes retain
+their existing default.
+
+### Failing-first and observed verification
+
+- Before retention changes, eight same-topic Notes yielded 0 rather than 28 pairs;
+  five independent references yielded 2 rather than 5. Both new properties failed
+  while the other nineteen integration tests passed.
+- The same-pair two-kind test failed before separate identities; its classification
+  assertion then independently exposed both entries being called Named references.
+- Store tests failed before separate page persistence; the interrupted-write test
+  independently failed because an orphan page survived restart, then passed after
+  startup cleanup.
+- Device tests initially failed for absent pagination status and broader-subject
+  controls. Later source-control Back focus timed out with the generic Note origin.
+- One intermediate pagination run observed Preparing discoveries after navigation;
+  another hit a real Espresso/Compose reentrant measure/layout exception. Neither
+  was classified as a pass or silently retried. The affected class now uses the
+  documented v2 StandardTestDispatcher environment and explicit readiness checks.
+- The first v2 run completed all 19 navigation tests with zero failures, including
+  source-control Back focus. Repeated final-source runs and remaining probes are
+  still required. JVM suite, debug assembly and androidTest compilation passed at
+  intermediate checkpoints; final counts/results will be appended after execution.
+
+### Still open
+
+Complete bounded candidate/catalog memory handling and inspect cancellation/resume
+inside large pair retrieval. Add strongest-passage and narrow-subject ablations,
+complete hierarchy persistence/privacy mutation proofs and device/source-loss focus
+coverage. Build the representative 500-Note evaluation and controlled identical-vector
+exact-versus-HNSW/Leiden comparison, then BGE-small/Granite R2 model comparisons and
+independent label/hierarchy/connection judgments. The explicit-statement hierarchy
+alone must not be presented as verified general automatic major-subject discovery.
+Run varied Android scale/storage/playback measurements, relevant repeated wrapped
+accessibility checks, a real flow probe and final review. The §76 independently
+reviewed quality, physical-resource and human TalkBack gates remain open.
+
+Checkpoint verification: the current full JVM suite ran 894 tests with zero
+failures/errors. `tools/proof-discovery-evidence.ps1` removes fresh reports and
+forces test execution: disabling strongest-passage replacement failed only
+`membershipKeepsTheStrongestBodyPassageAcrossSectionsAndIgnoresHeadingOnlyEvidence`
+in its class; disabling relationship invalidation failed only
+`completedDiscoveryPublishesRelationshipsAndSourceRemovalWithdrawsThem` in its
+seven-test class. Both source files were restored byte-for-byte and the forced
+full suite passed. The latest UI wrapper run finished 19/19 on attempt 2 after
+attempt 1 lost the instrumentation process at 14 tests with an empty failure
+record; that partial attempt remains incomplete evidence, not a pass. Together
+with the earlier complete v2 run, this is two complete green observations and
+one incomplete harness observation, not three clean passes. Bounded-memory
+catalog handling, general hierarchy recall and evaluation work remain unfinished.
+
+Follow-up bounded-work correction: connection quanta previously counted 256 seed
+passages, each of which could scan the entire library. A new failing-first
+270-Note test exposed that work amplification. Quanta now count 256 target-Note
+comparisons and persist an intra-passage target cursor plus the declared sweep
+source count. A restarted coordinator resumes the unfinished passage, retains
+earlier pairs and reaches late targets. Sweep positions include missing/unindexed
+targets, so their bound is the sweep source count, not accepted embedding revisions;
+a separate failing-first store test protects that distinction and rejects cursors
+beyond the declared sweep. Compatible earlier checkpoints default to target zero.
+
+Exact ranking now cooperatively checks cancellation every 64 passages, outside
+the invalid-vector exception handler, and applies body admission while streaming
+the existing record instead of first allocating a filtered passage copy. Both new
+ranking tests failed before those guards: cancellation was not observed and a
+heading-only high score displaced the body passage. A one-Note library completes
+its empty pair sweep without repeatedly scanning its own passages. These are JVM
+correctness/work-unit bounds, not measurements of Android cancellation latency.
+The full JVM suite, debug assembly and explicit androidTest compilation were rerun
+after these changes; the current suite contains 898 tests. Full catalog residency
+in coordinator/inspected state and the representative evaluation remain open.
+
+Connection presentation follow-up: `preparedDiscovery` previously classified every
+catalog entry and retained a full evidence map before showing the first twenty
+rows. Extracted shipping `ConnectionPresentation` helpers now read/classify only
+the requested window or selected comparison. The homepage computes its exact
+two-entry relevance preview with two retained candidates rather than sorting and
+copying the complete catalog. Invalid Named references cannot occupy preview slots.
+On page expansion, existing prepared content remains mounted while the larger
+visible window is prepared off-main, preserving scroll state; source/title changes
+still discard stale presentation immediately. Details and unrelated subject/interest
+routes no longer prepare evidence for the entire catalog.
+
+The initial window/detail tests failed against the extracted eager implementation;
+the 10,000-entry source now observes exactly twenty reads for a twenty-entry window.
+Selected comparison, preview equivalence, invalid-reference exclusion, empty windows
+and integer-bound handling are covered by five JVM tests. Final JVM suite: 903 tests,
+zero failures/errors; debug assembly and androidTest compilation pass. The wrapped
+navigation class completed 19/19 with zero failures on the changed UI. This removes
+an additional whole-catalog evidence-map allocation; it does not remove full catalog
+residency in `TopicSnapshot`, `FileTopicStore.read`, coordinator pair maps or the
+controller's inspected generation. Those remain the next storage/ownership work.
+
+Semantic candidate accumulation follow-up: each quantum now keeps only its new
+pair updates in the mutable map. `mergeConnectionUpdates` preserves the complete
+prior catalog through integer routes, resolves stronger/tied evidence deterministically,
+and merges ranked updates without another full-catalog pair map or concatenated
+deduplication set. Eligibility projections likewise retain integer positions; they
+are explicitly non-owning and are not used as the source-removal mechanism.
+Invalidation's endpoint enumeration streams rather than allocating two full lists
+of connection members. File persistence consumes 64-entry chunks as a sequence,
+rather than allocating all chunks before writing the first page.
+
+Committed generations are reopened before publication to avoid retaining chains of
+prior merge batches. An acknowledged write followed by an unreadable generation
+keeps the inspected snapshot and reports recovery, instead of publishing an
+unverified fallback. In-memory adapters also bound view indirection depth; repeated
+updates and cancellation preserve the strongest current entries. Source withdrawal
+and ambiguous-reference removal deliberately still create owning filtered copies,
+because an index-only view would keep withdrawn evidence reachable through its base.
+True file-backed residency therefore still requires generation/pin ownership and
+privacy-safe retirement, not merely replacing `read()` with a lazy list.
+
+Six catalog-view properties cover complete retention beyond display limits,
+stronger/weaker/tied updates, independent evidence kinds, eligibility projection,
+repeated generations and cancellation. The first four failed against the missing
+implementation; the unreadable-generation regression independently failed before
+its publication guard. Current JVM suite: 910 tests, zero failures/errors. Debug
+assembly and explicit androidTest compilation pass. The targeted navigation wrapper
+completed 19/19 with zero failures without retry after the coordinator changes.
+Full `FileTopicStore.read()` residency and explicit-reference candidate collection
+remain open, as do general hierarchy recall and the 500-Note evaluation.
+
+The real service probe also passed on emulator-5554 after these changes: one
+application-bound service and off-main worker survived an observed Activity
+relaunch, backgrounding and return, and Discover responded. The probe does not
+establish model-loaded large-library memory/latency, physical playback coexistence
+or human TalkBack listening acceptance.
+
+## 78. On-demand connection catalogs and pinned inspection (2026-10-17)
+
+The previous paged wire format still decoded every connection into process state.
+Shipping coordinator reads now publish at most two preview pairs and an opaque,
+fingerprinted catalog reference. Explicit asynchronous page and selected-pair reads
+load evidence on the worker dispatcher. The processing view caches one decoded
+64-entry page; unchanged progress writes reuse its durable pages. The legacy full
+read remains available for compatibility/tools, outside the shipping state path.
+
+Inspection pins retain the displayed generation while new results are committed.
+Explicit Refresh releases the previous pin. Retired handles fail closed rather
+than returning their preview as a complete catalog. Old manifests recover missing
+ordering, identity and named-reference counts without publishing full evidence.
+Storage accounting includes staged and pinned pages, including shared pages.
+
+Privacy withdrawal reconciles both current and pinned catalogs before retirement.
+It checks endpoint revisions and named-reference title validity, rewrites owning
+pages, and removes withdrawn bytes. Failure of mandatory cleanup discards derived
+topic/catalog storage and reports incomplete coverage. A removal arriving after
+source enumeration is overlaid from the pending invalidation stream; otherwise a
+hidden connection could survive despite the visible preview being clean.
+
+Regression evidence from this slice:
+
+| Guard removed / missing behavior | Test that noticed |
+| --- | --- |
+| Stale compound-window revision rejection | Expected-cache-revision integration property failed |
+| Pending removal overlay after enumeration | Hidden removed-source integration property failed |
+| Mandatory withdrawal failure cleanup | On-disk private-evidence removal property failed |
+| Cooperative validation cancellation | Cancellation/previous-generation preservation property failed before fix |
+| Fail-closed referenced legacy adapter | Preview-as-complete-catalog property failed before fix |
+
+Additional properties cover complete 145-row access with two-row metadata, pinned
+generation retirement, selected hidden rows, single-page cache eviction, corrupt
+page refusal, hidden ambiguous references, progress page reuse and old manifests.
+The shipping strongest-passage and relationship-invalidation mutation proofs were
+rerun: both guards were restored and the complete 923-test JVM suite passed.
+Debug assembly and explicit androidTest compilation passed before the final UI
+empty-state adjustment. Final targeted device verification is recorded below.
+
+Still open: cumulative More windows retain/compose all explicitly visited rows;
+independent named-reference candidate retrieval still collects its candidate set.
+Large-library physical memory, storage, cancellation and playback gates remain
+unmeasured for this ownership path. General hierarchy recall, the representative
+500-Note evaluation, identical-vector exact versus HNSW/Leiden comparison and
+BGE-small/Granite comparison remain required. MiniLM remains production. Human
+TalkBack speech/listening acceptance is pending. The full goal is incomplete.
+
+Final slice verification: 924 JVM tests pass with zero failures/errors; debug
+assembly and androidTest compilation pass. The targeted navigation wrapper passed
+20/20 without retry on emulator-5554. The real service probe observed one bound
+service and an off-main worker through Activity relaunch, background and return.
+A fresh review found the unchanged-catalog reconciliation scan unnecessarily
+noncancellable. Its new regression failed first (all 290 endpoint reads continued),
+then passed after checking the caller cancellation every page during the read-only
+phase. Mandatory withdrawal staging/cleanup remains noncancellable once changes
+begin. Cancellation propagates without discarding unchanged pages. Final full JVM
+and build verification passed after this fix; no UI changed after the 20-test run.
+The review found no other blocking correctness/privacy issue in this storage slice.
+
+## 79. Resumable independent reference opportunities (2026-10-17)
+
+Independent Named references previously ran an all-record scan that built a map
+of every reference pair before merging. Reference-only passages could therefore
+escape the candidate quantum and were not represented by its durable cursor.
+
+Ruling: use the existing passage/target candidate sweep for both evidence kinds,
+while retaining separate admission and pair identities. The sweep now includes
+literal non-heading reference passages even when they fail thematic body admission.
+Only body evidence enters similarity ranking. Each target opportunity may produce
+a reference and a semantic candidate independently, with at most two candidates
+per comparison in the quantum update map. Canonical tie-breaking selects literal
+paired evidence without a full reference candidate list. The compatibility helper
+still returns a list for developer tools/tests; shipping processing does not call it.
+
+Persist a metadata-only title index alongside the cursor. Formation supplies it
+from the records it already reads; resumed work uses the saved index rather than
+rereading the whole library per quantum. Uniqueness and endpoint title checks stay
+independent of semantic similarity. The source/model/policy signature invalidates
+the index with its sweep. Policy 13 restarts incompatible passage cursors because
+reference-only passages change the opportunity ordering. Source withdrawal removes
+title metadata too, including when no published topic references that source.
+This adds private derived metadata under the existing storage/privacy budget.
+
+Failing-first evidence: the late reference-only passage/restart property failed
+against the old scan, then passed with the bounded sweep. The existing 270-Note
+read-count guard also caught an initial extra full-library title read; the persisted
+index removed it, retaining the original read-count assertions. A mutation disabling
+title removal failed exactly the targeted title-withdrawal test; production code
+was restored. A candidate parity property compares literal reference evidence with
+the full-list helper and rejects duplicate target titles.
+
+Still open: bounded cumulative visited UI windows; general hierarchy recall;
+representative 500-Note evaluation and algorithm/model comparisons; physical
+resource/playback and human TalkBack acceptance. No model migration occurred.
+
+Verification after restoring the title-withdrawal guard: 927 JVM tests, zero failures/errors; debug assembly and explicit androidTest compilation pass. No UI/Android platform behavior changed in this slice; the previous 20/20 navigation wrapper and service probe remain scoped evidence for that prior UI/storage checkpoint. Physical large-library and human quality gates remain unmeasured.
+
+## 80. Bounded connection browsing windows (2026-10-17)
+
+The collection previously fetched and composed every explicitly revealed row.
+Repeated More actions therefore recreated full evidence residency in the UI even
+though application state and storage were paged. The collection now uses a lazy
+list and one viewport-adjacent evidence window, capped at sixty rows (three pages).
+More still reveals twenty additional rank positions; earlier entries remain
+addressable and reload on reverse scrolling. Saved lazy-list position and revealed
+count survive comparison/Note navigation without serializing excerpts. Stable rank
+keys belong to the pinned inspected generation; mandatory source changes immediately
+reset the prepared evidence. Page reads and evidence classification stay off-main.
+
+Ruling: keep More outside the independently scrolling list so it remains reachable
+without composing/scanning every revealed row. Showing counts describe the revealed
+range, not the number of currently composed rows. Retain per-kind headings/counts,
+literal evidence labels, real focus targets and separate comparison navigation.
+Reject incomplete/filtered windows instead of shifting later ranks into missing
+positions. Background discoveries still require explicit Refresh.
+
+The official Android lazy-list guidance was fetched through the android CLI before
+implementation. A 10,000-position JVM property checks bounded materialization and
+return-to-earlier-row addressability. Replacing its window with the entire revealed
+range caused exactly that target test to fail; the production bound was restored.
+The first device run caught omitted reference/similarity headings (19/20 passed);
+those headings were restored rather than relaxing the assertion. Pagination now
+also checks that only viewport rows are composed and earlier entries remain
+reachable after scrolling to the catalog end.
+
+Still open: general hierarchy recall, the representative 500-Note evaluation,
+identical-MiniLM-vector exact versus HNSW/Leiden comparison, challenger-model
+comparison and physical memory/runtime/storage/playback/human TalkBack gates.
+A bounded evidence window is structural evidence, not a measured Android heap gate.
+
+Verification: 928 JVM tests, zero failures/errors; debug assembly and explicit
+androidTest compilation pass after restoring the bound. The corrected-heading
+navigation wrapper passed 20/20, then passed 20/20 again with the late-row
+comparison/Back focus assertion included, without harness retries. The final test
+also retains the expanded count and reaches earlier rows on reverse scrolling.
+Only viewport rows are composed in the 28-entry real-file-store fixture. This does
+not substitute for 10,000-passage physical memory/runtime measurements.
+
+The final emulator service probe passed: one application-bound service and off-main worker survived observed Activity relaunch, background and return, and Discover responded. It makes no large-library, physical playback contention or human listening claim.
+
+## 81. Revision-pinned public evaluation corpus capture (2026-10-17)
+
+The old feasibility corpus contains only a few synthetic short documents and
+cannot satisfy the approved 500-Note evaluation. A separate public baseline
+capture now selects twenty substantive encyclopedia articles from twenty-five
+category families. It preserves literal section paragraphs, original paragraph
+ordinals, canonical source page/revision IDs, old-revision attribution URLs and
+license provenance. Sampling gives later sections opportunity within a declared
+32-paragraph budget; it does not claim full-article content. Tables, navigation,
+citation markers and reference-only lists are outside this baseline sample.
+
+Family partitions are fixed before any algorithm output: ten families calibration,
+fifteen held out. Categories are selection strata, not human topic labels or
+subsumption judgments. Exact source/prose duplicates, missing provenance, family
+split leakage, partial counts and changed frozen content are rejected. Human
+judgments remain zero/unrated. Representative personal-Note styles, near-duplicate
+and conceptual leakage, independent subject/membership/hierarchy/connection review
+and Android performance remain explicit limitations.
+
+The capture caches public API responses under an explicit external output directory
+on C:, avoiding the nearly full repository drive. Only a complete 500-Note run can
+write the versioned source/hash lock. The offline verifier checks source, content,
+partition and aggregate fingerprints. Preserve the captured corpus/cache for
+replay: revision links alone do not freeze transcluded templates/parser behavior.
+An existing frozen lock cannot be overwritten by a new capture.
+
+The MediaWiki category/parse documentation was checked and the live API verified.
+Its explicit revid property was required to obtain the revision ID alongside parsed
+content. An initial capture stopped on HTTP 429; the resumed process uses cached
+results, bounded retries and server Retry-After backoff. Partial progress is not a
+500-Note pass. Seven corpus-tool tests pass, including a mocked 429 retry/cache
+property and missing/modified-provenance failures; eight existing quality-audit
+tests pass. The JVM suite remains green (928 tests; unchanged app sources).
+
+Current capture is running; the public-500-v1 lock is not yet present. This is
+infrastructure and an in-progress baseline, not representative quality acceptance.
+Next: finish/verify the 500-source lock, audit family leakage, export shipping
+chunker/tokenizer inputs, compare exact versus HNSW/Leiden on identical MiniLM
+vectors, then compare embedding challengers on the selected pipeline. General
+hierarchy recall, independent human quality review and physical device/playback/
+TalkBack gates remain open. MiniLM is unchanged in production; goal is incomplete.
+
+## 82. Shipping tokenizer/chunker export for the public benchmark (2026-10-17)
+
+A Python recreation of passage splitting would make algorithm/model comparisons
+ambiguous. The public benchmark now has an explicit host Gradle task that invokes
+the shipping BertWordPieceTokenizer and SemanticChunker. It maps captured literal
+paragraphs to paragraph chunks with original paragraph ordinals in block IDs;
+section titles provide context without fabricated heading body evidence.
+
+The exporter requires exactly 500 public revision-pinned Notes, a matching external
+and embedded lock, canonical corpus fingerprint, unique Note IDs and family split
+consistency. It rejects private/unpinned inputs and partial capture before writing
+an output. Model input JSONL is staged then atomically replaced; its companion
+manifest binds corpus, vocabulary and passage-file hashes. A consumer must verify
+those hashes; absence/mismatch is not a usable comparison run. The task exports
+inputs only, without embeddings, clustering or quality acceptance.
+
+Five properties cover literal section/paragraph provenance, no manufactured body
+headings, changed content/metadata fingerprints, Python/Kotlin canonical fingerprint
+parity including Unicode/nulls, private/unpinned refusal and partial-output refusal.
+The new interface was absent at the initial red compilation; after implementation,
+933 JVM tests pass with zero failures/errors. Debug assembly and explicit
+androidTest compilation pass. This is test/tooling/build configuration only; no
+new production behavior or instrumentation assertion changed.
+
+The public API capture continues in its original live process with cache/backoff;
+51/500 Notes were durably saved at this checkpoint. No final corpus lock, exported
+500-Note passage artifact, algorithm comparison or semantic-quality verdict exists
+yet. Finish capture/verify and leakage audit, then run the shipping passage export
+and identical-vector formation comparison. General hierarchy recall, challengers,
+physical resource/playback gates and human quality/TalkBack acceptance remain open.
+
+## 83. Shared verified MiniLM vector artifacts (2026-10-17)
+
+The algorithm ablation needs identical model inputs and ordered vectors. Public
+shipping passage exports now include exact tokenizer IDs (including special tokens),
+so the host inference stage never retokenizes or silently clips a passage. The
+vector stage verifies the exported file hash, 500-Note coverage, family partitions,
+token-window bounds and pinned production ONNX/vocabulary hashes. It uses single-
+input CPU inference with two threads and double-precision mean/L2 pooling over real
+tokens, following the provider's policy. Production MiniLM and app behavior remain
+unchanged; this is explicit local host evaluation tooling.
+
+One complete vector manifest binds corpus, input, vocabulary, model/revision,
+runtime/provider, dimensions, pooling and ordered-row/vector file hashes. Files
+are content-addressed and the manifest commits last. Failed inference does not
+replace a prior complete manifest. The verifier rejects reordered metadata,
+changed vectors, missing/cardinality-mismatched rows, nonfinite/nonunit values and
+incomplete artifacts. Both formation methods must consume this same verified
+artifact; independently regenerated embeddings do not establish an algorithm-only
+ablation.
+
+Five tests pass for pooling validity, ordered shared-artifact round-trip, corrupted
+row/vector refusal, failed-inference preservation and duplicate/family-leakage
+rejection. Seven public-corpus tests still pass. A real pinned MiniLM ONNX CPU
+smoke on one existing tokenizer golden produced a finite 384-dimensional unit
+vector. It is a one-input host smoke, not a 500-Note run, semantic quality gate or
+Android evidence. The full 933-test JVM suite passes after exporting token IDs.
+
+Public capture continues in its live cached/backing-off process; no full corpus
+lock or 500-Note vectors exist at this checkpoint. Finish capture and leakage audit,
+verify shipping inputs, run exact versus HNSW/Leiden on the identical vectors,
+then benchmark embedding challengers on the selected pipeline. General hierarchy
+recall, independent human judgments, physical performance/playback and human
+TalkBack acceptance remain open. The goal is incomplete.
+
+## 84. Host graph candidate baseline and approximation probe (2026-10-17)
+
+The graph baseline now uses real Faiss HNSW and igraph/leidenalg binaries in an
+isolated C: environment. Pinned wheels are available on Windows/Python 3.14:
+faiss-cpu 1.15.1, igraph 1.0.0, leidenalg 0.12.0 and texttable 1.7.1. Production
+Android dependencies and MiniLM are unchanged. Official Faiss/Leiden documentation
+was checked before configuring the APIs.
+
+Exploratory declared defaults: k=15, cosine threshold .65, M=32,
+efConstruction=200, efSearch=128, one thread, seed 42, union/max positive-cosine
+edges, RBConfiguration resolution 1 and iterations until stable. No held-out
+quality judgment selected these defaults. Isolated passages remain singleton seed
+communities. Every input seed must appear exactly once; this is not global
+Note-membership projection, which may overlap subjects.
+
+A deterministic calibration-only sample compares approximate neighbors with exact
+cosine, allowing equally good boundary ties. The probe rejects self, duplicate,
+unknown and incomplete neighbor opportunities. Tests prove an intentionally missed
+nearest neighbor lowers measured recall; equal ties do not create false misses.
+Real graph tests preserve two known direction communities and an isolate, and
+repeat seeded partitions while recording real library versions. Four graph and
+five shared-vector tests pass in the isolated environment.
+
+Important comparison boundary: the shipping engine groups eligible within-section
+passage directions, not the raw embedding rows. The graph CLI refuses a raw-passage
+artifact as a paired exact-engine ablation. A shared shipping opportunity adapter
+must precede the corpus comparison; do not compare raw graph seeds with globally
+projected published topic memberships. No full corpus, winning formation method,
+common downstream quality, Android feasibility or model migration is established.
+The public capture continues in its original live cached/backing-off process.
+
+Next: finish the source capture/lock and shared opportunity export; run both seed
+formation methods on identical eligible vectors, then shared membership/naming/
+hierarchy quality review. Preserve the open general hierarchy recall, challenger
+comparison, physical resource/playback and human quality/TalkBack gates.
+
+## 85. Shared shipping formation preparation (2026-10-17)
+
+The graph comparison cannot duplicate or approximate the engine's eligibility and
+direction preparation. The sole engine now calls an internal pure preparation
+function that can also be used by the explicit host export. It preserves canonical
+record/passage ordering, model and passage-Note identity checks, substantive body
+admission, primitive vector validation/normalization and within-section exact-
+direction grouping. Every supporting passage stays attached to its opportunity;
+matching directions in different authored sections keep separate linkage weight.
+There is no alternate runtime algorithm, selection flag or new worker.
+
+This is an extraction of the existing preparation, not a new subject or membership
+policy. The old engine-local preparation and normalization copies were removed;
+checkpoint signatures, opportunity order, thresholds and policy version remain
+unchanged. The engine still uses exact average linkage, focused candidates and
+global best-body-passage projection. Shared inputs expose authored-section count
+and provenance without turning headings into substantive evidence.
+
+Two new properties cover all within-section directions/duplicate provenance,
+separate authored sections, checkpoint opportunity-count agreement, heading/source/
+model identity rejection and zero/nonfinite/wrong-size vectors. Removing exactly
+the body-evidence guard caused the intended rejection property to fail (one of the
+two tests failed); the production guard was restored. The complete 935-test JVM
+suite then passed with zero failures/errors, along with debug assembly and explicit
+androidTest compilation. No UI behavior changed in this extraction.
+
+The host transport/export still needs wiring to this shared function before the
+graph CLI accepts a corpus run; do not treat the function alone as a completed
+paired comparison. Public capture remains live with cache/server backoff, at
+132/500 Notes at this checkpoint. Full source freeze/leakage audit, exact/graph
+comparison and shared downstream review remain open, together with general
+hierarchy recall, embedding challengers, physical resource/playback and independent
+human quality/TalkBack gates. Production MiniLM remains unchanged.
+
+## 86. Verified native opportunity transport and graph conversion (2026-10-17)
+
+The shared shipping preparation is now wired to the host pipeline. MiniLM vector
+artifacts include a checksummed headerless little-endian float32 transport, proven
+bit-identical to their NPY values. The JVM adapter consumes raw vectors and the
+ordered passage index, checks payload hashes, source/corpus identity, 500-Note
+coverage, canonical passage/row alignment, family partitions and normalized vectors,
+and builds primitive-backed records for the existing preparation function.
+
+Native export records opportunity order, normalized direction, source Note/section,
+all member passage IDs, family split and source-vector manifest identity. A Python
+conversion copies those prepared directions into the graph artifact without model
+inference. It rejects partial exports and missing/duplicated member provenance,
+and binds both source artifact identities. The graph CLI can now accept a valid
+shared shipping opportunity artifact; it continues to reject raw passage vectors.
+The exact engine remains the only runtime formation implementation.
+
+Six vector-artifact tests pass, including raw bit preservation/corruption refusal.
+Three JVM adapter properties cover bit alignment, reordered/corrupt payloads and
+partial-corpus refusal. Removing precisely the passage-ID alignment guard made
+only the intended corruption/reorder test fail (one of three); the guard was
+restored. Two native-conversion properties cover identical direction bits, complete
+member provenance and partial/lost-provenance refusal. Four real graph tests remain
+green. The complete 938-test JVM suite has zero failures/errors; debug assembly and
+explicit androidTest compilation pass.
+
+Public source capture remains live, with 144/500 Notes saved at this checkpoint.
+No complete corpus lock, full opportunity artifact or corpus algorithm comparison
+exists yet. Next: complete source freeze/leakage audit, run the full export/vector/
+opportunity chain, export the shipping exact seed groups and compare both methods
+with common downstream membership/naming/hierarchy review. General hierarchy recall,
+challenger models, physical resource/playback and independent human quality/TalkBack
+acceptance remain open. No production model or runtime graph migration occurred.
+
+## 87. Shipping exact seed observation and public export (2026-10-17)
+
+The exact side of the formation comparison now observes the existing shipping
+phase before projection. An internal evaluation entry uses the same step body,
+retains focused candidate groups and completes normal membership/naming/publication;
+ordinary runtime calls have no observer. There is no alternate formation algorithm
+or runtime selector. A property checks known seed directions and compares final
+projected label/member/passage/score properties with normal discover output.
+
+The public exact task validates the native opportunity manifest against the source
+vector manifest, recomputes every opportunity/member ID and hashes the prepared
+float bits before running. It refuses mismatched graph inputs and partial corpora.
+The report binds native/source artifact identities, exact groups, opportunities,
+comparison count, explicit parameters and actual downstream unrated review cases.
+It commits only after normal processing completes. Case identities bind their source
+vector artifact and literal membership evidence; candidate counts are not human
+precision, recall, label or hierarchy quality judgments.
+
+Time scopes are declared rather than compared as interchangeable totals. Exact
+formation includes shipping preparation/focused candidates and its total includes
+downstream projection/publication. Graph totals exclude shared preparation and
+have no downstream projection yet. A phase-aligned comparison/common downstream
+review remains required before selecting a method. Host timing never establishes
+Android feasibility.
+
+The new evaluation property passed after the interface was implemented; the full
+939-test JVM suite passes with zero failures/errors, debug assembly and explicit
+androidTest compilation pass, and four graph properties remain green. The exact
+command also inherits the partial-corpus refusal property. No complete 500-Note
+exact/graph run exists yet; public capture continues in its original live process.
+
+Next: complete/freeze and audit the source corpus, run both full formation paths,
+apply common downstream projection/review, and retain unmeasured human gates.
+General hierarchy recall, embedding challengers and physical memory/runtime/storage/
+playback and human TalkBack acceptance remain open. Production MiniLM is unchanged.
+
+## 88. Common downstream subject evaluation (2026-10-18)
+
+Comparing raw graph communities with exact published topics would conflate formation
+and downstream policy. Focused candidate expansion, centroid/anchor preparation,
+global strongest-body-passage membership, naming and their floating-point helpers
+are now extracted from the shipping engine into shared internal functions. The
+sole engine calls them with the same thresholds, order, tie-breaking and source
+rules. Runtime continuity, checkpoints and scheduling remain in the existing engine.
+No runtime algorithm flag or alternate graph implementation was added.
+
+The explicit host graph-review task verifies the native generation and algorithm
+identity, rejects missing/duplicate/unknown/empty opportunity partitions, and maps
+all graph IDs to the shared input. It applies the same focused candidates, global
+membership, naming, publication and source-supported hierarchy functions. It retains
+actual literal review evidence and unrated judgments in graph-projection.json.
+Exact review also exports hierarchy evidence. Both paths share one native-input
+verification implementation, including prepared direction bits and all member IDs.
+
+The shared projection property independently expects the strongest later passage
+and a real member label source. Disabling the stronger-score replacement made that
+property fail for the expected weak-versus-strong passage; the guard was restored.
+Two graph-input properties cover complete mapping and malformed/source-mismatched
+refusal. Existing checkpoint, naming, membership and publication tests remain intact.
+The complete 942-test JVM suite passes with zero failures/errors, with debug assembly
+and explicit androidTest compilation passing after restoration.
+
+This is cold host evaluation infrastructure, not graph Android adoption or semantic
+quality acceptance. The graph task does not evaluate runtime identity continuity,
+sessions or device resources. Time scopes stay explicit, with no speed winner from
+unequal phases. At the latest capture checkpoint, 188/500 public Notes were saved;
+the original capture process remains live with server backoff. A complete corpus
+lock, full paired run, leakage audit and independent judgments remain pending.
+General hierarchy recall, embedding challengers and physical performance/playback/
+TalkBack gates remain open. MiniLM remains production and the full goal is incomplete.
+
+## 89. Lexical leakage audit for held-out evidence (2026-10-18)
+
+Exact source/prose deduplication does not catch contained Notes, copied paragraphs
+or near-identical excerpts assigned to different selection families. The public
+corpus now has a content-bound lexical audit that accounts for every unordered
+Note pair. It reports five-word shingle Jaccard/containment and shared normalized
+substantial-paragraph evidence under declared fixed thresholds. Cross-partition
+risks identify the whole affected held-out family and its excluded Note IDs; they
+do not silently move the frozen split or become human truth.
+
+This is deliberately a lexical screen, not proof of semantic family independence
+or paraphrase detection. Full mode requires a verified matching 500-Note lock.
+Progress mode remains incomplete regardless of its findings. No lexical finding,
+including absence of a match, establishes subject/membership/hierarchy precision,
+recall or useful-label acceptance.
+
+Four properties detect copied substantial prose, contained Notes with different
+paragraph boundaries, whole-family contamination, duplicate IDs/family split
+failures and the absence of a semantic/quality pass for unrelated partial input.
+An actual diagnostic pass covered 211 captured Notes and all 22,155 unordered pairs:
+no lexical cross-partition risks were found, and the gate correctly remained
+incomplete. This result is scoped to that partial fingerprint, not the final corpus.
+
+The relevant corpus/vector/formation/graph/quality suites pass 31 Python tests.
+The rate-limit test also exposed a retained HTTP error response; its new close-
+before-backoff assertion failed first, then passed after explicit response cleanup.
+The existing JVM suite remains green (942 tests, app sources unchanged). The live
+capture process was polled and retained rather than restarted; it had 216/500 Notes
+at the latest checkpoint. Source selection/sampling semantics did not change.
+
+Next: finish the source freeze and full leakage audit, run both formation/review
+paths, annotate family/mixed-case eligibility and collect genuine independent
+subject/membership/hierarchy/connection judgments. General hierarchy recall,
+challenger-model comparisons and physical resource/playback/human TalkBack gates
+remain open. MiniLM remains production; the goal is incomplete.
+
+## 90. Labeled public pipeline and model comparison (2026-10-18)
+
+The user authorized sourcing labeled Hugging Face data, exercising the real
+pipeline, making evidence-driven fixes and testing EmbeddingGemma 2. We ran 500
+revision/hash-pinned WOS-JTF scientific title/abstract records through the shipping
+tokenizer/chunker (861 passages), native preparation, exact formation and the
+HNSW/Leiden path with common shipping downstream policy. The 200 source-dev and
+300 source-test records have overlapping subject families. They are explicitly
+an exploratory source-split diagnostic, not family-held-out human acceptance.
+Publisher journal/citation labels stay in a frozen sidecar, outside discovery
+inputs. The lexical audit covered all 124,750 pairs, with no detected risks under
+its fixed rules; semantic independence remains unproved.
+
+The first run exposed an actual naming defect: 493 published candidates all had
+the generic container heading Body as their label. Policy 14 rejects Body,
+Abstract, Main text and Full text, sharing the publication generic-label set with
+focused candidate formation. Eligible source-phrase naming still runs; unnamed
+candidates/evidence remain internal. Existing incompatible progress restarts
+through the policy signature. The fixed exact run publishes 457 distinct labels,
+mostly single-Note subjects. Distinct counts do not prove useful naming.
+
+At the same 0.65 formation setting, MiniLM exact and graph paths produced 494
+candidate groups and equivalent fixed-publication metrics. Lower graph thresholds
+increased publisher-category pair recall but introduced disagreements. BGE and
+Gemma have substantially different cosine distributions and require their own
+threshold calibration: reusing MiniLM thresholds admitted nearly every pair for
+BGE and produced one unpublishable Gemma exact candidate. No runtime graph selector
+or model/threshold replacement was introduced.
+
+Selected by dev fine-category pair F1 from the explored grids, test results were
+MiniLM graph: 33/41 correct predicted pairs, 2.37% recall; BGE: 123/272, 8.84%;
+Gemma: 337/1,108, 24.23%. The common denominator is 1,391 publisher fine-category
+pairs. These pair scores are not the product's passage/membership or missed-subject
+metrics. Larger-model recall gains came with much lower pair precision. Host
+embedding/artifact times were about 9.8s MiniLM INT8, 42.7s BGE FP32 and 248.8s
+Gemma FP32, without Android or quantization-controlled speed claims. Gemma used
+the pinned community ONNX text-only export, documented clustering instruction,
+publisher tokenization and 768-dimensional projected embeddings; no modality
+encoder was loaded. Publisher PyTorch parity remains unmeasured. The previous
+LiteRT-LM static gate is a separate artifact/runtime experiment.
+
+An independent review caught unchecked local source downloads and a gold sidecar
+that could change without changing the reported corpus identity. Source files now
+must match their pinned hashes; the evaluation lock binds corpus and gold, and
+scoring checks each gold source split/content hash plus report corpus identity.
+Both findings were reviewed again and resolved (eight targeted tests passed).
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Generic container publication rejection absent in original policy | `genericDocumentContainersDoNotBecomePublishedSubjects` fails on Body publication |
+| Pinned source checksum removed | `testModifiedValidSourceCannotClaimThePinnedRevision` fails because changed valid source was accepted |
+| Frozen gold checksum removed | `testGoldLabelsAndTheirSourceBindingAreFrozen` fails because altered labels were accepted |
+
+All guards were restored. The 944-test JVM suite passes with zero failures,
+errors or skips; debug assembly and explicit Android-test compilation pass.
+The 43 relevant Python tests pass. This round changes domain publication and
+host-only evaluation; no new UI/platform flow or device/human acceptance claim.
+Raw public source/model/vector/report payloads stay outside the repository; the
+compact hash-bound [result artifact](../tools/semantic-discovery/wos-evaluation-2026-10-18.json)
+and [findings](discovery-wos-evaluation.md) are tracked intentionally alongside
+reproduction tooling.
+
+Still open: general hierarchy recall beyond explicit body assertions; genuinely
+family-held-out representative data and independent subject/passage/label/edge
+judgments; useful connection quality; Granite comparison; physical resource,
+playback and human TalkBack gates. All hierarchy outputs here had zero edges;
+external category taxonomies are not runtime source assertions. Production stays
+MiniLM and existing thresholds: these diagnostics do not justify migration or
+release acceptance. The full goal remains incomplete.
+
+## 91. Power-aware requested work and scoped time estimates (2026-10-18)
+
+The user clarified that a slower Gemma model is acceptable if quality improves,
+and requested power-aware execution plus a work-based time estimate. Longer host
+runtime alone is not a rejection. The live Product/UI/Integration sources were
+amended using `tools/amend-discovery-power-estimates.ps1`, regenerated through the
+exporter and diffed. Existing explicit model acquisition, Resume and Rebuild
+requests remain; automatic discovery within that requested indexing lifecycle,
+the single application-bound worker, foreground/playback/resource gates and
+mandatory source withdrawal are preserved.
+
+The process observes Android battery broadcasts. Bulk work waits below 30% unless
+external power is connected; unknown charge without power waits too. Power waiting
+is distinct from user Pause, does not suspend search or reading, and resumes under
+existing eligibility constraints. No foreground/background scheduler, second
+worker or hidden model download was added. Discover and Settings expose the reason.
+
+Pending changed Notes are planned as IDs and work counts rather than another
+library of vectors. Compatible reusable passages are excluded from new inference.
+A bounded recent device-rate sample observes only actual provider calls, excluding
+query waits, policy pauses and the first potentially cold call. Model/source/reset
+work changes invalidate the estimate. UI shows a coarse embedding-time range after
+enough observations, or Estimating on this device. Subject/connection analysis is
+explicitly additional with unknown duration; this is not a whole-job deadline.
+Progress text remains passive, without a live region or focus-stealing action.
+
+Review identified a race: power was checked before mutex/query waits, allowing a
+new bulk embedding after power fell during the wait. A deterministic test first
+asserts the manual query really entered the provider, drops power while bulk work
+waits, and failed on two calls instead of one. Rechecking generation, source,
+pause and power inside the inference lock fixes it; deferral is not an index error.
+A second regression first exposed a stale estimate after source changes while
+waiting for power; source revision changes now withdraw that estimate. Both tests
+passed after restoration, and the focused review found no remaining issue.
+
+The full 954-test JVM suite passes with zero failures/errors/skips; debug assembly
+and Android-test compilation pass. The targeted real-broadcast accessibility test
+passed through the wrapper before and after the race fix (one expected test each).
+It observes unplugged 15% waiting, charger eligibility, manual-pause distinction,
+readable passive estimate text and reachable Pause; battery simulation is reset.
+The final run used the explicit emulator serial, leaving the attached phone alone.
+The previously stopped emulator was cold-started with the Android CLI after the
+wrapper correctly refused a missing target. No failed/missing run was counted as
+a pass. Physical device resource/playback and human TalkBack acceptance remain open.
+
+Production stays MiniLM pending stronger quality and Android evidence. The user
+subsequently requested quantized Gemma comparison; that is a separate host-model
+experiment, not a model installation or a release-acceptance claim.
+
+## 92. Gemma INT8 and Q4 compared at fixed settings (2026-10-18)
+
+The user requested quantized Gemma against the preceding model results. Both
+publisher community exports from revision `daa72c51243991dfcaf9f9137d2c573d8f7790c0`
+were downloaded and checked against pinned graph/external-weight hashes. The host
+adapter now explicitly selects fp32/int8/q4; shared tokenizer/config checks remain
+mandatory and FP16 variants are not silently substituted. The new selector property
+was written before implementation. This is host tooling, with no app model switch.
+
+All 861 input passages and ordered token identities match FP32 exactly. We held
+768 dimensions, instruction, two CPU threads, graph parameters and membership
+constant (graph 0.90; membership 0.90), then ran native preparation, HNSW/Leiden,
+shared shipping projection/naming/publication and the frozen publisher-label scorer.
+No separate quantized threshold tuning was attributed to quantization.
+
+| Gemma | Correct / predicted test pairs | Pair precision | Pair recall | Pair F1 | Graph + weights |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| FP32 | 337 / 1,108 | 30.4% | 24.2% | 27.0% | 1,084.6 MB |
+| INT8 | 374 / 1,237 | 30.2% | 26.9% | 28.5% | 314.2 MB |
+| Q4 | 424 / 1,531 | 27.7% | 30.5% | 29.0% | 174.5 MB |
+
+All use 1,391 fine-category gold pairs on the same 300 source-test Notes. INT8
+reduces model storage about 71% while staying closest to FP32 vectors (mean/min
+same-passage cosine 0.999937/0.999680). Q4 saves about 84% with more vector/output
+changes (0.985120/0.947012); its greater F1 reflects more recall and lower precision,
+not proof of useful subjects. Tokenizer/config assets add 32.2 MB to each model;
+stored vectors remain float32. Pair additions/removals relative to FP32 are
+140/11 for INT8 and 618/195 for Q4, illustrating graph threshold sensitivity.
+
+Single observed host embedding/artifact times were 248.8/571.3/252.2 seconds for
+FP32/INT8/Q4. Other verification work occurred during these runs; these are not
+isolated repeated timing benchmarks and omit download/session initialization.
+No Android speed, memory, playback or quantized publisher-PyTorch parity is claimed.
+The user accepts longer runtime if independent quality improves; speed alone is
+not the reason production stays MiniLM. The unresolved issue is quality/qualification.
+
+The [compact artifact](../tools/semantic-discovery/gemma2-quantization-2026-10-18.json)
+binds corpus/gold, ordered rows, model files, parameters, vectors and reports.
+[The findings](discovery-wos-evaluation.md#gemma-quantization-comparison) explain
+the trade-off. Source-split/publisher-category diagnostics remain distinct from
+the required family-held-out human subject/membership/hierarchy/connection gates.
+
+Verification: 44 relevant Python tests pass; the 954-test JVM suite, debug assembly
+and Android-test compilation pass. The query-wait power regression additionally
+passed three targeted repeats, and the focused review confirmed the fix. The
+targeted real-battery accessibility wrapper run passed one expected test after
+that fix. No production model/runtime/threshold changed for this experiment.
+
+The independent encyclopedia capture also finished and its complete 500-Note lock
+was verified (`9e7a191fc900d79f5fddf37f2ef65477c85625c17085c175c85d66eaebf6ec79`);
+it supplies no new quality judgments. General hierarchy recall, useful connections,
+independent representative family-held-out judgments, Granite and physical/human
+acceptance remain open. The full original goal remains incomplete.
+
+## 93. Gemma INT8 Android integration started (2026-10-18)
+
+The user explicitly requests complete INT8 Gemma 2 integration and real device
+verification of topics, connections and Discovery, with UI fixes as necessary.
+This supersedes the earlier decision to retain MiniLM, rather than treating a
+publisher-label proxy as independent release acceptance. Live Product, UI and
+Integration sources were amended using `tools/amend-discovery-gemma-int8.ps1`,
+then all mirrors regenerated through the exporter and their changed clauses
+inspected. No generated source was hand-edited. The single existing engine,
+worker ownership, explicit optional acquisition, privacy, playback and power
+rules remain; representative release and human TalkBack gates remain separate.
+
+Read-only inspection confirmed that the current Android implementation is still
+MiniLM on ONNX Runtime Android 1.31.0. It hardcodes a BERT tokenizer, 384 dimensions
+and mean pooling. The download manager routes only .onnx into the remote onnx
+folder; Gemma's external .onnx_data would be requested at the wrong URL. These
+are migration requirements, not established Android Gemma failures. The attached
+physical device is a Pixel 8 Pro; its private app content was not modified.
+D: had about 140 MB free, so large assets/build outputs must use C:.
+
+The pinned Gemma tokenizer contains 262,144 vocabulary entries, 514,906 BPE
+merges and 24 added tokens. `tools/semantic-discovery/gemma2-android-reference.json`
+freezes 12 public/purpose-built tokenization cases with reference token IDs,
+explicit Android UTF-16 source offsets and instructed IDs, plus three real WOS
+INT8 768-dimensional vectors from the verified content-addressed artifact.
+Cases include Hindi/Marathi, Chinese/Japanese, combining marks, emoji, whitespace,
+literal special tokens and long words. SHA-256 is
+`0c58576cfe407322e4536bce0b20e042b8c51fa7c07d0765423813001471dfd0`.
+Every tokenizer case and vector reference was rechecked against the pinned
+reference and original verified vectors; the three Gemma host adapter tests pass.
+This is reference evidence for forthcoming Android parity tests, not Android
+execution evidence or a quality judgment.
+
+The executable work breakdown is
+`docs/superpowers/plans/2026-10-18-gemma-int8-android.md`.
+Still open: Android-compatible exact tokenizer; model acquisition/provider/wiring
+and identity migration; shipping-engine calibration; actual device inference and
+reference parity; public fixture indexing through supported subjects, paired
+connections, search and accessible navigation; observed UI fixes and full
+applicable verification. No production model switch or device inference was
+completed in this preparation round. The integration goal remains active.
+
+## 94. Gemma INT8 integrated and device verified (2026-10-18)
+
+The Android composition root now uses the pinned EmbeddingGemma 2 INT8 pack,
+ONNX Runtime Android CPU inference with two threads, a native Rust Hugging Face
+tokenizer, and normalized 768-dimensional `sentence_embedding` output. This is
+an implementation change following §93's live-source amendment. All five assets
+are size/hash verified; external weights use their correct remote path and local
+filename. Pack identity includes model, tokenizer, preprocessing and chunking so
+MiniLM vectors and incompatible topic checkpoints cannot be reused. Download UI
+shows actual transferred bytes and percent. Saved interests remain independent.
+
+Native builds cover four Android ABIs; the ARM64 library has 16 KiB load alignment.
+Actual runtime verification currently covers the Pixel 8 Pro, API 37, ARM64 only.
+Host JNI parity covers twelve frozen multilingual/token-offset cases and three
+instructed passages. Device parity checks the same twelve cases, the complete
+pack, explicit overflow rejection and three host vectors. Re-read device report
+cosines are above 0.9999999999998. Post-inference memory samples are not peak
+memory or large-library resource acceptance.
+
+The real-device six-Note isolated fixture run indexed all six Notes and published
+three subjects: RabbitMQ acknowledgments, Riparian ecology and PostgreSQL
+transaction isolation. It produced four connections, three semantic and one named
+reference, excluded unrelated ecology from messaging membership, and ranked the
+messaging Note first for its search. Actual measured embedding time remaining was
+observed at two to three seconds. The journey traverses subjects, evidence, Back
+focus restoration, the connection catalog, paired literal passages and Preview
+without changing listening state. The paired-passage screenshot was inspected.
+This fixture proves integration behavior, not representative library quality.
+
+The physical acquisition test downloaded and verified the full 346,397,233-byte
+pack through the real application Settings/model manager. Its report records
+`alreadyInstalled=false` and `verified=true`; the main installed pack remains on
+the phone. Download progress screenshot inspection showed readable 49% progress,
+Cancel and the existing Wi-Fi/power controls.
+
+The actual shipping exact formation path was also evaluated with the existing
+500-Note/861-passage public WOS inputs at distance 0.10 and membership 0.90.
+Fine-category source-test pair precision is 39.671%, recall 24.299%, F1 30.138%
+(338 correct of 852 predicted, 1,391 gold). This is a source-split publisher-label
+proxy on frozen passages, not family-held-out human acceptance or a full new
+Android chunking benchmark. Gemma policy 15 routes formation, membership,
+connection and source-retention thresholds explicitly rather than inheriting
+MiniLM defaults.
+
+### Regression evidence and verification
+
+| Guard removed | Test that failed for the intended reason |
+| --- | --- |
+| Installed marker revision comparison | `aPreviousModelMarkerCannotMakeANewPackAvailable` |
+| Active retention floor | `sourceReplacementKeepsTheActiveModelsStricterRetentionFloor` |
+| Model-specific formation/membership routing | `theActiveModelPolicyControlsFormationAndMembershipRatherThanLegacyDefaults` |
+| Recheck installation after acquiring download mutex | Startup-download regression observed one network open instead of zero |
+
+The first three guard removals produced exactly three failures, then were restored.
+The startup race was separately proven failing first and fixed: a queued download
+must not replace a pack that startup verification just established as installed.
+Current JVM XML reports contain 963 tests with zero failures/errors. Debug assembly
+and Android-test compilation passed. Repository-wrapper physical runs passed
+Gemma parity 1/1, the Gemma journey 1/1, acquisition 1/1 and targeted topic/navigation
+accessibility 20/20. An initial navigation assertion read an off-viewport lazy row;
+the test now scrolls each section into view before retaining its readable assertion.
+Async journey transitions are awaited before asserting ready-state content.
+
+A comma-separated class selection ran only one test; the wrapper correctly
+declared the aggregate incomplete. Each final class was run separately. A physical
+power-test invocation failed its emulator-only guard before battery simulation;
+it is not a passing power result. API 26 testing remains inconclusive because the
+installed AGP test-engine reinstall path rejects the existing package. Adding
+`installation.installOptions("-r")` has not resolved that path. Do not uninstall
+or clear app data to produce a green result.
+
+Further inspection of installed engine 1.0.1 confirms an
+`android-test.apk-install-options` key and a force-reinstall command path. Trials
+setting this through the Gradle task's engine-input map and system-property map
+still ended in the same pre-test install rejection. Those ineffective task
+overrides were removed; these attempts supply no API 26 inference evidence.
+
+The wrapper now recognizes API 26's scoped `KeyguardStateMonitor` while failing
+closed on locked/conflicting/unknown output. Ten shipping-parser self-check cases
+pass, including a failing-first legacy-output case. Completeness and harness
+signature self-checks also passed. A classifier check against the intentional
+physical power-guard failure correctly refused to classify it as a harness error.
+An inherited preflight restoration gap remains: device-setting changes before
+the wrapper's main finally block can survive preflight refusal; the emulator's
+original stay-awake value was restored manually.
+
+### Device-test data-loss incident
+
+The first connected test passed, but AGP subsequently uninstalled the existing
+physical app, deleting its prior local state and external test assets. This was
+an agent verification mistake: replace-install behavior was assumed without
+checking post-test cleanup. No recoverable prior local state was found. The user
+was informed; reinstalling the app does not restore that data. The repository now
+sets the verified AGP property
+`android.injected.androidTest.leaveApksInstalledAfterRun=true`. Subsequent runs
+preserve the installed application, downloaded pack and a private sentinel;
+the sentinel was re-read successfully during this round. Never describe this
+round as leaving all pre-existing physical-device data untouched.
+
+### Still open
+
+The user now explicitly requires automatic completion after setup, including
+screen-off/app-closed processing when power permits. Current governing contracts
+still require foreground-only bulk work. A proposed design is in
+`superpowers/specs/2026-10-18-automatic-discovery-design.md`, awaiting review before
+the live contracts and scheduling architecture change. A literal Continue discovery
+button currently maps an unfinished foreground slice to Resume even when the user
+has not paused. The new work must prove automatic multi-slice completion, not only
+remove that button. The integration goal remains active.
+
+Also open: API 26 runtime evidence, final applicable wrapper/power checks,
+representative independent subject/membership/hierarchy/connection judgments,
+large-library peak resource and cancellation qualification, and human TalkBack
+speech/listening observation. The passing small-fixture integration does not
+establish those separate release gates.
+
+### Automatic continuation investigation
+
+The new `unfinishedDiscoveryRequestsItsNextRoundWithoutAContinueAction` property
+starts a revision observer once, with six Notes and a one-comparison formation
+budget. The corrected fixture completes automatic foreground rounds, topic
+publication and connections without Resume, Refresh or source changes. Removing
+the shipping `wake.value++` continuation makes it fail after exactly one unfinished
+round, proving the check observes the intended behavior. An initial timeout was a
+test-double error: delegated `writeDetailed` did not invoke the overridden `write`
+completion callback. Inspecting the stored result fixed the test; no production
+scheduling fix follows from that false diagnosis. The UI's manual-continuation
+prompt remains misleading, and background scheduling remains proposed work.
+After restoring the automatic wake, all 964 JVM tests pass, debug assembly and
+Android-test compilation pass. The compact integration artifact records that
+updated count and the limited foreground-continuation evidence.
+
+
+## 95. Automatic Discovery and process recovery (2026-10-18)
+
+The user approved the automatic design and direct implementation plan. The live
+Product, UI and Integration contracts were amended with
+`tools/amend-discovery-automatic-work.ps1`; mirrors were regenerated and diffed.
+This supersedes §94's foreground-only/manual-continuation open work.
+
+### Behavior and durable decisions
+
+After explicit setup, cached Notes progress automatically through embeddings,
+topics and connections. A process-owned coordinator serializes foreground and
+regular WorkManager windows. The bound Discovery service is removed. Each window
+has a 120-second cooperative ceiling; a running native inference can finish before
+the next gate check. Unique immediate work retries unfinished/deferred windows;
+a unique 15-minute periodic request provides recovery. Android can defer jobs;
+there is no promised completion deadline, permanent foreground service or forced
+JobScheduler execution in the acceptance probe.
+
+Balanced is the persisted default (known battery at least 30% OR external power).
+Charging only requires external power. Balanced deliberately does not use Android's
+BatteryNotLow constraint, which cannot express that OR condition. Every window
+checks the exact app policy. Playback, actual memory pressure and explicit Pause
+remain gates. Leaving the screen is no longer treated as memory pressure.
+Persisted settings are read before granting work, and changed effort replaces
+incompatible queued constraints even after scheduler reconstruction.
+
+The misleading Continue action is removed. Settings retains explicit Pause/Resume,
+clear/rebuild and accessible effort choices. Progress explains power/Android waits;
+embedding estimates use actual measured work and do not pretend to estimate all
+remaining topic/connection analysis. Published inspection snapshots retain their
+existing explicit Refresh and mandatory withdrawal behavior.
+
+Review found a real liveness defect: a Note longer than a work window could restart
+from its first passage indefinitely. Completed passages now persist separately
+under `no_backup/semantic-passage-progress`, keyed by source revision and model
+identity, inside the combined 64 MiB derived-storage budget. Partial Notes never
+enter the searchable main index. Complete publication retires staging, including
+recovery from a crash between commit and retirement. Reused prefixes are not
+rewritten on every passage. Eviction, model changes and clear withdraw staging.
+
+### Regression proofs
+
+| Removed/missing behavior | Evidence that noticed |
+| --- | --- |
+| Controller automatic wake | Multi-slice integration stalls after exactly one unfinished round |
+| Metadata pending flag | Metadata-only source edit loses automatic pending work |
+| Durable passage reuse | Restarted controller embeds the first passage twice |
+| Completed-record staging retirement | Leftover staged record remains after complete-record recovery |
+| Skip writes for reused prefixes | Stored prefix sizes fail strict-increase assertion |
+| Persisted queued-effort comparison | Device scheduler restart retains incompatible charging constraint |
+
+Fixes were restored and tests passed. A test-double callback mistake and a recovery
+verifier reading an unhydrated catalog were corrected as verification defects;
+neither was presented as a production failure. A background assertion also stopped
+rejecting a legitimate window granted immediately before the test fixture arrived;
+current process identity plus unique fixture coverage still prove actual completion.
+Focused review rechecked the checkpoint fixes and actual process-death probe and
+reported no remaining important defect.
+
+### Verification
+
+- 973 JVM tests, zero failures; debug assembly and Android-test compilation passed.
+- API 36 x86_64 owned emulator: fresh model acquisition 1/1, token/vector parity
+  1/1, six-Note journey 1/1, Discovery polish accessibility 4/4, power 1/1,
+  topic/navigation accessibility 20/20, automatic background/scheduler tests 2/2.
+- Normal screen-off work indexed four Notes into two topics and three connections.
+- `tools/probe-automatic-discovery-recovery.ps1` passed preparation and verification
+  through the wrapper (1/1 each). It saved two passage checkpoints, killed process
+  10401, and observed headless process 10712 complete two Notes, one topic and
+  semantic connections with the screen off. Completion was recorded BEFORE
+  verification instrumentation started. No Activity launch or forced job drove
+  recovery. Staging retired, fixture Notes were removed and battery simulation reset.
+- Wrapper checks passed: ten keyguard cases, source-derived completeness (288
+  instrumented tests), harness signatures, empty-failure handling and classification
+  of the latest real output. Targeted execution does not claim a full device suite.
+- Earlier API 37 ARM64 Pixel parity/acquisition/journey/navigation evidence in §94
+  remains valid for native Gemma integration. The phone was disconnected during
+  new background verification; that behavior is evidenced on API 36 only.
+
+The compact tracked integration JSON and implementation plans contain the scope
+and counts. Large raw logs remain local temporary evidence. The first phone test's
+uninstall/data-loss incident in §94 remains material; no prior state was recovered.
+The keep-installed property and later sentinel checks prevent claiming that all
+pre-existing phone data was preserved.
+
+### Still open
+
+The requested integration and automatic-background implementation are verified in
+the environments above. Separate release qualification remains: API 26 runtime
+(the test installer fails before tests), representative independent subject,
+membership, hierarchy and connection judgments, large-library peak memory/heat/
+battery and native-call cancellation measurements, and human TalkBack listening.
+The 500-Note dataset-label proxy is calibration evidence, not human quality
+acceptance. Ordinary process kill is covered; Android force-stop still requires
+reopening. No commit, deployment or universal Android qualification is implied.
+
+
+## 96. Gemma quantization and device backend research (2026-10-19)
+
+The approved bounded benchmark compares pinned INT8/INT4 public inputs and actual
+provider attribution; production INT8 CPU settings remain unchanged. See
+[the reproducible report](gemma-device-backends-2026-10-18.md) and the tracked
+`tools/semantic-discovery/gemma-device-backends-2026-10-19.json` for numbers and scope.
+No generated Notion contract changed in this research round.
+
+Pixel main sweep completed 24 configurations with four warm samples for each
+68/220/863-token case. INT4 main CPU medians were 47%/27%/8% lower, with minimum
+vector cosine .985448 against INT8. XNNPACK and NNAPI profiles were entirely CPU,
+including all 146 quantized matrix events. The separate matched-thread control
+also remained CPU-only; its longest INT4 case was slower than INT8. Thermal/device
+conditions differ across runs; these observations do not establish universal gains.
+
+S25 exposed real QNN NPU hardware, but registration alone was insufficient.
+Vendor linker visibility required optional debug native-library declarations.
+Empty modality tensors required a pinned ordinary-text fixed-220-token research
+transform. Finite hidden states still produced zero final vectors: the reference
+pooling squared norm exceeded FP16 range. Disabling HTP FP16 precision did not
+fix it; an FP64 partition experiment could not compose. A CPU-only ONNX-ML final
+Normalizer preserves host CPU direction and permits valid accelerator execution.
+This remains a cache-only prototype, not a production NPU rollout.
+
+Verification guards were proved failing-first:
+
+| Guard removed or missing | Test that noticed |
+| --- | --- |
+| Actual provider attribution | CPU fallback is not acceleration |
+| Headless native-class whitelist | Empty/unsupported selection self-check |
+| Timed-output numerical agreement | Timed samples need their own numerical agreement |
+
+The initial weak NPU probe accepted finite zero vectors; that was inadequate
+verification, not usable acceleration. Nonzero/reference guards then rejected
+that device output. The final probe compares each timed vector with same-precision
+CPU outside the timing interval. Fresh review found no remaining important issue.
+
+JVM verification passed 973 tests; debug assembly and androidTest compilation
+passed. All 12 Gemma Python tests passed. Wrapper self-checks passed for
+source-derived completeness (291 tests), seven signatures, empty failures,
+ten keyguard shapes and the native headless whitelist. Device classes run only
+through the wrapper; this round does not claim the entire accessibility suite.
+The headless option accepts exactly three native benchmark classes and does not
+weaken ordinary UI/keyguard checks. Screen settings restore after each run.
+
+The final S25 wrapper passed 1/1 on its first attempt, all eight backend/precision
+cases complete. CPU/HTP warm medians were 1359/225 ms INT8 and 1251/226 ms INT4
+(three samples each). HTP session setup was 15.46/17.41 seconds; this is an
+amortized warm benefit, not instant startup. Profiles showed 73 QNN partitions,
+98 CPU events, no CPU quantized matrix events; GPU retained all 146 CPU matrix
+events and was slower. All timed HTP vectors exceeded .9999989 same-precision
+CPU cosine. Latest real-output classifier passed with zero declared/read failures.
+Final settings hashes matched both baselines, Pixel sentinel remained, and screen
+settings restored (S25 30000/0; Pixel 30000/15). This does not recover prior lost data.
+
+### Still open
+
+Production NPU integration requires supported variable/bucketed shapes, real Note
+quality validation, lifecycle/cancellation behavior, deployment/library licensing
+review and representative memory/energy/thermal measurements. The research bench
+is not those acceptance gates. The independent quality, API26 and human TalkBack
+release gates in §95 remain open. No commit or deployment was requested.
+
+
+## 97. Vulkan Gemma compatibility (2026-10-19)
+
+The user requested Vulkan device tests and explicitly excluded llama.cpp.
+Device tests use existing ORT 1.31 WebGPU/Dawn, explicitly selecting Vulkan/basic
+validation, with pinned original and fixed-text research ONNX graphs. Production
+settings/models are unchanged. See [the report](gemma-vulkan-2026-10-19.md) and
+`tools/semantic-discovery/gemma-vulkan-2026-10-19.json` for scope and full samples.
+
+The earlier answer that Vulkan was entirely untested was imprecise: the existing
+Pixel WebGPU experiment already exercised Dawn's Android Vulkan route. This
+follow-up isolates small compute/readback from full Gemma execution.
+
+Pixel Mali-G715: exact tiny matrix readback and WebGpu attribution passed. Both
+precisions of both original and fixed-text Gemma graphs fail warmup readback with
+`Failed to wait for the operation:2`. This is unresolved runtime/driver workload
+compatibility, not evidence that Vulkan is absent or that a GPU timing exists.
+
+S25 Adreno 830: all 11 collected cases succeeded. Original graph CPU/Vulkan medians
+were 1529/339 ms INT8 and 1597/334 ms INT4, three warm calls each. Timed outputs all
+exceed .9999999999997 same-case CPU cosine. Profiles place 1032 events on WebGpu,
+37 on CPU and zero quantized matrix events on CPU. Session setup 450/385 ms is much
+lower than the previous HTP experiment, but those are separate runs rather than
+a controlled NPU/GPU comparison. Fixed-text variants also passed.
+
+An initial invalid custom deviceId option required externally supplied native
+WebGPU handles; that configuration error was corrected before final runs.
+Verbose timing diagnostics were excluded; final timed sessions log warnings only.
+The default matrix session follows explicit Vulkan in-process, so no claim is
+made about independent default initialization or which option causes success.
+
+Verification: 973 JVM tests, debug assembly, androidTest compilation, 13 Gemma Python
+tests pass. Final wrapper runs pass 1/1 first attempt on each phone, with 11 rows
+and 5 successful CPU controls per device. A green diagnostic means completed
+collection; Pixel's 4 GPU failures remain failures. Fresh code review found no
+remaining important issue. The new sample/profile validation test failed first,
+then passed with the implementation. The actual whitelist self-check rejected
+the fourth native class before explicit addition; all UI/mixed/unknown cases
+remain rejected. Completeness 292, signatures, empty-failure handling, real-output
+classification and keyguard checks passed. Settings hashes and Pixel sentinel
+remained unchanged; timeout/stay-awake settings restored.
+
+### Still open
+
+Pixel Gemma Vulkan readback root cause remains unresolved; the tiny working
+matrix narrows the investigation but does not identify the faulty component.
+No speculative runtime/driver fix or CPU fallback is called acceleration.
+S25 Vulkan production integration, arbitrary Note lengths, representative quality,
+sustained memory/heat/energy and lifecycle/cancellation qualification remain open.
+Prior release gates in §95 remain. Unused llama.cpp host research directories
+remain after automatic cleanup rejection; no device test uses them. No commit or
+production deployment was requested.
+
+## 98. INT4 default and Discovery efficiency (2026-10-19)
+
+The user selected INT4 and delegated backend, architecture and authored-metadata
+choices, then requested focused local commits. Governing Notion pages were amended
+through the live source and exported; generated mirrors were not hand-edited.
+
+### Findings and implementation
+
+Millions of checks describe passage-level formation and membership work, not
+millions of model calls or Note pairs. The reported 14-million value was not
+recaptured. S25 inspection found 50 indexed Notes, 4,218 passages and 750 sections;
+Pixel had a saved seven-million-check checkpoint. INT4 keeps 768-dimensional output,
+so quantization alone cannot remove this analysis cost.
+
+The optional default pack is now pinned INT4, 206,696,682 bytes. Startup recognizes
+an incompatible INT8 pack without silently downloading or deleting it. Explicit
+verified replacement invalidates derived vectors/checkpoints through model identity.
+The production ONNX provider validates Vulkan against CPU on its first input,
+checks every output, disables a failed Vulkan backend for the process and retries
+CPU. S25 selected Vulkan. Pixel's earlier GPU readback failure makes CPU fallback
+necessary; its current physical deployment is pending disconnection.
+
+Orderly yields persist partial work rather than discard a quantum. Completed
+formation survives a connection-phase interruption. One prepared generation avoids
+repeated record reads, normalization, prefix validation and cluster reconstruction.
+Memory release drops it and atomically advances its invalidation epoch. Imported
+checkpoints remain fully validated. Exact-input memoization includes complete model
+identity, copies vectors, preserves current provenance, has fixed memory bounds and
+rejects stale completions after reset/release/source changes.
+
+Authored areas/topics group optional conservative vector bounds; they never exclude
+cross-area relationships or unlabelled Notes. Formation suffix bounds preserve the
+original Float dot accumulation for undecided cases and reject only proven failures.
+There is no alternate approximate production engine and no llama.cpp integration.
+Progress now states completed checks and passage/section coverage. Existing measured
+embedding estimates stay separate from still-unestimated topic/connection work.
+
+### Evidence
+
+The frozen 500-document WOS shipping-path INT4 comparison used 861 opportunities,
+366 candidate groups and 915,377 formation checks. Bounded and exhaustive runs had
+identical seed groups and all published payloads except generated topic IDs.
+487,748,864 of 703,009,536 formation vector components were avoided (69.38%).
+This is not an end-to-end device speedup claim. Metadata pruned zero pairs in this
+public corpus; the separate 12-Note/four-subject property fixture pruned 36/48
+projection dots with identical evidence. No real-library metadata speedup is claimed.
+Test-split fine-category proxy: 352 correct / 928 predicted / 1,391 gold;
+precision .3793, recall .2531, F1 .3036. Human relevance remains unmeasured.
+
+Guard removed | Tests that noticed
+--- | ---
+Bulk exact-input reuse bypassed | Controller integration failed its inference-count property
+Suffix norm refresh disabled | Refreshed-cluster bound regression failed
+Stale memo insertion allowed | Clear-during-inference regression failed before generation guard
+Orderly yield/checkpoint handoff absent | Tiny-window engine/coordinator and phase-handoff regressions failed
+Prepared workspace absent | Repeated normalization/index-read properties failed
+Metadata and formation bounds absent | Intended avoided-dot/component assertions failed
+Deployment opt-in guard absent | Shipping wrapper guard self-check failed
+
+All guards were restored before final verification. Final JVM suite: 1,003 tests,
+zero failures/errors/skips. Debug assembly and androidTest compilation passed.
+Emulator Q4 vector parity, Discovery journey and explicit Settings acquisition each
+passed 1/1. S25 explicit native deployment passed 1/1 and three public vectors had
+cosine above .9999999999993. Wrapper completeness (291 ordinary tests, two explicit
+acquisition tests excluded), signatures, real-output classifier, empty-failure,
+keyguard, headless selection and deployment selection checks passed.
+All 70 Python evaluation/tooling unit tests passed. Final code review found no
+material issue in atomic epoch invalidation or explicit deployment safeguards.
+
+The new final recovery probe did not observe a new non-interactive COMPLETE receipt
+within 180 seconds. Preparation passed 1/1; its cleanup verification failed because
+the required receipt was unavailable, while its finally restored fixtures/settings.
+An old receipt is not counted as evidence. JobScheduler still showed scheduled
+work, including a later recovery window. This run does not prove current headless
+completion or its latency; the earlier successful recovery record is historical.
+No timeout was widened and no forced JobScheduler execution was substituted.
+
+Preservation correction: the initial baseline labelled 51 cache files as Notes;
+it actually contains 50 Note files plus an internal journal. Immediately after
+initial deployment all baseline hashes matched. Later no baseline file was missing
+and settings were unchanged, while one Note and the journal had changed. A full
+before-content snapshot was intentionally not exported, so the changed Note cannot
+be attributed or asserted byte-identical. No private text is in the tracked report.
+
+The [architecture review](discovery-architecture-review-2026-10-19.md) and
+[compact evidence](../tools/semantic-discovery/discovery-efficiency-2026-10-19.json)
+record scope and reproducible counters. Historical benchmark reports retain their
+original INT8 identities and are not relabelled as INT4 measurements.
+
+### Still open
+
+Pixel reconnect/deployment and physical fallback confirmation; representative human
+relevance and TalkBack speech acceptance; sustained energy/heat/peak memory;
+long-library exact-formation scaling and analysis-time estimation. Prior independent
+release gates remain binding. Automatic background completion depends on Android
+execution windows and existing battery/playback/user-pause policy. No push or merge
+is authorized by the request for focused commits.
