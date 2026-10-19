@@ -1,0 +1,749 @@
+{
+  "date": "2026-10-19",
+  "scope": "ONNX Runtime Android1.31 WebGPU/Dawn Vulkan; no llama.cpp used in device tests; production unchanged. One 220-token public passage, three warm samples after warmup, separate profiling. Timed sessions warnings only.",
+  "devices": {
+    "pixel": {
+      "device": "Pixel 8 Pro",
+      "api": 37,
+      "vulkanProperties": [
+        {
+          "deviceName": "Mali-G715",
+          "apiVersion": 4211031.0,
+          "driverVersion": 226504704.0,
+          "vendorID": 5045.0,
+          "deviceID": 3097624576.0
+        }
+      ],
+      "analyzedReportSha256": "3cef107269b2b714db509d4affd281944194bf227a44f37de4eafbdd5223d1c8",
+      "wrapper": {
+        "tests": 1,
+        "failures": 0,
+        "attempts": 1,
+        "meaning": "Diagnostic completed with valid CPU controls; inspect executionComplete per GPU case"
+      },
+      "configurations": [
+        {
+          "case": "smoke",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 0,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 10,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/smoke-CPU_2026-10-19_00-55-54_480.json",
+          "milliseconds": [
+            0.108318,
+            0.0743,
+            0.05424
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1,
+                "durationMicroseconds": 35
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 0.0743
+        },
+        {
+          "case": "smoke",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 0,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 3,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/smoke-VULKAN_2026-10-19_00-55-54_788.json",
+          "milliseconds": [
+            6.737834,
+            3.017294,
+            2.724324
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "WebGpuExecutionProvider": {
+                "events": 1,
+                "durationMicroseconds": 10261
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 3.017294
+        },
+        {
+          "case": "smoke",
+          "mode": "WEBGPU_DEFAULT",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 0,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 6,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/smoke-WEBGPU_DEFAULT_2026-10-19_00-55-55_378.json",
+          "milliseconds": [
+            4.340169,
+            2.621542,
+            2.301148
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "WebGpuExecutionProvider": {
+                "events": 1,
+                "durationMicroseconds": 9886
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 2.621542
+        },
+        {
+          "case": "int8-original",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 238,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/int8-original-CPU_2026-10-19_00-56-02_472.json",
+          "milliseconds": [
+            1586.442505,
+            1619.704102,
+            1630.657553
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1066,
+                "durationMicroseconds": 1848303
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 1619.704102
+        },
+        {
+          "case": "int8-original",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "warmup readback",
+          "sessionCreationMilliseconds": 464,
+          "milliseconds": [],
+          "cosinesWithSamePrecisionCpu": [],
+          "failure": "OrtException: Error code - ORT_FAIL - message: /onnxruntime_src/onnxruntime/core/providers/webgpu/buffer_manager.cc:665 void onnxruntime::webgpu::BufferManager::Download(CommandRecordingState &, WGPUBuffer, void *, size_t) const [ONNXRuntimeError] : 1 : FAIL : Failed to wait for the operation:2\n",
+          "executionComplete": false,
+          "profileEvidence": {
+            "acceleratorObserved": false,
+            "scope": "Failed execution; partial trace cannot establish usable acceleration"
+          }
+        },
+        {
+          "case": "q4-original",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 638,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/q4-original-CPU_2026-10-19_00-56-18_295.json",
+          "milliseconds": [
+            1455.376058,
+            1440.325522,
+            1328.360271
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1066,
+                "durationMicroseconds": 1425336
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 1440.325522
+        },
+        {
+          "case": "q4-original",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "warmup readback",
+          "sessionCreationMilliseconds": 519,
+          "milliseconds": [],
+          "cosinesWithSamePrecisionCpu": [],
+          "failure": "OrtException: Error code - ORT_FAIL - message: /onnxruntime_src/onnxruntime/core/providers/webgpu/buffer_manager.cc:665 void onnxruntime::webgpu::BufferManager::Download(CommandRecordingState &, WGPUBuffer, void *, size_t) const [ONNXRuntimeError] : 1 : FAIL : Failed to wait for the operation:2\n",
+          "executionComplete": false,
+          "profileEvidence": {
+            "acceleratorObserved": false,
+            "scope": "Failed execution; partial trace cannot establish usable acceleration"
+          }
+        },
+        {
+          "case": "int8-fixed",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 373,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/int8-fixed-CPU_2026-10-19_00-56-37_520.json",
+          "milliseconds": [
+            2388.590415,
+            2321.215455,
+            2373.148968
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1010,
+                "durationMicroseconds": 2491402
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 2373.148968
+        },
+        {
+          "case": "int8-fixed",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "warmup readback",
+          "sessionCreationMilliseconds": 868,
+          "milliseconds": [],
+          "cosinesWithSamePrecisionCpu": [],
+          "failure": "OrtException: Error code - ORT_FAIL - message: Non-zero status code returned while running MemcpyToHost node. Name:'Memcpy_token_0' Status Message: /onnxruntime_src/onnxruntime/core/providers/webgpu/buffer_manager.cc:665 void onnxruntime::webgpu::BufferManager::Download(CommandRecordingState &, WGPUBuffer, void *, size_t) const [ONNXRuntimeError] : 1 : FAIL : Failed to wait for the operation:2\n",
+          "executionComplete": false,
+          "profileEvidence": {
+            "acceleratorObserved": false,
+            "scope": "Failed execution; partial trace cannot establish usable acceleration"
+          }
+        },
+        {
+          "case": "q4-fixed",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 633,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/q4-fixed-CPU_2026-10-19_00-56-55_641.json",
+          "milliseconds": [
+            1716.396322,
+            1660.908895,
+            1680.376628
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1010,
+                "durationMicroseconds": 1771583
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 1680.376628
+        },
+        {
+          "case": "q4-fixed",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "warmup readback",
+          "sessionCreationMilliseconds": 665,
+          "milliseconds": [],
+          "cosinesWithSamePrecisionCpu": [],
+          "failure": "OrtException: Error code - ORT_FAIL - message: Non-zero status code returned while running MemcpyToHost node. Name:'Memcpy_token_0' Status Message: /onnxruntime_src/onnxruntime/core/providers/webgpu/buffer_manager.cc:665 void onnxruntime::webgpu::BufferManager::Download(CommandRecordingState &, WGPUBuffer, void *, size_t) const [ONNXRuntimeError] : 1 : FAIL : Failed to wait for the operation:2\n",
+          "executionComplete": false,
+          "profileEvidence": {
+            "acceleratorObserved": false,
+            "scope": "Failed execution; partial trace cannot establish usable acceleration"
+          }
+        }
+      ]
+    },
+    "s25": {
+      "device": "SM-S931B",
+      "api": 37,
+      "vulkanProperties": [
+        {
+          "deviceName": "Adreno (TM) 830",
+          "apiVersion": 4206876.0,
+          "driverVersion": 2150760512.0,
+          "vendorID": 20803.0,
+          "deviceID": 1141178369.0
+        }
+      ],
+      "analyzedReportSha256": "05eec70042d443eeda05ac203601e2f09120e357f4e43495bccc9a4bae9e4b0f",
+      "wrapper": {
+        "tests": 1,
+        "failures": 0,
+        "attempts": 1,
+        "meaning": "Diagnostic completed with valid CPU controls; inspect executionComplete per GPU case"
+      },
+      "configurations": [
+        {
+          "case": "smoke",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 0,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 6,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/smoke-CPU_2026-10-19_00-57-47_856.json",
+          "milliseconds": [
+            0.050572,
+            0.030625,
+            0.025885
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1,
+                "durationMicroseconds": 28
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 0.030625
+        },
+        {
+          "case": "smoke",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 0,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 2,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/smoke-VULKAN_2026-10-19_00-57-48_011.json",
+          "milliseconds": [
+            0.555781,
+            0.339323,
+            0.29724
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "WebGpuExecutionProvider": {
+                "events": 1,
+                "durationMicroseconds": 4680
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 0.339323
+        },
+        {
+          "case": "smoke",
+          "mode": "WEBGPU_DEFAULT",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 0,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 0,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/smoke-WEBGPU_DEFAULT_2026-10-19_00-57-48_254.json",
+          "milliseconds": [
+            0.588959,
+            0.434792,
+            0.444062
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "WebGpuExecutionProvider": {
+                "events": 1,
+                "durationMicroseconds": 4526
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 0.444062
+        },
+        {
+          "case": "int8-original",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 153,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/int8-original-CPU_2026-10-19_00-57-54_888.json",
+          "milliseconds": [
+            1620.481562,
+            1528.525155,
+            1519.438958
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1066,
+                "durationMicroseconds": 1578168
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 1528.525155
+        },
+        {
+          "case": "int8-original",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 450,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/int8-original-VULKAN_2026-10-19_00-57-58_891.json",
+          "milliseconds": [
+            338.575677,
+            339.017656,
+            343.266145
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            0.9999999999998436,
+            0.9999999999998436,
+            0.9999999999998436
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 37,
+                "durationMicroseconds": 739
+              },
+              "WebGpuExecutionProvider": {
+                "events": 1032,
+                "durationMicroseconds": 486391
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 0.998482951162934,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 339.017656
+        },
+        {
+          "case": "q4-original",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 536,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/q4-original-CPU_2026-10-19_00-58-07_537.json",
+          "milliseconds": [
+            1617.107447,
+            1597.37552,
+            1583.347031
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1066,
+                "durationMicroseconds": 1097837
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 1597.37552
+        },
+        {
+          "case": "q4-original",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 385,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/q4-original-VULKAN_2026-10-19_00-58-11_165.json",
+          "milliseconds": [
+            334.169792,
+            332.605781,
+            333.675
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            0.9999999999997068,
+            0.9999999999997068,
+            0.9999999999997068
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 37,
+                "durationMicroseconds": 706
+              },
+              "WebGpuExecutionProvider": {
+                "events": 1032,
+                "durationMicroseconds": 534316
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 0.9986804280945456,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 333.675
+        },
+        {
+          "case": "int8-fixed",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 283,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/int8-fixed-CPU_2026-10-19_00-58-23_106.json",
+          "milliseconds": [
+            2487.757603,
+            2444.554375,
+            2453.458176
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1010,
+                "durationMicroseconds": 2509082
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 2453.458176
+        },
+        {
+          "case": "int8-fixed",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 826,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/int8-fixed-VULKAN_2026-10-19_00-58-28_692.json",
+          "milliseconds": [
+            339.066979,
+            343.250052,
+            338.284219
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            0.9999999999998455,
+            0.9999999999998455,
+            0.9999999999998455
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 2,
+                "durationMicroseconds": 114
+              },
+              "WebGpuExecutionProvider": {
+                "events": 1010,
+                "durationMicroseconds": 604530
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 0.9998114593049795,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 339.066979
+        },
+        {
+          "case": "q4-fixed",
+          "mode": "CPU",
+          "requestedProvider": "CPUExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 592,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/q4-fixed-CPU_2026-10-19_00-58-38_295.json",
+          "milliseconds": [
+            1811.831093,
+            1794.777395,
+            1795.597812
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 1010,
+                "durationMicroseconds": 1858213
+              }
+            },
+            "requestedProvider": "CPUExecutionProvider",
+            "acceleratorObserved": false,
+            "cpuQuantizedMatrixEvents": 146,
+            "requestedProviderDurationFraction": 1.0,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 1795.597812
+        },
+        {
+          "case": "q4-fixed",
+          "mode": "VULKAN",
+          "requestedProvider": "WebGpuExecutionProvider",
+          "tokens": 220,
+          "stage": "profile",
+          "sessionCreationMilliseconds": 572,
+          "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-vulkan-probe/q4-fixed-VULKAN_2026-10-19_00-58-43_119.json",
+          "milliseconds": [
+            332.950573,
+            332.188854,
+            334.548541
+          ],
+          "cosinesWithSamePrecisionCpu": [
+            0.999999999999702,
+            0.999999999999702,
+            0.999999999999702
+          ],
+          "executionComplete": true,
+          "profileEvidence": {
+            "providers": {
+              "CPUExecutionProvider": {
+                "events": 2,
+                "durationMicroseconds": 110
+              },
+              "WebGpuExecutionProvider": {
+                "events": 1010,
+                "durationMicroseconds": 580002
+              }
+            },
+            "requestedProvider": "WebGpuExecutionProvider",
+            "acceleratorObserved": true,
+            "cpuQuantizedMatrixEvents": 0,
+            "requestedProviderDurationFraction": 0.9998103814435834,
+            "scope": "Summed profiled node duration; not wall time or hardware utilization"
+          },
+          "medianMilliseconds": 332.950573
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "WEBGPU_DEFAULT follows explicit Vulkan within the process; not an independent default-init experiment.",
+    "One public passage only; no arbitrary lengths or sustained energy/thermal qualification.",
+    "Pixel Gemma fails at warmup GPU readback; tiny matrix succeeds. Root cause remains unresolved.",
+    "S25 NPU numbers are a separate run, not a controlled NPU/GPU head-to-head.",
+    "Screen settings restored and settings hashes/sentinel checked; no recovery of prior data-loss incident."
+  ]
+}

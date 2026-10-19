@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-18",
+  "scope": "Gemma integration and automatic Discovery; physical API37 native proof and API36 background proof, not general release qualification",
+  "runtime": "ONNX Runtime Android CPU, two threads",
+  "parity": {
+    "model": "embeddinggemma-2:int8:daa72c51243991dfcaf9f9137d2c573d8f7790c0:d06edd601f851c633a2519304cbeb8dc6170d7ceb61b436625c17fb9b6e74953:278a7ff1248c3618e4bd11a607fc54f7bdc7778854230f3956d3f86bd9db4f3b",
+    "device": "Pixel 8 Pro",
+    "api": 37,
+    "cases": 12,
+    "memoryScope": "Post-inference samples; not peak or full-scale acceptance",
+    "measurements": [
+      {
+        "cosine": 0.9999999999998855,
+        "milliseconds": 3843,
+        "nativeHeapBytes": 163057024,
+        "javaHeapBytes": 5808448,
+        "processPssKiB": 473205
+      },
+      {
+        "cosine": 0.9999999999999053,
+        "milliseconds": 2183,
+        "nativeHeapBytes": 232273536,
+        "javaHeapBytes": 6071840,
+        "processPssKiB": 342377
+      },
+      {
+        "cosine": 0.9999999999998791,
+        "milliseconds": 6558,
+        "nativeHeapBytes": 232271536,
+        "javaHeapBytes": 3064160,
+        "processPssKiB": 482212
+      }
+    ]
+  },
+  "journey": {
+    "device": "Pixel 8 Pro",
+    "api": 37,
+    "indexedNotes": 6,
+    "passes": 1,
+    "subjects": [
+      "RabbitMQ acknowledgments",
+      "Riparian ecology",
+      "PostgreSQL transaction isolation"
+    ],
+    "connections": 4,
+    "semanticConnections": 3,
+    "elapsedMilliseconds": 18670,
+    "observedEstimateMinimumSeconds": 2,
+    "observedEstimateMaximumSeconds": 3
+  },
+  "acquisition": {
+    "bytes": 346397233,
+    "freshDownload": true,
+    "verified": true
+  },
+  "verification": {
+    "jvmTests": 973,
+    "jvmFailures": 0,
+    "debugAssembly": "passed",
+    "androidTestCompilation": "passed",
+    "parityDeviceTests": 1,
+    "journeyDeviceTests": 1,
+    "acquisitionDeviceTests": 1,
+    "topicNavigationDeviceTests": 20,
+    "api36": {
+      "parity": 1,
+      "journey": 1,
+      "acquisition": 1,
+      "polishAccessibility": 4,
+      "power": 1,
+      "topicNavigation": 20,
+      "automaticBackgroundAndScheduler": 2,
+      "processRecoveryPrepare": 1,
+      "processRecoveryVerify": 1,
+      "failures": 0
+    }
+  },
+  "limitations": [
+    "API26 testing inconclusive: test engine reinstall failure before tests.",
+    "Memory observations are post-inference samples, not peak/full-scale acceptance.",
+    "Independent representative quality and human TalkBack gates remain open.",
+    "New background implementation not tested on disconnected Pixel.",
+    "Large-library heat/battery/peak memory and native-call cancellation qualification remain open.",
+    "Android force-stop requires reopening; ordinary process death is covered."
+  ],
+  "incident": "First connected test uninstalled the existing physical app and lost prior local state; no recoverable copy found. Keep-installed AGP property now enabled; subsequent private sentinel preserved.",
+  "foregroundContinuation": "Multi-slice controller observer completes without Resume/Refresh; removing its wake stalls after one round. Background and process recovery are independently device verified.",
+  "automaticDiscovery": {
+    "implemented": true,
+    "effort": [
+      "BALANCED",
+      "CHARGING_ONLY"
+    ],
+    "scheduler": "regular unique WorkManager windows and periodic recovery",
+    "background": {
+      "screenOff": true,
+      "indexedNotes": 4,
+      "topics": 2,
+      "connections": 3
+    },
+    "processRecovery": {
+      "probe": "tools/probe-automatic-discovery-recovery.ps1",
+      "savedPassages": 2,
+      "killedProcessId": 10401,
+      "headlessProcessId": 10712,
+      "indexedNotes": 2,
+      "topics": 1,
+      "semanticConnectionsVerified": true,
+      "stagingRetired": true,
+      "forcedJob": false,
+      "screenOff": true,
+      "completionObservedBeforeVerificationInstrumentation": true
+    },
+    "device": "owned API36 x86_64 emulator",
+    "physicalApi37BackgroundVerified": false
+  }
+}

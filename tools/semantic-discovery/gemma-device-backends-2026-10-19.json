@@ -1,0 +1,872 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-19",
+  "status": "Approved bounded Pixel benchmark and S25 fixed-text NPU prototype complete; production unchanged",
+  "modelRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+  "runtime": "ONNX Runtime Android 1.31.0",
+  "pixel": {
+    "device": "Pixel 8 Pro",
+    "api": 37,
+    "availableProviders": "CPU, NNAPI, XNNPACK, WEBGPU",
+    "completeConfigurations": 24,
+    "scope": "Two reversed-order rounds; two warm repeats after one warmup per input. Session-cold, not filesystem-cold. Memory sampled, not peak. No profiling in timed sessions. Other device/app work may interfere.",
+    "rawAnalyzedReportSha256": "4d0a130be7fd79744d81963cb1835d5060e7b58cc34bd96adc735387497676c6",
+    "wrapper": {
+      "passed": 1,
+      "initialHarnessFailure": 1,
+      "successfulAttempts": 1,
+      "totalAttempts": 2
+    },
+    "rows": [
+      {
+        "precision": "int8",
+        "mode": "CPU",
+        "completedConfigurations": 2,
+        "failure": null,
+        "inputs": {
+          "short": {
+            "tokens": 68,
+            "samples": 4,
+            "medianMilliseconds": 1258.2864180000001,
+            "minimumMilliseconds": 966.037965,
+            "maximumMilliseconds": 1596.459189
+          },
+          "medium": {
+            "tokens": 220,
+            "samples": 4,
+            "medianMilliseconds": 2841.849631,
+            "minimumMilliseconds": 2305.976808,
+            "maximumMilliseconds": 3418.508383
+          },
+          "long": {
+            "tokens": 863,
+            "samples": 4,
+            "medianMilliseconds": 11221.709945999999,
+            "minimumMilliseconds": 9002.592005,
+            "maximumMilliseconds": 13448.596768
+          }
+        },
+        "sampledPssKiBRange": [
+          445555,
+          891533
+        ],
+        "thermalStatuses": [
+          0,
+          1
+        ],
+        "minimumCosineWithInt8Cpu": 0.9999999998274843,
+        "sessionCreationMilliseconds": [
+          268,
+          471
+        ],
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1066,
+              "durationMicroseconds": 2492486
+            }
+          },
+          "requestedProvider": "CPUExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 1.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        }
+      },
+      {
+        "precision": "q4",
+        "mode": "CPU",
+        "completedConfigurations": 2,
+        "failure": null,
+        "inputs": {
+          "short": {
+            "tokens": 68,
+            "samples": 4,
+            "medianMilliseconds": 668.2819215,
+            "minimumMilliseconds": 533.913575,
+            "maximumMilliseconds": 796.954753
+          },
+          "medium": {
+            "tokens": 220,
+            "samples": 4,
+            "medianMilliseconds": 2069.454449,
+            "minimumMilliseconds": 1678.995972,
+            "maximumMilliseconds": 2475.152019
+          },
+          "long": {
+            "tokens": 863,
+            "samples": 4,
+            "medianMilliseconds": 10285.0467785,
+            "minimumMilliseconds": 8350.256189,
+            "maximumMilliseconds": 12350.451911
+          }
+        },
+        "sampledPssKiBRange": [
+          377172,
+          834989
+        ],
+        "thermalStatuses": [
+          0,
+          1
+        ],
+        "minimumCosineWithInt8Cpu": 0.9854483698221145,
+        "sessionCreationMilliseconds": [
+          539,
+          770
+        ],
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1066,
+              "durationMicroseconds": 1808663
+            }
+          },
+          "requestedProvider": "CPUExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 1.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        }
+      },
+      {
+        "precision": "int8",
+        "mode": "XNNPACK",
+        "completedConfigurations": 2,
+        "failure": null,
+        "inputs": {
+          "short": {
+            "tokens": 68,
+            "samples": 4,
+            "medianMilliseconds": 2177.064393,
+            "minimumMilliseconds": 1789.520631,
+            "maximumMilliseconds": 2565.148805
+          },
+          "medium": {
+            "tokens": 220,
+            "samples": 4,
+            "medianMilliseconds": 5422.191307,
+            "minimumMilliseconds": 4345.27523,
+            "maximumMilliseconds": 6147.852298
+          },
+          "long": {
+            "tokens": 863,
+            "samples": 4,
+            "medianMilliseconds": 16537.9799885,
+            "minimumMilliseconds": 14604.517992,
+            "maximumMilliseconds": 22386.98996
+          }
+        },
+        "sampledPssKiBRange": [
+          447731,
+          678351
+        ],
+        "thermalStatuses": [
+          1
+        ],
+        "minimumCosineWithInt8Cpu": 0.9999999998274843,
+        "sessionCreationMilliseconds": [
+          317,
+          470
+        ],
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1066,
+              "durationMicroseconds": 3490781
+            }
+          },
+          "requestedProvider": "XnnpackExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 0.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        }
+      },
+      {
+        "precision": "q4",
+        "mode": "XNNPACK",
+        "completedConfigurations": 2,
+        "failure": null,
+        "inputs": {
+          "short": {
+            "tokens": 68,
+            "samples": 4,
+            "medianMilliseconds": 1199.7527675000001,
+            "minimumMilliseconds": 882.776001,
+            "maximumMilliseconds": 1514.170859
+          },
+          "medium": {
+            "tokens": 220,
+            "samples": 4,
+            "medianMilliseconds": 3735.6722835,
+            "minimumMilliseconds": 2780.854982,
+            "maximumMilliseconds": 4761.129356
+          },
+          "long": {
+            "tokens": 863,
+            "samples": 4,
+            "medianMilliseconds": 21640.845001499998,
+            "minimumMilliseconds": 17395.345996,
+            "maximumMilliseconds": 23423.177828
+          }
+        },
+        "sampledPssKiBRange": [
+          583547,
+          606388
+        ],
+        "thermalStatuses": [
+          1
+        ],
+        "minimumCosineWithInt8Cpu": 0.9854483698221145,
+        "sessionCreationMilliseconds": [
+          488,
+          834
+        ],
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1066,
+              "durationMicroseconds": 2809453
+            }
+          },
+          "requestedProvider": "XnnpackExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 0.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        }
+      },
+      {
+        "precision": "int8",
+        "mode": "NNAPI",
+        "completedConfigurations": 2,
+        "failure": null,
+        "inputs": {
+          "short": {
+            "tokens": 68,
+            "samples": 4,
+            "medianMilliseconds": 1273.2273774999999,
+            "minimumMilliseconds": 954.819296,
+            "maximumMilliseconds": 1598.71871
+          },
+          "medium": {
+            "tokens": 220,
+            "samples": 4,
+            "medianMilliseconds": 2796.37079,
+            "minimumMilliseconds": 2052.080486,
+            "maximumMilliseconds": 3484.671226
+          },
+          "long": {
+            "tokens": 863,
+            "samples": 4,
+            "medianMilliseconds": 13184.931281000001,
+            "minimumMilliseconds": 11345.375168,
+            "maximumMilliseconds": 13315.058763
+          }
+        },
+        "sampledPssKiBRange": [
+          679058,
+          909860
+        ],
+        "thermalStatuses": [
+          1
+        ],
+        "minimumCosineWithInt8Cpu": 0.9999999998274843,
+        "sessionCreationMilliseconds": [
+          348,
+          467
+        ],
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1066,
+              "durationMicroseconds": 3592352
+            }
+          },
+          "requestedProvider": "NnapiExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 0.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        }
+      },
+      {
+        "precision": "q4",
+        "mode": "NNAPI",
+        "completedConfigurations": 2,
+        "failure": null,
+        "inputs": {
+          "short": {
+            "tokens": 68,
+            "samples": 4,
+            "medianMilliseconds": 785.1798305,
+            "minimumMilliseconds": 776.614909,
+            "maximumMilliseconds": 794.580323
+          },
+          "medium": {
+            "tokens": 220,
+            "samples": 4,
+            "medianMilliseconds": 2503.148419,
+            "minimumMilliseconds": 2496.529298,
+            "maximumMilliseconds": 2509.857301
+          },
+          "long": {
+            "tokens": 863,
+            "samples": 4,
+            "medianMilliseconds": 12306.87112,
+            "minimumMilliseconds": 12253.58932,
+            "maximumMilliseconds": 12396.764532
+          }
+        },
+        "sampledPssKiBRange": [
+          613698,
+          833834
+        ],
+        "thermalStatuses": [
+          1
+        ],
+        "minimumCosineWithInt8Cpu": 0.9854483698221145,
+        "sessionCreationMilliseconds": [
+          798,
+          807
+        ],
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1066,
+              "durationMicroseconds": 2640106
+            }
+          },
+          "requestedProvider": "NnapiExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 0.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        }
+      },
+      {
+        "precision": "int8",
+        "mode": "QNN_HTP",
+        "completedConfigurations": 2,
+        "failure": "OrtException: Error code - ORT_INVALID_ARGUMENT - message: QNN execution provider is not supported in this build. "
+      },
+      {
+        "precision": "q4",
+        "mode": "QNN_HTP",
+        "completedConfigurations": 2,
+        "failure": "OrtException: Error code - ORT_INVALID_ARGUMENT - message: QNN execution provider is not supported in this build. "
+      },
+      {
+        "precision": "int8",
+        "mode": "QNN_GPU",
+        "completedConfigurations": 2,
+        "failure": "OrtException: Error code - ORT_INVALID_ARGUMENT - message: QNN execution provider is not supported in this build. "
+      },
+      {
+        "precision": "q4",
+        "mode": "QNN_GPU",
+        "completedConfigurations": 2,
+        "failure": "OrtException: Error code - ORT_INVALID_ARGUMENT - message: QNN execution provider is not supported in this build. "
+      },
+      {
+        "precision": "int8",
+        "mode": "WEBGPU",
+        "completedConfigurations": 2,
+        "failure": "OrtException: Error code - ORT_FAIL - message: /onnxruntime_src/onnxruntime/core/providers/webgpu/buffer_manager.cc:665 void onnxruntime::webgpu::BufferManager::Download(CommandRecordingState &, WGPUBuffer, void *, size_t) const [ONNXRuntimeError] : 1 : FAIL : Failed to wait for the operation:2\n"
+      },
+      {
+        "precision": "q4",
+        "mode": "WEBGPU",
+        "completedConfigurations": 2,
+        "failure": "OrtException: Error code - ORT_FAIL - message: /onnxruntime_src/onnxruntime/core/providers/webgpu/buffer_manager.cc:665 void onnxruntime::webgpu::BufferManager::Download(CommandRecordingState &, WGPUBuffer, void *, size_t) const [ONNXRuntimeError] : 1 : FAIL : Failed to wait for the operation:2\n"
+      }
+    ],
+    "matchedThreads": {
+      "completedConfigurations": 4,
+      "wrapperPassed": 1,
+      "ortIntraThreads": 2,
+      "acceleratorObserved": false,
+      "cpuQuantizedMatrixEventsPerProfile": 146,
+      "medianMilliseconds": {
+        "int8": {
+          "68": 976,
+          "220": 1875,
+          "863": 7335
+        },
+        "q4": {
+          "68": 475,
+          "220": 1532,
+          "863": 8248
+        }
+      },
+      "scope": "Separate two-sweep run; different device/thermal conditions from main sweep, not a causal cross-run speed comparison."
+    }
+  },
+  "limitations": [
+    "Three public passage sizes, not representative Discovery quality.",
+    "Sampled sequential-process memory is not isolated per-model peak memory.",
+    "Thermal state changed from 0 to 1; four warm samples per input/configuration.",
+    "XNNPACK main sweep uses one ORT thread plus a two-thread XNNPACK pool; matched CPU-thread control is separate.",
+    "QNN/GPU/NPU not enabled in production by this benchmark."
+  ],
+  "s25Investigation": {
+    "device": "SM-S931B",
+    "soc": "SM8750",
+    "api": 37,
+    "qnnPlugin": "2.7.0",
+    "qnnRuntime": "2.51.0",
+    "npuEnumerated": true,
+    "initialFailures": [
+      "Vendor libcdsprpc linker visibility fixed by optional debug manifest declaration.",
+      "Registration name differed from canonical provider filter; corrected.",
+      "Empty multimodal feature tensors rejected by QNN execution; text-only research graph bypasses unused merge.",
+      "NPU projected states finite/nonzero but final vector zero; CPU reference normalization squared sum 121085 exceeds FP16 finite range.",
+      "Disabling HTP fp16 precision did not fix zero output.",
+      "FP64 pooling split failed QNN graph composition."
+    ],
+    "currentAttempt": "Passed fixed-220-token text-only graph with CPU final normalization; all timed vectors validated against same-precision CPU",
+    "productionBackendChanged": false,
+    "rawAnalyzedReportSha256": "5ace54c37f5884f4547661002662465404e6eec60a6a46136b982f85ef038912",
+    "scope": "One public ordinary-text passage, batch1/220 tokens; one warmup then three unprofiled session.run samples. Separate profiling; compile/session creation excluded. Small sample, sequential backends; not energy/quality/general Note acceptance.",
+    "attempts": [
+      {
+        "precision": "int8",
+        "backend": "cpu",
+        "exposedDevices": 0,
+        "matchingHardwareDevices": 0,
+        "backendLibrary": "built-in CPU",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/int8-cpu_2026-10-19_00-39-43_459.json",
+        "firstRunMilliseconds": 1797,
+        "cosineWithHostInt8": 0.9999999999998845,
+        "rawL2Norm": 0.999999943081543,
+        "cosineWithSamePrecisionCpu": 1.0,
+        "hiddenMaximumAbsoluteValue": 3494.339111328125,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 132,
+        "warmMilliseconds": [
+          1365.580625,
+          1358.648958,
+          1356.94203
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1010,
+              "durationMicroseconds": 1477704
+            }
+          },
+          "requestedProvider": "CPUExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 1.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 1358.648958
+      },
+      {
+        "precision": "int8",
+        "backend": "htp",
+        "exposedDevices": 1,
+        "matchingHardwareDevices": 1,
+        "backendLibrary": "libQnnHtp.so",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/int8-htp_2026-10-19_00-39-51_113.json",
+        "firstRunMilliseconds": 498,
+        "cosineWithHostInt8": 0.9999989872332421,
+        "rawL2Norm": 0.9999995355305953,
+        "cosineWithSamePrecisionCpu": 0.9999989874081965,
+        "hiddenMaximumAbsoluteValue": 3494.0,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 15458,
+        "warmMilliseconds": [
+          232.692187,
+          225.192812,
+          219.307031
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          0.9999989874081965,
+          0.9999989874081965,
+          0.9999989874081965
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 98,
+              "durationMicroseconds": 10855
+            },
+            "QNNExecutionProvider": {
+              "events": 73,
+              "durationMicroseconds": 266568
+            }
+          },
+          "requestedProvider": "QNNExecutionProvider",
+          "acceleratorObserved": true,
+          "cpuQuantizedMatrixEvents": 0,
+          "requestedProviderDurationFraction": 0.9608720257512895,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 225.192812
+      },
+      {
+        "precision": "int8",
+        "backend": "htp_fp32",
+        "exposedDevices": 1,
+        "matchingHardwareDevices": 1,
+        "backendLibrary": "libQnnHtp.so",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/int8-htp_fp32_2026-10-19_00-40-25_961.json",
+        "firstRunMilliseconds": 469,
+        "cosineWithHostInt8": 0.9999989872332421,
+        "rawL2Norm": 0.9999995355305953,
+        "cosineWithSamePrecisionCpu": 0.9999989874081965,
+        "hiddenMaximumAbsoluteValue": 3494.0,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 15519,
+        "warmMilliseconds": [
+          223.158697,
+          213.149062,
+          223.970729
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          0.9999989874081965,
+          0.9999989874081965,
+          0.9999989874081965
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 98,
+              "durationMicroseconds": 10154
+            },
+            "QNNExecutionProvider": {
+              "events": 73,
+              "durationMicroseconds": 259402
+            }
+          },
+          "requestedProvider": "QNNExecutionProvider",
+          "acceleratorObserved": true,
+          "cpuQuantizedMatrixEvents": 0,
+          "requestedProviderDurationFraction": 0.9623306474350414,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 223.158697
+      },
+      {
+        "precision": "int8",
+        "backend": "gpu",
+        "exposedDevices": 1,
+        "matchingHardwareDevices": 0,
+        "backendLibrary": "libQnnGpu.so",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/int8-gpu_2026-10-19_00-41-00_888.json",
+        "firstRunMilliseconds": 1974,
+        "cosineWithHostInt8": 0.9999999399569156,
+        "rawL2Norm": 0.999999691966926,
+        "cosineWithSamePrecisionCpu": 0.9999999400138114,
+        "hiddenMaximumAbsoluteValue": 3494.4990234375,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 3259,
+        "warmMilliseconds": [
+          1747.45552,
+          1936.401926,
+          1913.170625
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          0.9999999400138114,
+          0.9999999400138114,
+          0.9999999400138114
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 244,
+              "durationMicroseconds": 1342797
+            },
+            "QNNExecutionProvider": {
+              "events": 170,
+              "durationMicroseconds": 429040
+            }
+          },
+          "requestedProvider": "QNNExecutionProvider",
+          "acceleratorObserved": true,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 0.2421441701465767,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 1913.170625
+      },
+      {
+        "precision": "q4",
+        "backend": "cpu",
+        "exposedDevices": 0,
+        "matchingHardwareDevices": 0,
+        "backendLibrary": "built-in CPU",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/q4-cpu_2026-10-19_00-41-18_128.json",
+        "firstRunMilliseconds": 1567,
+        "cosineWithHostInt8": 0.9905543773177575,
+        "rawL2Norm": 0.9999998351818007,
+        "cosineWithSamePrecisionCpu": 1.0,
+        "hiddenMaximumAbsoluteValue": 3486.00390625,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 362,
+        "warmMilliseconds": [
+          1250.790937,
+          1255.717656,
+          1243.599687
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 1010,
+              "durationMicroseconds": 1318813
+            }
+          },
+          "requestedProvider": "CPUExecutionProvider",
+          "acceleratorObserved": false,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 1.0,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 1250.790937
+      },
+      {
+        "precision": "q4",
+        "backend": "htp",
+        "exposedDevices": 1,
+        "matchingHardwareDevices": 1,
+        "backendLibrary": "libQnnHtp.so",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/q4-htp_2026-10-19_00-41-25_618.json",
+        "firstRunMilliseconds": 515,
+        "cosineWithHostInt8": 0.9905380889420239,
+        "rawL2Norm": 0.9999991779202185,
+        "cosineWithSamePrecisionCpu": 0.99999937636796,
+        "hiddenMaximumAbsoluteValue": 3484.0,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 17406,
+        "warmMilliseconds": [
+          247.805104,
+          222.260312,
+          225.9025
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          0.9999993763679599,
+          0.9999993763679599,
+          0.9999993763679599
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 98,
+              "durationMicroseconds": 11093
+            },
+            "QNNExecutionProvider": {
+              "events": 73,
+              "durationMicroseconds": 264706
+            }
+          },
+          "requestedProvider": "QNNExecutionProvider",
+          "acceleratorObserved": true,
+          "cpuQuantizedMatrixEvents": 0,
+          "requestedProviderDurationFraction": 0.9597786794005779,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 225.9025
+      },
+      {
+        "precision": "q4",
+        "backend": "htp_fp32",
+        "exposedDevices": 1,
+        "matchingHardwareDevices": 1,
+        "backendLibrary": "libQnnHtp.so",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/q4-htp_fp32_2026-10-19_00-42-04_406.json",
+        "firstRunMilliseconds": 518,
+        "cosineWithHostInt8": 0.9905380889420239,
+        "rawL2Norm": 0.9999991779202185,
+        "cosineWithSamePrecisionCpu": 0.99999937636796,
+        "hiddenMaximumAbsoluteValue": 3484.0,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 18129,
+        "warmMilliseconds": [
+          265.427917,
+          222.234427,
+          224.107396
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          0.9999993763679599,
+          0.9999993763679599,
+          0.9999993763679599
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 98,
+              "durationMicroseconds": 11064
+            },
+            "QNNExecutionProvider": {
+              "events": 73,
+              "durationMicroseconds": 265477
+            }
+          },
+          "requestedProvider": "QNNExecutionProvider",
+          "acceleratorObserved": true,
+          "cpuQuantizedMatrixEvents": 0,
+          "requestedProviderDurationFraction": 0.9599914660032328,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 224.107396
+      },
+      {
+        "precision": "q4",
+        "backend": "gpu",
+        "exposedDevices": 1,
+        "matchingHardwareDevices": 0,
+        "backendLibrary": "libQnnGpu.so",
+        "cpuFallbackAllowed": true,
+        "fixedTokens": 220,
+        "profileFile": "/storage/emulated/0/Android/data/com.example.notionreader/files/gemma-qnn-probe/q4-gpu_2026-10-19_00-42-43_882.json",
+        "firstRunMilliseconds": 2267,
+        "cosineWithHostInt8": 0.9905501250580332,
+        "rawL2Norm": 0.9999998201530202,
+        "cosineWithSamePrecisionCpu": 0.9999999552070135,
+        "hiddenMaximumAbsoluteValue": 3486.220458984375,
+        "hiddenNonFiniteValues": 0,
+        "timedSessionCreationMilliseconds": 5571,
+        "warmMilliseconds": [
+          1813.01078,
+          1797.260729,
+          1922.366562
+        ],
+        "warmCosinesWithSamePrecisionCpu": [
+          0.9999999552070135,
+          0.9999999552070135,
+          0.9999999552070135
+        ],
+        "warmThermalStatuses": [
+          1,
+          1,
+          1
+        ],
+        "warmTimingScope": "Unprofiled session.run only, one warmup then three repeats; tokenization/tensor creation excluded",
+        "executionComplete": true,
+        "profileEvidence": {
+          "providers": {
+            "CPUExecutionProvider": {
+              "events": 244,
+              "durationMicroseconds": 1396946
+            },
+            "QNNExecutionProvider": {
+              "events": 170,
+              "durationMicroseconds": 543499
+            }
+          },
+          "requestedProvider": "QNNExecutionProvider",
+          "acceleratorObserved": true,
+          "cpuQuantizedMatrixEvents": 146,
+          "requestedProviderDurationFraction": 0.2800898762912631,
+          "scope": "Summed profiled node duration; not wall time or hardware utilization"
+        },
+        "medianWarmMilliseconds": 1813.01078
+      }
+    ],
+    "hostParity": [
+      {
+        "precision": "int8",
+        "tokens": 220,
+        "textOnly": true,
+        "cpuFp32Normalization": true,
+        "cpuOriginalVsFixedCosine": 1.0,
+        "graphSha256": "1ccb2065c43b4e1361cb92024e6a97103d2f6088d0d03d75572067b76a299dc9",
+        "sourceGraphSha256": "d06edd601f851c633a2519304cbeb8dc6170d7ceb61b436625c17fb9b6e74953"
+      },
+      {
+        "precision": "q4",
+        "tokens": 220,
+        "textOnly": true,
+        "cpuFp32Normalization": true,
+        "cpuOriginalVsFixedCosine": 1.0000001192092896,
+        "graphSha256": "0047bad3eef4ad5938f221c3c98d0f5f1e54a7799ea4d3396989b7787c8238c8",
+        "sourceGraphSha256": "f9eeba97acddf139b8ee2ddf04bc30dceafa88de93fadf74d7644e0d61a477a9"
+      }
+    ],
+    "wrapper": {
+      "tests": 1,
+      "failures": 0,
+      "attempts": 1
+    }
+  },
+  "preservation": {
+    "settingsHashesUnchanged": true,
+    "pixelSentinelPresent": true,
+    "priorDataLossIncident": "See decisions section94; current checks do not recover or establish preservation of earlier lost state"
+  }
+}

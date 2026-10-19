@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-19",
+  "model": {
+    "precision": "INT4",
+    "packBytes": 206696682,
+    "dimensions": 768,
+    "graphSha256": "f9eeba97acddf139b8ee2ddf04bc30dceafa88de93fadf74d7644e0d61a477a9"
+  },
+  "evaluationLock": {
+    "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+    "dataset": "marcelsun/wos_hierarchical_multi_label_text_classification",
+    "goldSha256": "314c793b8ee73e5489ce8f349c4d3087cb2175eeffb83e381a65d41739b07c8f",
+    "revision": "f246712b46ef607586a774be262b186665b04630",
+    "samplingPolicy": "wos-jtf-v1-content-hash-200dev-300test",
+    "sourceHashes": {
+      "dev": "416b77019799756eede0928c412bc3e6e35df2878887579482847fabb308f1a2",
+      "test": "3b61f674ae679772fe51b3622fb230df079a8b44332ac2bce91e5c2d023c9287"
+    }
+  },
+  "exactParity": {
+    "notes": 500,
+    "opportunities": 861,
+    "candidateGroups": 366,
+    "formationPairs": 915377,
+    "exhaustiveVectorComponents": 703009536,
+    "avoidedVectorComponents": 487748864,
+    "avoidedFraction": 0.6938012061332836,
+    "publishedPayloadsAndSeedGroupsIdenticalIgnoringGeneratedIds": true,
+    "metadataPrunedProjectionComparisons": 0
+  },
+  "authoredMetadataContractFixture": {
+    "notes": 12,
+    "subjects": 4,
+    "projectionComparisons": 48,
+    "prunedComparisons": 36,
+    "evidenceIdentical": true
+  },
+  "testSplitFineCategoryProxy": {
+    "correctPairs": 352,
+    "predictedPairs": 928,
+    "goldPairs": 1391,
+    "precision": 0.3793103448275862,
+    "recall": 0.25305535585909417,
+    "f1": 0.3035791289348857
+  },
+  "humanQualityGate": "unmeasured",
+  "s25Deployment": {
+    "device": "SM-S931B",
+    "model": "embeddinggemma-2:int4:daa72c51243991dfcaf9f9137d2c573d8f7790c0:f9eeba97acddf139b8ee2ddf04bc30dceafa88de93fadf74d7644e0d61a477a9:c3975f2d1ab7a1878ae31a7d7a9b7804a827aff3800b60dfceafce21cac3df49",
+    "bytes": 206696682,
+    "alreadyInstalled": true,
+    "verified": true,
+    "backend": "VULKAN",
+    "publicReferences": [
+      {
+        "cosine": 0.9999999999997711,
+        "backend": "VULKAN"
+      },
+      {
+        "cosine": 0.9999999999997503,
+        "backend": "VULKAN"
+      },
+      {
+        "cosine": 0.9999999999993723,
+        "backend": "VULKAN"
+      }
+    ]
+  },
+  "s25FinalPreservation": {
+    "missing": 0,
+    "changedNoteFiles": 1,
+    "changedInternalCacheFiles": 1,
+    "settingsChanged": false,
+    "noteFiles": 50
+  },
+  "pixelDeployment": "pending: device disconnected",
+  "limitations": [
+    "Arithmetic counts are not end-to-end device speedup",
+    "One cached Note file and the internal journal changed after initial byte-identical deployment check; no baseline files missing and settings unchanged",
+    "Worst-case exact formation remains quadratic",
+    "Sustained energy, heat, memory and human relevance remain unqualified"
+  ],
+  "verification": {
+    "jvmTests": 1003,
+    "jvmFailures": 0,
+    "assembleDebug": "passed",
+    "compileDebugAndroidTestKotlin": "passed",
+    "emulatorInt4Parity": "1/1 passed",
+    "emulatorDiscoveryJourney": "1/1 passed",
+    "emulatorExplicitAcquisition": "1/1 passed",
+    "s25ExplicitDeployment": "1/1 passed",
+    "pythonUnitTests": "70 passed",
+    "finalProcessRecovery": "unverified: no headless completion receipt within 180 seconds; preparation passed, cleanup verification failed without receipt and restored fixtures/settings"
+  }
+}

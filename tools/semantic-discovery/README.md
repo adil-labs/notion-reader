@@ -1,5 +1,274 @@
 # Semantic discovery feasibility evidence
 
+## Active Gemma INT8 Android verification
+
+The app now uses pinned EmbeddingGemma 2 INT8 through ONNX Runtime Android,
+with native Hugging Face Tokenizers 0.22.1. The older classes named
+`ShippingDiscoveryInferenceTest`, `ShippingTopicInferenceTest`,
+`DiscoveryPolicyInferenceTest` and `TopicFormationScalabilityDeviceTest` retain
+historical **MiniLM baseline** fixtures; they do not qualify Gemma. Their historical
+commands and measurements below remain reproducible, with that scope.
+
+Build prerequisites on this Windows workspace: Rust/cargo (tested with rustc
+1.98.1), PowerShell 7, the existing JDK/Android SDK, and NDK 29.0.13846066.
+`tools/build-discovery-tokenizer.ps1` builds the locked crate for all four Android
+ABIs at API26 and the Windows JVM test host. Gradle wires these outputs into normal
+builds; model binaries are not bundled. ARM64 ELF LOAD alignment was checked at
+16 KiB; runtime evidence covers Pixel 8 Pro/API37 and x86_64/API36; API26 runtime remains inconclusive.
+
+```powershell
+android sdk install 'ndk;29.0.13846066'
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:compileDebugAndroidTestKotlin
+.\gradlew.bat :app:verifyGemmaTokenizer '-PgemmaTokenizerJson=C:/path/to/pinned/tokenizer.json'
+pwsh -NoProfile -File tools/semantic-discovery/prepare-gemma-device.ps1 -Device DEVICE_SERIAL -ModelDirectory C:/path/to/pinned/Gemma-pack
+pwsh -NoProfile -File tools/run-accessibility-tests.ps1 -Device DEVICE_SERIAL -Class com.example.notionreader.ui.GemmaDeviceIntegrationTest
+pwsh -NoProfile -File tools/run-accessibility-tests.ps1 -Device DEVICE_SERIAL -Class com.example.notionreader.ui.GemmaDiscoveryJourneyTest
+pwsh -NoProfile -File tools/run-accessibility-tests.ps1 -Device DEVICE_SERIAL -DeployModel -Class com.example.notionreader.ui.GemmaAcquisitionDeviceTest
+```
+
+The staging script verifies all five current INT4 files before any device write, accepts
+flat or standard Hub `onnx/` paths, and touches only its isolated public test-pack
+directory under app-owned `cache/gemma-benchmark-q4`, via a temporary public transfer file and app-side hash verification. Tests prefer the verified installed `no_backup/discovery-model/current` pack. `-DryRun` checks local bytes without device mutation. Parity checks the
+precision-specific frozen JSON's 12 token/UTF-16 cases and three real public vector references, tests
+explicit context overflow, and reports scoped post-call memory samples. The
+journey performs real embeddings and uses isolated stores for six purpose-built
+Notes: indexing, subjects, semantic/named connections, query ranking, actual-rate
+embedding estimates, accessible evidence navigation and Back focus, without
+changing the user's library or listening state. Its screenshot/report contain
+only those fixtures. Acquisition is an explicit network test through the actual
+application's Settings; it installs the optional pack using the default network
+policy, preserving it for normal app use.
+
+Run these classes separately. A combined CSV class request was observed to execute
+only one class; the wrapper correctly returned INCOMPLETE against the full expected
+count. Never treat that run as a suite pass. The tracked Gradle option
+`android.injected.androidTest.leaveApksInstalledAfterRun=true` is essential:
+without it this AGP version uninstalls the tested app, including pre-existing local
+state, after tests. The first physical integration run exposed that destructive
+behavior; later runs proved preservation with a pre-existing sentinel. See decisions
+§94 for the incident and evidence. Do not remove this option or run raw Gradle
+connected tests.
+
+For exact-formation calibration, the existing `evaluatePublicExactFormation` task
+accepts explicit `publicFormationDistance` and `publicMembershipThreshold`
+properties. Separate output filenames retain parameter identity rather than
+replacing the original baseline report. WOS publisher-label metrics remain proxy
+diagnostics, not independent human relevance acceptance.
+
+## Labeled WOS-JTF pipeline diagnostic
+
+`wos_corpus.py` adapts 200 source-dev and 300 source-test scientific title/abstract
+records from revision `f246712b46ef607586a774be262b186665b04630` of
+`marcelsun/wos_hierarchical_multi_label_text_classification`. Its `--download`
+option fetches the two exact public source files into an external evaluation
+directory. The adapter rejects changed source bytes,
+selects by deterministic content hash, rejects duplicate prose, and freezes
+`corpus.json`, `corpus.lock.json`, `gold-labels.json` and `evaluation-lock.json`.
+Publisher labels remain outside passage, vector and discovery inputs.
+
+```powershell
+python tools/semantic-discovery/wos_corpus.py --directory C:/evaluation/wos --download
+# Run exportPublicCorpusPassages, public_vectors.py, exportPublicFormationInput,
+# evaluatePublicExactFormation, formation_vectors.py, graph_formation.py and
+# evaluatePublicGraphProjection as described below, using that directory.
+python tools/semantic-discovery/wos_score.py --directory C:/evaluation/wos --reports C:/evaluation/wos/exact/exact-formation.json --output C:/evaluation/wos/scores.json
+```
+
+Scoring verifies the corpus/gold lock, every gold Note's source content and split,
+and each pipeline report's corpus identity. Pair precision/recall/F1 compares
+unique co-member Note pairs against shared publisher labels, separately for
+depth-zero labels 0–5 and depth-one labels 6–51 (pinned `JTF/depth2label.pt`).
+No predicted pairs gives null precision, not perfect precision. Source splits
+share subject families: this is a diagnostic, **not family-held-out acceptance**.
+Journal/citation classifications are proxy grouping labels, not human judgments
+of passage relevance, app labels, subject subsumption or useful connections.
+
+`bge_vectors.py` checks pinned BGE-small ONNX/tokenizer bytes and exact publisher
+token parity with shipping windows, uses publisher CLS pooling and normalization,
+then exports the same artifact format for shipping formation/projection. The
+FP32 challenger versus INT8 MiniLM comparison is not quantization-controlled.
+`gemma2_vectors.py` uses pinned community EmbeddingGemma 2 text-only ONNX
+exports (`--precision fp32`, `int8` or `q4`), publisher clustering instruction and tokenizer, and the export's projected
+sentence embedding. Source passage text stays fixed; tokenization changes explicitly.
+No vision/audio encoder is loaded. All weights/tokenizer files must match
+source-pinned checksums. Standard `hf download` nested paths and flat asset paths
+are both supported. Only publisher-supported MRL sizes
+128/256/512/768 are allowed, followed by normalization. Publisher PyTorch parity
+and Android resource/quality qualification remain separate work.
+
+For a quantization-only comparison, use the same export revision, source passages,
+768 dimensions, two CPU threads, clustering instruction and graph/projection
+settings as the FP32 run. Do not independently tune thresholds and attribute the
+resulting change solely to quantization. The INT8 files are
+`onnx/model_quantized.onnx` and its `_data` file; Q4 uses `onnx/model_q4.onnx`
+and its `_data`. Shared tokenizer/config files must pass the same pinned hashes.
+
+```powershell
+hf download onnx-community/embeddinggemma-2-ONNX onnx/model_q4.onnx onnx/model_q4.onnx_data onnx/model_quantized.onnx onnx/model_quantized.onnx_data tokenizer.json tokenizer_config.json config.json --revision daa72c51243991dfcaf9f9137d2c573d8f7790c0 --local-dir C:/evaluation/gemma2-model
+python tools/semantic-discovery/gemma2_vectors.py --baseline-dir C:/evaluation/wos/minilm --model-dir C:/evaluation/gemma2-model --output-dir C:/evaluation/wos/gemma2-q4 --precision q4
+# Repeat with --precision int8 and a separate output directory. Then run the
+# shared native preparation, graph and projection with minSimilarity 0.9 and
+# publicMembershipThreshold 0.9, followed by wos_score.py on all three reports.
+```
+
+Check identical ordered row/token identities before comparing same-passage cosine
+with FP32. Vector agreement alone is not semantic acceptance; score the resulting
+published groups against the same frozen gold sidecar. Model sizes count graph
+and external weights; tokenizer/config bytes are shared additional assets. Host
+embedding/artifact times exclude model download/session initialization and are
+not Android speed or memory qualifications.
+
+Host graph projection accepts `-PpublicMembershipThreshold=0.75` for explicit
+experiments, records the value, and rejects nonfinite/out-of-range thresholds or
+ones below the shipping evidence floor. Runtime thresholds do not change.
+
+## Public 500-Note baseline capture
+
+`public_corpus.py` selects twenty substantive public encyclopedia articles from
+each of twenty-five category families. It captures literal section paragraphs,
+canonical page/revision IDs, attribution links and license provenance. Whole
+families are assigned to calibration or held-out before discovery output is seen.
+The category strata are not gold subject labels. English encyclopedia prose is a
+baseline, not representative personal-Note style or human quality acceptance.
+
+Use an output directory on a drive with enough space; full API responses and
+paragraph content stay outside tracked source. The final lock contains public
+source metadata and content hashes. Capture resumes from its API cache and honors
+rate-limit backoff. It refuses to freeze fewer than 500 Notes or overwrite an
+existing lock. A partial `capture-progress.json` is diagnostic, never a complete
+evaluation corpus.
+
+```powershell
+python -m unittest discover -s tools/semantic-discovery -p test_public_corpus.py
+python tools/semantic-discovery/public_corpus.py --output-dir C:\evaluation\public-500-v1 --lock tools/semantic-discovery/public-500-v1.lock.json
+python tools/semantic-discovery/public_corpus.py --verify --output-dir C:\evaluation\public-500-v1 --lock tools/semantic-discovery/public-500-v1.lock.json
+```
+
+The offline verifier checks literal content, per-Note/source hashes, family
+partitions and the whole-corpus fingerprint against the frozen lock. Preserve the
+captured corpus/API cache as the replay artifact; public revision links alone do
+not freeze subsequently changed transcluded templates or parser output. Exact
+duplicate prose/source IDs are rejected; cross-family near-duplicate and conceptual
+leakage still need an explicit audit. Sampled paragraphs omit tables/lists and do
+not represent full-article coverage. All captured Notes are unrated, with zero
+human judgments; provisional/category annotations cannot establish precision,
+recall, hierarchy subsumption or label usefulness. Model/algorithm comparisons
+must bind results to this exact fingerprint and keep Android gates separate.
+
+After offline verification, export model inputs with the shipping Kotlin
+tokenizer/chunker rather than reproducing paragraph/window logic in Python:
+
+```powershell
+.\gradlew.bat :app:exportPublicCorpusPassages "-PpublicCorpusDirectory=C:\evaluation\public-500-v1" "-PpublicCorpusLock=tools/semantic-discovery/public-500-v1.lock.json" "-PpublicCorpusVocabulary=app/build/discovery-feasibility/vocab.txt"
+```
+
+The task requires a matching external/embedded 500-Note lock, checks the canonical
+corpus fingerprint and family partitions, and refuses private/unpinned sources.
+It writes `passages.jsonl` plus `passage-manifest.json` under the corpus directory.
+The manifest binds corpus, vocabulary and passage-file hashes, records the
+shipping tokenizer/chunker and token limit, and keeps human/Android gates
+unmeasured. Comparison runners must verify those hashes before consuming inputs.
+Each passage also carries the exact token IDs generated by the shipping tokenizer,
+including its special tokens; Python inference must not retokenize or truncate.
+Original paragraph ordinals become stable block IDs; section titles remain context,
+and no fabricated heading chunks qualify as body evidence. This exporter does not
+run embeddings or clustering. A partial capture cannot produce a completed export.
+
+Produce one shared MiniLM vector artifact for the algorithm ablation:
+
+```powershell
+python -m unittest discover -s tools/semantic-discovery -p test_public_vectors.py
+python tools/semantic-discovery/public_vectors.py --corpus-dir C:\evaluation\public-500-v1 --model app/build/discovery-feasibility/onnx/model_qint8_arm64.onnx --vocabulary app/build/discovery-feasibility/vocab.txt --output-dir C:\evaluation\public-500-v1\minilm
+```
+
+The runner checks the shipping export hash, 500-Note coverage, pinned production
+model/vocabulary hashes, token window bounds and family partitions. Single-input
+ONNX CPU inference uses two threads and double-precision mean pooling over real
+tokens followed by L2 normalization, matching the provider's pooling policy.
+Host inference is not an Android numerical/performance acceptance result.
+`vector-manifest.json` commits last and references content-addressed float32 NPY
+vectors and ordered passage metadata. Failed inference preserves the prior
+complete manifest. `verify_artifact` rejects altered vectors, reordered rows,
+nonfinite/nonunit vectors, missing rows and incomplete artifacts. Both formation
+methods must consume the same verified artifact and report its identity/hashes;
+this stage does not decide a winning algorithm or model.
+
+Run the lexical leakage audit before held-out quality claims:
+
+```powershell
+python -m unittest discover -s tools/semantic-discovery -p test_corpus_leakage.py
+python tools/semantic-discovery/corpus_leakage.py --corpus-dir C:\evaluation\public-500-v1 --lock tools/semantic-discovery/public-500-v1.lock.json --output C:\evaluation\public-500-v1\leakage.json
+```
+
+The audit binds the frozen corpus fingerprint and accounts for every unordered
+Note pair. Declared heuristics are NFKC/casefold five-word shingles, Jaccard >=.65
+or containment >=.85 with at least 200 smaller-Note shingles, plus copied normalized
+paragraphs of at least forty words. Cross-partition risks flag the entire affected
+held-out family for exclusion from quality claims; they do not silently move the
+frozen partition or become human judgments. Near-duplicate/paragraph pair evidence,
+affected families and excluded Note IDs are explicit. Absence of a lexical match
+does not prove semantic family independence or detect all paraphrases. `--progress`
+can audit an in-progress capture diagnostically but always leaves the gate
+incomplete. The full mode requires a matching verified 500-Note lock. Human quality
+remains unmeasured even if no lexical risk is detected.
+
+`graph_formation.py` implements the host-only HNSW/Leiden candidate baseline with
+pinned dependencies in `requirements-graph.txt`. Use an isolated environment on a
+drive with space. Its unit fixtures exercise real Faiss/igraph/leidenalg binaries:
+
+```powershell
+python -m pip install -r tools/semantic-discovery/requirements-graph.txt
+python -m unittest discover -s tools/semantic-discovery -p test_graph_formation.py
+```
+
+Fixed exploratory defaults are k=15, minimum positive cosine .65, HNSW M=32,
+efConstruction=200, efSearch=128, one thread, seed=42 and RBConfiguration Leiden
+resolution=1 until stable. Union/max edge symmetrization preserves isolated
+vertices as singleton communities. A deterministic calibration-only sample probes
+approximate neighborhoods against exact cosine, crediting equally good ties and
+rejecting self/duplicate/missing neighbors. Parameters and library versions are
+reported; these defaults have not been selected by human quality judgments.
+
+The CLI intentionally refuses raw passage vector artifacts as an exact-engine
+ablation: shipping formation uses eligible within-section passage-direction
+opportunities. Export those through the shared shipping preparation function:
+
+```powershell
+.\gradlew.bat :app:exportPublicFormationInput "-PpublicCorpusDirectory=C:\evaluation\public-500-v1" "-PpublicVectorDirectory=C:\evaluation\public-500-v1\minilm" "-PpublicFormationDirectory=C:\evaluation\public-500-v1\native-formation"
+python tools/semantic-discovery/formation_vectors.py --native-dir C:\evaluation\public-500-v1\native-formation --output-dir C:\evaluation\public-500-v1\formation-vectors
+python tools/semantic-discovery/graph_formation.py --vector-dir C:\evaluation\public-500-v1\formation-vectors --output C:\evaluation\public-500-v1\graph-formation.json
+.\gradlew.bat :app:evaluatePublicExactFormation "-PpublicCorpusDirectory=C:\evaluation\public-500-v1" "-PpublicVectorDirectory=C:\evaluation\public-500-v1\minilm" "-PpublicFormationDirectory=C:\evaluation\public-500-v1\native-formation"
+.\gradlew.bat :app:evaluatePublicGraphProjection "-PpublicCorpusDirectory=C:\evaluation\public-500-v1" "-PpublicVectorDirectory=C:\evaluation\public-500-v1\minilm" "-PpublicFormationDirectory=C:\evaluation\public-500-v1\native-formation" "-PpublicGraphReport=C:\evaluation\public-500-v1\graph-formation.json"
+```
+
+The MiniLM artifact includes checksummed little-endian float32 transport identical
+bit-for-bit to NPY values. The JVM adapter checks consumed payload hashes, canonical
+passage/row alignment, source provenance, family splits and unit vectors, then calls
+the same preparation as the sole engine. Native output retains every eligible
+member passage ID, opportunity order and the source artifact identity. The Python
+conversion copies the native normalized directions without inference and rejects
+missing/duplicate provenance or partial corpus export. It supplies the required
+`shipping:SectionHierarchicalEngine:v4` declaration; raw embeddings cannot supply
+that declaration by accident. The fixtures do not establish a 500-Note comparison.
+The exact task recomputes/checks native opportunity IDs, every member ID and raw
+prepared vector bits before observing seed groups from the actual shipping engine.
+It also runs normal downstream projection/publication and writes unrated review
+cases, committing `exact-formation.json` only after completion. An internal observer
+exposes the existing formation phase; normal runtime calls have no observer or
+alternate algorithm. Exact candidate groups can overlap because focused candidates
+are retained. Graph communities are a partition before downstream projection.
+Timing scopes are explicit: exact formation includes shipping preparation/focused
+candidates, while the graph timer excludes shared preparation; exact total also
+includes downstream work. Do not infer a speed winner from unequal phase scopes.
+The graph-projection task validates generation, algorithm identity and complete
+partition coverage, then calls the same focused-candidate, center/anchor,
+best-passage membership, naming, publication and hierarchy functions as shipping
+exact formation. Graph review uses fresh cold-run identities; runtime continuity
+and sessions are outside this host comparison. Both reports retain literal
+evidence and unrated judgments. This is shared downstream evaluation, not a graph
+selector or alternate algorithm wired into Android. Useful-connection quality and
+independent human subject/membership/hierarchy judgments still need separate review.
+
 These tools are independent of the reader's Gradle settings and never read Notion content or app documents. Model binaries and build output stay in ignored `app/build/discovery-feasibility` and the standalone probe's `build` directory. The publisher revision, hashes, vocabulary fixture and measured reports are tracked text.
 
 ## Reproduce
@@ -198,3 +467,54 @@ TalkBack listening. Sampling is not an allocation profiler.
 The legacy streaming engine, obsolete clustering/ablation runner, research-only
 clustering tests and legacy mutation proof are retired. The sole runtime is used
 across builds. Architecture adoption does not declare human or physical acceptance.
+
+
+## Automatic background recovery verification
+
+On an owned, otherwise empty API36 test emulator with the real installed pack:
+
+```powershell
+pwsh -NoProfile -File tools/run-accessibility-tests.ps1 -Device emulator-5554 -Class com.example.notionreader.ui.AutomaticDiscoveryDeviceTest
+pwsh -NoProfile -File tools/probe-automatic-discovery-recovery.ps1 -Device emulator-5554
+```
+
+The first test observes normal screen-off scheduling and persisted effort changes.
+The probe brackets an actual process kill with two wrapper phases; it captures
+headless completion before verification instrumentation starts. It does not force
+JobScheduler. Both restore their fixtures/settings; the host probe resets battery
+simulation. See decisions §95 and `gemma2-android-integration-2026-10-18.json` for
+scope, counts, known limitations and the earlier physical-device data-loss incident.
+
+
+## Quantization and backend device benchmark
+
+See [the benchmark report](../../docs/gemma-device-backends-2026-10-18.md) and
+`gemma-device-backends-2026-10-19.json` for pinned models, reproduction and measured
+scope. `requirements-device-benchmark.txt` pins the research Python environment.
+`gemma_device_benchmark.py` rejects unsupported acceleration claims and validates
+timed numerical agreement. QNN uses cache-only libraries and a fixed ordinary-text
+research graph; this does not enable a production NPU backend. The wrapper's
+`-HeadlessInference` option permits only the explicit native device classes.
+
+
+Vulkan follow-up: [device findings](../../docs/gemma-vulkan-2026-10-19.md), with
+compact results in `gemma-vulkan-2026-10-19.json`. Run `GemmaVulkanProbeTest`
+through the wrapper and analyze its pulled folder with `--vulkan`. This uses
+ORT WebGPU/Dawn with Vulkan; no llama.cpp is used. Diagnostic completion is
+separate from individual GPU compatibility.
+
+
+INT4 is the current default. `generate-gemma-q4-reference.py --model-dir PATH`
+reproduces its pinned public device vectors; INT8 references remain historical.
+Staging defaults to Q4; use `-Precision int8` explicitly for old benchmark controls.
+`GemmaDeploymentDeviceTest` is an explicit opt-in real installation through the
+production download API and then public-reference backend validation; invoke only
+when the device owner requested deployment. It uses no Activity and is separately
+allowlisted by the headless wrapper. Never clear app data to run these checks.
+
+
+Model acquisition/deployment classes require `-DeployModel` and exact single-class
+selection; default full-suite runs exclude both. The wrapper forwards an explicit
+runner opt-in, and each test checks it before accessing the application. Self-check
+`tools/check-model-deployment-selection.ps1` verifies the guard and agreement of
+actual runner exclusions with source-derived completeness.

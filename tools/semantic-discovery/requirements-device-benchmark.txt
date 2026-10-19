@@ -1,0 +1,4 @@
+# Host-only public model validation and experimental QNN graph preparation.
+numpy==2.4.4
+onnx==1.20.1
+onnxruntime==1.31.0

@@ -1,0 +1,407 @@
+{
+  "date": "2026-10-18",
+  "corpus": {
+    "notes": 500,
+    "passages": 861,
+    "sourceDevNotes": 200,
+    "sourceTestNotes": 300,
+    "testFineGoldPairs": 1391
+  },
+  "evaluationLock": {
+    "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+    "dataset": "marcelsun/wos_hierarchical_multi_label_text_classification",
+    "goldSha256": "314c793b8ee73e5489ce8f349c4d3087cb2175eeffb83e381a65d41739b07c8f",
+    "revision": "f246712b46ef607586a774be262b186665b04630",
+    "samplingPolicy": "wos-jtf-v1-content-hash-200dev-300test",
+    "sourceHashes": {
+      "dev": "416b77019799756eede0928c412bc3e6e35df2878887579482847fabb308f1a2",
+      "test": "3b61f674ae679772fe51b3622fb230df079a8b44332ac2bce91e5c2d023c9287"
+    }
+  },
+  "fixedParameters": {
+    "graph": {
+      "efConstruction": 200,
+      "efSearch": 128,
+      "hnswM": 32,
+      "iterations": "until-stable",
+      "k": 15,
+      "minSimilarity": 0.9,
+      "resolution": 1.0,
+      "seed": 42,
+      "symmetrization": "union-max-positive-cosine",
+      "threads": 1
+    },
+    "membershipThreshold": 0.9,
+    "dimensions": 768,
+    "instruction": "task: clustering | query: ",
+    "threads": 2,
+    "provider": "CPUExecutionProvider"
+  },
+  "models": {
+    "fp32": {
+      "identity": {
+        "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+        "dimensions": 768,
+        "exportRepo": "onnx-community/embeddinggemma-2-ONNX",
+        "exportRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "externalWeightsSha256": "9fd452bfc6916e5a92f080f8dada35598ca4512b21c65897d4c5974d5f9630a2",
+        "instruction": "task: clustering | query: ",
+        "modelId": "google/embeddinggemma-2",
+        "modelRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "modelSha256": "bc47de15f81208a5c99e5ab10f746d5e33b51ea228b7dc0bef9c133a94f1c1c3",
+        "passagesSha256": "3809b76569dd86cd7032553868d83f4b89459d24a8104679ba2993414c5cac13",
+        "pooling": "exported-sentence_embedding-projection-MRL-l2",
+        "precision": "FP32",
+        "provider": "CPUExecutionProvider",
+        "publisherCardRevision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+        "runtime": "onnxruntime:1.31.0",
+        "scope": "Community text-only ONNX export; source text fixed; publisher PyTorch parity and Android unmeasured",
+        "threads": 2,
+        "tokenizer": "publisher-Gemma2-same-source-passages-new-tokenization",
+        "tokenizerSha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "vocabularySha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "files": {
+        "onnx/model.onnx": {
+          "bytes": 421421,
+          "sha256": "bc47de15f81208a5c99e5ab10f746d5e33b51ea228b7dc0bef9c133a94f1c1c3"
+        },
+        "onnx/model.onnx_data": {
+          "bytes": 1084170240,
+          "sha256": "9fd452bfc6916e5a92f080f8dada35598ca4512b21c65897d4c5974d5f9630a2"
+        },
+        "tokenizer.json": {
+          "bytes": 32170510,
+          "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+        },
+        "tokenizer_config.json": {
+          "bytes": 1599,
+          "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"
+        },
+        "config.json": {
+          "bytes": 5031,
+          "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"
+        }
+      },
+      "graphAndWeightsBytes": 1084591661,
+      "additionalSharedAssetsBytes": 32177140,
+      "vectorManifestSha256": "7ffc3f61da388efc08e77b02b991cadefbae5048d626c03703acc8d5bf71c453",
+      "rowsSha256": "7dfdd8a0367d1bddcd48de16f7bf511ed7caa3e7072d2a62c022eab4c1ad7a52",
+      "projectionReportSha256": "d3bba57e89e0dd09365983993d91b92ba92fa51911bc3f8e0f307196267e3fd2",
+      "hostEmbeddingArtifactSeconds": 248.84473170001002,
+      "samePassageCosineWithFp32": {
+        "mean": 1.0,
+        "minimum": 0.9999999999999998,
+        "p01": 0.9999999999999998
+      },
+      "testPairAgreementWithFp32": {
+        "shared": 1108,
+        "added": 0,
+        "removed": 0
+      },
+      "publishedSubjects": 199,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 276,
+            "f1": 0.12435233160621761,
+            "goldPairs": 4018,
+            "precision": 0.6555819477434679,
+            "predictedPairs": 421,
+            "recall": 0.06869089099054256
+          },
+          "fine": {
+            "correctPairs": 169,
+            "f1": 0.33104799216454456,
+            "goldPairs": 600,
+            "precision": 0.4014251781472684,
+            "predictedPairs": 421,
+            "recall": 0.2816666666666667
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 691,
+            "f1": 0.13362985882807968,
+            "goldPairs": 9234,
+            "precision": 0.6236462093862816,
+            "predictedPairs": 1108,
+            "recall": 0.07483214208360407
+          },
+          "fine": {
+            "correctPairs": 337,
+            "f1": 0.26970788315326133,
+            "goldPairs": 1391,
+            "precision": 0.30415162454873645,
+            "predictedPairs": 1108,
+            "recall": 0.24227174694464415
+          },
+          "notes": 300
+        }
+      }
+    },
+    "int8": {
+      "identity": {
+        "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+        "dimensions": 768,
+        "exportRepo": "onnx-community/embeddinggemma-2-ONNX",
+        "exportRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "externalWeightsSha256": "278a7ff1248c3618e4bd11a607fc54f7bdc7778854230f3956d3f86bd9db4f3b",
+        "graphFile": "onnx/model_quantized.onnx",
+        "instruction": "task: clustering | query: ",
+        "modelFiles": {
+          "config.json": {
+            "bytes": 5031,
+            "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"
+          },
+          "onnx/model_quantized.onnx": {
+            "bytes": 495165,
+            "sha256": "d06edd601f851c633a2519304cbeb8dc6170d7ceb61b436625c17fb9b6e74953"
+          },
+          "onnx/model_quantized.onnx_data": {
+            "bytes": 313724928,
+            "sha256": "278a7ff1248c3618e4bd11a607fc54f7bdc7778854230f3956d3f86bd9db4f3b"
+          },
+          "tokenizer.json": {
+            "bytes": 32170510,
+            "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+          },
+          "tokenizer_config.json": {
+            "bytes": 1599,
+            "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"
+          }
+        },
+        "modelId": "google/embeddinggemma-2",
+        "modelRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "modelSha256": "d06edd601f851c633a2519304cbeb8dc6170d7ceb61b436625c17fb9b6e74953",
+        "passagesSha256": "3809b76569dd86cd7032553868d83f4b89459d24a8104679ba2993414c5cac13",
+        "pooling": "exported-sentence_embedding-projection-MRL-l2",
+        "precision": "INT8",
+        "provider": "CPUExecutionProvider",
+        "publisherCardRevision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+        "runtime": "onnxruntime:1.31.0",
+        "scope": "Community text-only ONNX export; source text fixed; publisher PyTorch parity and Android unmeasured",
+        "threads": 2,
+        "tokenizer": "publisher-Gemma2-same-source-passages-new-tokenization",
+        "tokenizerSha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "vocabularySha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "files": {
+        "tokenizer.json": {
+          "bytes": 32170510,
+          "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+        },
+        "tokenizer_config.json": {
+          "bytes": 1599,
+          "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"
+        },
+        "config.json": {
+          "bytes": 5031,
+          "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"
+        },
+        "onnx/model_quantized.onnx": {
+          "bytes": 495165,
+          "sha256": "d06edd601f851c633a2519304cbeb8dc6170d7ceb61b436625c17fb9b6e74953"
+        },
+        "onnx/model_quantized.onnx_data": {
+          "bytes": 313724928,
+          "sha256": "278a7ff1248c3618e4bd11a607fc54f7bdc7778854230f3956d3f86bd9db4f3b"
+        }
+      },
+      "graphAndWeightsBytes": 314220093,
+      "additionalSharedAssetsBytes": 32177140,
+      "vectorManifestSha256": "aad21f32744d0a56d2adb026664887690f3dc714f857dd4af4cf1e6c9998afb9",
+      "rowsSha256": "7dfdd8a0367d1bddcd48de16f7bf511ed7caa3e7072d2a62c022eab4c1ad7a52",
+      "projectionReportSha256": "857d8a244365bf35d4f660343dba6259a11d7cd2a684b62d42710e727ae23307",
+      "hostEmbeddingArtifactSeconds": 571.3374863999998,
+      "samePassageCosineWithFp32": {
+        "mean": 0.9999369829716841,
+        "minimum": 0.9996801085858391,
+        "p01": 0.999793233067125
+      },
+      "testPairAgreementWithFp32": {
+        "shared": 1097,
+        "added": 140,
+        "removed": 11
+      },
+      "publishedSubjects": 203,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 342,
+            "f1": 0.15096005296843965,
+            "goldPairs": 4018,
+            "precision": 0.6666666666666666,
+            "predictedPairs": 513,
+            "recall": 0.08511697361871579
+          },
+          "fine": {
+            "correctPairs": 196,
+            "f1": 0.3522012578616352,
+            "goldPairs": 600,
+            "precision": 0.3820662768031189,
+            "predictedPairs": 513,
+            "recall": 0.32666666666666666
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 764,
+            "f1": 0.14592684557348867,
+            "goldPairs": 9234,
+            "precision": 0.6176232821341956,
+            "predictedPairs": 1237,
+            "recall": 0.08273770846870263
+          },
+          "fine": {
+            "correctPairs": 374,
+            "f1": 0.2846270928462709,
+            "goldPairs": 1391,
+            "precision": 0.30234438156831045,
+            "predictedPairs": 1237,
+            "recall": 0.26887131560028754
+          },
+          "notes": 300
+        }
+      }
+    },
+    "q4": {
+      "identity": {
+        "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+        "dimensions": 768,
+        "exportRepo": "onnx-community/embeddinggemma-2-ONNX",
+        "exportRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "externalWeightsSha256": "c3975f2d1ab7a1878ae31a7d7a9b7804a827aff3800b60dfceafce21cac3df49",
+        "graphFile": "onnx/model_q4.onnx",
+        "instruction": "task: clustering | query: ",
+        "modelFiles": {
+          "config.json": {
+            "bytes": 5031,
+            "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"
+          },
+          "onnx/model_q4.onnx": {
+            "bytes": 490742,
+            "sha256": "f9eeba97acddf139b8ee2ddf04bc30dceafa88de93fadf74d7644e0d61a477a9"
+          },
+          "onnx/model_q4.onnx_data": {
+            "bytes": 174028800,
+            "sha256": "c3975f2d1ab7a1878ae31a7d7a9b7804a827aff3800b60dfceafce21cac3df49"
+          },
+          "tokenizer.json": {
+            "bytes": 32170510,
+            "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+          },
+          "tokenizer_config.json": {
+            "bytes": 1599,
+            "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"
+          }
+        },
+        "modelId": "google/embeddinggemma-2",
+        "modelRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "modelSha256": "f9eeba97acddf139b8ee2ddf04bc30dceafa88de93fadf74d7644e0d61a477a9",
+        "passagesSha256": "3809b76569dd86cd7032553868d83f4b89459d24a8104679ba2993414c5cac13",
+        "pooling": "exported-sentence_embedding-projection-MRL-l2",
+        "precision": "Q4",
+        "provider": "CPUExecutionProvider",
+        "publisherCardRevision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+        "runtime": "onnxruntime:1.31.0",
+        "scope": "Community text-only ONNX export; source text fixed; publisher PyTorch parity and Android unmeasured",
+        "threads": 2,
+        "tokenizer": "publisher-Gemma2-same-source-passages-new-tokenization",
+        "tokenizerSha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "vocabularySha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "files": {
+        "tokenizer.json": {
+          "bytes": 32170510,
+          "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+        },
+        "tokenizer_config.json": {
+          "bytes": 1599,
+          "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874"
+        },
+        "config.json": {
+          "bytes": 5031,
+          "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d"
+        },
+        "onnx/model_q4.onnx": {
+          "bytes": 490742,
+          "sha256": "f9eeba97acddf139b8ee2ddf04bc30dceafa88de93fadf74d7644e0d61a477a9"
+        },
+        "onnx/model_q4.onnx_data": {
+          "bytes": 174028800,
+          "sha256": "c3975f2d1ab7a1878ae31a7d7a9b7804a827aff3800b60dfceafce21cac3df49"
+        }
+      },
+      "graphAndWeightsBytes": 174519542,
+      "additionalSharedAssetsBytes": 32177140,
+      "vectorManifestSha256": "78191e08f98e703b5f8b58b6f8f7f9b242c01d1b73a53fbab2ecae76c7a0dbb4",
+      "rowsSha256": "7dfdd8a0367d1bddcd48de16f7bf511ed7caa3e7072d2a62c022eab4c1ad7a52",
+      "projectionReportSha256": "0a3a9ec5a801f3ba0209029cded5c40ccf57ffce141a4bcb48fd84c788a4e47f",
+      "hostEmbeddingArtifactSeconds": 252.1650531000014,
+      "samePassageCosineWithFp32": {
+        "mean": 0.9851196984704679,
+        "minimum": 0.9470115522725201,
+        "p01": 0.9605018847612758
+      },
+      "testPairAgreementWithFp32": {
+        "shared": 913,
+        "added": 618,
+        "removed": 195
+      },
+      "publishedSubjects": 171,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 431,
+            "f1": 0.181741513809825,
+            "goldPairs": 4018,
+            "precision": 0.5944827586206897,
+            "predictedPairs": 725,
+            "recall": 0.10726729716276755
+          },
+          "fine": {
+            "correctPairs": 223,
+            "f1": 0.3366037735849057,
+            "goldPairs": 600,
+            "precision": 0.30758620689655175,
+            "predictedPairs": 725,
+            "recall": 0.37166666666666665
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 938,
+            "f1": 0.1742684626103112,
+            "goldPairs": 9234,
+            "precision": 0.6126714565643371,
+            "predictedPairs": 1531,
+            "recall": 0.10158111327701971
+          },
+          "fine": {
+            "correctPairs": 424,
+            "f1": 0.29021218343600275,
+            "goldPairs": 1391,
+            "precision": 0.2769431743958197,
+            "predictedPairs": 1531,
+            "recall": 0.30481667864845435
+          },
+          "notes": 300
+        }
+      }
+    }
+  },
+  "humanQualityGate": "unmeasured",
+  "androidGate": "unmeasured",
+  "scope": "Quantization-only diagnostic at fixed previously selected FP32 parameters; no independent quantized threshold tuning or production adoption",
+  "limitations": [
+    "Publisher-category pair diagnostics, not human app membership or useful-connection judgments",
+    "Exploratory source splits share subject families; not pristine family-held-out acceptance",
+    "Single observed host CPU embedding/artifact timings exclude download and session initialization; other verification work occurred during runs, not an isolated/repeated speed benchmark",
+    "Community ONNX exports; publisher PyTorch parity and Android speed/RAM/playback qualification unmeasured",
+    "Model sizes are graph plus external weights; shared tokenizer/config bytes are additional; stored vectors remain float32"
+  ]
+}

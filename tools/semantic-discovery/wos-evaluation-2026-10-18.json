@@ -1,0 +1,1385 @@
+{
+  "evaluationLock": {
+    "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+    "dataset": "marcelsun/wos_hierarchical_multi_label_text_classification",
+    "goldSha256": "314c793b8ee73e5489ce8f349c4d3087cb2175eeffb83e381a65d41739b07c8f",
+    "revision": "f246712b46ef607586a774be262b186665b04630",
+    "samplingPolicy": "wos-jtf-v1-content-hash-200dev-300test",
+    "sourceHashes": {
+      "dev": "416b77019799756eede0928c412bc3e6e35df2878887579482847fabb308f1a2",
+      "test": "3b61f674ae679772fe51b3622fb230df079a8b44332ac2bce91e5c2d023c9287"
+    }
+  },
+  "humanQualityGate": "unmeasured",
+  "results": {
+    "bge-exact\\exact-formation.json": {
+      "distinctLabels": 25,
+      "establishedSubjects": 25,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 3943,
+            "f1": 0.3377880579114195,
+            "goldPairs": 4018,
+            "precision": 0.20400455298013245,
+            "predictedPairs": 19328,
+            "recall": 0.9813339970134395
+          },
+          "fine": {
+            "correctPairs": 590,
+            "f1": 0.059213167402649536,
+            "goldPairs": 600,
+            "precision": 0.03052566225165563,
+            "predictedPairs": 19328,
+            "recall": 0.9833333333333333
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 8907,
+            "f1": 0.3438066931717296,
+            "goldPairs": 9234,
+            "precision": 0.20918271488961954,
+            "predictedPairs": 42580,
+            "recall": 0.9645873944119558
+          },
+          "fine": {
+            "correctPairs": 1357,
+            "f1": 0.06172249891974256,
+            "goldPairs": 1391,
+            "precision": 0.0318694222639737,
+            "predictedPairs": 42580,
+            "recall": 0.9755571531272466
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 25,
+      "reportSha256": "521289a63bab4a69d5e26034338a891e6d57a4bb31e6502ff811fd348e33d0ed",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.4.json": {
+      "distinctLabels": 0,
+      "establishedSubjects": 0,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 4018,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 600,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 9234,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 1391,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 0,
+      "reportSha256": "b69e2ecd51d001f10091589ba5c50e97c2ba9a987b0c466394f512793c508f2a",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.5.json": {
+      "distinctLabels": 0,
+      "establishedSubjects": 0,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 4018,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 600,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 9234,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 1391,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 0,
+      "reportSha256": "51ccb5319f0a4304bb004cdcd22b3795f06a2003fe7aa1496e674f934caa5097",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.65.json": {
+      "distinctLabels": 5,
+      "establishedSubjects": 5,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 7,
+            "f1": 0.003474807644576818,
+            "goldPairs": 4018,
+            "precision": 0.6363636363636364,
+            "predictedPairs": 11,
+            "recall": 0.0017421602787456446
+          },
+          "fine": {
+            "correctPairs": 2,
+            "f1": 0.006546644844517185,
+            "goldPairs": 600,
+            "precision": 0.18181818181818182,
+            "predictedPairs": 11,
+            "recall": 0.0033333333333333335
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 9,
+            "f1": 0.0019474196689386564,
+            "goldPairs": 9234,
+            "precision": 1.0,
+            "predictedPairs": 9,
+            "recall": 0.0009746588693957114
+          },
+          "fine": {
+            "correctPairs": 3,
+            "f1": 0.004285714285714286,
+            "goldPairs": 1391,
+            "precision": 0.3333333333333333,
+            "predictedPairs": 9,
+            "recall": 0.002156721782890007
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 5,
+      "reportSha256": "bc6273314a46d495813ef990b569c1a17a3f0552b4f86789f2bde6340363e7a2",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.75-0.75.json": {
+      "distinctLabels": 250,
+      "establishedSubjects": 48,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 351,
+            "f1": 0.14628047509897896,
+            "goldPairs": 4018,
+            "precision": 0.4494238156209987,
+            "predictedPairs": 781,
+            "recall": 0.08735689397710304
+          },
+          "fine": {
+            "correctPairs": 123,
+            "f1": 0.1781317885590152,
+            "goldPairs": 600,
+            "precision": 0.15749039692701663,
+            "predictedPairs": 781,
+            "recall": 0.205
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 1117,
+            "f1": 0.19111985627513045,
+            "goldPairs": 9234,
+            "precision": 0.454989816700611,
+            "predictedPairs": 2455,
+            "recall": 0.12096599523500108
+          },
+          "fine": {
+            "correctPairs": 348,
+            "f1": 0.1809672386895476,
+            "goldPairs": 1391,
+            "precision": 0.14175152749490835,
+            "predictedPairs": 2455,
+            "recall": 0.2501797268152408
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 250,
+      "reportSha256": "37a48cb7b33cb7925c41dc0c2c74a9e0f9cbf06d1d2e33c464ee97d9b4190e66",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.75-0.85.json": {
+      "distinctLabels": 260,
+      "establishedSubjects": 44,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 65,
+            "f1": 0.03175378602833415,
+            "goldPairs": 4018,
+            "precision": 0.8552631578947368,
+            "predictedPairs": 76,
+            "recall": 0.016177202588352414
+          },
+          "fine": {
+            "correctPairs": 57,
+            "f1": 0.16863905325443787,
+            "goldPairs": 600,
+            "precision": 0.75,
+            "predictedPairs": 76,
+            "recall": 0.095
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 78,
+            "f1": 0.01670235546038544,
+            "goldPairs": 9234,
+            "precision": 0.7358490566037735,
+            "predictedPairs": 106,
+            "recall": 0.008447043534762833
+          },
+          "fine": {
+            "correctPairs": 63,
+            "f1": 0.0841683366733467,
+            "goldPairs": 1391,
+            "precision": 0.5943396226415094,
+            "predictedPairs": 106,
+            "recall": 0.04529115744069015
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 260,
+      "reportSha256": "e41b9f59abdf7d3cc3169113ef86688c77e248628e6f95982838ce56c95eda1f",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.8-0.75.json": {
+      "distinctLabels": 405,
+      "establishedSubjects": 197,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 159,
+            "f1": 0.07507082152974505,
+            "goldPairs": 4018,
+            "precision": 0.7293577981651376,
+            "predictedPairs": 218,
+            "recall": 0.03957192633150821
+          },
+          "fine": {
+            "correctPairs": 98,
+            "f1": 0.2396088019559902,
+            "goldPairs": 600,
+            "precision": 0.44954128440366975,
+            "predictedPairs": 218,
+            "recall": 0.16333333333333333
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 334,
+            "f1": 0.06830265848670757,
+            "goldPairs": 9234,
+            "precision": 0.6117216117216118,
+            "predictedPairs": 546,
+            "recall": 0.036170673597574185
+          },
+          "fine": {
+            "correctPairs": 163,
+            "f1": 0.16830149716055756,
+            "goldPairs": 1391,
+            "precision": 0.29853479853479853,
+            "predictedPairs": 546,
+            "recall": 0.11718188353702372
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 407,
+      "reportSha256": "26c4192ca4a14ec094cc3e69aab883013a2c2b3e9f41fe6a7ec273e10d2707fb",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.8-0.85.json": {
+      "distinctLabels": 432,
+      "establishedSubjects": 19,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 4,
+            "f1": 0.001989060169070114,
+            "goldPairs": 4018,
+            "precision": 1.0,
+            "predictedPairs": 4,
+            "recall": 0.0009955201592832255
+          },
+          "fine": {
+            "correctPairs": 4,
+            "f1": 0.013245033112582781,
+            "goldPairs": 600,
+            "precision": 1.0,
+            "predictedPairs": 4,
+            "recall": 0.006666666666666667
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 18,
+            "f1": 0.003890630065924565,
+            "goldPairs": 9234,
+            "precision": 0.9473684210526315,
+            "predictedPairs": 19,
+            "recall": 0.001949317738791423
+          },
+          "fine": {
+            "correctPairs": 18,
+            "f1": 0.02553191489361702,
+            "goldPairs": 1391,
+            "precision": 0.9473684210526315,
+            "predictedPairs": 19,
+            "recall": 0.012940330697340043
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 432,
+      "reportSha256": "44c46d8c1c1bfcece66ff32162181aff9d18f9504929533462c3507c1bd2709d",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.85-0.75.json": {
+      "distinctLabels": 419,
+      "establishedSubjects": 212,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 134,
+            "f1": 0.06388557806912992,
+            "goldPairs": 4018,
+            "precision": 0.7570621468926554,
+            "predictedPairs": 177,
+            "recall": 0.03334992533598805
+          },
+          "fine": {
+            "correctPairs": 95,
+            "f1": 0.24453024453024452,
+            "goldPairs": 600,
+            "precision": 0.536723163841808,
+            "predictedPairs": 177,
+            "recall": 0.15833333333333333
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 190,
+            "f1": 0.03997475278771302,
+            "goldPairs": 9234,
+            "precision": 0.6985294117647058,
+            "predictedPairs": 272,
+            "recall": 0.0205761316872428
+          },
+          "fine": {
+            "correctPairs": 123,
+            "f1": 0.14792543595911004,
+            "goldPairs": 1391,
+            "precision": 0.4522058823529412,
+            "predictedPairs": 272,
+            "recall": 0.0884255930984903
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 422,
+      "reportSha256": "622fcef8e6b7c85d4e7113ae4b4c71236c616469779e0bbf626863ed1497707e",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.85-0.85.json": {
+      "distinctLabels": 457,
+      "establishedSubjects": 4,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 2,
+            "f1": 0.0009950248756218905,
+            "goldPairs": 4018,
+            "precision": 1.0,
+            "predictedPairs": 2,
+            "recall": 0.0004977600796416127
+          },
+          "fine": {
+            "correctPairs": 2,
+            "f1": 0.006644518272425249,
+            "goldPairs": 600,
+            "precision": 1.0,
+            "predictedPairs": 2,
+            "recall": 0.0033333333333333335
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 1,
+            "f1": 0.0002165674066053059,
+            "goldPairs": 9234,
+            "precision": 1.0,
+            "predictedPairs": 1,
+            "recall": 0.00010829542993285683
+          },
+          "fine": {
+            "correctPairs": 1,
+            "f1": 0.0014367816091954023,
+            "goldPairs": 1391,
+            "precision": 1.0,
+            "predictedPairs": 1,
+            "recall": 0.0007189072609633358
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 457,
+      "reportSha256": "bfe5737e5e2de9810e969795fd953c9b273b507439169cb2b2b04cacaa1ddf66",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.9-0.75.json": {
+      "distinctLabels": 432,
+      "establishedSubjects": 213,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 135,
+            "f1": 0.06428571428571428,
+            "goldPairs": 4018,
+            "precision": 0.7417582417582418,
+            "predictedPairs": 182,
+            "recall": 0.03359880537580886
+          },
+          "fine": {
+            "correctPairs": 93,
+            "f1": 0.23785166240409208,
+            "goldPairs": 600,
+            "precision": 0.510989010989011,
+            "predictedPairs": 182,
+            "recall": 0.155
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 186,
+            "f1": 0.03916614024005054,
+            "goldPairs": 9234,
+            "precision": 0.7045454545454546,
+            "predictedPairs": 264,
+            "recall": 0.02014294996751137
+          },
+          "fine": {
+            "correctPairs": 118,
+            "f1": 0.14259818731117824,
+            "goldPairs": 1391,
+            "precision": 0.44696969696969696,
+            "predictedPairs": 264,
+            "recall": 0.08483105679367361
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 435,
+      "reportSha256": "d2c945d2fccd13bedee7b244cf4b2e3404c345491c2ca3e31b96591242e0bef3",
+      "subjectRelationships": 0
+    },
+    "bge-graph-projection-0.9-0.85.json": {
+      "distinctLabels": 462,
+      "establishedSubjects": 4,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 2,
+            "f1": 0.0009950248756218905,
+            "goldPairs": 4018,
+            "precision": 1.0,
+            "predictedPairs": 2,
+            "recall": 0.0004977600796416127
+          },
+          "fine": {
+            "correctPairs": 2,
+            "f1": 0.006644518272425249,
+            "goldPairs": 600,
+            "precision": 1.0,
+            "predictedPairs": 2,
+            "recall": 0.0033333333333333335
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 1,
+            "f1": 0.0002165674066053059,
+            "goldPairs": 9234,
+            "precision": 1.0,
+            "predictedPairs": 1,
+            "recall": 0.00010829542993285683
+          },
+          "fine": {
+            "correctPairs": 1,
+            "f1": 0.0014367816091954023,
+            "goldPairs": 1391,
+            "precision": 1.0,
+            "predictedPairs": 1,
+            "recall": 0.0007189072609633358
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 462,
+      "reportSha256": "b3edd171b09f27db1946b44fdbbb7607522ffafaba7974d9cc628460afe42153",
+      "subjectRelationships": 0
+    },
+    "exact-formation-baseline.json": {
+      "distinctLabels": 1,
+      "establishedSubjects": 10,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 6,
+            "f1": 0.002982107355864811,
+            "goldPairs": 4018,
+            "precision": 1.0,
+            "predictedPairs": 6,
+            "recall": 0.0014932802389248383
+          },
+          "fine": {
+            "correctPairs": 6,
+            "f1": 0.019801980198019802,
+            "goldPairs": 600,
+            "precision": 1.0,
+            "predictedPairs": 6,
+            "recall": 0.01
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 3,
+            "f1": 0.0006495615459564793,
+            "goldPairs": 9234,
+            "precision": 1.0,
+            "predictedPairs": 3,
+            "recall": 0.0003248862897985705
+          },
+          "fine": {
+            "correctPairs": 3,
+            "f1": 0.00430416068866571,
+            "goldPairs": 1391,
+            "precision": 1.0,
+            "predictedPairs": 3,
+            "recall": 0.002156721782890007
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 493,
+      "reportSha256": "3380da8c21a8d558ec56b7230dcc1910be6a047f31ebedfce7883723a180b5a8",
+      "subjectRelationships": 0
+    },
+    "exact\\exact-formation.json": {
+      "distinctLabels": 457,
+      "establishedSubjects": 9,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 6,
+            "f1": 0.002982107355864811,
+            "goldPairs": 4018,
+            "precision": 1.0,
+            "predictedPairs": 6,
+            "recall": 0.0014932802389248383
+          },
+          "fine": {
+            "correctPairs": 6,
+            "f1": 0.019801980198019802,
+            "goldPairs": 600,
+            "precision": 1.0,
+            "predictedPairs": 6,
+            "recall": 0.01
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 2,
+            "f1": 0.00043308791684711995,
+            "goldPairs": 9234,
+            "precision": 1.0,
+            "predictedPairs": 2,
+            "recall": 0.00021659085986571366
+          },
+          "fine": {
+            "correctPairs": 2,
+            "f1": 0.002871500358937545,
+            "goldPairs": 1391,
+            "precision": 1.0,
+            "predictedPairs": 2,
+            "recall": 0.0014378145219266715
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 457,
+      "reportSha256": "6d23ae57058e8ea68ce2b5308e5805aef12aef298aa2904a1f81b14bba24d6f6",
+      "subjectRelationships": 0
+    },
+    "gemma2-exact\\exact-formation.json": {
+      "distinctLabels": 0,
+      "establishedSubjects": 0,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 4018,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 600,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 9234,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 1391,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 0,
+      "reportSha256": "12af6103f456b3a0ffb130ffc945b04db359b060dd4f96096bdabdfe7107d52b",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.8-0.8.json": {
+      "distinctLabels": 0,
+      "establishedSubjects": 0,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 4018,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 600,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 9234,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "fine": {
+            "correctPairs": 0,
+            "f1": 0.0,
+            "goldPairs": 1391,
+            "precision": null,
+            "predictedPairs": 0,
+            "recall": 0.0
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 0,
+      "reportSha256": "e94e9a24025e3a62e3f89c6d942cfdf880b7c725f5f7156dd3946b768e902a57",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.8-0.9.json": {
+      "distinctLabels": 9,
+      "establishedSubjects": 9,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 366,
+            "f1": 0.15701415701415702,
+            "goldPairs": 4018,
+            "precision": 0.5683229813664596,
+            "predictedPairs": 644,
+            "recall": 0.09109009457441514
+          },
+          "fine": {
+            "correctPairs": 177,
+            "f1": 0.2845659163987138,
+            "goldPairs": 600,
+            "precision": 0.2748447204968944,
+            "predictedPairs": 644,
+            "recall": 0.295
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 680,
+            "f1": 0.1320901320901321,
+            "goldPairs": 9234,
+            "precision": 0.64030131826742,
+            "predictedPairs": 1062,
+            "recall": 0.07364089235434265
+          },
+          "fine": {
+            "correctPairs": 298,
+            "f1": 0.24296779453730127,
+            "goldPairs": 1391,
+            "precision": 0.2806026365348399,
+            "predictedPairs": 1062,
+            "recall": 0.21423436376707405
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 9,
+      "reportSha256": "e7538737b300308c7cf3968729830806b99850cf11982dc8c195f39ca9a0231e",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.85-0.8.json": {
+      "distinctLabels": 13,
+      "establishedSubjects": 13,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 785,
+            "f1": 0.22291637086468835,
+            "goldPairs": 4018,
+            "precision": 0.25950413223140495,
+            "predictedPairs": 3025,
+            "recall": 0.195370831259333
+          },
+          "fine": {
+            "correctPairs": 191,
+            "f1": 0.10537931034482759,
+            "goldPairs": 600,
+            "precision": 0.0631404958677686,
+            "predictedPairs": 3025,
+            "recall": 0.31833333333333336
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 2435,
+            "f1": 0.26898646782656727,
+            "goldPairs": 9234,
+            "precision": 0.2744899109457784,
+            "predictedPairs": 8871,
+            "recall": 0.2636993718865064
+          },
+          "fine": {
+            "correctPairs": 503,
+            "f1": 0.09803157279282791,
+            "goldPairs": 1391,
+            "precision": 0.0567016119941382,
+            "predictedPairs": 8871,
+            "recall": 0.3616103522645579
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 13,
+      "reportSha256": "34866956d87cc88088b7fb2efa1e8e08cc50fed7a03c1c300e837575242e5b8c",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.85-0.9.json": {
+      "distinctLabels": 22,
+      "establishedSubjects": 12,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 388,
+            "f1": 0.16630947278182598,
+            "goldPairs": 4018,
+            "precision": 0.5987654320987654,
+            "predictedPairs": 648,
+            "recall": 0.09656545545047288
+          },
+          "fine": {
+            "correctPairs": 188,
+            "f1": 0.30128205128205127,
+            "goldPairs": 600,
+            "precision": 0.29012345679012347,
+            "predictedPairs": 648,
+            "recall": 0.31333333333333335
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 599,
+            "f1": 0.11676413255360624,
+            "goldPairs": 9234,
+            "precision": 0.5838206627680312,
+            "predictedPairs": 1026,
+            "recall": 0.06486896252978125
+          },
+          "fine": {
+            "correctPairs": 246,
+            "f1": 0.20355812991311542,
+            "goldPairs": 1391,
+            "precision": 0.23976608187134502,
+            "predictedPairs": 1026,
+            "recall": 0.1768511861969806
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 22,
+      "reportSha256": "1f4f26d3ed24d855590e5c3943e9e8a80fd2163128b8178b020cd23cd5e4d9d0",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.9-0.8.json": {
+      "distinctLabels": 83,
+      "establishedSubjects": 86,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 2810,
+            "f1": 0.3596339668522429,
+            "goldPairs": 4018,
+            "precision": 0.24205357911964856,
+            "predictedPairs": 11609,
+            "recall": 0.6993529118964659
+          },
+          "fine": {
+            "correctPairs": 520,
+            "f1": 0.08518306167581292,
+            "goldPairs": 600,
+            "precision": 0.04479283314669653,
+            "predictedPairs": 11609,
+            "recall": 0.8666666666666667
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 6671,
+            "f1": 0.3727752787013495,
+            "goldPairs": 9234,
+            "precision": 0.2511955416650977,
+            "predictedPairs": 26557,
+            "recall": 0.7224388130820879
+          },
+          "fine": {
+            "correctPairs": 1230,
+            "f1": 0.08802060970373551,
+            "goldPairs": 1391,
+            "precision": 0.046315472380163425,
+            "predictedPairs": 26557,
+            "recall": 0.884255930984903
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 86,
+      "reportSha256": "c6c0e58c0350af992787de47b461e175fb041f4f16a13a0b82ef3f77bbfebbf1",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.9-0.9.json": {
+      "distinctLabels": 199,
+      "establishedSubjects": 46,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 276,
+            "f1": 0.12435233160621761,
+            "goldPairs": 4018,
+            "precision": 0.6555819477434679,
+            "predictedPairs": 421,
+            "recall": 0.06869089099054256
+          },
+          "fine": {
+            "correctPairs": 169,
+            "f1": 0.33104799216454456,
+            "goldPairs": 600,
+            "precision": 0.4014251781472684,
+            "predictedPairs": 421,
+            "recall": 0.2816666666666667
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 691,
+            "f1": 0.13362985882807968,
+            "goldPairs": 9234,
+            "precision": 0.6236462093862816,
+            "predictedPairs": 1108,
+            "recall": 0.07483214208360407
+          },
+          "fine": {
+            "correctPairs": 337,
+            "f1": 0.26970788315326133,
+            "goldPairs": 1391,
+            "precision": 0.30415162454873645,
+            "predictedPairs": 1108,
+            "recall": 0.24227174694464415
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 199,
+      "reportSha256": "d3bba57e89e0dd09365983993d91b92ba92fa51911bc3f8e0f307196267e3fd2",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.95-0.8.json": {
+      "distinctLabels": 163,
+      "establishedSubjects": 171,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 2724,
+            "f1": 0.41154252908294303,
+            "goldPairs": 4018,
+            "precision": 0.2954446854663774,
+            "predictedPairs": 9220,
+            "recall": 0.6779492284718766
+          },
+          "fine": {
+            "correctPairs": 558,
+            "f1": 0.11364562118126273,
+            "goldPairs": 600,
+            "precision": 0.06052060737527115,
+            "predictedPairs": 9220,
+            "recall": 0.93
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 6582,
+            "f1": 0.4402970098334337,
+            "goldPairs": 9234,
+            "precision": 0.31852497096399535,
+            "predictedPairs": 20664,
+            "recall": 0.7128005198180637
+          },
+          "fine": {
+            "correctPairs": 1233,
+            "f1": 0.11181138063931081,
+            "goldPairs": 1391,
+            "precision": 0.05966898954703833,
+            "predictedPairs": 20664,
+            "recall": 0.8864126527677929
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 171,
+      "reportSha256": "1584d0796ba7edded108331540a1696478d87c359478763c4c639a27f6d2ee1d",
+      "subjectRelationships": 0
+    },
+    "gemma2-graph-projection-0.95-0.9.json": {
+      "distinctLabels": 415,
+      "establishedSubjects": 245,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 108,
+            "f1": 0.051798561151079135,
+            "goldPairs": 4018,
+            "precision": 0.7105263157894737,
+            "predictedPairs": 152,
+            "recall": 0.02687904430064709
+          },
+          "fine": {
+            "correctPairs": 82,
+            "f1": 0.21808510638297873,
+            "goldPairs": 600,
+            "precision": 0.5394736842105263,
+            "predictedPairs": 152,
+            "recall": 0.13666666666666666
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 367,
+            "f1": 0.07559217301750773,
+            "goldPairs": 9234,
+            "precision": 0.7710084033613446,
+            "predictedPairs": 476,
+            "recall": 0.03974442278535846
+          },
+          "fine": {
+            "correctPairs": 219,
+            "f1": 0.23460096411355116,
+            "goldPairs": 1391,
+            "precision": 0.46008403361344535,
+            "predictedPairs": 476,
+            "recall": 0.15744069015097054
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 418,
+      "reportSha256": "be055e69db7e66ce5a37ba11fddb4dd670694383ab067ab508a89f7d39b8166b",
+      "subjectRelationships": 0
+    },
+    "graph-projection-0.4.json": {
+      "distinctLabels": 139,
+      "establishedSubjects": 37,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 33,
+            "f1": 0.01625615763546798,
+            "goldPairs": 4018,
+            "precision": 0.7857142857142857,
+            "predictedPairs": 42,
+            "recall": 0.00821304131408661
+          },
+          "fine": {
+            "correctPairs": 22,
+            "f1": 0.06853582554517133,
+            "goldPairs": 600,
+            "precision": 0.5238095238095238,
+            "predictedPairs": 42,
+            "recall": 0.03666666666666667
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 48,
+            "f1": 0.010330356182072528,
+            "goldPairs": 9234,
+            "precision": 0.8135593220338984,
+            "predictedPairs": 59,
+            "recall": 0.005198180636777128
+          },
+          "fine": {
+            "correctPairs": 36,
+            "f1": 0.0496551724137931,
+            "goldPairs": 1391,
+            "precision": 0.6101694915254238,
+            "predictedPairs": 59,
+            "recall": 0.025880661394680086
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 139,
+      "reportSha256": "bb01bc5f91a8fbd27d60474c593a3b6acae501c11d335fd47e78d5e17ea332ea",
+      "subjectRelationships": 0
+    },
+    "graph-projection-0.5.json": {
+      "distinctLabels": 371,
+      "establishedSubjects": 41,
+      "partitions": {
+        "dev": {
+          "broad": {
+            "correctPairs": 36,
+            "f1": 0.017747103771259553,
+            "goldPairs": 4018,
+            "precision": 0.9230769230769231,
+            "predictedPairs": 39,
+            "recall": 0.008959681433549029
+          },
+          "fine": {
+            "correctPairs": 32,
+            "f1": 0.10015649452269171,
+            "goldPairs": 600,
+            "precision": 0.8205128205128205,
+            "predictedPairs": 39,
+            "recall": 0.05333333333333334
+          },
+          "notes": 200
+        },
+        "test": {
+          "broad": {
+            "correctPairs": 40,
+            "f1": 0.00862533692722372,
+            "goldPairs": 9234,
+            "precision": 0.975609756097561,
+            "predictedPairs": 41,
+            "recall": 0.004331817197314273
+          },
+          "fine": {
+            "correctPairs": 33,
+            "f1": 0.046089385474860335,
+            "goldPairs": 1391,
+            "precision": 0.8048780487804879,
+            "predictedPairs": 41,
+            "recall": 0.02372393961179008
+          },
+          "notes": 300
+        }
+      },
+      "publishedSubjects": 371,
+      "reportSha256": "90868901cd73006c92a863d4f67a0a2622a958258cd5c53e4dc396efba5d0ee5",
+      "subjectRelationships": 0
+    }
+  },
+  "scope": "Publisher-label pair diagnostic on source splits, not family-held-out or passage/label usefulness acceptance",
+  "date": "2026-10-18",
+  "dataset": {
+    "repo": "marcelsun/wos_hierarchical_multi_label_text_classification",
+    "variant": "JTF",
+    "notes": 500,
+    "passages": 861,
+    "sourceSplitSizes": {
+      "dev": 200,
+      "test": 300
+    },
+    "publisherRootLabelIds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "publisherFineLabelIds": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51
+    ],
+    "depthMetadataSha256": "2517c30aeed9805ec734579e0dadc2d26ae96661548587a0698d6e2e87c47685"
+  },
+  "models": {
+    "minilm": {
+      "identity": {
+        "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+        "dimensions": 384,
+        "modelRevision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "modelSha256": "4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474",
+        "passagesSha256": "3809b76569dd86cd7032553868d83f4b89459d24a8104679ba2993414c5cac13",
+        "pooling": "all-real-tokens-double-mean-l2-float32",
+        "provider": "CPUExecutionProvider",
+        "runtime": "onnxruntime:1.31.0",
+        "threads": 2,
+        "tokenizer": "shipping:BertWordPieceTokenizer",
+        "vocabularySha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "vectorManifestSha256": "6e2a6b75556993d98403f066c76db28bc139510c3bd6b4d49cab5dfebf659902",
+      "hostEmbeddingArtifactSeconds": 9.804359999994631,
+      "crossNoteCosinePercentiles": {
+        "min": -0.26163142919540405,
+        "p10": -0.07002788782119751,
+        "p50": 0.021630937233567238,
+        "p90": 0.16753652691841125,
+        "p99": 0.342323362827301,
+        "max": 0.8203340768814087
+      }
+    },
+    "bge": {
+      "identity": {
+        "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+        "dimensions": 384,
+        "instruction": "none-symmetric-clustering",
+        "modelId": "BAAI/bge-small-en-v1.5",
+        "modelRevision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+        "modelSha256": "828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35",
+        "passagesSha256": "3809b76569dd86cd7032553868d83f4b89459d24a8104679ba2993414c5cac13",
+        "pooling": "publisher-cls-l2-float32",
+        "provider": "CPUExecutionProvider",
+        "runtime": "onnxruntime:1.31.0",
+        "scope": "Host FP32 challenger vs shipping INT8 baseline; not quantization-controlled or Android-qualified",
+        "threads": 2,
+        "tokenizer": "publisher-verified-identical-shipping-ids",
+        "tokenizerSha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        "vocabularySha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "vectorManifestSha256": "a7d4f00af113b64b93934a9796cda809de24e94226345498ad9557d4316a9e02",
+      "hostEmbeddingArtifactSeconds": 42.674317899989546,
+      "crossNoteCosinePercentiles": {
+        "min": 0.30511802434921265,
+        "p10": 0.4689255952835083,
+        "p50": 0.5446524024009705,
+        "p90": 0.6329210996627808,
+        "p99": 0.7087948322296143,
+        "max": 0.8948215246200562
+      }
+    },
+    "gemma2": {
+      "identity": {
+        "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+        "dimensions": 768,
+        "exportRepo": "onnx-community/embeddinggemma-2-ONNX",
+        "exportRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "externalWeightsSha256": "9fd452bfc6916e5a92f080f8dada35598ca4512b21c65897d4c5974d5f9630a2",
+        "instruction": "task: clustering | query: ",
+        "modelId": "google/embeddinggemma-2",
+        "modelRevision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+        "modelSha256": "bc47de15f81208a5c99e5ab10f746d5e33b51ea228b7dc0bef9c133a94f1c1c3",
+        "passagesSha256": "3809b76569dd86cd7032553868d83f4b89459d24a8104679ba2993414c5cac13",
+        "pooling": "exported-sentence_embedding-projection-MRL-l2",
+        "precision": "FP32",
+        "provider": "CPUExecutionProvider",
+        "publisherCardRevision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+        "runtime": "onnxruntime:1.31.0",
+        "scope": "Community text-only ONNX export; source text fixed; publisher PyTorch parity and Android unmeasured",
+        "threads": 2,
+        "tokenizer": "publisher-Gemma2-same-source-passages-new-tokenization",
+        "tokenizerSha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+        "vocabularySha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "vectorManifestSha256": "7ffc3f61da388efc08e77b02b991cadefbae5048d626c03703acc8d5bf71c453",
+      "hostEmbeddingArtifactSeconds": 248.84473170001002,
+      "crossNoteCosinePercentiles": {
+        "min": 0.5743536353111267,
+        "p10": 0.6823780536651611,
+        "p50": 0.7312934994697571,
+        "p90": 0.8028472661972046,
+        "p99": 0.8749604225158691,
+        "max": 0.96561598777771
+      }
+    }
+  },
+  "selectedByDevFinePairF1": {
+    "minilm": "graph-projection-0.5.json",
+    "bge": "bge-graph-projection-0.85-0.75.json",
+    "gemma2": "gemma2-graph-projection-0.9-0.9.json"
+  },
+  "lexicalAudit": {
+    "schemaVersion": 1,
+    "corpusSha256": "20f5bc4624ff0ed487a3e8053691e75718cc24214133869181a63e3aa0120635",
+    "notes": 500,
+    "completeCorpus": true,
+    "pairsConsidered": 124750,
+    "expectedPairs": 124750,
+    "parameters": {
+      "normalization": "NFKC-casefold-word-tokens",
+      "shingleWords": 5,
+      "shingleDigestBits": 128,
+      "jaccardThreshold": 0.65,
+      "containmentThreshold": 0.85,
+      "containmentMinimumShingles": 200,
+      "sharedParagraphMinimumWords": 40
+    },
+    "crossPartitionRiskPairs": 0,
+    "contaminatedHeldOutFamilies": [],
+    "leakageGate": "noLexicalRiskDetected",
+    "humanQualityGate": "unmeasured",
+    "scope": "Lexical sample audit; no proof of semantic family independence, paraphrase detection or human quality acceptance"
+  },
+  "limitations": [
+    "Exploratory transductive corpus: subject families overlap source splits; test diagnostics were inspected during exploration, not a pristine family-held-out selection study",
+    "Publisher journal/citation co-labels are proxy pair judgments, not app passage/membership/label/hierarchy/connection human truth",
+    "Different model-specific threshold grids explored; no exhaustive model/pipeline winner claim",
+    "MiniLM INT8 vs BGE FP32 vs Gemma2 community-export FP32: not quantization-controlled; Gemma publisher PyTorch parity unmeasured",
+    "Host times include embedding/artifact work only; no Android runtime/memory/playback qualification",
+    "Hierarchy and useful connection quality not measured; no production model or threshold change"
+  ]
+}
