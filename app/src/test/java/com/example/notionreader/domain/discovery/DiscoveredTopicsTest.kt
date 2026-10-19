@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveredTopicsTest {
+    @Test fun sourceReplacementKeepsTheActiveModelsStricterRetentionFloor() {
+        val original = build(null, record("a", 0), record("b", 0), record("c", 0))
+        val topic = original.topics.single().let { t -> t.copy(members = t.members.map { it.copy(score = .8f) }) }
+        val replacement = record("b", 0).passages.single()
+        val removed = invalidateTopics(original.copy(topics = listOf(topic)), setOf("a"), false,
+            mapOf(topic.id to replacement), retentionThreshold = .9f)
+        assertEquals(listOf("b"), removed.topics.single().members.map { it.pageId })
+    }
 
 
     @Test fun separateChunksOfOneBlockKeepIndependentThemes() {

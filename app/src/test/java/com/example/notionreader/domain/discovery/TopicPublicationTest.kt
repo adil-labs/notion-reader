@@ -36,6 +36,14 @@ class TopicPublicationTest {
             topic("fragment", "bodies move and", theme = "Orbital mechanics"))
         assertTrue(publishableDiscoveryTopics(inputs).isEmpty())
     }
+    @Test fun genericDocumentContainersDoNotBecomePublishedSubjects() {
+        for (heading in listOf("Body", "Abstract", "Main text", "Full text")) {
+            val candidate = topic("container", heading)
+            assertNull("Container heading is not a subject: $heading", discoveryTopicPublicationStatus(candidate))
+            assertTrue(publishableDiscoveryTopics(listOf(candidate)).isEmpty())
+            assertEquals(heading, candidate.label)
+        }
+    }
     @Test fun repeatedNegativeOrModalClausesDoNotBecomeSubjectLabels() {
         for (label in listOf("no longer operates", "never returns again", "could become unavailable", "would require approval")) {
             assertTrue("A repeated clause is not a subject: $label", publishableDiscoveryTopics(listOf(topic(label, label))).isEmpty())

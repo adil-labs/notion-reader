@@ -4,13 +4,14 @@ import kotlin.math.sqrt
 
 /** Mandatory source removal also applies to pinned snapshots. No removed text survives in continuity. */
 fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: Boolean,
-    replacements: Map<String, EmbeddedPassage> = emptyMap()): TopicSnapshot {
+    replacements: Map<String, EmbeddedPassage> = emptyMap(), retentionThreshold: Float = TopicPolicy().retention): TopicSnapshot {
     val removed = pageIds.map(::canonicalSemanticId).toSet()
     if (removed.isEmpty()) return snapshot
     val affected = (snapshot.topics + snapshot.provisionalTopics).any { t -> t.members.any { canonicalSemanticId(it.pageId) in removed } || canonicalSemanticId(t.anchor.passage.pageId) in removed || canonicalSemanticId(t.labelSource.pageId) in removed } ||
         snapshot.connections.any { canonicalSemanticId(it.left.pageId) in removed || canonicalSemanticId(it.right.pageId) in removed } ||
+        snapshot.subjectRelationships.any { canonicalSemanticId(it.evidence.pageId) in removed } ||
         permanent && snapshot.continuity.any { c -> c.pageIds.any { canonicalSemanticId(it) in removed } } ||
-        snapshot.acceptedRevisions.keys.any { it in removed }
+        snapshot.acceptedRevisions.keys.any { it in removed } || snapshot.referenceTitles.keys.any { canonicalSemanticId(it) in removed }
     if (!affected) return snapshot
     fun available(id: String) = canonicalSemanticId(id) !in removed
     val survivingSources = (snapshot.topics + snapshot.provisionalTopics).associate { topic ->
@@ -34,7 +35,7 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
             else {
                 val similarity = directCosine(topic.subjectVector, replacement.vector)
                 val rescored = members.map { it.copy(anchor = replacement.passage, score = if (it.passage.id == replacement.passage.id) 1f else cosineLowerBound(it.score, similarity)) }
-                    .filter { it.score >= TopicPolicy().retention }
+                    .filter { it.score >= retentionThreshold }
                 if (rescored.size < required) null else topic.copy(anchor = replacement, subjectVector = replacement.vector, labelSource = replacement.passage,
                     label = replacement.passage.sectionTitle ?: supportedHeading(replacement.passage.sectionTitle, rescored) ?: sharedSourcePhrase(replacement.passage, rescored)
                         ?: "Notes related to ${member.metadata.title}", members = rescored)
@@ -42,10 +43,15 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
         }
     }
     val provisional = removeEvidence(snapshot.provisionalTopics)
-    return snapshot.copy(topics = removeEvidence(snapshot.topics), continuity = registry,
+    val topics = removeEvidence(snapshot.topics)
+    val revisions = snapshot.acceptedRevisions.filterKeys(::available)
+    return snapshot.copy(topics = topics, continuity = registry,
         provisionalTopics = provisional,
         connections = snapshot.connections.filter { available(it.left.pageId) && available(it.right.pageId) },
-        generation = snapshot.generation + 1, acceptedRevisions = snapshot.acceptedRevisions.filterKeys(::available),
+        generation = snapshot.generation + 1, acceptedRevisions = revisions,
+        referenceTitles = snapshot.referenceTitles.filterKeys(::available),
+        subjectRelationships = validatedSubjectRelationships(publishableDiscoveryTopics(topics),
+            snapshot.subjectRelationships.filter { available(it.evidence.pageId) }, revisions),
         formationProgress = null)
 }
 

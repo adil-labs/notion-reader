@@ -21,7 +21,8 @@ fun publishableDiscoveryTopics(topics: List<DiscoveredTopic>): List<DiscoveredTo
     return kept
 }
 
-private val genericPublicationLabels = setOf("notes", "summary", "introduction", "overview", "untitled", "details", "content")
+internal val genericPublicationLabels = setOf("notes", "summary", "introduction", "overview", "untitled", "details", "content",
+    "body", "abstract", "main text", "full text")
 private val phraseEdges = setOf("the", "a", "an", "and", "or", "to", "of", "in", "is", "are", "be", "it", "this", "that",
     "with", "as", "for", "from", "on", "by", "at", "not", "must", "should", "will", "may", "can", "have", "has",
     "when", "then", "which", "its", "i", "you", "we", "they", "he", "she", "my", "your", "our", "their",

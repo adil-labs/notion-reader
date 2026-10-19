@@ -37,16 +37,21 @@ private val matchOrder = compareByDescending<SemanticMatch> { it.score }
 fun rankSemanticRecords(
     queryVector: List<Float>, identity: EmbeddingIdentity, records: Sequence<SemanticRecord>,
     filters: BrowseQuery = BrowseQuery.Default, limit: Int = 20, excludePageId: String? = null,
-    threshold: Float = -1f
+    threshold: Float = -1f, checkActive: () -> Unit = {},
+    passageFilter: (SemanticPassage) -> Boolean = { true }
 ): List<SemanticMatch> {
     require(limit in 1..20)
+    checkActive()
     val normalized = normalizeEmbedding(queryVector, identity.dimensions)
     val best = mutableMapOf<String, SemanticMatch>()
     records.forEach { record ->
+        checkActive()
         val id = canonicalSemanticId(record.pageId)
         if (record.identity != identity || id == excludePageId?.let(::canonicalSemanticId) || !filters.matchesSemanticMetadata(record.metadata)) return@forEach
         var hit: SemanticMatch? = null
-        for (embedded in record.passages) {
+        for ((position, embedded) in record.passages.withIndex()) {
+            if (position % 64 == 0) checkActive()
+            if (!passageFilter(embedded.passage)) continue
             if (embedded.vector.size != identity.dimensions) continue
             val score = runCatching { cosineSimilarity(normalized, embedded.vector) }.getOrNull() ?: continue
             if (score < threshold) continue

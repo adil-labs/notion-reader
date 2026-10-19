@@ -8,6 +8,28 @@ import kotlin.math.sin
 class TopicDiscoveryEngineTest {
     private val identity = EmbeddingIdentity("test-dim2", 2)
 
+    @Test fun membershipKeepsTheStrongestBodyPassageAcrossSectionsAndIgnoresHeadingOnlyEvidence() {
+        fun body(id: String, page: String, vector: List<Float>, order: Int): EmbeddedPassage {
+            val text = "Atomic transactions commit related writes together and recover safely after interruption."
+            return EmbeddedPassage(SemanticPassage(id, page, "$id:section", "Atomic transactions", "$id:block",
+                "$id:chunk", 0, text.length, text, text, order), vector)
+        }
+        val seed = SemanticRecord("seed", "r", identity, SemanticMetadata("Seed"),
+            listOf(body("seed:body", "seed", listOf(1f, 0f), 0)))
+        val weak = body("target:early", "target", listOf(.8f, .6f), 0)
+        val strong = body("target:late", "target", listOf(1f, 0f), 500)
+        val heading = strong.copy(passage = strong.passage.copy(id = "target:heading", sourceBlockId = strong.passage.sectionId))
+        val target = SemanticRecord("target", "revision-current", identity, SemanticMetadata("Target"), listOf(weak, heading, strong))
+        val snapshot = SectionHierarchicalEngine(identity).discover(listOf(seed, target), null, TopicPolicy())
+        assertTrue(snapshot.topics.isNotEmpty())
+        snapshot.topics.forEach { topic ->
+            val member = topic.members.single { it.pageId == "target" }
+            assertEquals("target:late", member.passage.id)
+            assertEquals("revision-current", member.revision)
+            assertEquals(strong.passage.sectionId, member.passage.sectionId)
+        }
+    }
+
     @Test fun semanticMembershipDoesNotRequireACommonLiteralLabel() {
         fun source(id: String, heading: String, text: String, vector: List<Float>): SemanticRecord {
             val p = SemanticPassage("$id:p", id, "$id:s", heading, "$id:b", "$id:c", 0, text.length, text, text, 0)
@@ -194,6 +216,184 @@ class TopicDiscoveryEngineTest {
         val direct = SectionHierarchicalEngine(identity).discover(records, null, TopicPolicy())
         fun groups(value: TopicSnapshot) = value.topics.map { it.label to it.members.map { m -> m.passage.id }.toSet() }.toSet()
         assertEquals(groups(direct), groups(snapshot))
+    }
+
+    @Test fun shortProcessingWindowsRetainCompletedComparisonsAndFinishTheSameSubjects() {
+        val records = (0..24).map { sampleRecord("n$it", it * 2.0, sectionTitle = "Forest Ecosystems") }
+        val policy = TopicPolicy()
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        var snapshot: TopicSnapshot? = null
+        var previousComparisons = 0L
+        var rounds = 0
+        do {
+            snapshot = SectionHierarchicalEngine(identity).step(records, snapshot, policy,
+                workBudget = 250_000, shouldYield = { true })
+            snapshot.formationProgress?.let { progress ->
+                assertTrue("Every short window must retain new work", progress.comparisonsCompleted > previousComparisons)
+                assertTrue("A yield must bound interruption loss", progress.comparisonsCompleted - previousComparisons <= 64)
+                previousComparisons = progress.comparisonsCompleted
+            }
+            snapshot = json.decodeFromString<TopicSnapshot>(json.encodeToString(TopicSnapshot.serializer(), snapshot))
+            rounds++
+        } while (snapshot!!.formationProgress != null && rounds < 1000)
+        assertTrue("The fixture must require several short windows", rounds > 1)
+        assertTrue(snapshot!!.complete)
+        val direct = SectionHierarchicalEngine(identity).discover(records, null, policy)
+        fun evidence(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { topic ->
+            Triple(topic.label, topic.subjectVector, topic.members.map { Triple(it.passage.id, it.score, it.anchor) })
+        }
+        assertEquals(evidence(direct), evidence(snapshot!!))
+    }
+
+    @Test fun aPreparedGenerationNormalizesEachPassageOnlyOnceAcrossItsSlices() {
+        var vectorReads = 0
+        val vector = object : AbstractList<Float>() {
+            override val size = 2
+            override fun get(index: Int): Float { vectorReads++; return if (index == 0) 1f else 0f }
+        }
+        val records = (0..4).map { index ->
+            val record = sampleRecord("n$index", 0.0)
+            record.copy(passages = record.passages.map { it.copy(vector = vector) })
+        }
+        val engine = SectionHierarchicalEngine(identity)
+        val first = engine.stepPrepared(records, null, TopicPolicy(), workBudget = 1)
+        assertTrue(vectorReads > 0)
+        vectorReads = 0
+        engine.stepPrepared(records, first, TopicPolicy(), workBudget = 1)
+        assertEquals("Same-generation slices must reuse normalized evidence", 0, vectorReads)
+    }
+
+    @Test fun aPreparedWorkspaceStillValidatesAnImportedCheckpoint() {
+        val records = (0..4).map { sampleRecord("n$it", 0.0) }
+        val engine = SectionHierarchicalEngine(identity)
+        val first = engine.stepPrepared(records, null, TopicPolicy(), workBudget = 1)
+        val poisoned = first.copy(formationProgress = first.formationProgress!!.copy(
+            projectionPassage = records.size, projectionMembers = emptyList()))
+        val resumed = engine.stepPrepared(records, poisoned, TopicPolicy(), workBudget = 1)
+        assertEquals("Foreign state must be validated rather than trusted by signature alone",
+            first.formationProgress!!.projectionPassage, resumed.formationProgress!!.projectionPassage)
+        assertEquals(first.formationProgress!!.comparisonsCompleted, resumed.formationProgress!!.comparisonsCompleted)
+    }
+
+    @Test fun anInterruptedPreparedSliceCannotReuseMutatedClusterSums() {
+        val records = (0..24).map { sampleRecord("n$it", it * 2.0) }
+        val engine = SectionHierarchicalEngine(identity)
+        val first = engine.stepPrepared(records, null, TopicPolicy(), workBudget = 1)
+        try {
+            engine.stepPrepared(records, first, TopicPolicy(), shouldYield = {
+                throw kotlinx.coroutines.CancellationException("window destroyed")
+            })
+            fail("Hard cancellation must propagate")
+        } catch (_: kotlinx.coroutines.CancellationException) { }
+        val resumed = engine.stepPrepared(records, first, TopicPolicy(), workBudget = 10)
+        val expected = SectionHierarchicalEngine(identity).step(records, first, TopicPolicy(), workBudget = 10)
+        assertEquals(expected.formationProgress, resumed.formationProgress)
+    }
+
+    @Test fun metadataBoundsPreserveExhaustiveSubjectsAndEvidenceAcrossDifferentAreasAndTopics() {
+        val records = (0..11).map { index ->
+            val subject = index / 3
+            val record = sampleRecord("n$index", subject * 90.0, sectionTitle = listOf(
+                "Forest Ecosystems", "Planetary Astronomy", "Water Conservation", "Mineral Geology")[subject])
+            record.copy(metadata = record.metadata.copy(area = if (index == 0) null else "Area $index",
+                topics = if (index % 2 == 0) setOf("Shared authored topic") else emptySet()))
+        }
+        val policy = TopicPolicy()
+        val exhaustive = SectionHierarchicalEngine(identity, metadataBoundsEnabled = false).discover(records, null, policy)
+        val engine = SectionHierarchicalEngine(identity)
+        val bounded = engine.discover(records, null, policy)
+        fun evidence(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { topic ->
+            Triple(topic.label, topic.subjectVector, topic.members.map { Triple(it.passage.id, it.score, it.anchor) })
+        }
+        assertEquals(evidence(exhaustive), evidence(bounded))
+        assertTrue("The fixture must prove avoided exact dot products", engine.prunedProjectionComparisons > 0)
+        println("Public synthetic metadata parity: 12 Notes; prunedProjectionComparisons=${engine.prunedProjectionComparisons}")
+        assertTrue("Matching subjects must cross unrelated and absent authored labels", bounded.topics.any {
+            it.members.map { member -> member.pageId }.toSet() == setOf("n0", "n1", "n2")
+        })
+    }
+
+    @Test fun preparedSlicesPreserveTheExactArithmeticAndEvidenceOfIndependentlyResumedSlices() {
+        val records = (0..24).map { index -> sampleRecord("n$index",
+            if (index < 12) index * 1.3 else 120 + index * .7,
+            sectionTitle = if (index < 12) "Forest Ecosystems" else "Planetary Astronomy") }
+        val policy = TopicPolicy()
+        val prepared = SectionHierarchicalEngine(identity)
+        var fast: TopicSnapshot? = null
+        var exhaustive: TopicSnapshot? = null
+        var rounds = 0
+        fun evidence(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { topic ->
+            Triple(topic.label, topic.subjectVector, topic.members)
+        }
+        do {
+            fast = prepared.stepPrepared(records, fast, policy, workBudget = 3)
+            exhaustive = SectionHierarchicalEngine(identity).step(records, exhaustive, policy, workBudget = 3)
+            assertEquals(exhaustive.formationProgress, fast.formationProgress)
+            assertEquals(evidence(exhaustive), evidence(fast))
+            assertEquals(exhaustive.complete, fast.complete)
+        } while (!fast.complete && ++rounds < 1000)
+        assertTrue(fast!!.complete)
+    }
+
+    @Test fun boundedFormationPreservesExactSubjectsWhileAvoidingUnrelatedFeatureComponents() {
+        val wide = EmbeddingIdentity("formation-bounds-768", 768)
+        val records = (0..11).map { index ->
+            val record = sampleRecord("n$index", 0.0, sectionTitle = listOf(
+                "Forest Ecosystems", "Planetary Astronomy", "Water Conservation", "Mineral Geology")[index / 3])
+            val vector = List(768) { component -> if (component == index / 3 * 128) 1f else 0f }
+            record.copy(identity = wide, passages = record.passages.map { it.copy(vector = vector) })
+        }
+        val policy = TopicPolicy()
+        val boundedEngine = SectionHierarchicalEngine(wide, distanceThreshold = .1f, membershipThreshold = .9f)
+        val exhaustive = SectionHierarchicalEngine(wide, distanceThreshold = .1f, membershipThreshold = .9f,
+            formationBoundsEnabled = false).discover(records, null, policy)
+        val bounded = boundedEngine.discover(records, null, policy)
+        fun evidence(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { topic ->
+            Triple(topic.label, topic.subjectVector, topic.members)
+        }
+        assertEquals(evidence(exhaustive), evidence(bounded))
+        assertTrue("Formation must avoid actual feature work on unrelated pairs", boundedEngine.avoidedFormationComponents > 0)
+    }
+
+    @Test fun boundedFormationKeepsRandomizedSubjectsBoundaryTiesAndFreshEngineResumesExact() {
+        val wide = EmbeddingIdentity("formation-boundaries-768", 768)
+        val random = kotlin.random.Random(9127)
+        val records = (0..23).map { index ->
+            val group = index / 6
+            val vector = FloatArray(768) { random.nextDouble(-.001, .001).toFloat() }
+            vector[group * 128] = 1f
+            if (index % 6 < 2) vector.indices.forEach { component -> vector[component] = if (component == group * 128) 1f else 0f }
+            if (index % 6 == 2) {
+                vector.fill(0f)
+                vector[group * 128] = .9f
+                vector[group * 128 + 1] = kotlin.math.sqrt(.19).toFloat()
+            }
+            normalizeProjectionVector(vector)
+            val record = sampleRecord("n$index", 0.0, sectionTitle = listOf(
+                "Forest Ecosystems", "Planetary Astronomy", "Water Conservation", "Mineral Geology")[group])
+            record.copy(identity = wide, passages = record.passages.map { it.copy(vector = vector.toList()) })
+        }
+        fun engine(bounded: Boolean) = SectionHierarchicalEngine(wide, distanceThreshold = .1f,
+            membershipThreshold = .9f, metadataBoundsEnabled = false, formationBoundsEnabled = bounded)
+        fun evidence(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { topic ->
+            Triple(topic.label, topic.subjectVector, topic.members)
+        }
+        for (budget in listOf(1, 7, 64, 250_000)) {
+            var bounded: TopicSnapshot? = null
+            var exhaustive: TopicSnapshot? = null
+            var boundedEngine = engine(true)
+            var exhaustiveEngine = engine(false)
+            var rounds = 0
+            do {
+                if (rounds % 3 == 0) { boundedEngine = engine(true); exhaustiveEngine = engine(false) }
+                bounded = boundedEngine.stepPrepared(records, bounded, TopicPolicy(), workBudget = budget)
+                exhaustive = exhaustiveEngine.stepPrepared(records, exhaustive, TopicPolicy(), workBudget = budget)
+                assertEquals("Bounded work must retain each quantum's completion boundary", exhaustive.complete, bounded.complete)
+                assertEquals("Bounded work must preserve exact scores and evidence at every quantum", evidence(exhaustive), evidence(bounded))
+                rounds++
+            } while (!bounded.complete && rounds < 3000)
+            assertTrue("Every resume budget must complete", bounded!!.complete)
+        }
     }
 
     @Test fun cancellationInterruptsFormationWork() {

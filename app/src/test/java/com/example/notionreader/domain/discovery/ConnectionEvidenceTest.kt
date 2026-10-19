@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionEvidenceTest {
+    @Test fun boundedReferenceCandidatesPreserveIndependentRetrievalEvidence() {
+        val input = records("See Coastal forest recovery.")
+        val index = ExplicitNoteReferenceIndex(input.associate { it.pageId to it.metadata.title })
+        val candidates = input.flatMap { source -> source.passages.flatMap { p -> input.mapNotNull { target ->
+            index.candidate(source, p.passage, target)
+        } } }
+        assertEquals(discoverExplicitNoteReferences(input), candidates)
+        val ambiguous = ExplicitNoteReferenceIndex(input.associate { it.pageId to it.metadata.title } + ("other" to input.last().metadata.title))
+        assertNull(ambiguous.candidate(input.first(), input.first().passages.first().passage, input.last()))
+    }
+
+    @Test fun sourceWithdrawalRemovesPrivateReferenceIndexTitlesWithoutRequiringPublishedTopics() {
+        val original = TopicSnapshot(referenceTitles = mapOf("a" to "Private source title", "b" to "Target"))
+        val removed = invalidateTopics(original, setOf("a"), false)
+        assertEquals(mapOf("b" to "Target"), removed.referenceTitles)
+    }
     private val sourceTitle = "Coastal field journal"
     private val targetTitle = "Coastal forest recovery"
     private val titles = mapOf("a" to sourceTitle, "b" to targetTitle)
@@ -39,7 +55,7 @@ class ConnectionEvidenceTest {
         val original = records("Read Coastal forest recovery.")
         val first = discoverExplicitNoteReferences(original).single()
         assertEquals(first, discoverExplicitNoteReferences(original.reversed()).single())
-        assertEquals(semanticHash("a|b"), first.id)
+        assertEquals(semanticHash("a|b|reference"), first.id)
     }
 
     private fun pair(source: String, target: String = "Mangrove forests stabilize sediment and protect coastlines during severe storm surges."): NoteConnection {

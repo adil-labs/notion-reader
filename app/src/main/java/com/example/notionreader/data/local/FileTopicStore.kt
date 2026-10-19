@@ -9,23 +9,49 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import java.util.UUID
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.NonCancellable
 
 /** Header-only decoding skips unknown payloads without constructing legacy topic memberships. */
 @Serializable
 private data class TopicStoreHeader(val schemaVersion: Int = 0, val engineVersion: Int = 0)
+
+@Serializable
+private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: ConnectionCatalogManifest,
+    val schemaVersion: Int = 1, val engineVersion: Int = SectionHierarchicalEngine.VERSION,
+    val catalogKey: String? = null)
 
 /** Store under the app's noBackupFilesDir. Budget includes the old file during atomic staging. */
 class FileTopicStore(private val directory: File, private val maxBytes: Long = 64L * 1024 * 1024,
     private val otherBytes: suspend () -> Long = { 0L }) : TopicStore {
     private val mutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val catalog = FileConnectionCatalog(directory, json)
     private val file get() = File(directory, "topics.json")
+    private val catalogs = linkedMapOf<String, ConnectionCatalogManifest>()
+    private var currentCatalogKey: String? = null
+    private var pinnedCatalogKey: String? = null
     init {
         require(maxBytes > 0)
         directory.mkdirs()
         directory.listFiles { f -> f.extension == "tmp" }?.forEach { check(it.delete()) }
+        val referenced = runCatching {
+            if (!file.isFile) emptySet() else {
+                val payload = file.readText()
+                if ("snapshot" in json.parseToJsonElement(payload).jsonObject)
+                    json.decodeFromString<TopicStoreEnvelope>(payload).catalog.pages.map { it.fileName }.toSet()
+                else emptySet()
+            }
+        }.getOrDefault(emptySet())
+        directory.listFiles { f -> f.name.startsWith("connections-") && f.name !in referenced }?.forEach {
+            check(it.delete() || !it.exists()) { "Unable to remove uncommitted catalog evidence" }
+        }
     }
-    private fun validationFailure(snapshot: TopicSnapshot): TopicValidationReason? {
+    private fun validationFailure(snapshot: TopicSnapshot, checkActive: () -> Unit = {}): TopicValidationReason? {
+        checkActive()
         if (snapshot.schemaVersion != 1 || snapshot.engineVersion != SectionHierarchicalEngine.VERSION)
             return TopicValidationReason.InvalidIdentity
         val identity = snapshot.identity
@@ -54,7 +80,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
                 return TopicValidationReason.InvalidSnapshotProgress
         }
         if (anchors.map { it.id }.distinct().size != anchors.size) return TopicValidationReason.DuplicateTopicId
-        if (snapshot.connectionCursor < 0 || snapshot.connectionPassageCursor < 0)
+        if (snapshot.connectionCursor < 0 || snapshot.connectionPassageCursor < 0 ||
+            snapshot.connectionTargetCursor !in 0..snapshot.connectionTargetCount)
             return TopicValidationReason.InvalidSnapshotProgress
         if (snapshot.generation < 0) return TopicValidationReason.InvalidGeneration
         if (json.encodeToString(snapshot.continuity).toByteArray(Charsets.UTF_8).size > 1024 * 1024) return TopicValidationReason.ContinuityBound
@@ -68,41 +95,251 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
                     canonicalSemanticId(member.passage.pageId) != canonicalSemanticId(member.pageId) ||
                     member.anchor != topic.anchor.passage }) return TopicValidationReason.InvalidMember
         }
-        if (snapshot.connections.any { connection -> !connection.score.isFinite() ||
+        for ((index, connection) in snapshot.connections.withIndex()) {
+            if (index % 64 == 0) checkActive()
+            if (!connection.score.isFinite() ||
             !connection.left.score.isFinite() || !connection.right.score.isFinite() ||
-            canonicalSemanticId(connection.left.pageId) == canonicalSemanticId(connection.right.pageId) }) return TopicValidationReason.InvalidConnection
+            canonicalSemanticId(connection.left.pageId) == canonicalSemanticId(connection.right.pageId))
+                return TopicValidationReason.InvalidConnection
+        }
+        if (snapshot.subjectRelationships.isNotEmpty() && validatedSubjectRelationships(publishableDiscoveryTopics(snapshot.topics), snapshot.subjectRelationships, snapshot.acceptedRevisions) != snapshot.subjectRelationships)
+            return TopicValidationReason.InvalidRelationship
         return null
     }
+    private fun decode(payload: String): Pair<TopicSnapshot, ConnectionCatalogManifest?> {
+        val header = json.decodeFromString<TopicStoreHeader>(payload)
+        require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..1)
+        return if ("snapshot" in json.parseToJsonElement(payload).jsonObject) {
+            val envelope = json.decodeFromString<TopicStoreEnvelope>(payload)
+            require(envelope.snapshot.connections.isEmpty() && catalog.valid(envelope.catalog))
+            envelope.snapshot to envelope.catalog
+        } else json.decodeFromString<TopicSnapshot>(payload) to null
+    }
+    private fun discard() {
+        catalogs.clear(); currentCatalogKey = null; pinnedCatalogKey = null
+        directory.listFiles()?.forEach { check(it.delete() || !it.exists()) { "Unable to discard corrupt topic evidence" } }
+    }
+
+    private fun register(payload: String, snapshot: TopicSnapshot, manifest: ConnectionCatalogManifest): String {
+        val storedKey = runCatching { json.decodeFromString<TopicStoreEnvelope>(payload).catalogKey }.getOrNull()
+        val key = storedKey ?: semanticHash(json.encodeToString(manifest))
+        var named = manifest.namedReferences
+        var ranked = manifest.ranked
+        if (named < 0) {
+            named = 0; ranked = true
+            var prior: NoteConnection? = null
+            val order = compareByDescending<NoteConnection> { it.score }.thenBy { it.id }
+            for (pair in catalog.open(manifest)) {
+                if (pair.independentNamedReference) named++
+                if (prior?.let { order.compare(it, pair) > 0 } == true) ranked = false
+                prior = pair
+            }
+        }
+        catalogs[key] = manifest.copy(identity = manifest.identity ?: snapshot.identity,
+            namedReferences = named, ranked = ranked)
+        currentCatalogKey = key
+        return key
+    }
+    private fun preview(manifest: ConnectionCatalogManifest): List<NoteConnection> {
+        if (manifest.ranked) return catalog.read(manifest, 0, minOf(2, manifest.count))
+        val best = mutableListOf<NoteConnection>()
+        val order = compareByDescending<NoteConnection> { it.score }.thenBy { it.id }
+        for (pair in catalog.open(manifest)) {
+            best += pair; best.sortWith(order)
+            if (best.size > 2) best.removeAt(2)
+        }
+        return best
+    }
+    private fun metadata(snapshot: TopicSnapshot, key: String, manifest: ConnectionCatalogManifest): TopicSnapshot =
+        snapshot.copy(connections = preview(manifest), catalogReference = ConnectionCatalogReference(key, manifest.count, manifest.namedReferences,
+            semanticHash(manifest.pages.joinToString("|") { it.digest })))
+
+    override suspend fun readMetadata(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
+        if (!file.isFile) return@withLock null
+        runCatching {
+            require(file.length() <= maxBytes)
+            val payload = file.readText()
+            val (snapshot, manifest) = decode(payload)
+            require(validationFailure(snapshot) == null)
+            if (manifest == null) snapshot else {
+                val key = register(payload, snapshot, manifest)
+                metadata(snapshot, key, catalogs.getValue(key))
+            }
+        }.getOrElse { discard(); null }
+    } }
+    override suspend fun connectionCatalog(snapshot: TopicSnapshot): List<NoteConnection> = withContext(Dispatchers.IO) { mutex.withLock {
+        snapshot.catalogReference?.let { ref -> catalogs[ref.key]?.let { catalog.open(it) }
+            ?: throw java.io.IOException("Connection catalog is unavailable") } ?: snapshot.connections
+    } }
+    override suspend fun connectionPage(snapshot: TopicSnapshot, offset: Int, limit: Int): ConnectionCatalogPageResult =
+        withContext(Dispatchers.IO) { mutex.withLock {
+            require(offset >= 0 && limit in 1..100)
+            val ref = snapshot.catalogReference ?: return@withLock ConnectionCatalogPageResult(snapshot.connections.drop(offset).take(limit), snapshot.connections.size)
+            val manifest = catalogs[ref.key] ?: return@withLock ConnectionCatalogPageResult(emptyList(), 0, false)
+            runCatching { ConnectionCatalogPageResult(catalog.read(manifest, offset, limit), manifest.count) }
+                .getOrElse { ConnectionCatalogPageResult(emptyList(), 0, false) }
+        } }
+    override suspend fun findConnection(snapshot: TopicSnapshot, id: String): ConnectionCatalogPageResult =
+        withContext(Dispatchers.IO) { mutex.withLock {
+            val ref = snapshot.catalogReference ?: return@withLock ConnectionCatalogPageResult(listOfNotNull(snapshot.connections.firstOrNull { it.id == id }), snapshot.connections.size)
+            val manifest = catalogs[ref.key] ?: return@withLock ConnectionCatalogPageResult(emptyList(), 0, false)
+            runCatching { ConnectionCatalogPageResult(listOfNotNull(catalog.find(manifest, id)), manifest.count) }
+                .getOrElse { ConnectionCatalogPageResult(emptyList(), 0, false) }
+        } }
+    private fun retireCatalogs() {
+        val keep = setOfNotNull(currentCatalogKey, pinnedCatalogKey)
+        catalogs.keys.retainAll(keep)
+        val files = catalogs.values.flatMap { it.pages }.map { it.fileName }.toSet()
+        directory.listFiles { f -> f.name.startsWith("connections-") && f.name !in files }?.forEach {
+            check(it.delete() || !it.exists()) { "Unable to retire catalog evidence" }
+        }
+    }
+    override suspend fun pinInspection(snapshot: TopicSnapshot): Boolean = withContext(Dispatchers.IO) { mutex.withLock {
+        if (currentCatalogKey == null && file.isFile) {
+            val payload = file.readText()
+            val (stored, manifest) = decode(payload)
+            if (manifest != null) register(payload, stored, manifest)
+        }
+        val key = snapshot.catalogReference?.key
+        if (key != null && key !in catalogs) return@withLock false
+        pinnedCatalogKey = key
+        retireCatalogs()
+        true
+    } }
+    override suspend fun refreshCatalogReference(snapshot: TopicSnapshot): TopicSnapshot = withContext(Dispatchers.IO) { mutex.withLock {
+        val ref = snapshot.catalogReference ?: return@withLock snapshot
+        val manifest = catalogs[ref.key] ?: return@withLock snapshot.copy(connections = emptyList(), catalogReference = null)
+        metadata(snapshot, ref.key, manifest)
+    } }
     override suspend fun read(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
         if (!file.isFile) return@withLock null
         val result = runCatching {
             require(file.length() <= maxBytes)
             val payload = file.readText()
-            val header = json.decodeFromString<TopicStoreHeader>(payload)
             // Engine zero is derived legacy state, never a reason to execute the old algorithm.
             // Deleting it is idempotent across interrupted upgrades and leaves all other stores alone.
-            require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..1)
-            json.decodeFromString<TopicSnapshot>(payload).also { require(validationFailure(it) == null) }
+            val (snapshot, manifest) = decode(payload)
+            val result = if (manifest == null) snapshot else snapshot.copy(connections = catalog.read(manifest))
+            require(validationFailure(result) == null)
+            result
         }.getOrNull()
-        if (result == null) check(file.delete() || !file.exists()) { "Unable to discard corrupt topic evidence" }
+        if (result == null) discard()
         result
     } }
+    override suspend fun readConnections(offset: Int, limit: Int): List<NoteConnection> = withContext(Dispatchers.IO) { mutex.withLock {
+        require(offset >= 0 && limit in 1..100)
+        if (!file.isFile) return@withLock emptyList()
+        runCatching {
+            require(file.length() <= maxBytes)
+            val (snapshot, manifest) = decode(file.readText())
+            require(validationFailure(snapshot) == null)
+            if (manifest == null) snapshot.connections.drop(offset).take(limit) else catalog.read(manifest, offset, limit)
+        }.getOrElse { discard(); emptyList() }
+    } }
     override suspend fun write(snapshot: TopicSnapshot): Boolean = writeDetailed(snapshot) == TopicWriteResult.Written
-    override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
+    private fun fits(bytes: Int, external: Long): Boolean {
+        val existing = directory.listFiles()?.sumOf { it.length() } ?: 0L
+        return external >= 0 && bytes.toLong() <= maxBytes - existing - external
+    }
+    private suspend fun stageCatalog(connections: List<NoteConnection>, identity: EmbeddingIdentity?,
+        external: Long, staged: MutableList<File>): ConnectionCatalogManifest? {
+        val generation = UUID.randomUUID().toString()
+        val pages = mutableListOf<ConnectionCatalogPage>()
+        var named = 0
+        var ranked = true
+        var prior: NoteConnection? = null
+        val order = compareByDescending<NoteConnection> { it.score }.thenBy { it.id }
+        for ((number, chunk) in connections.asSequence().chunked(FileConnectionCatalog.PAGE_SIZE).withIndex()) {
+            currentCoroutineContext().ensureActive()
+            for (pair in chunk) {
+                if (pair.independentNamedReference) named++
+                if (prior?.let { order.compare(it, pair) > 0 } == true) ranked = false
+                prior = pair
+            }
+            val bytes = catalog.encode(chunk)
+            if (!fits(bytes.size, external)) return null
+            val target = File(directory, "connections-$generation-$number.json")
+            staged += target
+            atomicSemanticWrite(target, bytes)
+            pages += ConnectionCatalogPage(target.name, chunk.size, semanticHash(bytes.toString(Charsets.UTF_8)), chunk.map { it.id })
+        }
+        return ConnectionCatalogManifest(pages, connections.size, identity, named, ranked)
+    }
+    override suspend fun reconcileCatalogs(sources: Map<String, String>, model: EmbeddingIdentity,
+        titles: Map<String, String>): Boolean {
+        val caller = currentCoroutineContext()
+        return withContext(Dispatchers.IO + NonCancellable) { mutex.withLock {
+        if (catalogs.isEmpty()) return@withLock true
         try {
-            validationFailure(snapshot)?.let { return@withLock TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, it) }
-            val payload = json.encodeToString(snapshot).toByteArray(Charsets.UTF_8)
-            val existing = directory.listFiles()?.sumOf { it.length() } ?: 0L
             val external = otherBytes()
-            if (external < 0 || payload.size.toLong() > maxBytes - existing - external)
-                TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
-            else { atomicSemanticWrite(file, payload); TopicWriteResult.Written }
+            val staged = mutableListOf<File>()
+            var changed = false
+            var scanned = 0
+            for ((key, manifest) in catalogs.toMap()) {
+                val original = catalog.open(manifest)
+                val retained = filterConnectionCatalog(original) { pair ->
+                    // Before any withdrawal starts changing disk, scanning is read-only.
+                    if (!changed && scanned++ % FileConnectionCatalog.PAGE_SIZE == 0) caller.ensureActive()
+                    manifest.identity == model && sources[canonicalSemanticId(pair.left.pageId)] == pair.left.revision &&
+                        sources[canonicalSemanticId(pair.right.pageId)] == pair.right.revision &&
+                        (!pair.independentNamedReference || classifyConnectionEvidence(pair, titles).kind == ConnectionEvidenceKind.NamedReference)
+                }
+                if (retained === original) continue
+                changed = true
+                val replacement = stageCatalog(retained, manifest.identity, external, staged)
+                    ?: throw java.io.IOException("Insufficient storage for mandatory evidence withdrawal")
+                catalogs[key] = replacement
+            }
+            if (!changed) return@withLock true
+            if (file.isFile) {
+                val (snapshot, _) = decode(file.readText())
+                val manifest = catalogs[currentCatalogKey]
+                if (manifest != null) {
+                    val payload = json.encodeToString(TopicStoreEnvelope(snapshot.copy(catalogReference = null), manifest,
+                        catalogKey = currentCatalogKey)).toByteArray(Charsets.UTF_8)
+                    if (!fits(payload.size, external)) throw java.io.IOException("Insufficient storage for evidence withdrawal")
+                    atomicSemanticWrite(file, payload)
+                }
+            }
+            retireCatalogs()
+            true
+        } catch (_: java.io.IOException) { discard(); false }
+        catch (_: IllegalArgumentException) { discard(); false }
+    } } }
+    override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
+        val staged = mutableListOf<File>()
+        var committed = false
+        try {
+            val context = currentCoroutineContext()
+            validationFailure(snapshot) { context.ensureActive() }?.let {
+                return@withLock TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, it)
+            }
+            val external = otherBytes()
+            val ref = snapshot.catalogReference
+            val opened = snapshot.connections as? OpenConnectionCatalog
+            val reused = opened?.takeIf { it.ownerDirectory.absoluteFile == directory.absoluteFile }
+                ?.let { view -> catalogs.entries.firstOrNull { it.value === view.manifest } }
+            val manifest = if (ref != null) catalogs[ref.key]
+                ?: return@withLock TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidConnection)
+                else reused?.value ?: stageCatalog(snapshot.connections, snapshot.identity, external, staged)
+                    ?: return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
+            val key = ref?.key ?: reused?.key ?: UUID.randomUUID().toString()
+            val payload = json.encodeToString(TopicStoreEnvelope(snapshot.copy(connections = emptyList(), catalogReference = null), manifest,
+                catalogKey = key)).toByteArray(Charsets.UTF_8)
+            if (!fits(payload.size, external)) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
+            atomicSemanticWrite(file, payload)
+            committed = true
+            catalogs[key] = manifest; currentCatalogKey = key
+            retireCatalogs()
+            TopicWriteResult.Written
         } catch (_: java.io.IOException) {
             TopicWriteResult.Rejected(TopicWriteFailure.IoFailure)
+        } finally {
+            if (!committed) staged.forEach { check(it.delete() || !it.exists()) { "Unable to remove catalog staging" } }
         }
     } }
     override suspend fun clear(): Unit = withContext(Dispatchers.IO) { mutex.withLock {
-        directory.listFiles()?.forEach { check(it.delete()) { "Unable to clear topic evidence" } }
+        discard()
     } }
     override suspend fun bytes(): Long = withContext(Dispatchers.IO) { mutex.withLock {
         directory.listFiles()?.sumOf { it.length() } ?: 0L

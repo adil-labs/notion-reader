@@ -2,9 +2,11 @@ package com.example.notionreader.domain.discovery
 
 import java.text.Normalizer
 import java.util.Locale
+import kotlinx.serialization.Serializable
 
 const val CONNECTION_EVIDENCE_POLICY_VERSION = 2
 
+@Serializable
 enum class ConnectionEvidenceKind { NamedReference, SimilarPassages }
 data class NamedNoteReference(val sourcePageId: String, val targetPageId: String)
 data class ConnectionEvidence(val references: List<NamedNoteReference> = emptyList()) {
@@ -26,6 +28,7 @@ private fun explicitlyNamesTitle(text: String, title: String): Boolean =
 
 /** Classifies existing eligible evidence; never infers a verified hyperlink or creates a pair. */
 fun classifyConnectionEvidence(connection: NoteConnection, cachedTitles: Map<String, String>): ConnectionEvidence {
+    if (connection.evidenceKind == ConnectionEvidenceKind.SimilarPassages) return ConnectionEvidence()
     fun normalized(text: String): String = referenceText(text)
     val titles = cachedTitles.entries.groupBy { canonicalSemanticId(it.key) }.mapNotNull { (id, aliases) ->
         val names = aliases.map { normalized(it.value) }.distinct()
@@ -49,7 +52,38 @@ fun classifyConnectionEvidence(connection: NoteConnection, cachedTitles: Map<Str
         .sortedWith(compareBy<NamedNoteReference> { it.sourcePageId }.thenBy { it.targetPageId }))
 }
 
-/** Explicit retrieval is separate from thematic admission. Call only for the experimental engine. */
+/** Metadata-only title index; evaluates a single resumable candidate opportunity. */
+class ExplicitNoteReferenceIndex(titles: Map<String, String>) {
+    private val normalized = titles.mapKeys { canonicalSemanticId(it.key) }.mapValues { referenceText(it.value) }
+    private val counts = normalized.values.groupingBy { it }.eachCount()
+    private val patterns = normalized.filterValues { it.isNotBlank() && counts[it] == 1 }
+        .mapValues { explicitTitlePattern(it.value) }
+
+    fun candidate(source: SemanticRecord, passage: SemanticPassage, target: SemanticRecord,
+        checkActive: () -> Unit = {}): NoteConnection? {
+        checkActive()
+        val sourceId = canonicalSemanticId(source.pageId)
+        val targetId = canonicalSemanticId(target.pageId)
+        if (sourceId == targetId || passage.sourceBlockId == passage.sectionId || passage.excerpt.isBlank() ||
+            normalized[sourceId] != referenceText(source.metadata.title) || normalized[targetId] != referenceText(target.metadata.title)) return null
+        val pattern = patterns[targetId] ?: return null
+        if (!pattern.containsMatchIn(referenceText(passage.excerpt))) return null
+        val order = compareBy<SemanticPassage> { it.sourceBlockId == it.sectionId }.thenBy { it.order }.thenBy { it.id }
+        var context: SemanticPassage? = null
+        target.passages.forEachIndexed { n, embedded ->
+            if (n % 64 == 0) checkActive()
+            val p = embedded.passage
+            if (p.excerpt.isNotBlank() && (context == null || order.compare(p, context!!) < 0)) context = p
+        }
+        val literal = context ?: return null
+        val members = listOf(TopicMembership(sourceId, source.metadata, passage, 0f, literal, source.revision),
+            TopicMembership(targetId, target.metadata, literal, 0f, passage, target.revision)).sortedBy { it.pageId }
+        val id = semanticHash(members.joinToString("|") { it.pageId } + "|reference")
+        return NoteConnection(id, members[0], members[1], 0f, independentNamedReference = true)
+    }
+}
+
+/** Full-list compatibility helper for developer tools and small test fixtures. */
 fun discoverExplicitNoteReferences(records: List<SemanticRecord>, checkActive: () -> Unit = {}): List<NoteConnection> {
     checkActive()
     val current = records.groupBy { canonicalSemanticId(it.pageId) }.values.mapNotNull { it.singleOrNull() }
@@ -77,7 +111,7 @@ fun discoverExplicitNoteReferences(records: List<SemanticRecord>, checkActive: (
                     TopicMembership(sourceId, source.metadata, passage, 0f, context, source.revision),
                     TopicMembership(targetId, target.metadata, context, 0f, passage, target.revision)
                 ).sortedBy { it.pageId }
-                val id = semanticHash(members.joinToString("|") { it.pageId })
+                val id = semanticHash(members.joinToString("|") { it.pageId } + "|reference")
                 pairs.putIfAbsent(id, NoteConnection(id, members[0], members[1], 0f, independentNamedReference = true))
             }
         }

@@ -16,7 +16,12 @@ data class TopicContinuity(val id: String, val createdOrder: Long, val pageIds: 
     val sourceIds: Set<String> = emptySet(), val replacementId: String? = null)
 @Serializable
 data class NoteConnection(val id: String, val left: TopicMembership, val right: TopicMembership, val score: Float,
-    val independentNamedReference: Boolean = false)
+    val independentNamedReference: Boolean = false, val evidenceKind: ConnectionEvidenceKind? = null)
+@Serializable
+data class ConnectionCatalogReference(val key: String, val count: Int, val namedReferences: Int = 0,
+    val fingerprint: String = "")
+data class ConnectionCatalogPageResult(val connections: List<NoteConnection>, val totalCount: Int,
+    val available: Boolean = true)
 @Serializable
 data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val continuity: List<TopicContinuity> = emptyList(),
     val identity: EmbeddingIdentity? = null, val generation: Long = 0, val complete: Boolean = false,
@@ -25,7 +30,12 @@ data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val co
     val policyVersion: Int = 0, val connectionCursor: Int = 0, val connectionPassageCursor: Int = 0, val connectionPassComplete: Boolean = false,
     val provisionalTopics: List<DiscoveredTopic> = emptyList(), val sourceSignature: String? = null,
     val engineVersion: Int = SectionHierarchicalEngine.VERSION, val formationProgress: TopicFormationProgress? = null,
-    val schemaVersion: Int = 1)
+    val schemaVersion: Int = 1,
+    val subjectRelationships: List<SubjectRelationship> = emptyList(),
+    val connectionTargetCursor: Int = 0,
+    val connectionTargetCount: Int = 0,
+    val catalogReference: ConnectionCatalogReference? = null,
+    val referenceTitles: Map<String, String> = emptyMap())
 /** Private, versioned work state. Indices refer to canonical eligible sections/passages, never a truncated input. */
 @Serializable
 data class TopicFormationProgress(
@@ -49,7 +59,7 @@ data class TopicFormationProgress(
 enum class TopicWriteFailure { BudgetExceeded, InvalidSnapshot, IoFailure, Unknown }
 enum class TopicValidationReason {
     CandidateBound, DuplicateTopicId, InvalidGeneration, ContinuityBound, InvalidIdentity,
-    InvalidTopic, InvalidMember, InvalidConnection, InvalidSnapshotProgress
+    InvalidTopic, InvalidMember, InvalidConnection, InvalidSnapshotProgress, InvalidRelationship
 }
 sealed interface TopicWriteResult {
     data object Written : TopicWriteResult
@@ -57,6 +67,29 @@ sealed interface TopicWriteResult {
 }
 interface TopicStore {
     suspend fun read(): TopicSnapshot?
+    suspend fun readMetadata(): TopicSnapshot? = read()
+    /** Worker-only access; implementations may return a paged view with synchronous reads. */
+    suspend fun connectionCatalog(snapshot: TopicSnapshot): List<NoteConnection> {
+        check(snapshot.catalogReference == null) { "This store must implement referenced catalog access" }
+        return snapshot.connections
+    }
+    suspend fun connectionPage(snapshot: TopicSnapshot, offset: Int, limit: Int): ConnectionCatalogPageResult {
+        require(offset >= 0 && limit in 1..100)
+        snapshot.catalogReference?.let { return ConnectionCatalogPageResult(emptyList(), it.count, false) }
+        return ConnectionCatalogPageResult(snapshot.connections.drop(offset).take(limit), snapshot.connections.size)
+    }
+    suspend fun findConnection(snapshot: TopicSnapshot, id: String): ConnectionCatalogPageResult {
+        snapshot.catalogReference?.let { return ConnectionCatalogPageResult(emptyList(), it.count, false) }
+        return ConnectionCatalogPageResult(listOfNotNull(snapshot.connections.firstOrNull { it.id == id }), snapshot.connections.size)
+    }
+    suspend fun pinInspection(snapshot: TopicSnapshot): Boolean = true
+    suspend fun reconcileCatalogs(sources: Map<String, String>, model: EmbeddingIdentity,
+        titles: Map<String, String>): Boolean = true
+    suspend fun refreshCatalogReference(snapshot: TopicSnapshot): TopicSnapshot = snapshot
+    suspend fun readConnections(offset: Int, limit: Int): List<NoteConnection> {
+        require(offset >= 0 && limit in 1..100)
+        return read()?.connections.orEmpty().drop(offset).take(limit)
+    }
     suspend fun write(snapshot: TopicSnapshot): Boolean
     suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult =
         if (write(snapshot)) TopicWriteResult.Written else TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
@@ -67,6 +100,7 @@ interface TopicStore {
  * but a repeated heading alone is not evidence that two Notes share body content. */
 fun SemanticPassage.isBodyEvidence(): Boolean = sourceBlockId != sectionId && substantiveDiscoveryEvidence(this)
 /** Separate clustering policy: retrieval thresholds are deliberately not reused. */
-data class TopicPolicy(val retention: Float = .59f, val version: Int = 11, val connection: Float = .5f) {
-    init { require(retention in 0f..1f && connection in 0f..1f) }
+data class TopicPolicy(val retention: Float = .59f, val version: Int = 14, val connection: Float = .5f,
+    val formationDistance: Float = .35f, val membership: Float = .60f) {
+    init { require(retention in 0f..1f && connection in 0f..1f && formationDistance in 0f..2f && membership in 0f..1f) }
 }
