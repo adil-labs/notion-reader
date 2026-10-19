@@ -6,6 +6,7 @@ import com.example.notionreader.domain.discovery.semanticHash
 import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert.*
@@ -13,6 +14,80 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiscoveryModelDownloadTest {
+    @Test fun changingQuantizationAtTheSameRevisionRequiresAnExplicitDownloadAndRetainsTheOldPack() = runTest {
+        val dir = Files.createTempDirectory("model-quantization-migration").toFile()
+        try {
+            dir.resolve("current").mkdirs()
+            dir.resolve("current/model_quantized.onnx").writeText("old int8 graph")
+            dir.resolve("current/model_quantized.onnx_data").writeText("old int8 weights")
+            dir.resolve("current/installed").writeText("same-export-revision")
+            var opened = 0
+            val manager = LocalDiscoveryModelManager(dir, backgroundScope, { true },
+                artifacts = listOf(ModelArtifact("model_q4.onnx", 4, semanticHash("good"))),
+                revision = "same-export-revision",
+                open = { opened++; ByteArrayInputStream("good".toByteArray()) },
+                ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            manager.checkInstalled()
+            assertFalse(manager.state.value.installed)
+            assertEquals(0, opened)
+            assertEquals("old int8 graph", dir.resolve("current/model_quantized.onnx").readText())
+            assertEquals("old int8 weights", dir.resolve("current/model_quantized.onnx_data").readText())
+            manager.download(); testScheduler.runCurrent()
+            assertTrue(manager.state.value.installed)
+            assertEquals(1, opened)
+            assertEquals("good", dir.resolve("current/model_q4.onnx").readText())
+            assertFalse(dir.resolve("current/model_quantized.onnx").exists())
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun aDownloadQueuedDuringIntegrityCheckingDoesNotFetchAnAlreadyInstalledPack() = runTest {
+        val dir = Files.createTempDirectory("model-startup-download").toFile()
+        try {
+            dir.resolve("current").mkdirs()
+            dir.resolve("current/model").writeText("good")
+            dir.resolve("current/installed").writeText(LocalDiscoveryModelManager.Revision)
+            var opened = 0
+            val manager = LocalDiscoveryModelManager(dir, backgroundScope, { true },
+                artifacts = listOf(ModelArtifact("model", 4, semanticHash("good"))),
+                open = { opened++; ByteArrayInputStream("good".toByteArray()) },
+                ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            val checking = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { manager.checkInstalled() }
+            manager.download()
+            testScheduler.runCurrent()
+            checking.await()
+            assertTrue(manager.state.value.installed)
+            assertEquals("An already verified pack must not be downloaded again", 0, opened)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun aPreviousModelMarkerCannotMakeANewPackAvailable() = runTest {
+        val dir = Files.createTempDirectory("model-migration").toFile()
+        try {
+            dir.resolve("current").mkdirs()
+            dir.resolve("current/model").writeText("good")
+            dir.resolve("current/installed").writeText("previous-model")
+            val manager = LocalDiscoveryModelManager(dir, backgroundScope, { true },
+                artifacts = listOf(ModelArtifact("model", 4, semanticHash("good"))),
+                ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            manager.checkInstalled()
+            assertFalse(manager.state.value.installed)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun externalWeightsUseTheirDeclaredRemotePath() = runTest {
+        val dir = Files.createTempDirectory("external-model").toFile()
+        try {
+            val urls = mutableListOf<String>()
+            val manager = LocalDiscoveryModelManager(dir, backgroundScope, { true },
+                artifacts = listOf(ModelArtifact("model.onnx_data", 4, semanticHash("good"), "onnx/model.onnx_data")),
+                open = { urls += it; ByteArrayInputStream("good".toByteArray()) },
+                ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            manager.download(); testScheduler.runCurrent()
+            assertTrue(manager.state.value.installed)
+            assertTrue(urls.single().endsWith("/onnx/model.onnx_data"))
+            assertTrue(dir.resolve("current/model.onnx_data").isFile)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun anIncorrectDownloadCannotBecomeAnInstalledModel() = runTest {
         val dir = Files.createTempDirectory("model-download").toFile()
         try {

@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class ModelArtifact(val path: String, val bytes: Long, val sha256: String)
+data class ModelArtifact(val path: String, val bytes: Long, val sha256: String,
+    val remotePath: String = path)
 
 /** Optional download, never a constructor side effect. Only a verified complete pack is usable. */
 class LocalDiscoveryModelManager(
@@ -27,12 +28,15 @@ class LocalDiscoveryModelManager(
     private val onDeleted: suspend () -> Unit = {},
     private val artifacts: List<ModelArtifact> = Artifacts,
     private val open: (String) -> InputStream = ::openModelUrl,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val repository: String = "sentence-transformers/all-MiniLM-L6-v2",
+    private val revision: String = Revision,
+    private val description: String = "English MiniLM-L6-v2 · ${artifacts.sumOf { it.bytes }} bytes · sentence-transformers/all-MiniLM-L6-v2 · Apache-2.0 · ONNX Runtime MIT · local inference"
 ) : DiscoveryModelManager {
     companion object {
         const val Revision = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
         val Artifacts = listOf(
-            ModelArtifact("model_qint8_arm64.onnx", 23026053, "4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474"),
+            ModelArtifact("model_qint8_arm64.onnx", 23026053, "4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474", "onnx/model_qint8_arm64.onnx"),
             ModelArtifact("vocab.txt", 231508, "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3")
         )
         private fun openModelUrl(url: String): InputStream {
@@ -49,13 +53,13 @@ class LocalDiscoveryModelManager(
     private var job: Job? = null
     private val mutable = MutableStateFlow(DiscoveryModelState(
         totalBytes = artifacts.sumOf { it.bytes },
-        description = "English MiniLM-L6-v2 · ${artifacts.sumOf { it.bytes }} bytes · sentence-transformers/all-MiniLM-L6-v2 · Apache-2.0 · ONNX Runtime MIT · local inference"
+        description = description
     ))
     override val state = mutable.asStateFlow()
 
     /** Called from the process worker, not the UI thread; integrity is checked after process death. */
     suspend fun checkInstalled() = withContext(ioDispatcher) { mutex.withLock {
-        val valid = File(modelDirectory, "installed").isFile && artifacts.all { artifact ->
+        val valid = File(modelDirectory, "installed").let { it.isFile && it.readText() == revision } && artifacts.all { artifact ->
             val file = File(modelDirectory, artifact.path)
             file.isFile && file.length() == artifact.bytes && digest(file) == artifact.sha256
         }
@@ -67,6 +71,8 @@ class LocalDiscoveryModelManager(
         if (job?.isActive == true || state.value.installed) return
         job = scope.launch(ioDispatcher) {
             mutex.withLock {
+                // Startup integrity checking may finish while this request waits for the lock.
+                if (state.value.installed) return@withLock
                 if (state.value.wifiOnly && !unmetered()) { mutable.update { it.copy(message = "Connect to an unmetered network or allow mobile data for this download.") }; return@withLock }
                 mutable.update { it.copy(downloading = true, message = null, downloadedBytes = 0) }
                 val staging = File(directory, "staging")
@@ -75,8 +81,8 @@ class LocalDiscoveryModelManager(
                     var downloaded = 0L
                     for (artifact in artifacts) {
                         require(artifact.path == File(artifact.path).name)
-                        val remotePath = if (artifact.path.endsWith(".onnx")) "onnx/${artifact.path}" else artifact.path
-                        val url = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/$Revision/$remotePath"
+                        require(artifact.remotePath.split('/').none { it == ".." || it.isEmpty() })
+                        val url = "https://huggingface.co/$repository/resolve/$revision/${artifact.remotePath}"
                         val target = File(staging, artifact.path)
                         open(url).use { input -> FileOutputStream(target).use { output ->
                             val buffer = ByteArray(32768)
@@ -95,7 +101,7 @@ class LocalDiscoveryModelManager(
                         require(target.length() == artifact.bytes && digest(target) == artifact.sha256) { "Model integrity check failed" }
                     }
                     currentCoroutineContext().ensureActive()
-                    File(staging, "installed").writeText(Revision)
+                    File(staging, "installed").writeText(revision)
                     check(!modelDirectory.exists() || modelDirectory.deleteRecursively())
                     try { Files.move(staging.toPath(), modelDirectory.toPath(), StandardCopyOption.ATOMIC_MOVE) }
                     catch (_: java.nio.file.AtomicMoveNotSupportedException) { Files.move(staging.toPath(), modelDirectory.toPath()) }

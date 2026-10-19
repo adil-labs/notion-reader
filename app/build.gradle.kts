@@ -6,6 +6,43 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val tokenizerOutput = layout.buildDirectory.dir("native-tokenizer")
+val tokenizerInputs = rootProject.fileTree("native/discovery-tokenizer") { exclude("target/**") }
+val buildHostTokenizer = tasks.register<Exec>("buildHostDiscoveryTokenizer") {
+    inputs.files(tokenizerInputs, rootProject.file("tools/build-discovery-tokenizer.ps1"))
+    outputs.file(tokenizerOutput.map { it.file("host/discovery_tokenizer.dll") })
+    commandLine("pwsh", "-NoProfile", "-File", rootProject.file("tools/build-discovery-tokenizer.ps1"),
+        "-OutputDirectory", tokenizerOutput.get().asFile, "-HostOnly")
+}
+val buildAndroidTokenizer = tasks.register<Exec>("buildAndroidDiscoveryTokenizer") {
+    inputs.files(tokenizerInputs, rootProject.file("tools/build-discovery-tokenizer.ps1"))
+    outputs.dir(tokenizerOutput.map { it.dir("jniLibs") })
+    commandLine("pwsh", "-NoProfile", "-File", rootProject.file("tools/build-discovery-tokenizer.ps1"),
+        "-OutputDirectory", tokenizerOutput.get().asFile)
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(buildHostTokenizer)
+    systemProperty("discovery.tokenizer.library", tokenizerOutput.get().file("host/discovery_tokenizer.dll").asFile.absolutePath)
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(buildAndroidTokenizer) }
+val gemmaTestAssets = tasks.register<Copy>("generateGemmaTestAssets") {
+    from(rootProject.file("tools/semantic-discovery")) { include("gemma2-android-reference.json", "gemma2-q4-android-reference.json") }
+    into(layout.buildDirectory.dir("generated/gemmaTestAssets"))
+}
+tasks.matching { it.name == "preDebugAndroidTestBuild" || it.name == "preReleaseAndroidTestBuild" }.configureEach { dependsOn(gemmaTestAssets) }
+
+tasks.register<JavaExec>("verifyGemmaTokenizer") {
+    group = "verification"
+    dependsOn("compileDebugUnitTestKotlin", buildHostTokenizer)
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
+    mainClass.set("com.example.notionreader.tooling.GemmaTokenizerParity")
+    workingDir(rootProject.projectDir)
+    systemProperty("discovery.tokenizer.library", tokenizerOutput.get().file("host/discovery_tokenizer.dll").asFile.absolutePath)
+    args(providers.gradleProperty("gemmaTokenizerJson").getOrElse(""), rootProject.file("tools/semantic-discovery/gemma2-android-reference.json"))
+}
+
+
 // Credentials are resolved before the android block, because script property initialisers run in
 // declaration order and defaultConfig reads these values.
 val notionEnvFile = parseEnvFile(rootProject.file(".env"))
@@ -36,6 +73,10 @@ if (notionToken.isBlank() && notionEnvFile.bareValues.isNotEmpty()) {
 android {
     namespace = "com.example.notionreader"
     compileSdk = 37
+    // Preserve replacement behavior for the legacy installer too.
+    installation { installOptions.add("-r") }
+    sourceSets.getByName("main").jniLibs.srcDir(tokenizerOutput.get().dir("jniLibs").asFile)
+    sourceSets.getByName("androidTest").assets.srcDir(layout.buildDirectory.dir("generated/gemmaTestAssets").get().asFile)
 
     defaultConfig {
         applicationId = "com.example.notionreader"
@@ -179,6 +220,8 @@ fun looksLikeNotionPageReference(value: String): Boolean {
 fun quote(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 dependencies {
+    // Stable compatible release; bounded ordinary workers, no foreground/expedited execution.
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
     // Standalone API26 native-load and ARM64 semantic-quality gates recorded in tools/semantic-discovery.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
@@ -262,4 +305,63 @@ tasks.register<JavaExec>("reviewDiscoveryEngine") {
     mainClass.set("com.example.notionreader.tooling.DiscoveryEngineReview")
     workingDir(rootProject.projectDir)
     args(providers.gradleProperty("discoveryReviewDirectory").getOrElse(""))
+}
+
+tasks.register<JavaExec>("exportPublicCorpusPassages") {
+    group = "verification"
+    description = "Export pinned public corpus through the shipping tokenizer/chunker for host comparisons"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
+    mainClass.set("com.example.notionreader.tooling.PublicCorpusInput")
+    workingDir(rootProject.projectDir)
+    args(providers.gradleProperty("publicCorpusDirectory").getOrElse(""),
+        providers.gradleProperty("publicCorpusLock").getOrElse(""),
+        providers.gradleProperty("publicCorpusVocabulary").getOrElse(""))
+}
+
+tasks.register<JavaExec>("exportPublicFormationInput") {
+    group = "verification"
+    description = "Export identical shipping formation opportunities from verified public vectors"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
+    mainClass.set("com.example.notionreader.tooling.PublicFormationInput")
+    workingDir(rootProject.projectDir)
+    maxHeapSize = "2g"
+    args(providers.gradleProperty("publicCorpusDirectory").getOrElse(""),
+        providers.gradleProperty("publicVectorDirectory").getOrElse(""),
+        providers.gradleProperty("publicFormationDirectory").getOrElse(""))
+}
+
+tasks.register<JavaExec>("evaluatePublicExactFormation") {
+    group = "verification"
+    description = "Observe shipping exact seed formation on the verified shared public opportunities"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
+    mainClass.set("com.example.notionreader.tooling.PublicExactFormation")
+    workingDir(rootProject.projectDir)
+    maxHeapSize = "2g"
+    // Developer exhaustive oracle; never changes the application's engine selection.
+    systemProperty("discovery.formationBounds", providers.gradleProperty("publicFormationBoundsEnabled").getOrElse("true"))
+    args(providers.gradleProperty("publicCorpusDirectory").getOrElse(""),
+        providers.gradleProperty("publicVectorDirectory").getOrElse(""),
+        providers.gradleProperty("publicFormationDirectory").getOrElse(""))
+    if (providers.gradleProperty("publicFormationDistance").isPresent || providers.gradleProperty("publicMembershipThreshold").isPresent) {
+        args(providers.gradleProperty("publicFormationDistance").getOrElse("0.35"),
+            providers.gradleProperty("publicMembershipThreshold").getOrElse("0.60"))
+    }
+}
+
+tasks.register<JavaExec>("evaluatePublicGraphProjection") {
+    group = "verification"
+    description = "Apply shipping downstream policy to verified host graph communities"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
+    mainClass.set("com.example.notionreader.tooling.PublicGraphProjection")
+    workingDir(rootProject.projectDir)
+    maxHeapSize = "2g"
+    args(providers.gradleProperty("publicCorpusDirectory").getOrElse(""),
+        providers.gradleProperty("publicVectorDirectory").getOrElse(""),
+        providers.gradleProperty("publicFormationDirectory").getOrElse(""),
+        providers.gradleProperty("publicGraphReport").getOrElse(""),
+        providers.gradleProperty("publicMembershipThreshold").getOrElse("0.60"))
 }
