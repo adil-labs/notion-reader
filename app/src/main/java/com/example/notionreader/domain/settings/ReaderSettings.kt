@@ -21,6 +21,11 @@ data class ReaderSettings(
     val playbackAnnouncements: AnnouncementVerbosity = AnnouncementVerbosity.CONCISE,
 
     // Offline & Storage
+    val noteCacheLimitBytes: Long = com.example.notionreader.domain.document.StorageDefaults.NOTE_BYTES,
+    val discoveryStorageAutomatic: Boolean = true,
+    val discoveryCustomLimitBytes: Long = com.example.notionreader.domain.document.StorageDefaults.CUSTOM_DISCOVERY_BYTES,
+    val extendedStorage: Boolean = false,
+    val storagePolicyExplained: Boolean = false,
     val cacheNotesForOffline: Boolean = true,
     val prefetchUpcomingNotes: Boolean = true,
     val downloadNetworkPolicy: DownloadNetworkPolicy = DownloadNetworkPolicy.WIFI_AND_MOBILE_DATA,
@@ -170,7 +175,8 @@ enum class AutoCacheNoteCount(val label: String, val count: Int) {
     COUNT_5("5 notes", 5),
     COUNT_10("10 notes", 10),
     COUNT_20("20 notes", 20),
-    COUNT_50("50 notes", 50)
+    COUNT_50("50 notes", 50),
+    COUNT_100("100 notes", 100)
 }
 
 enum class AppTheme(val label: String) {

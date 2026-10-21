@@ -17,6 +17,14 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class CachedDocumentRepositoryTest {
+    @Test fun storagePressureDoesNotTurnSuccessfulReadingIntoALoadFailure() = runBlocking {
+        val remote = FakeRemoteDocumentSource().apply { metadata = RemoteDocumentMetadata(docV1.pageId, docV1.title, v1Time, false); document = docV1 }
+        val cache = object : DocumentCache by FakeDocumentCache() {
+            override suspend fun put(document: CachedDocument) { throw com.example.notionreader.domain.document.StorageRefused(com.example.notionreader.domain.document.StorageFailure.DEVICE_SPACE) }
+        }
+        val repo = CachedDocumentRepository(remote, cache, fixedClock)
+        assertEquals(docV1, repo.loadDocument(docV1.pageId, purpose = com.example.notionreader.domain.document.DocumentLoadPurpose.INTERACTIVE).document)
+    }
 
     private val fixedClock = Clock.fixed(Instant.parse("2026-09-30T12:00:00Z"), ZoneOffset.UTC)
     private val v1Time = Instant.parse("2026-09-30T10:00:00Z")

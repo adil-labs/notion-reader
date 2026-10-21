@@ -118,7 +118,7 @@ class CachedDocumentRepository(
                 } else {
                     cached.origin
                 }
-                cache.put(cached.copy(validatedAt = clock.instant(), origin = effectiveOrigin))
+                saveIfSpace(cached.copy(validatedAt = clock.instant(), origin = effectiveOrigin), purpose)
             }
             return DocumentLoad(cached.document, DocumentSource.CACHE, DocumentFreshness.FRESH)
         }
@@ -139,18 +139,26 @@ class CachedDocumentRepository(
         telemetry?.recordMiss()
         if (isCachingEnabled()) {
             val now = clock.instant()
-            cache.put(
+            saveIfSpace(
                 CachedDocument(
                     document = fresh,
                     remoteLastEditedAt = metadata.lastEditedAt,
                     fetchedAt = now,
                     validatedAt = now,
                     origin = targetOrigin
-                )
+                ), purpose
             )
         }
 
         return DocumentLoad(fresh, DocumentSource.REMOTE, DocumentFreshness.FRESH)
+    }
+
+    private suspend fun saveIfSpace(document: CachedDocument, purpose: DocumentLoadPurpose) {
+        try { cache.put(document) }
+        catch (refused: com.example.notionreader.domain.document.StorageRefused) {
+            // Listening and manual reading can use the fetched document without caching it.
+            if (purpose == DocumentLoadPurpose.PREFETCH) throw refused
+        }
     }
 
     /**

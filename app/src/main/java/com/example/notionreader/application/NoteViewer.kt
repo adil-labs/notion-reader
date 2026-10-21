@@ -107,6 +107,9 @@ class NoteViewer(initial: ReaderDocument = ReaderDocument.Empty) {
                 _loadState.value = DocumentLoadState.Loaded(loaded)
             },
             onFailure = { failure ->
+                if (pageId != _document.value.pageId) {
+                    _document.value = ReaderDocument.Empty.copy(pageId = pageId)
+                }
                 // Category as well as text, because the UI contract requires that a permission problem
                 // not be collapsed into a generic network error and that Retry is only offered when it
                 // could achieve something.

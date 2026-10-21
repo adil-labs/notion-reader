@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,12 +44,21 @@ fun SettingsOfflineScreen(
     onUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit,
     onClearCache: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    storageMessage: String? = null,
+    extendedMaximumBytes: Long = 0L
 ) {
     var showAutoDownloadDialog by remember { mutableStateOf(false) }
     var showNetworkDialog by remember { mutableStateOf(false) }
     var showFreshnessDialog by remember { mutableStateOf(false) }
     var showConfirmClearCache by remember { mutableStateOf(false) }
+    var pendingLimit by remember { mutableStateOf<Long?>(null) }
+    pendingLimit?.let { proposed ->
+        AlertDialog(onDismissRequest = { pendingLimit = null }, title = { Text("Reduce Note cache limit?") },
+            text = { Text("Cached Notes currently use ${formatBytes(cacheSizeBytes)}. Reducing the limit to ${storageSize(proposed)} may remove older offline Notes. Speculative downloads are removed first. Current and upcoming queue Notes are protected; cleanup waits if they exceed the limit.") },
+            confirmButton = { TextButton(onClick = { onUpdate { it.copy(noteCacheLimitBytes = proposed) }; pendingLimit = null }) { Text("Reduce limit") } },
+            dismissButton = { TextButton(onClick = { pendingLimit = null }) { Text("Cancel") } })
+    }
 
     val autoDownloadOptions = remember {
         listOf(
@@ -58,7 +69,8 @@ fun SettingsOfflineScreen(
             AutoDownloadOption.NoteCount(AutoCacheNoteCount.COUNT_5),
             AutoDownloadOption.NoteCount(AutoCacheNoteCount.COUNT_10),
             AutoDownloadOption.NoteCount(AutoCacheNoteCount.COUNT_20),
-            AutoDownloadOption.NoteCount(AutoCacheNoteCount.COUNT_50)
+            AutoDownloadOption.NoteCount(AutoCacheNoteCount.COUNT_50),
+            AutoDownloadOption.NoteCount(AutoCacheNoteCount.COUNT_100)
         )
     }
 
@@ -138,6 +150,7 @@ fun SettingsOfflineScreen(
         onBack = onBack,
         modifier = modifier
     ) {
+        StoragePolicyExplanation(settings, onUpdate)
         SettingsSection(title = "OFFLINE") {
             SettingsSwitchRow(
                 title = "Save Notes for offline use",
@@ -194,6 +207,18 @@ fun SettingsOfflineScreen(
         }
 
         SettingsSection(title = "STORAGE") {
+            storageMessage?.let { Text(it) }
+            Text("The default 128 MiB cache is sized for about 100 Notes of up to 1 MiB each. A separate 200-Note safety limit also applies.")
+            if (cachedNotesCount >= 200) Text("The 200-Note safety limit has been reached. Increasing the byte limit does not increase this count limit.")
+            if (cacheSizeBytes > settings.noteCacheLimitBytes) Text("Cache cleanup is waiting for protected queue Notes. Playback remains available.")
+            StorageLimitControl("Note cache limit", settings.noteCacheLimitBytes,
+                if (settings.extendedStorage) extendedMaximumBytes else 0L) { next ->
+                if (next < settings.noteCacheLimitBytes && cacheSizeBytes > next) pendingLimit = next
+                else onUpdate { it.copy(noteCacheLimitBytes = next) }
+            }
+            SettingsSwitchRow(title = "Allow extended storage", checked = settings.extendedStorage,
+                onCheckedChange = { value -> onUpdate { it.copy(extendedStorage = value) } },
+                summary = "Offers a larger maximum of up to 80% of safely available space. Space is used only as needed; at least 2 GiB or 10% of device capacity stays free.")
             val storageValue = if (cachedNotesCount > 0) {
                 "$cachedNotesCount Notes · ${formatBytes(cacheSizeBytes)}"
             } else {

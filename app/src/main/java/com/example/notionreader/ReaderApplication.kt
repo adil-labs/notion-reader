@@ -148,7 +148,31 @@ class ReaderApplication : Application() {
 
     val documentCache: DocumentCache by lazy {
         migrateLegacyCacheDir()
-        FileDocumentCache(File(noBackupFilesDir, "document-cache"))
+        FileDocumentCache(File(noBackupFilesDir, "document-cache"),
+            byteLimit = { storagePreferences?.noteCacheLimitBytes ?: Long.MAX_VALUE },
+            protectedPageIds = { protectedCacheIds() }, writeGate = storageWrites)
+    }
+
+    private val settingsRepository by lazy { DataStoreSettingsRepository(context = this) }
+    @Volatile private var storagePreferences: com.example.notionreader.domain.settings.ReaderSettings? = null
+    private val storageWrites = object : com.example.notionreader.domain.document.StorageWriteGate {
+        override suspend fun <T> write(category: com.example.notionreader.domain.document.StorageCategory, additionalPeakBytes: Long, block: suspend () -> T): T {
+            // StateFlow's initial defaults must never shrink a restored explicit limit.
+            storagePreferences = settingsRepository.readCurrentSettings()
+            return storageBudget.write(category, additionalPeakBytes, block)
+        }
+    }
+    @Volatile private var protectedCacheIds: () -> Set<String> = { emptySet() }
+    private fun directoryBytes(directory: File): Long = if (!directory.exists()) 0L else
+        directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-checkpoint")
+    private val storageBudget by lazy {
+        val availability = com.example.notionreader.platform.AndroidStorageAvailability(noBackupFilesDir)
+        com.example.notionreader.application.StorageBudgetCoordinator(
+            { storagePreferences ?: com.example.notionreader.domain.settings.ReaderSettings() }, { availability.snapshot()?.let { com.example.notionreader.domain.document.StorageSnapshot(it.first, it.second) } },
+            { (derivedNames + listOf("document-cache", "discovery-model")).sumOf { directoryBytes(File(noBackupFilesDir, it)) } },
+            { derivedNames.sumOf { directoryBytes(File(noBackupFilesDir, it)) } },
+            { directoryBytes(File(noBackupFilesDir, "discovery-model")) })
     }
 
     val loadCoordinator: DocumentLoadCoordinator by lazy {
@@ -176,7 +200,6 @@ class ReaderApplication : Application() {
         val sessionStore = DataStoreSessionStore(this)
         val savedQueueStore = DataStoreSavedQueueStore(this)
         val smartQueueStore = DataStoreSmartQueueStore(this)
-        val settingsRepository = DataStoreSettingsRepository(context = this)
 
         val indexStore = com.example.notionreader.data.local.FileReaderIndexStore(
             directory = File(noBackupFilesDir, "index-cache")
@@ -192,12 +215,16 @@ class ReaderApplication : Application() {
         val topicCheckpointDirectory = File(noBackupFilesDir, "discovery-topic-checkpoint")
         fun storageBytes(directory: File): Long = directory.listFiles()?.sumOf { it.length() } ?: 0L
         val semanticIndex = com.example.notionreader.data.local.FileSemanticIndexStore(semanticDirectory,
+            writeGate = storageWrites,
             otherBytes = { storageBytes(passageProgressDirectory) + storageBytes(topicDirectory) + storageBytes(topicCheckpointDirectory) })
         val passageProgressStore = com.example.notionreader.data.local.FileSemanticIndexStore(passageProgressDirectory,
+            writeGate = storageWrites,
             otherBytes = { storageBytes(semanticDirectory) + storageBytes(topicDirectory) + storageBytes(topicCheckpointDirectory) })
         val topicStore = com.example.notionreader.data.local.FileTopicStore(topicDirectory,
+            writeGate = storageWrites,
             otherBytes = { storageBytes(passageProgressDirectory) + storageBytes(semanticDirectory) + storageBytes(topicCheckpointDirectory) })
         val topicCheckpointStore = com.example.notionreader.data.local.FileTopicStore(topicCheckpointDirectory,
+            writeGate = storageWrites,
             otherBytes = { storageBytes(passageProgressDirectory) + storageBytes(semanticDirectory) + storageBytes(topicDirectory) })
         val interestStore = com.example.notionreader.data.local.FileDiscoveryInterestStore(File(noBackupFilesDir, "discovery-interests"))
         val recentNotes = com.example.notionreader.application.RecentNotesController(
@@ -206,6 +233,7 @@ class ReaderApplication : Application() {
         lateinit var discoveryApp: ReaderApp
         val discoveryModel = com.example.notionreader.data.discovery.LocalDiscoveryModelManager(
             File(noBackupFilesDir, "discovery-model"), discoveryScope,
+            writeGate = storageWrites,
             unmetered = { AndroidNetworkState(this).isUnmetered },
             onInstalled = { discovery.resume() },
             onDeleted = { discovery.releaseModel(); discovery.clearIndex() },
@@ -253,16 +281,36 @@ class ReaderApplication : Application() {
             cacheTelemetry = cacheTelemetry,
             discovery = discovery,
             discoveryModel = discoveryModel,
+            storageStatus = storageBudget.status,
             recentNotes = recentNotes,
             isNotionConfigured = BuildConfig.NOTION_TOKEN.isNotBlank()
         )
 
         discoveryApp = app
+        protectedCacheIds = {
+            val queue = app.session.queueState.value
+            com.example.notionreader.application.cacheProtectedPageIds(queue.items.map { it.pageId }, queue.index)
+        }
+        discoveryScope.launch {
+            combine(settingsRepository.settings, app.session.queueState) { _, queue -> queue }.collect {
+                storagePreferences = settingsRepository.readCurrentSettings()
+                storageBudget.refresh()
+                documentCache.enforceBudget(protectedCacheIds())
+                app.updateCacheStats()
+                discovery.requestAutomaticContinuation()
+            }
+        }
         verifyDiscoveryModel = { discoveryModel.checkInstalled() }
         discoveryCoordinator = com.example.notionreader.application.DiscoveryWorkCoordinator(
             android.os.SystemClock::elapsedRealtime) {
             activeEffort = settingsRepository.readCurrentSettings().discoveryEffort
-            discovery.updateWorkAvailability(activeEffort, !discoveryForeground.value && !scheduledDiscovery)
+            storageBudget.refresh()
+            discovery.updateWorkAvailability(activeEffort, when {
+                app.session.state.value.isPlaying -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForPlayback
+                !discoveryResourcesAvailable.value -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForResources
+                !discoveryForeground.value && !scheduledDiscovery -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForAndroid
+                else -> com.example.notionreader.application.DiscoveryExecutionAvailability.Available
+            })
             discovery.updatePowerState(discoveryPower.value)
             val eligible = (discoveryForeground.value || scheduledDiscovery) && discoveryResourcesAvailable.value &&
                 discoveryPower.value.allows(activeEffort) && discoveryModel.state.value.installed && !app.session.state.value.isPlaying

@@ -5,7 +5,7 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#99-inspecting-discoveries-reuses-prepared-results-2026-10-19)).
+Discovery refinement is in progress ([current round](docs/decisions.md#107-saved-topic-restore-decoding-and-recovered-index-coverage-2026-10-20)).
 Validated Note connections are retained independently of topic membership and
 homepage limits, with separate reference/similarity evidence, on-demand catalog reads,
 pinned inspection, bounded lazy browsing and privacy-safe page retirement.
@@ -13,6 +13,11 @@ Topic publication is prepared in the background generation. Opening topic or
 connection details reads saved evidence without starting model inference; paged
 connections may briefly load from local storage. Clearing the Discovery index also
 rejects connection reads already in flight, including listening-preview requests.
+Initial cache checking is distinct from an empty cache, so saved-discovery preparation
+does not ask users to reopen content that is already cached. Discovery screens and
+settings share process-owned lifecycle status and indexing actions: checking,
+processing, explicit pause, automatic waits, completion and recovery stay distinct.
+Valid cached search and listening remain available while bulk discovery is paused.
 Subject details can expose source-supported broader subjects, subtopics and related
 subjects. The initial hierarchy requires affirmative source statements; general
 automatic hierarchy recall, representative evaluation and
@@ -466,6 +471,9 @@ at least 90 days ago), and a listening preview. Preview allows removing/reorderi
 Save uses Saved Queue destinations. Only explicit Play creates a new frozen listening session.
 
 Topic details put member Notes and passage evidence first; Why these Notes? holds provenance.
+Connections show a small counted preview with access to the complete pageable catalog.
+The catalog separates evidence kinds and offers Refresh when newer discoveries are
+available. Comparison cards avoid repeating both Note titles in their action hint.
 Connections open Compare passages with complete excerpts. Inspected topic generations adopt new
 ordering and labels through explicit Refresh, while revoked or evicted source content is removed
 immediately. An unavailable preview entry retains its position without source text and requires
@@ -477,8 +485,18 @@ background windows, including screen-off operation. Playback, memory pressure an
 explicit Pause suspend processing. Balanced requires 30% battery or external power;
 Charging only requires external power. Android may defer execution. Durable passage
 progress lets long Notes resume across windows without restarting their embeddings.
-Versioned durable checkpoints resume eligible work; unchanged passages reuse embeddings. All derived
-vectors, topics, connections and checkpoints share the private 64 MiB budget. Exact cosine search
+Created/updated Notes reuse unchanged passage embeddings, including across deferred
+work and process restarts. Connection updates scan changed endpoints and unfinished
+seeds instead of replaying completed unchanged pairs. Certified isolated topic groups
+survive unrelated changes; coupled or uncertified groups use exact regrouping.
+Versioned durable checkpoints resume eligible work. All derived
+vectors, topics, connections and checkpoints grow automatically in private storage,
+with an optional custom maximum (initially 256 MiB). Writes preserve device headroom
+of at least 2 GiB or 10% of volume capacity, whichever is greater. The Note cache
+defaults to 128 MiB, sized for about 100 Notes of up to 1 MiB encoded size each,
+and retains a separately displayed 200-Note guard. Accessible storage sliders,
+confirmed cache reductions and an optional extended maximum give explicit control.
+Per-record memory safeguards remain separate from library capacity. Exact cosine search
 streams per-document vectors. Clearing the index pauses rebuilding until Resume/Rebuild; deleting
 the model clears the index and automatic continuity while preserving explicit interests. Full local
 reset clears interests too. Cache eviction removes derived content but retains opaque recache

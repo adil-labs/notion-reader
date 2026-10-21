@@ -17,3 +17,7 @@ local.properties
 # Misc
 *.hprof
 .DS_Store
+
+# Temporary agent coordination, verification logs and device snapshots
+.superpowers/
+.agents/teamwork/

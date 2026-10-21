@@ -226,7 +226,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("View your interests").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("forest").performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitUntil(5_000) { app.discovery!!.state.value.interestMatches.size == 3 }
+        compose.waitUntil(5_000) { app.discovery!!.state.value.interestMatch.matches.size == 3 }
         compose.onNodeWithText("Matching Notes").performScrollTo().assertIsReadable()
     }
 
@@ -240,7 +240,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("View your interests").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Woodland listening").performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitUntil(5_000) { app.discovery!!.state.value.interestMatches.size == 3 }
+        compose.waitUntil(5_000) { app.discovery!!.state.value.interestMatch.matches.size == 3 }
         compose.onNodeWithText("Preview listening").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("Remove Alpha").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(before, app.session.queueState.value)
@@ -263,6 +263,10 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.waitUntil(5_000) { app.discovery!!.state.value.topicsUpdated }
         compose.onNodeWithText("Refresh").performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) {
+            val state = app.discovery!!.state.value
+            !state.topicsUpdated && state.publishedTopics.any { it.topic.members.size == 3 }
+        }
         compose.onNodeWithText("3 available Notes").performScrollTo().assertExists()
     }
 
@@ -344,8 +348,11 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val before = app.session.state.value
         show(app)
         compose.onNodeWithText("Forest water evidence for Beta").assertDoesNotExist()
-        compose.onNodeWithText("Compare passages").performScrollTo()
-            .assertIsReachable().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Compare passages").performScrollTo().assertIsReachable()
+        assertEquals("Compare passages", compose.onNodeWithText("Compare passages")
+            .fetchSemanticsNode().config[SemanticsActions.OnClick].label)
+        compose.onNodeWithText("Compare passages").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("3 of 3 cached Notes indexed").assertDoesNotExist()
         compose.onNodeWithText("Forest water evidence for Alpha").assertIsReadable()
         compose.onNodeWithText("Forest water evidence for Beta").assertIsReadable()
         compose.onNodeWithText("Open Alpha").assertIsReachable()
@@ -433,6 +440,31 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("Connections between Notes").assertIsFocused()
     }
 
+    @Test fun theConnectionCatalogCanAdoptNewDiscoveriesWithoutLeavingTheScreen() {
+        val (app, cache, entries) = fixture()
+        val originalCount = app.discovery!!.state.value.topicSnapshot.connections.size
+        show(app)
+        compose.onNodeWithText("See all connections").performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { runBlocking {
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("d", "Delta",
+                listOf("Forest ecology water evidence")), null, Instant.EPOCH))
+            app.discovery!!.resume()
+            app.discovery!!.reconcile(entries + ReaderIndexEntry("d", "Delta"), true)
+        } }
+        compose.waitUntil(5_000) { app.discovery!!.state.value.topicsUpdated }
+        compose.onNodeWithText("Refresh").assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { !app.discovery!!.state.value.topicsUpdated }
+        val snapshot = app.discovery!!.state.value.topicSnapshot
+        val refreshedCount = snapshot.catalogReference?.count ?: snapshot.connections.size
+        org.junit.Assert.assertTrue("Refresh must expose newly discovered edges", refreshedCount > originalCount)
+        compose.onNodeWithText("Showing $refreshedCount of $refreshedCount connections").assertIsReadable()
+        compose.onNodeWithText("Connections between Notes").assertIsReadable()
+        assertEquals(ReaderDestination.DiscoveryConnections, app.navigator.state.value.current)
+        compose.onNodeWithText("New discoveries available").assertDoesNotExist()
+    }
+
     @Test fun completedBackgroundTopicsRequireExplicitRefreshToChangeTheInspectedCount() {
         val (app, cache, entries) = fixture()
         show(app)
@@ -446,6 +478,10 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.waitUntil(5_000) { app.discovery!!.state.value.topicsUpdated }
         compose.onNodeWithText("3 available Notes").assertExists()
         compose.onNodeWithText("Refresh").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) {
+            val state = app.discovery!!.state.value
+            !state.topicsUpdated && state.publishedTopics.any { it.topic.members.size == 4 }
+        }
         compose.onNodeWithText("4 available Notes").performScrollTo().assertExists()
     }
 

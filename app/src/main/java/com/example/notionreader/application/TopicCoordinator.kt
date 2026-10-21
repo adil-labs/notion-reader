@@ -11,7 +11,7 @@ import kotlinx.coroutines.yield
 import java.util.concurrent.atomic.AtomicLong
 
 internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val updated: Boolean = false,
-    val status: String? = null)
+    val status: String? = null, val failure: String? = null)
 
 /** Owns completed generations, not a screen or a listening session. */
 internal class TopicCoordinator(
@@ -27,7 +27,8 @@ internal class TopicCoordinator(
     private val changed: (TopicView) -> Unit,
     private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
     private val formationWorkBudget: Int = 250_000,
-    private val shouldYield: () -> Boolean = { false }
+    private val shouldYield: () -> Boolean = { false },
+    private val operationTimings: (Map<String, Long>) -> Unit = {}
 ) {
     private class WorkPaused : RuntimeException()
     private val writes = Mutex()
@@ -47,7 +48,13 @@ internal class TopicCoordinator(
         private set
     suspend fun refresh() = writes.withLock {
         val pinned = bulk { store.pinInspection(latest) }
-        view = TopicView(latest, status = if (pinned) latest.message else "Connection catalog is unavailable. Retry processing.")
+        view = TopicView(latest, status = if (pinned) latest.message else "Connection catalog is unavailable. Retry processing.",
+            failure = if (pinned) view.failure else "Connection catalog is unavailable. Retry processing.")
+        changed(view)
+    }
+
+    private fun failed(message: String) {
+        view = view.copy(status = message, failure = message)
         changed(view)
     }
 
@@ -57,9 +64,19 @@ internal class TopicCoordinator(
     }
     private suspend fun readRecord(id: String) = bulk { index.read(id) }
 
+    private suspend fun <T> restoreStep(name: String, action: suspend () -> T): T {
+        fun report(values: Map<String, Long>) {
+            try { operationTimings(values) } catch (_: Exception) { /* Numeric diagnostics only. */ }
+        }
+        report(mapOf("${name}Started" to 1L))
+        val start = System.nanoTime()
+        try { return action() }
+        finally { report(mapOf("${name}Ns" to (System.nanoTime() - start))) }
+    }
+
     suspend fun invalidate(sources: Map<String, String>) = writes.withLock {
         if (!loaded) {
-            latest = store.readMetadata() ?: TopicSnapshot()
+            latest = restoreStep("restoreMetadata") { store.readMetadata() } ?: TopicSnapshot()
             view = TopicView(latest, status = latest.message)
             loaded = true
         }
@@ -89,8 +106,8 @@ internal class TopicCoordinator(
             }
             return invalidateTopics(snapshot, ids, permanent, replacements, retentionThreshold = policy.retention)
         }
-        var next = remove(latest, stale, permanent = false)
-        var shown = remove(view.snapshot, stale, permanent = false)
+        var next = restoreStep("restoreLatestEligibility") { remove(latest, stale, permanent = false) }
+        var shown = restoreStep("restoreInspectedEligibility") { remove(view.snapshot, stale, permanent = false) }
         val currentTitles = linkedMapOf<String, String>()
         if ((next.connections.asSequence() + shown.connections.asSequence()).any { it.independentNamedReference } ||
             (next.catalogReference?.namedReferences ?: 0) > 0 || (shown.catalogReference?.namedReferences ?: 0) > 0) {
@@ -112,7 +129,7 @@ internal class TopicCoordinator(
         val removedCatalogIds = pendingCatalogEvents.mapNotNull { it.pageId?.let(::canonicalSemanticId) }.toSet()
         val catalogSources = if (pendingCatalogEvents.any { it.pageId == null }) emptyMap()
             else sources.filterKeys { it !in removedCatalogIds }
-        val catalogRetained = store.reconcileCatalogs(catalogSources, identity(), currentTitles)
+        val catalogRetained = restoreStep("restoreCatalogEligibility") { store.reconcileCatalogs(catalogSources, identity(), currentTitles) }
         next = store.refreshCatalogReference(next)
         shown = store.refreshCatalogReference(shown)
         if (!catalogRetained) {
@@ -121,7 +138,7 @@ internal class TopicCoordinator(
                 connectionPassComplete = false, sourceSignature = null, message = recovery)
             shown = shown.copy(connections = emptyList(), catalogReference = null, complete = false,
                 connectionPassComplete = false, message = recovery)
-            view = view.copy(status = recovery)
+            view = view.copy(status = recovery, failure = recovery)
         }
         for (event in events.sortedBy { it.generation }) {
             if (event.reason == CacheRemovalReason.RESET) {
@@ -148,7 +165,7 @@ internal class TopicCoordinator(
                 store.clear()
                 val continuityOnly = next.copy(topics = emptyList(), connections = emptyList(), catalogReference = null, subjectRelationships = emptyList(), complete = false)
                 store.writeDetailed(continuityOnly)
-                changed(view.copy(status = persistenceFailureMessage(invalidationWrite)))
+                failed(persistenceFailureMessage(invalidationWrite))
                 return@withLock
             }
             events.maxOfOrNull { it.generation }?.let {
@@ -157,7 +174,7 @@ internal class TopicCoordinator(
         }
         view = view.copy(snapshot = shown)
         store.pinInspection(view.snapshot)
-        changed(view)
+        restoreStep("restorePublication") { changed(view) }
     }
 
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long) {
@@ -180,6 +197,8 @@ internal class TopicCoordinator(
             it.policyVersion == policy.version && it.engineVersion == SectionHierarchicalEngine.VERSION &&
             (it.formationProgress != null || it.complete) }
         var referenceTitles = if (latest.sourceSignature == token) latest.referenceTitles else emptyMap()
+        var connectionInputs = if (latest.sourceSignature == token) latest.connectionWork.inputs else emptyMap()
+        var connectionTitleKeys = if (latest.sourceSignature == token) latest.connectionWork.titleKeys else emptyMap()
         val grouped = if (latest.sourceSignature == token && latest.complete && latest.engineVersion == SectionHierarchicalEngine.VERSION) latest
         else if (resume?.complete == true) resume
         else {
@@ -204,13 +223,15 @@ internal class TopicCoordinator(
             }
             val records = prepared.records
             referenceTitles = records.associate { canonicalSemanticId(it.pageId) to it.metadata.title }
-            changed(view.copy(status = "Finding topics in all indexed cached Notes…"))
+            connectionInputs = records.associate { canonicalSemanticId(it.pageId) to semanticHash(it.revision + it.metadata.toString()) }
+            connectionTitleKeys = referenceTitles.mapValues { connectionTitleKey(it.value) }
+            changed(view.copy(status = "Finding topics in all indexed cached Notes…", failure = null))
             try {
                 bulk { prepared.engine.stepPrepared(records, resume ?: latest, policy,
                     shouldYield = { !mayWork() || shouldYield() }, checkActive = {
                     context.ensureActive()
                     if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) throw WorkPaused()
-                }) }.copy(sourceSignature = token)
+                }) }.copy(sourceSignature = token, connectionWork = ConnectionWork(connectionInputs, connectionTitleKeys))
             } catch (_: WorkPaused) {
                 // Keep the last durable quantum. A policy pause must not cancel the service collector.
                 needsMoreWork = true
@@ -231,24 +252,45 @@ internal class TopicCoordinator(
                 if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) return
                 if (result is TopicWriteResult.Rejected) {
                     needsMoreWork = false
-                    changed(view.copy(status = persistenceFailureMessage(result, checkpoint = true))); return
+                    failed(persistenceFailureMessage(result, checkpoint = true)); return
                 }
                 needsMoreWork = true
                 pendingFormation = grouped
-                if (!grouped.complete) changed(view.copy(status = grouped.message))
+                if (!grouped.complete) changed(view.copy(status = grouped.message, failure = null))
             }
             if (!grouped.complete) { yield(); return }
         }
         formationWorkspace = null
+        connectionInputs = grouped.connectionWork.inputs
+        connectionTitleKeys = grouped.connectionWork.titleKeys
+        val compatibleConnections = latest.identity == model && latest.policyVersion == policy.version &&
+            latest.engineVersion == SectionHierarchicalEngine.VERSION && latest.connectionWork.inputs.isNotEmpty()
+        val priorTitleCounts = latest.connectionWork.titleKeys.values.groupingBy { it }.eachCount()
+        val currentTitleCounts = connectionTitleKeys.values.groupingBy { it }.eachCount()
+        val changedTitleCounts = (priorTitleCounts.keys + currentTitleCounts.keys).filterTo(hashSetOf()) { title ->
+            priorTitleCounts[title] != currentTitleCounts[title]
+        }
+        val sameConnectionSweep = latest.sourceSignature == token
+        val affectedConnections = if (!compatibleConnections) sources.keys
+            else if (sameConnectionSweep) latest.connectionWork.changedIds else
+            sources.keys.filterTo(hashSetOf()) { id -> latest.connectionWork.inputs[id] != connectionInputs[id] ||
+                connectionTitleKeys[id] in changedTitleCounts }
+        // Completed directional seeds remain complete for unchanged targets. Only the
+        // partial seed and later seeds need their old target work after a source delta.
+        val unfinishedSeeds = if (sameConnectionSweep) latest.connectionWork.unfinishedSeedIds
+            else if (compatibleConnections && !latest.connectionPassComplete)
+                latest.connectionWork.inputs.keys.sorted().drop(latest.connectionCursor).filterTo(hashSetOf()) { it in sources }
+            else emptySet()
         connectionCursor = if (latest.sourceSignature == token) latest.connectionCursor else 0
         connectionPassageCursor = if (latest.sourceSignature == token) latest.connectionPassageCursor else 0
         connectionTargetCursor = if (latest.sourceSignature == token) latest.connectionTargetCursor else 0
-        val semantic = try { connections(sources, model, startEpoch, cacheRevision, referenceTitles) }
+        val connectionPlan = ConnectionWork(connectionInputs, connectionTitleKeys, affectedConnections, unfinishedSeeds)
+        val semantic = try { connections(sources, model, startEpoch, cacheRevision, referenceTitles, connectionPlan, compatibleConnections) }
             catch (_: WorkPaused) { needsMoreWork = true; return }
             catch (_: java.io.IOException) {
                 if (epoch.get() != startEpoch || cache.revision.value != cacheRevision) { needsMoreWork = true; return }
                 needsMoreWork = false
-                changed(view.copy(status = "Stored connections are unavailable. Retry processing.")); return
+                failed("Stored connections are unavailable. Retry processing."); return
             }
         val connected = semantic
         val result = grouped.copy(connections = connected, catalogReference = null, referenceTitles = referenceTitles,
@@ -256,12 +298,13 @@ internal class TopicCoordinator(
             connectionTargetCursor = connectionTargetCursor,
             connectionTargetCount = sources.size,
             connectionPassComplete = connectionCursor >= sources.size, generation = latest.generation + 1,
-            sourceSignature = token)
+            sourceSignature = token, connectionWork = if (connectionCursor >= sources.size)
+                connectionPlan.copy(changedIds = emptySet(), unfinishedSeedIds = emptySet()) else connectionPlan)
         writes.withLock {
             if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model || index.isPaused() || !mayWork()) return
             val saved = bulk { store.writeDetailed(result) }
             if (saved is TopicWriteResult.Rejected) {
-                needsMoreWork = false; changed(view.copy(status = persistenceFailureMessage(saved))); return
+                needsMoreWork = false; failed(persistenceFailureMessage(saved)); return
             }
             checkpoint?.clear()
             val initial = view.snapshot.generation == 0L && view.snapshot.topics.isEmpty()
@@ -269,7 +312,7 @@ internal class TopicCoordinator(
             val committed = bulk { store.readMetadata() }
             if (committed == null) {
                 needsMoreWork = false
-                changed(view.copy(status = "Stored discoveries could not be reloaded. Retry processing."))
+                failed("Stored discoveries could not be reloaded. Retry processing.")
                 return
             }
             latest = committed
@@ -279,13 +322,13 @@ internal class TopicCoordinator(
                 view.snapshot.catalogReference?.fingerprint != latest.catalogReference?.fingerprint ||
                 view.snapshot.complete != latest.complete || view.snapshot.connectionPassComplete != latest.connectionPassComplete
             view = if (initial) TopicView(latest, status = result.message)
-                else view.copy(updated = visibleChange, status = result.message)
+                else view.copy(updated = visibleChange, status = result.message, failure = null)
             store.pinInspection(view.snapshot)
             changed(view)
         }
     }
     private suspend fun connections(sources: Map<String, String>, model: EmbeddingIdentity,
-        startEpoch: Long, cacheRevision: Long, titles: Map<String, String>): List<NoteConnection> {
+        startEpoch: Long, cacheRevision: Long, titles: Map<String, String>, work: ConnectionWork, compatible: Boolean): List<NoteConnection> {
         val ids = sources.keys.sorted()
         if (ids.size < 2) {
             connectionCursor = ids.size; connectionPassageCursor = 0; connectionTargetCursor = 0
@@ -298,15 +341,26 @@ internal class TopicCoordinator(
         }
         val references = ExplicitNoteReferenceIndex(titles)
         val previous = bulk { store.connectionCatalog(latest) }
+        val staleInputs = sources.keys.filterTo(hashSetOf()) { id -> !compatible || work.inputs[id] == null ||
+            latest.connectionWork.inputs[id] != work.inputs[id] }
         val base = filterConnectionCatalog(previous, ::checkActive) { pair ->
-            sources[pair.left.pageId] == pair.left.revision && sources[pair.right.pageId] == pair.right.revision &&
-                (pair.independentNamedReference || pair.left.passage.isBodyEvidence() && pair.right.passage.isBodyEvidence())
+            pair.left.pageId !in staleInputs && pair.right.pageId !in staleInputs &&
+                sources[pair.left.pageId] == pair.left.revision && sources[pair.right.pageId] == pair.right.revision &&
+                (if (pair.independentNamedReference) classifyConnectionEvidence(pair, titles).kind == ConnectionEvidenceKind.NamedReference
+                    else pair.left.passage.isBodyEvidence() && pair.right.passage.isBodyEvidence())
+        }
+        val allTargets = ids.indices.toList()
+        val affectedTargets = allTargets.filter { ids[it] in work.changedIds }
+        if (affectedTargets.isEmpty() && work.unfinishedSeedIds.isEmpty()) {
+            connectionCursor = ids.size; connectionPassageCursor = 0; connectionTargetCursor = 0
+            return base
         }
         val pairs = linkedMapOf<String, NoteConnection>()
         var remaining = 256
         while (connectionCursor < ids.size && remaining > 0) {
             checkActive()
             val seedId = ids[connectionCursor]
+            val targetIndices = if (seedId in work.changedIds || seedId in work.unfinishedSeedIds) allTargets else affectedTargets
             val seed = readRecord(seedId)?.takeIf { it.identity == model && sources[seedId] == it.revision }
             val passages = seed?.passages.orEmpty().filter {
                 it.passage.sourceBlockId != it.passage.sectionId && it.passage.excerpt.isNotBlank()
@@ -316,11 +370,14 @@ internal class TopicCoordinator(
             }
             val passage = passages[connectionPassageCursor]
                 waitForQueries(); currentCoroutineContext().ensureActive()
-                while (connectionTargetCursor < ids.size && remaining > 0) {
+                var targetSlot = targetIndices.binarySearch(connectionTargetCursor).let { if (it >= 0) it else -it - 1 }
+                while (targetSlot < targetIndices.size && remaining > 0) {
                     if (!mayWork() || shouldYield()) throw WorkPaused()
                     currentCoroutineContext().ensureActive()
                     waitForQueries()
-                    val id = ids[connectionTargetCursor++]
+                    val targetIndex = targetIndices[targetSlot++]
+                    connectionTargetCursor = targetIndex + 1
+                    val id = ids[targetIndex]
                     if (id == seedId) continue
                     remaining--
                     val other = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision } ?: continue
@@ -346,6 +403,7 @@ internal class TopicCoordinator(
                             compareValuesBy(candidate, prior, { it.left.passage.id }, { it.right.passage.id }) < 0) pairs[pairId] = candidate
                     }
                 }
+            if (targetSlot >= targetIndices.size) connectionTargetCursor = ids.size
             if (connectionTargetCursor < ids.size) break
             connectionTargetCursor = 0
             connectionPassageCursor++
@@ -373,6 +431,7 @@ internal fun persistenceFailureMessage(result: TopicWriteResult.Rejected, checkp
     val subject = if (checkpoint) "Topic checkpoint" else "Topic"
     return when (result.failure) {
         TopicWriteFailure.BudgetExceeded -> "$subject storage is full; discovery coverage is incomplete. Free derived storage and retry."
+        TopicWriteFailure.RecordMemoryLimit -> "$subject exceeds the safe record memory limit; discovery coverage is incomplete. Previous discoveries remain available."
         TopicWriteFailure.InvalidSnapshot -> "$subject validation failed; previous discoveries remain available. Retry processing."
         TopicWriteFailure.IoFailure -> "$subject I/O failure; previous discoveries remain available. Retry saving."
         TopicWriteFailure.Unknown -> "$subject could not be saved for an unknown reason; previous discoveries remain available. Retry saving."

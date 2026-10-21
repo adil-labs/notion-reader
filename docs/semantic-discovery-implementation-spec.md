@@ -35,6 +35,24 @@ UI pagination and direct store page reads exist, but coordinator/inspected snaps
 still materialize complete catalogs; bounded-memory controller/candidate handling
 and its performance verification remain required.
 
+Incremental source updates preserve compatible exact-input vectors through a durable
+current-source passage handoff before stale full records are withdrawn. Replacement
+checkpoints retain both completed inference and reusable passages later in the Note.
+`ConnectionWork` persists input hashes, normalized title identities, changed endpoints
+and unfinished directional seeds together. Updated/created cached Notes revisit their
+incident candidates in both directions; finished seeds keep their unchanged target
+work. Changed-input catalog evidence is replaced even across an equal-score tie.
+
+The exact formation engine may reuse certified isolated complete-link groups whose
+opaque opportunity fingerprints survive unchanged and remain separated from new
+evidence. Certificates are model/policy keyed, checksum protected, linear in source
+opportunities and stored with ordinary topic generations. Optional certification is
+capped at 65,536 comparisons; failure to certify causes exact recomputation, never
+source truncation or retained stale membership. Projection and labels still use
+current evidence. This optimization does not promise that a globally coupled edit
+can avoid full regrouping or establish physical-device performance acceptance.
+Decision §103 records failing-first evidence and the remaining gates.
+
 Connection work quanta count 256 target-Note comparisons, with durable Note,
 passage and target cursors and the declared target-source count. Restart resumes
 inside a passage rather than rescanning every target. Exact ranking checks
@@ -196,8 +214,13 @@ Stream exact cosine retrieval using bounded per-document/top-K memory. Validate
 dimensions, finite values and normalized nonzero vectors. Filter before scoring,
 group by the strongest matching passage per Note and deduplicate canonical IDs.
 Order by descending score, canonical page ID and passage source order. No vector
-database initially. Derived storage budget is 64 MiB; pause with incomplete
+database initially. Derived storage grows automatically with eligible indexed
+content; an optional custom maximum starts at 256 MiB. Keep at least 2 GiB or
+10% of the storage volume free, whichever is greater. Serialize cross-store write
+admissions and count old/new generations and staging. Pause with incomplete
 coverage on exhaustion, never silently truncate a document or evict its source.
+Keep semantic headers within 8 MiB and semantic/topic envelopes within 64 MiB
+per record as separate memory safeguards; resource refusal is not storage full.
 
 ## Shared topic identity, persistence and listening behavior
 
@@ -224,7 +247,7 @@ offer explicit Refresh for newer topic generations, while withdrawing ineligible
 content immediately. Literal labels keep source provenance and do not change merely
 because a new candidate has a slightly higher score.
 
-Topic, connection, staging and continuity bytes share the existing 64 MiB budget.
+Topic, connection, staging and continuity bytes share adaptive storage accounting.
 Continuity has a 1 MiB sub-budget; exhaustion pauses new identity creation with
 incomplete coverage rather than silently deleting identity records. Index clear
 explicitly discards continuity. Cache removal reasons must be typed and propagated;
@@ -382,7 +405,8 @@ Before general release enablement, measure shipping Android complete processing 
 passages across more than 2,000 uneven sections: <=120 seconds of active processing,
 <=128 MiB peak additional Java plus native memory over idle model-loaded baseline,
 pause/cancellation observed within one second, durable resume with no missing
-sections, and <=64 MiB derived storage. Existing warm-query p95 <2 seconds remains
+sections, and measured derived storage under the adaptive safety policy. The former
+64 MiB ceiling remains a historical benchmark reference. Existing warm-query p95 <2 seconds remains
 binding. Record cold/warm times, process/native/Java peaks, storage, device/API and
 repeated observations. Bulk work pauses during playback; require no new errors,
 skips or session mutations attributable to Discovery. Host performance is not

@@ -49,3 +49,14 @@ internal fun prepareConnectionPreview(catalog: List<NoteConnection>, titles: Map
     }
     return ConnectionPresentation(selected.map { it.first }, selected.associate { it.first.id to it.second }, catalog.size)
 }
+
+internal fun connectionGroupHeading(position: Int, named: Int, total: Int): String? =
+    when {
+        position == 0 && named > 0 -> "Named references ($named)"
+        position == named && total > named -> "Similar passages (${total - named})"
+        else -> null
+    }
+
+internal fun connectionPreviewCount(shown: Int, total: Int): String =
+    if (shown < total) "$shown of $total connections"
+    else "$total ${if (total == 1) "connection" else "connections"}"

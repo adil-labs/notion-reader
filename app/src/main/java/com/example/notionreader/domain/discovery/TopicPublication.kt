@@ -10,12 +10,17 @@ fun discoveryTopicPublicationStatus(topic: DiscoveredTopic): TopicPublicationSta
         TopicPublicationStatus.Emerging else TopicPublicationStatus.Established
 }
 
-fun publishableDiscoveryTopics(topics: List<DiscoveredTopic>): List<DiscoveredTopic> {
+fun publishableDiscoveryTopics(topics: List<DiscoveredTopic>): List<DiscoveredTopic> =
+    publishableDiscoveryTopics(topics, ::prepareDiscoveryPassageOverlap)
+
+internal fun publishableDiscoveryTopics(topics: List<DiscoveredTopic>,
+    prepareOverlap: (SemanticPassage) -> DiscoveryPassageOverlap): List<DiscoveredTopic> {
     val kept = mutableListOf<DiscoveredTopic>()
+    val evidence = PublicationEvidence(prepareOverlap)
     topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
         .filter(::hasPublishedSubject).forEach { candidate ->
             if (kept.none { prior ->
-                sameSubjectEvidence(prior, candidate)
+                sameSubjectEvidence(prior, candidate, evidence)
             }) kept += candidate
         }
     return kept
@@ -61,26 +66,37 @@ internal fun topicEvidenceIsValid(topic: DiscoveredTopic): Boolean =
 
 private fun hasPublishedSubject(topic: DiscoveredTopic): Boolean = topicEvidenceIsValid(topic)
 
-private fun sameSubjectEvidence(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
-    if (!sameMemberFamily(a, b)) return false
-    return !independentThemes(a, b)
+private class PublicationEvidence(private val prepareOverlap: (SemanticPassage) -> DiscoveryPassageOverlap) {
+    private val pages = java.util.IdentityHashMap<DiscoveredTopic, Map<String, TopicMembership>>()
+    private val overlaps = mutableMapOf<String, DiscoveryPassageOverlap>()
+    fun members(topic: DiscoveredTopic): Map<String, TopicMembership> = pages.getOrPut(topic) {
+        topic.members.associateBy { canonicalSemanticId(it.pageId) }
+    }
+    fun overlap(passage: SemanticPassage): DiscoveryPassageOverlap = overlaps.getOrPut(passage.excerpt) {
+        prepareOverlap(passage)
+    }
 }
 
-private fun membersByPage(topic: DiscoveredTopic) = topic.members.associateBy { canonicalSemanticId(it.pageId) }
-private fun sameMemberFamily(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
-    val left = membersByPage(a).keys
-    val right = membersByPage(b).keys
+private fun sameSubjectEvidence(a: DiscoveredTopic, b: DiscoveredTopic, evidence: PublicationEvidence): Boolean {
+    if (!sameMemberFamily(a, b, evidence)) return false
+    return !independentThemes(a, b, evidence)
+}
+
+private fun sameMemberFamily(a: DiscoveredTopic, b: DiscoveredTopic, evidence: PublicationEvidence): Boolean {
+    val left = evidence.members(a).keys
+    val right = evidence.members(b).keys
     val union = left + right
     // Three shared Notes out of four is the smallest near-identical supported family.
     return union.isNotEmpty() && left.intersect(right).size.toDouble() / union.size >= .75
 }
-private fun independentThemes(a: DiscoveredTopic, b: DiscoveredTopic): Boolean {
-    val right = membersByPage(b)
-    return membersByPage(a).count { (page, member) ->
+private fun independentThemes(a: DiscoveredTopic, b: DiscoveredTopic, evidence: PublicationEvidence): Boolean {
+    val right = evidence.members(b)
+    return evidence.members(a).count { (page, member) ->
         val other = right[page]?.passage ?: return@count false
         val passage = member.passage
         passage.id != other.id && (passage.sourceBlockId != other.sourceBlockId ||
             passage.end <= other.start || other.end <= passage.start) &&
-            passage.isBodyEvidence() && other.isBodyEvidence() && !nearDuplicateDiscoveryPassages(passage, other)
-    } >= minOf(2, membersByPage(a).size, membersByPage(b).size)
+            // Both topics already passed full member/body validation before pair comparison.
+            !evidence.overlap(passage).nearDuplicate(evidence.overlap(other))
+    } >= minOf(2, evidence.members(a).size, evidence.members(b).size)
 }

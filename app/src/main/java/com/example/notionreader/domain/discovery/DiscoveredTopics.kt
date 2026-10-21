@@ -35,7 +35,15 @@ data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val co
     val connectionTargetCursor: Int = 0,
     val connectionTargetCount: Int = 0,
     val catalogReference: ConnectionCatalogReference? = null,
-    val referenceTitles: Map<String, String> = emptyMap())
+    val referenceTitles: Map<String, String> = emptyMap(),
+    val connectionWork: ConnectionWork = ConnectionWork(),
+    val formationReuse: FormationReuse? = null)
+/** Input identities and directional work are persisted together; all keys are opaque hashes. */
+@Serializable
+data class ConnectionWork(val inputs: Map<String, String> = emptyMap(),
+    val titleKeys: Map<String, String> = emptyMap(), val changedIds: Set<String> = emptySet(),
+    val unfinishedSeedIds: Set<String> = emptySet())
+
 /** Private, versioned work state. Indices refer to canonical eligible sections/passages, never a truncated input. */
 @Serializable
 data class TopicFormationProgress(
@@ -56,7 +64,7 @@ data class TopicFormationProgress(
     val candidateGroups: List<List<Int>> = emptyList(),
     val totalOpportunities: Int = totalSections
 )
-enum class TopicWriteFailure { BudgetExceeded, InvalidSnapshot, IoFailure, Unknown }
+enum class TopicWriteFailure { BudgetExceeded, RecordMemoryLimit, InvalidSnapshot, IoFailure, Unknown }
 enum class TopicValidationReason {
     CandidateBound, DuplicateTopicId, InvalidGeneration, ContinuityBound, InvalidIdentity,
     InvalidTopic, InvalidMember, InvalidConnection, InvalidSnapshotProgress, InvalidRelationship

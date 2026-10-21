@@ -1,7 +1,9 @@
 package com.example.notionreader.ui
 
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -291,6 +293,53 @@ class HomeScreenAccessibilityTest {
 
         compose.onNodeWithText("Mindfulness").performSemanticsAction(SemanticsActions.OnClick)
         assertEquals("Mindfulness", exploredQuery)
+    }
+
+    @Test
+    fun continueListeningSessionDeclaresButtonRole() {
+        show(continueListening = listOf(card()))
+        compose.onNodeWithText("Mindfulness reflections", substring = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+    }
+
+    @Test
+    fun yourQueuesEntryDeclaresButtonRole() {
+        val q1 = SavedQueueCard(
+            queueId = "q1",
+            name = "Android accessibility",
+            members = listOf(QueuedNote("p1", "Note 1")),
+            lastEditedAt = now
+        )
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = listOf(q1),
+                onContinue = {},
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+        compose.onNodeWithText("Android accessibility", substring = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+    }
+
+    @Test
+    fun exploreShortcutDeclaresButtonRole() {
+        val e1 = ExploreCard(title = "Mindfulness", noteCount = 12, queryText = "Mindfulness")
+        compose.setContent {
+            HomeScreen(
+                continueListening = emptyList(),
+                yourQueues = emptyList(),
+                exploreCards = listOf(e1),
+                onContinue = {},
+                onBrowse = {},
+                onPlayPause = {},
+                now = now
+            )
+        }
+        compose.onNodeWithText("Mindfulness")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
     }
 
     /** Matches a node whose merged text contains every fragment. */

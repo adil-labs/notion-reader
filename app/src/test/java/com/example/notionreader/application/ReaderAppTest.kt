@@ -121,7 +121,7 @@ class ReaderAppTest {
         val app = appWith(engine, inspected = demo)
 
         val permission = DefaultLoadReaderDocument { throw ReaderLoadException(ReaderErrorCategory.AUTHORIZATION_REQUIRED) }
-        app.loadNote("page-2", permission)
+        app.loadNote("demo", permission)
 
         val state = app.noteViewer.loadState.value
         assertTrue(state is DocumentLoadState.Error)
@@ -135,6 +135,18 @@ class ReaderAppTest {
         // Content the user can already read is not blanked by a failed refresh of it.
         assertEquals(demo, app.noteViewer.document.value)
         assertEquals(0, engine.callCount)
+    }
+
+    @Test
+    fun loadFailureForDifferentPageResetsDocument() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        val failure = DefaultLoadReaderDocument { throw ReaderLoadException(ReaderErrorCategory.NETWORK_UNAVAILABLE) }
+        app.loadNote("page-2", failure)
+
+        assertTrue(app.noteViewer.loadState.value is DocumentLoadState.Error)
+        assertEquals(ReaderDocument.Empty.copy(pageId = "page-2"), app.noteViewer.document.value)
     }
 
     @Test
@@ -864,5 +876,29 @@ class ReaderAppTest {
         assertTrue(app.back())
         assertEquals(ReaderDestination.Browse, app.navigator.state.value.current)
         assertFalse(engine.state.value.isPlaying)
+    }
+
+    @Test
+    fun openNoteSetsCurrentSubjectIdToPageIdOnNavigator() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        app.openNote("page-2")
+
+        assertEquals(ReaderDestination.Note, app.navigator.state.value.current)
+        assertEquals("page-2", app.navigator.state.value.currentSubjectId)
+    }
+
+    @Test
+    fun openingDifferentNotesSetsDistinctSubjectIds() = runTest {
+        val engine = FakeReaderEngine(demo)
+        val app = appWith(engine, inspected = demo)
+
+        app.openNote("note-alpha")
+        assertEquals("note-alpha", app.navigator.state.value.currentSubjectId)
+
+        app.back()
+        app.openNote("note-beta")
+        assertEquals("note-beta", app.navigator.state.value.currentSubjectId)
     }
 }

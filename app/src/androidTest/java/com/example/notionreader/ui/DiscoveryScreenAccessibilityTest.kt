@@ -22,6 +22,34 @@ import org.junit.Test
 class DiscoveryScreenAccessibilityTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun anUnverifiedCacheDoesNotTellTheUserToReopenNotes() {
+        val ready = androidx.compose.runtime.mutableStateOf(false)
+        compose.setContent {
+            DiscoveryScreen("", {}, 0, 0, emptyList(), emptyList(), {}, {}, {}, { _, _ -> }, {}, {},
+                cacheReady = ready.value, onBrowseNotes = {})
+        }
+        compose.onNodeWithText("Checking cached Notes…").assertIsReadable()
+        compose.onNodeWithText("Open Notes in Browse to make them available for local search and discovery.").assertDoesNotExist()
+        compose.onNodeWithText("Browse Notes").assertDoesNotExist()
+        compose.runOnIdle { ready.value = true }
+        compose.onNodeWithText("Open Notes in Browse to make them available for local search and discovery.").assertIsReadable()
+    }
+
+    @Test fun aFailedCacheCheckOffersRecoveryInsteadOfReopeningNotes() {
+        var managed = 0
+        compose.setContent {
+            DiscoveryScreen("", {}, 0, 0, emptyList(), emptyList(), {}, {}, {}, { _, _ -> }, {}, {},
+                cacheReady = false, cacheError = "Cached Notes could not be checked.",
+                onManageDiscovery = { managed++ }, onBrowseNotes = {})
+        }
+        compose.onNodeWithText("Cached Notes could not be checked.").assertIsReadable()
+        compose.onNodeWithText("Checking cached Notes…").assertDoesNotExist()
+        compose.onNodeWithText("Browse Notes").assertDoesNotExist()
+        compose.onNodeWithText("Manage discovery").assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(1, managed)
+    }
+
     @Test fun listeningPrecedesSearchAndDiscoveryInReadingOrder() {
         compose.setContent {
             DiscoveryScreen("", {}, 3, 3, emptyList(), emptyList(), {}, {}, {}, { _, _ -> }, {}, {},

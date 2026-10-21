@@ -24,13 +24,19 @@ fun RelatedNotesScreen(
     onGuided: (() -> Unit)? = null,
     focusTarget: String? = null,
     onFocusHandled: () -> Unit = {},
-    status: String? = null
+    status: String? = null,
+    discovery: DiscoveryStatusUi? = null
 ) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(24.dp)
         .semantics { paneTitle = "Related Notes" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Related Notes", Modifier.semantics { heading() })
+        discovery?.let { shared ->
+            if (shared.incomplete) shared.message?.let { Text(it) }
+            Text(shared.coverage)
+        }
         status?.let { Text(it) }
-        if (notes.isEmpty()) Text("No related cached Notes found.")
+        if (notes.isEmpty() && status == null) Text(if (discovery?.incomplete == true)
+            "No related matches in the indexed Notes yet." else "No related cached Notes found.")
         notes.distinctBy { it.id }.take(5).forEach { note -> key(note.id) {
             DiscoveryNoteRow(note, onOpenNote, focusTarget, onFocusHandled)
         } }

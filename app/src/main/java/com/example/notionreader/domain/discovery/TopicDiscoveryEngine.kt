@@ -29,6 +29,7 @@ class SectionHierarchicalEngine(
         var projection: Pair<Int, SubjectProjection>? = null
         var buckets: MetadataEvidenceBuckets? = null
         var eligible: Pair<Int, BooleanArray>? = null
+        var formationInputs: List<String>? = null
     }
     private var preparedWork: PreparedWork? = null
     internal var prunedProjectionComparisons: Long = 0
@@ -105,7 +106,10 @@ class SectionHierarchicalEngine(
         val saved = previous?.formationProgress?.takeIf { previous.engineVersion == VERSION &&
             previous.policyVersion == policy.version && previous.identity == identity && it.inputSignature == signature &&
             it.totalOpportunities == sections.size && (trusted || validProgress(it, previous, evidence, sections, checkActive)) }
-        val clusters = (saved?.clusters ?: initialClusters(sections, checkActive)).map { it.toMutableList() }.toMutableList()
+        val reuse = IncrementalFormation(sections, semanticHash(identity.toString() + policy.toString() +
+            distanceThreshold + membershipThreshold + VERSION), distanceThreshold, checkActive, shouldYield, workspace?.formationInputs)
+        workspace?.formationInputs = reuse.inputs
+        val clusters = (saved?.clusters ?: reuse.seeds(previous?.formationReuse, initialClusters(sections, checkActive))).map { it.toMutableList() }.toMutableList()
         val sums = if (saved != null && trusted) workspace?.sums else null
         val workingSums = sums ?: clusters.map { members -> FloatArray(identity.dimensions).also { sum -> members.forEachIndexed { position, index ->
             if (position % 64 == 0) checkActive()
@@ -201,20 +205,11 @@ class SectionHierarchicalEngine(
         if (grouped && onFormation != null)
             onFormation(ExactSeedFormation(candidateGroups.map { it.toList() }, sections.size, comparisons))
         // Reserve every old identity for its strongest surviving source branch before any candidate claims it.
-        val reservations = if (grouped) registry.values.filter { it.replacementId == null && it.id !in claimed }.associate { old ->
-            checkActive()
-            val ranked = candidateGroups.indices.map { index ->
-                if (index % 64 == 0) checkActive()
-                val passages = candidateGroups[index].flatMap { sections[it].passages }
-                val ids = passages.map { topicEvidenceIdentity(it.passage) }.toSet()
-                val pages = passages.map { canonicalSemanticId(it.passage.pageId) }.toSet()
-                val sourceOverlap = old.sourceIds.count { it in ids }
-                val sourceUnion = (old.sourceIds + ids).size
-                val specificity = if (sourceUnion == 0) 0L else sourceOverlap * 1_000_000L / sourceUnion
-                index to (if (sourceOverlap == 0) 0L else sourceOverlap * 1_000_000_000L + specificity * 100L + old.pageIds.count { it in pages })
-            }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Int, Long>> { it.second }.thenBy { it.first })
-            old.id to ranked.firstOrNull()?.first
-        } else emptyMap()
+        val reservations = if (grouped) reserveTopicBranches(
+            registry.values.filter { it.replacementId == null && it.id !in claimed },
+            candidateGroups.map { indices -> indices.flatMap { sections[it].passages }.map { it.passage } },
+            checkActive = checkActive
+        ) else emptyMap()
         while (grouped && projectionCluster < candidateGroups.size && work < workBudget && !yieldRequested) {
             val indices = candidateGroups[projectionCluster]
             if (indices.isEmpty()) { projectionCluster++; continue }
@@ -271,6 +266,7 @@ class SectionHierarchicalEngine(
             else "Topic coverage is incomplete. Checking topic evidence in ${sorted.size} Notes (${evidence.size} passages across $authoredSections sections): $projectionCluster of ${candidateGroups.size} candidates checked. $comparisons similarity checks completed. Progress is saved.",
             acceptedRevisions = sorted.associate { canonicalSemanticId(it.pageId) to it.revision },
             policyVersion = policy.version, engineVersion = VERSION, formationProgress = progress,
+            formationReuse = if (complete) reuse.certify(clusters) else previous?.formationReuse,
             subjectRelationships = if (complete) buildSubjectRelationships(publishableDiscoveryTopics(topics), sorted, checkActive) else emptyList())
         if (workspace != null) {
             // Preserve the original resumed-step summation order exactly, recomputing only clusters changed this slice.

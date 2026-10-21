@@ -5,6 +5,8 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import com.example.notionreader.domain.document.StorageDefaults
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.notionreader.domain.settings.SettingsRepository
 import com.example.notionreader.domain.settings.AnnouncementVerbosity
@@ -73,6 +75,11 @@ class DataStoreSettingsRepository(
 
     private fun decode(prefs: Preferences): ReaderSettings {
         return ReaderSettings(
+            noteCacheLimitBytes = StorageDefaults.validLimit(prefs[KEY_NOTE_LIMIT] ?: StorageDefaults.NOTE_BYTES, StorageDefaults.NOTE_BYTES),
+            discoveryStorageAutomatic = prefs[KEY_DISCOVERY_AUTO] ?: true,
+            discoveryCustomLimitBytes = StorageDefaults.validLimit(prefs[KEY_DISCOVERY_LIMIT] ?: StorageDefaults.CUSTOM_DISCOVERY_BYTES, StorageDefaults.CUSTOM_DISCOVERY_BYTES),
+            extendedStorage = prefs[KEY_EXTENDED] ?: false,
+            storagePolicyExplained = prefs[KEY_STORAGE_EXPLAINED] ?: false,
             discoveryEffort = com.example.notionreader.domain.settings.DiscoveryEffort.fromStored(prefs[KEY_DISCOVERY_EFFORT]),
             defaultNavigationUnit = prefs[KEY_NAV_UNIT]?.let { runCatching { NavigationUnit.valueOf(it) }.getOrNull() }
                 ?: NavigationUnit.SECTION,
@@ -107,6 +114,11 @@ class DataStoreSettingsRepository(
     }
 
     private fun encode(settings: ReaderSettings, prefs: androidx.datastore.preferences.core.MutablePreferences) {
+        prefs[KEY_NOTE_LIMIT] = StorageDefaults.validLimit(settings.noteCacheLimitBytes, StorageDefaults.NOTE_BYTES)
+        prefs[KEY_DISCOVERY_AUTO] = settings.discoveryStorageAutomatic
+        prefs[KEY_DISCOVERY_LIMIT] = StorageDefaults.validLimit(settings.discoveryCustomLimitBytes, StorageDefaults.CUSTOM_DISCOVERY_BYTES)
+        prefs[KEY_EXTENDED] = settings.extendedStorage
+        prefs[KEY_STORAGE_EXPLAINED] = settings.storagePolicyExplained
         prefs[KEY_DISCOVERY_EFFORT] = settings.discoveryEffort.name
         prefs[KEY_NAV_UNIT] = settings.defaultNavigationUnit.name
         prefs[KEY_CONTINUE_NEXT] = settings.continueToNextNote
@@ -132,6 +144,11 @@ class DataStoreSettingsRepository(
     }
 
     private companion object {
+        val KEY_NOTE_LIMIT = longPreferencesKey("note_cache_limit_bytes")
+        val KEY_DISCOVERY_AUTO = booleanPreferencesKey("discovery_storage_automatic")
+        val KEY_DISCOVERY_LIMIT = longPreferencesKey("discovery_custom_limit_bytes")
+        val KEY_EXTENDED = booleanPreferencesKey("extended_storage")
+        val KEY_STORAGE_EXPLAINED = booleanPreferencesKey("storage_policy_explained")
         val KEY_DISCOVERY_EFFORT = stringPreferencesKey("discovery_effort")
         val KEY_NAV_UNIT = stringPreferencesKey("default_navigation_unit")
         val KEY_CONTINUE_NEXT = booleanPreferencesKey("continue_to_next_note")

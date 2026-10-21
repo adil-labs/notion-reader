@@ -51,17 +51,20 @@ internal fun substantiveDiscoveryEvidence(passage: SemanticPassage): Boolean {
 }
 
 /** Lexical near-duplicates are conservative: overlap of Notes alone never merges independent themes. */
-internal fun nearDuplicateDiscoveryPassages(a: SemanticPassage, b: SemanticPassage): Boolean {
-    val left = words.findAll(a.excerpt.lowercase()).map { it.value }.take(256).toList()
-    val right = words.findAll(b.excerpt.lowercase()).map { it.value }.take(256).toList()
-    if (left.size < 5 || right.size < 5) return false
-    val polarity = setOf("not", "never", "without", "cannot", "always")
-    if (left.filter { it in polarity }.toSet() != right.filter { it in polarity }.toSet()) return false
-    val leftWindows = left.windowed(4).map { it.joinToString(" ") }.toSet()
-    val rightWindows = right.windowed(4).map { it.joinToString(" ") }.toSet()
-    return leftWindows.intersect(rightWindows).size.toDouble() / (leftWindows + rightWindows).size >= .85
-
+internal data class DiscoveryPassageOverlap(val words: Int, val polarity: Set<String>, val windows: Set<String>) {
+    fun nearDuplicate(other: DiscoveryPassageOverlap): Boolean = words >= 5 && other.words >= 5 &&
+        polarity == other.polarity && windows.intersect(other.windows).size.toDouble() / (windows + other.windows).size >= .85
 }
+
+internal fun prepareDiscoveryPassageOverlap(passage: SemanticPassage): DiscoveryPassageOverlap {
+    val tokens = words.findAll(passage.excerpt.lowercase()).map { it.value }.take(256).toList()
+    val polarity = setOf("not", "never", "without", "cannot", "always")
+    return DiscoveryPassageOverlap(tokens.size, tokens.filter { it in polarity }.toSet(),
+        tokens.windowed(4).map { it.joinToString(" ") }.toSet())
+}
+
+internal fun nearDuplicateDiscoveryPassages(a: SemanticPassage, b: SemanticPassage): Boolean =
+    prepareDiscoveryPassageOverlap(a).nearDuplicate(prepareDiscoveryPassageOverlap(b))
 
 /** Greedy relevance order with a deterministic exposure cap; never fills with below-threshold pairs. */
 fun selectDiscoveryConnections(candidates: Collection<NoteConnection>, limit: Int = 20, perNote: Int = 2): List<NoteConnection> {

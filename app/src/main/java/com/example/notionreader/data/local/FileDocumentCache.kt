@@ -26,8 +26,11 @@ import kotlinx.coroutines.withContext
 class FileDocumentCache(
     private val directory: File,
     private val maxEntries: Int = 200,
-    private val maxBytes: Long = 50L * 1024 * 1024,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val maxBytes: Long = com.example.notionreader.domain.document.StorageDefaults.NOTE_BYTES,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val byteLimit: () -> Long = { maxBytes },
+    private val protectedPageIds: () -> Set<String> = { emptySet() },
+    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted
 ) : DocumentCache {
 
     private val writeMutex = Mutex()
@@ -80,11 +83,18 @@ class FileDocumentCache(
     private val mutations = kotlinx.coroutines.flow.MutableStateFlow(0L)
     override val revision: kotlinx.coroutines.flow.StateFlow<Long> = mutations
 
-    private suspend fun <T> mutate(action: () -> T): T = writeMutex.withLock {
-        try { action() } finally {
+    private suspend fun <T> mutate(action: suspend () -> T): T = writeMutex.withLock {
+        val initialGeneration = mutations.value
+        var admissionRefused = false
+        try { action() } catch (refused: com.example.notionreader.domain.document.StorageRefused) {
+            admissionRefused = mutations.value == initialGeneration
+            throw refused
+        } finally {
+            if (!admissionRefused) {
             val generation = mutations.value + 1
             persistEvents(pending.value, generation)
             mutations.value = generation
+            }
         }
     }
 
@@ -159,6 +169,7 @@ class FileDocumentCache(
         val json = ReaderDocumentCodec.encode(document)
 
         mutate {
+            writeGate.write(com.example.notionreader.domain.document.StorageCategory.NOTES, json.toByteArray(Charsets.UTF_8).size.toLong() + 2L*1024*1024) {
             if (!directory.exists()) {
                 directory.mkdirs()
             }
@@ -201,7 +212,8 @@ class FileDocumentCache(
                 }
             }
 
-            enforceBudgetLocked(emptySet())
+            enforceBudgetLocked(protectedPageIds())
+            }
         }
     }
 
@@ -268,7 +280,7 @@ class FileDocumentCache(
     override suspend fun pruneOlderThan(maxAgeMillis: Long, preservePageIds: Set<String>): Int = withContext(ioDispatcher) {
         if (maxAgeMillis <= 0L) return@withContext 0
         val now = System.currentTimeMillis()
-        val normalizedPreserved = preservePageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+        val normalizedPreserved = (preservePageIds + protectedPageIds()).map { it.trim().lowercase().replace("-", "") }.toSet()
         var prunedCount = 0
 
         mutate {
@@ -305,7 +317,7 @@ class FileDocumentCache(
     }
 
     override suspend fun pruneExcept(keepPageIds: Set<String>): Int = withContext(ioDispatcher) {
-        val normalizedKeep = keepPageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+        val normalizedKeep = (keepPageIds + protectedPageIds()).map { it.trim().lowercase().replace("-", "") }.toSet()
         var prunedCount = 0
 
         mutate {
@@ -380,12 +392,13 @@ class FileDocumentCache(
     }
 
     private fun enforceBudgetLocked(preservePageIds: Set<String>): Int {
+        val maxBytes = byteLimit().coerceAtLeast(0L)
         val files = directory.listFiles { file -> file.isFile && file.extension == "json" } ?: return 0
         var totalBytes = files.sumOf { it.length() }
         var totalEntries = files.size
         if (totalBytes <= maxBytes && totalEntries <= maxEntries) return 0
 
-        val normalizedPreserved = preservePageIds.map { it.trim().lowercase().replace("-", "") }.toSet()
+        val normalizedPreserved = (preservePageIds + protectedPageIds()).map { it.trim().lowercase().replace("-", "") }.toSet()
 
         data class FileMeta(
             val file: File,

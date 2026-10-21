@@ -13,6 +13,39 @@ import org.junit.rules.TemporaryFolder
 import kotlinx.serialization.json.*
 
 class FileTopicStoreTest {
+    @Test fun malformedEnvelopeSnapshotsCannotBecomeSuccessfulEmptyStores() = runBlocking {
+        for (invalidSnapshot in listOf(JsonNull, buildJsonObject { put("schemaVersion", -1) })) {
+            for (keepCatalog in listOf(true, false)) {
+                val directory = temporary.newFolder()
+                val original = FileTopicStore(directory)
+                assertTrue(original.write(TopicSnapshot(connections = connections(3))))
+                val file = File(directory, "topics.json")
+                val root = Json.parseToJsonElement(file.readText()).jsonObject
+                val fields = if (keepCatalog) root else root.filterKeys { it !in setOf("catalog", "catalogKey") }
+                file.writeText(JsonObject(fields + ("snapshot" to invalidSnapshot)).toString())
+                assertNull("Explicit null is corrupt, not a legacy snapshot", FileTopicStore(directory).readMetadata())
+            }
+        }
+    }
+
+    @Test fun openingTheStoreRetainsCatalogPagesWithoutDeserializingTheTopicGraph() = runBlocking {
+        val directory = temporary.newFolder()
+        val first = FileTopicStore(directory)
+        assertTrue(first.write(TopicSnapshot(connections = connections(3))))
+        val file = File(directory, "topics.json")
+        val root = Json.parseToJsonElement(file.readText()).jsonObject
+        val snapshot = root.getValue("snapshot").jsonObject
+        // The envelope metadata is readable even when a topic body needs recovery.
+        file.writeText(JsonObject(root + ("snapshot" to JsonObject(snapshot +
+            ("topics" to JsonPrimitive("invalid topic body"))))).toString())
+        val pages = directory.listFiles()!!.filter { it.name.startsWith("connections-") }.map { it.name }.toSet()
+        val restarted = FileTopicStore(directory)
+        assertEquals("Opening a store must not decode topic bodies to identify committed catalog pages",
+            pages, directory.listFiles()!!.filter { it.name.startsWith("connections-") }.map { it.name }.toSet())
+        assertNull("The explicit read still validates the full body", restarted.readMetadata())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("connections-") })
+    }
+
     @Test fun cancellingAnUnchangedCatalogScanStopsReadingAndPreservesItsPages() = runBlocking {
         val store = FileTopicStore(temporary.newFolder())
         val pairs = connections(145)

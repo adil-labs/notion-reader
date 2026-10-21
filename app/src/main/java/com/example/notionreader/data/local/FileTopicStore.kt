@@ -9,7 +9,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
 import java.util.UUID
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -17,7 +16,21 @@ import kotlinx.coroutines.NonCancellable
 
 /** Header-only decoding skips unknown payloads without constructing legacy topic memberships. */
 @Serializable
-private data class TopicStoreHeader(val schemaVersion: Int = 0, val engineVersion: Int = 0)
+private data class TopicStoreHeader(val schemaVersion: Int = 0, val engineVersion: Int = 0,
+    val snapshot: TopicSnapshotMarker? = absentTopicSnapshot, val catalog: ConnectionCatalogManifest? = null,
+    val catalogKey: String? = null) {
+    // A missing key is legacy; an explicitly null key must still take strict envelope decoding.
+    val isEnvelope: Boolean get() = snapshot !== absentTopicSnapshot || catalog != null || catalogKey != null
+}
+
+/** Unknown topic fields are skipped by the streaming decoder, never materialized. */
+@Serializable
+private data class TopicSnapshotMarker(val schemaVersion: Int = 0)
+
+private val absentTopicSnapshot = TopicSnapshotMarker(-1)
+
+private data class DecodedTopics(val snapshot: TopicSnapshot,
+    val catalog: ConnectionCatalogManifest?, val catalogKey: String?)
 
 @Serializable
 private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: ConnectionCatalogManifest,
@@ -25,9 +38,11 @@ private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: 
     val catalogKey: String? = null)
 
 /** Store under the app's noBackupFilesDir. Budget includes the old file during atomic staging. */
-class FileTopicStore(private val directory: File, private val maxBytes: Long = 64L * 1024 * 1024,
-    private val otherBytes: suspend () -> Long = { 0L }) : TopicStore {
+class FileTopicStore(private val directory: File, private val maxBytes: Long = Long.MAX_VALUE,
+    private val otherBytes: suspend () -> Long = { 0L },
+    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted) : TopicStore {
     private val mutex = Mutex()
+    private companion object { const val MAX_RECORD_BYTES = 64L * 1024 * 1024 }
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val catalog = FileConnectionCatalog(directory, json)
     private val file get() = File(directory, "topics.json")
@@ -40,9 +55,10 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
         directory.listFiles { f -> f.extension == "tmp" }?.forEach { check(it.delete()) }
         val referenced = runCatching {
             if (!file.isFile) emptySet() else {
+                require(file.length() <= MAX_RECORD_BYTES)
                 val payload = file.readText()
-                if ("snapshot" in json.parseToJsonElement(payload).jsonObject)
-                    json.decodeFromString<TopicStoreEnvelope>(payload).catalog.pages.map { it.fileName }.toSet()
+                val header = json.decodeFromString<TopicStoreHeader>(payload)
+                if (header.isEnvelope) header.catalog?.pages.orEmpty().map { it.fileName }.toSet()
                 else emptySet()
             }
         }.getOrDefault(emptySet())
@@ -106,22 +122,21 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
             return TopicValidationReason.InvalidRelationship
         return null
     }
-    private fun decode(payload: String): Pair<TopicSnapshot, ConnectionCatalogManifest?> {
+    private fun decode(payload: String): DecodedTopics {
         val header = json.decodeFromString<TopicStoreHeader>(payload)
         require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..1)
-        return if ("snapshot" in json.parseToJsonElement(payload).jsonObject) {
+        return if (header.isEnvelope) {
             val envelope = json.decodeFromString<TopicStoreEnvelope>(payload)
             require(envelope.snapshot.connections.isEmpty() && catalog.valid(envelope.catalog))
-            envelope.snapshot to envelope.catalog
-        } else json.decodeFromString<TopicSnapshot>(payload) to null
+            DecodedTopics(envelope.snapshot, envelope.catalog, envelope.catalogKey)
+        } else DecodedTopics(json.decodeFromString<TopicSnapshot>(payload), null, null)
     }
     private fun discard() {
         catalogs.clear(); currentCatalogKey = null; pinnedCatalogKey = null
         directory.listFiles()?.forEach { check(it.delete() || !it.exists()) { "Unable to discard corrupt topic evidence" } }
     }
 
-    private fun register(payload: String, snapshot: TopicSnapshot, manifest: ConnectionCatalogManifest): String {
-        val storedKey = runCatching { json.decodeFromString<TopicStoreEnvelope>(payload).catalogKey }.getOrNull()
+    private fun register(storedKey: String?, snapshot: TopicSnapshot, manifest: ConnectionCatalogManifest): String {
         val key = storedKey ?: semanticHash(json.encodeToString(manifest))
         var named = manifest.namedReferences
         var ranked = manifest.ranked
@@ -157,12 +172,12 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
     override suspend fun readMetadata(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
         if (!file.isFile) return@withLock null
         runCatching {
-            require(file.length() <= maxBytes)
+            require(file.length() <= MAX_RECORD_BYTES)
             val payload = file.readText()
-            val (snapshot, manifest) = decode(payload)
+            val (snapshot, manifest, storedKey) = decode(payload)
             require(validationFailure(snapshot) == null)
             if (manifest == null) snapshot else {
-                val key = register(payload, snapshot, manifest)
+                val key = register(storedKey, snapshot, manifest)
                 metadata(snapshot, key, catalogs.getValue(key))
             }
         }.getOrElse { discard(); null }
@@ -197,8 +212,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
     override suspend fun pinInspection(snapshot: TopicSnapshot): Boolean = withContext(Dispatchers.IO) { mutex.withLock {
         if (currentCatalogKey == null && file.isFile) {
             val payload = file.readText()
-            val (stored, manifest) = decode(payload)
-            if (manifest != null) register(payload, stored, manifest)
+            val (stored, manifest, storedKey) = decode(payload)
+            if (manifest != null) register(storedKey, stored, manifest)
         }
         val key = snapshot.catalogReference?.key
         if (key != null && key !in catalogs) return@withLock false
@@ -214,11 +229,11 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
     override suspend fun read(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
         if (!file.isFile) return@withLock null
         val result = runCatching {
-            require(file.length() <= maxBytes)
+            require(file.length() <= MAX_RECORD_BYTES)
             val payload = file.readText()
             // Engine zero is derived legacy state, never a reason to execute the old algorithm.
             // Deleting it is idempotent across interrupted upgrades and leaves all other stores alone.
-            val (snapshot, manifest) = decode(payload)
+            val (snapshot, manifest, storedKey) = decode(payload)
             val result = if (manifest == null) snapshot else snapshot.copy(connections = catalog.read(manifest))
             require(validationFailure(result) == null)
             result
@@ -230,7 +245,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
         require(offset >= 0 && limit in 1..100)
         if (!file.isFile) return@withLock emptyList()
         runCatching {
-            require(file.length() <= maxBytes)
+            require(file.length() <= MAX_RECORD_BYTES)
             val (snapshot, manifest) = decode(file.readText())
             require(validationFailure(snapshot) == null)
             if (manifest == null) snapshot.connections.drop(offset).take(limit) else catalog.read(manifest, offset, limit)
@@ -260,7 +275,9 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
             if (!fits(bytes.size, external)) return null
             val target = File(directory, "connections-$generation-$number.json")
             staged += target
-            atomicSemanticWrite(target, bytes)
+            writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, bytes.size.toLong()) {
+                atomicSemanticWrite(target, bytes)
+            }
             pages += ConnectionCatalogPage(target.name, chunk.size, semanticHash(bytes.toString(Charsets.UTF_8)), chunk.map { it.id })
         }
         return ConnectionCatalogManifest(pages, connections.size, identity, named, ranked)
@@ -298,12 +315,15 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
                     val payload = json.encodeToString(TopicStoreEnvelope(snapshot.copy(catalogReference = null), manifest,
                         catalogKey = currentCatalogKey)).toByteArray(Charsets.UTF_8)
                     if (!fits(payload.size, external)) throw java.io.IOException("Insufficient storage for evidence withdrawal")
-                    atomicSemanticWrite(file, payload)
+                    writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, payload.size.toLong()) {
+                        atomicSemanticWrite(file, payload)
+                    }
                 }
             }
             retireCatalogs()
             true
-        } catch (_: java.io.IOException) { discard(); false }
+        } catch (_: com.example.notionreader.domain.document.StorageRefused) { discard(); false }
+        catch (_: java.io.IOException) { discard(); false }
         catch (_: IllegalArgumentException) { discard(); false }
     } } }
     override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
@@ -326,12 +346,17 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = 6
             val key = ref?.key ?: reused?.key ?: UUID.randomUUID().toString()
             val payload = json.encodeToString(TopicStoreEnvelope(snapshot.copy(connections = emptyList(), catalogReference = null), manifest,
                 catalogKey = key)).toByteArray(Charsets.UTF_8)
+            if (payload.size > MAX_RECORD_BYTES) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.RecordMemoryLimit)
             if (!fits(payload.size, external)) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
-            atomicSemanticWrite(file, payload)
+            writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, payload.size.toLong()) {
+                atomicSemanticWrite(file, payload)
+            }
             committed = true
             catalogs[key] = manifest; currentCatalogKey = key
             retireCatalogs()
             TopicWriteResult.Written
+        } catch (_: com.example.notionreader.domain.document.StorageRefused) {
+            TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
         } catch (_: java.io.IOException) {
             TopicWriteResult.Rejected(TopicWriteFailure.IoFailure)
         } finally {

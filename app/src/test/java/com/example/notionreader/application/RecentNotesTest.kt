@@ -73,7 +73,8 @@ class RecentNotesTest {
             val app = ReaderApp(ReaderSession(FakeReaderEngine()), NoteViewer(previous), ReaderNavigator(),
                 DefaultLoadReaderDocument { _: String -> error("Unavailable") }, recentNotes = recent)
             app.openNote("failed")
-            assertEquals(previous, app.noteViewer.document.value)
+            assertNotEquals(previous, app.noteViewer.document.value)
+            assertEquals("failed", app.noteViewer.document.value.pageId)
             assertTrue(store.records.isEmpty())
         } finally { root.deleteRecursively() }
     }

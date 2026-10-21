@@ -17,11 +17,12 @@ import java.io.DataInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-internal fun atomicSemanticWrite(target: File, bytes: ByteArray) {
+internal fun atomicSemanticWrite(target: File, bytes: ByteArray, onStaged: (File) -> Unit = {}) {
     target.parentFile!!.mkdirs()
     val staging = File(target.parentFile, "${target.name}.${UUID.randomUUID()}.tmp")
     try {
         FileOutputStream(staging).use { it.write(bytes); it.fd.sync() }
+        onStaged(staging)
         try { Files.move(staging.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING) }
         catch (_: java.nio.file.AtomicMoveNotSupportedException) { Files.move(staging.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING) }
     } finally { staging.delete() }
@@ -37,8 +38,9 @@ private data class SemanticRecordHeader(
 )
 
 /** Atomic document checkpoints: bounded JSON metadata followed by big-endian float32 vectors. */
-class FileSemanticIndexStore(private val directory: File, private val maxBytes: Long = 64L * 1024 * 1024,
-    private val otherBytes: suspend () -> Long = { 0L }) : SemanticIndexStore {
+class FileSemanticIndexStore(private val directory: File, private val maxBytes: Long = Long.MAX_VALUE,
+    private val otherBytes: suspend () -> Long = { 0L },
+    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted) : SemanticIndexStore {
     private data class CachedHeader(val raw: ByteArray, val header: SemanticRecordHeader)
     private class HeaderCache {
         val entries = java.util.LinkedHashMap<Long, CachedHeader>(16, .75f, true)
@@ -73,11 +75,15 @@ class FileSemanticIndexStore(private val directory: File, private val maxBytes: 
         }
     }
     private companion object {
+        const val MAX_HEADER_BYTES = 8 * 1024 * 1024
+        const val MAX_RECORD_BYTES = 64L * 1024 * 1024
         const val MAGIC = 0x4e525332 // NRS2
         const val FORMAT = 2
         const val PREFIX_BYTES = 12
     }
     private val mutex = Mutex()
+    @Volatile override var lastWriteFailure: SemanticWriteFailure? = null
+        private set
     // IDs only: vector payloads remain streamed per document. One writer owns this store.
     private var membership: MutableSet<String>? = null
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -97,10 +103,10 @@ class FileSemanticIndexStore(private val directory: File, private val maxBytes: 
 
     /** Reads only metadata; rejects truncated/extended payloads without parsing any vector. */
     private fun readHeader(input: DataInputStream, length: Long): SemanticRecordHeader {
-        require(length in PREFIX_BYTES.toLong()..maxBytes)
+        require(length in PREFIX_BYTES.toLong()..MAX_RECORD_BYTES)
         require(input.readInt() == MAGIC && input.readInt() == FORMAT)
         val headerSize = input.readInt()
-        require(headerSize > 0 && headerSize.toLong() <= length - PREFIX_BYTES)
+        require(headerSize in 1..MAX_HEADER_BYTES && headerSize.toLong() <= length - PREFIX_BYTES)
         val bytes = ByteArray(headerSize)
         input.readFully(bytes)
         val cached = headers.entries[headerKey(bytes)]?.takeIf { it.raw.contentEquals(bytes) }
@@ -155,6 +161,7 @@ class FileSemanticIndexStore(private val directory: File, private val maxBytes: 
         }.also { membership = it.toMutableSet() }
     } }
     override suspend fun write(record: SemanticRecord): Boolean = withContext(Dispatchers.IO) { mutex.withLock {
+        lastWriteFailure = null
         val target = file(record.pageId)
         val header = SemanticRecordHeader(record.pageId, record.revision, record.identity, record.metadata, record.passages.map { it.passage })
         require(validHeader(header))
@@ -164,14 +171,25 @@ class FileSemanticIndexStore(private val directory: File, private val maxBytes: 
         }
         val metadata = json.encodeToString(header).toByteArray(Charsets.UTF_8)
         val size = Math.addExact(PREFIX_BYTES.toLong() + metadata.size, payloadBytes(header))
+        if (metadata.size > MAX_HEADER_BYTES || size > MAX_RECORD_BYTES) {
+            lastWriteFailure = SemanticWriteFailure.RecordMemoryLimit
+            return@withLock false
+        }
         val other = directory.listFiles { f -> f.isFile && f != target }?.sumOf { it.length() } ?: 0
         val external = otherBytes()
         // The old record still exists while the replacement is staged atomically.
-        if (external < 0 || size > Int.MAX_VALUE || size + other + target.length() + external > maxBytes) false else {
+        if (external < 0 || size > Int.MAX_VALUE || size + other + target.length() + external > maxBytes) {
+            lastWriteFailure = SemanticWriteFailure.Storage
+            false
+        } else {
             val buffer = ByteBuffer.allocate(size.toInt()).order(ByteOrder.BIG_ENDIAN)
             buffer.putInt(MAGIC).putInt(FORMAT).putInt(metadata.size).put(metadata)
             record.passages.forEach { embedded -> embedded.vector.forEach { buffer.putFloat(it) } }
-            atomicSemanticWrite(target, buffer.array())
+            try {
+                writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, size) {
+                    atomicSemanticWrite(target, buffer.array())
+                }
+            } catch (_: com.example.notionreader.domain.document.StorageRefused) { lastWriteFailure = SemanticWriteFailure.Storage; return@withLock false }
             discardHeader(record.pageId)
             cacheHeader(metadata, header)
             membership?.add(canonicalSemanticId(record.pageId))

@@ -27,12 +27,10 @@ data class DiscoverySettingsUi(
     val modelInstalled: Boolean = false,
     val downloading: Boolean = false,
     val wifiOnly: Boolean = true,
-    val indexingPaused: Boolean = true,
-    val progress: String = "No Notes indexed",
-    val storageDescription: String = "0 bytes of 64 MiB used",
+    val processing: com.example.notionreader.ui.DiscoveryStatusUi = com.example.notionreader.ui.DiscoveryStatusUi(),
+    val storageDescription: String = "0 bytes used · Automatic storage",
     val error: String? = null,
     val downloadAllowed: Boolean = false,
-    val workDescription: String? = null,
     val downloadProgress: String? = null,
     val effort: DiscoveryEffort = DiscoveryEffort.BALANCED
 )
@@ -50,11 +48,16 @@ fun DiscoverySettingsScreen(
     onRebuild: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    onEffortChange: (DiscoveryEffort) -> Unit = {}
+    onEffortChange: (DiscoveryEffort) -> Unit = {},
+    settings: com.example.notionreader.domain.settings.ReaderSettings? = null,
+    onStorageUpdate: ((com.example.notionreader.domain.settings.ReaderSettings) -> com.example.notionreader.domain.settings.ReaderSettings) -> Unit = {},
+    storageMessage: String? = null,
+    extendedMaximumBytes: Long = 0L
 ) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(24.dp)
         .semantics { paneTitle = "Discovery settings" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Discovery settings", Modifier.semantics { heading() })
+        settings?.let { StoragePolicyExplanation(it, onStorageUpdate) }
         Text(state.modelDescription)
         state.downloadProgress?.let { Text(it) }
         Text("Embeddings run on this device. Only cached Notes are indexed.")
@@ -64,7 +67,9 @@ fun DiscoverySettingsScreen(
         if (state.downloading) Button(onClick = onCancelDownload) { Text("Cancel download") }
         else if (state.modelInstalled) Button(onClick = onDeleteModel) { Text("Delete model and semantic index") }
         else Button(onClick = onDownload, enabled = state.downloadAllowed) { Text("Download model") }
-        Text(state.progress)
+        Text(state.processing.coverage)
+        state.processing.message?.let { Text(it) }
+        state.processing.workDescription?.let { Text(it) }
         Text("Preparation waits below 30% battery unless a charger is connected.")
         Text("Discovery effort", Modifier.semantics { heading() })
         DiscoveryEffort.entries.forEach { effort ->
@@ -76,11 +81,28 @@ fun DiscoverySettingsScreen(
             }
         }
         Text("Discovery continues automatically, including in the background when Android permits. Effort changes when work runs; quality and coverage stay the same.")
-        state.workDescription?.let { Text(it) }
         Text(state.storageDescription)
-        state.error?.let { Text(it) }
-        Button(onClick = if (state.indexingPaused) onResume else onPause,
-            enabled = state.modelInstalled) { Text(if (state.indexingPaused) "Resume indexing" else "Pause indexing") }
+        storageMessage?.let { Text(it) }
+        settings?.let { prefs ->
+            SettingsSwitchRow(title = "Automatic Discovery storage", checked = prefs.discoveryStorageAutomatic,
+                onCheckedChange = { automatic -> onStorageUpdate { it.copy(discoveryStorageAutomatic = automatic) } },
+                summary = "Grows with indexed content while keeping space free for your device. Only cached Notes are indexed.")
+            if (!prefs.discoveryStorageAutomatic) {
+                StorageLimitControl("Discovery maximum", prefs.discoveryCustomLimitBytes,
+                    if (prefs.extendedStorage) extendedMaximumBytes else 0L) { size -> onStorageUpdate { it.copy(discoveryCustomLimitBytes = size) } }
+                Text("If existing data exceeds this maximum, new indexing waits. Existing eligible results are retained.")
+            }
+        }
+        state.error?.takeUnless { it == state.processing.message }?.let { Text(it) }
+        val indexingAction = state.processing.indexingAction
+        Button(onClick = if (indexingAction == com.example.notionreader.application.DiscoveryIndexingAction.Resume) onResume else onPause,
+            enabled = indexingAction != null) {
+            Text(when (indexingAction) {
+                com.example.notionreader.application.DiscoveryIndexingAction.Resume -> "Resume indexing"
+                com.example.notionreader.application.DiscoveryIndexingAction.Pause -> "Pause indexing"
+                null -> if (state.modelInstalled) "Checking indexing status…" else "Set up Discovery to index Notes"
+            })
+        }
         Button(onClick = onClearIndex) { Text("Clear index and pause indexing") }
         Button(onClick = onRebuild, enabled = state.modelInstalled) { Text("Rebuild index") }
         Button(onClick = onBack) { Text("Back") }

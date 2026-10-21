@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§100)](#100-clearing-discovery-rejects-in-flight-connection-evidence-2026-10-19)
+[current implementation and open work (§108)](#108-adaptive-storage-and-a-hundred-note-default-2026-10-21)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -9967,3 +9967,713 @@ remain open, including physical Pixel deployment, human relevance, TalkBack spee
 sustained resources and background completion latency. This focused review does
 not certify every earlier Discovery implementation or those gates. No commit,
 push, model download, physical-device install or data clear was performed.
+
+## 101. Architectural refactoring of DiscoveryController, ReaderApp, Discovery state, and topic destinations (2026-10-19)
+
+**Review correction:** the completion wording below overstated delivery. Subsequent
+review found a related-request dispatch regression, incomplete state redesign and
+coordinator boundary gaps. The revised plan reopens these items; §102 records the
+stabilization work. Earlier green tests did not establish every design requirement.
+
+Completed a behavior-preserving architectural refactoring addressing accumulated
+responsibilities across application controllers and UI presentation screens:
+
+1. **Split `DiscoveryController` responsibilities**: Extracted semantic query
+   coordination into `DiscoverySearch` and preview list handling into `DiscoveryPreviews`.
+   Retained `DiscoveryRuntime` and `DiscoveryValidity` as the sole authority for
+   reset generations, invalidation epochs, and concurrency locks (§100 invariant).
+   Injected `workDispatcher` consistently across all search and retrieval paths,
+   preventing hard-coded `Dispatchers.Default` leaks into internal background operations.
+2. **Slimmed `ReaderApp`**: Decomposed the ~1,400-line coordinator into cohesive,
+   single-responsibility operation coordinators: `ListeningHistoryCoordinator`
+   (history and continue listening projections), `SavedQueueCoordinator` (saved
+   queue mutations and pending add flow), `SmartQueueCoordinator` (smart queue
+   querying and persistence), `DocumentCacheCoordinator` (cache telemetry, pruning,
+   and prefetching), and `ExploreCoordinator` (area and topic discovery taxonomy).
+   `ReaderApp` remains the coordinating facade wiring these components together
+   without altering any public API contracts or breaking composition-root callers.
+3. **Explicit Discovery State**: Replaced `Pair<DiscoveredTopic, TopicPublicationStatus>`
+   with a strongly-typed `PublishedTopic` data class supporting backwards-compatible
+   destructuring (`component1()`, `component2()`) and pair accessors (`first`, `second`).
+4. **Separated Topic Screens by Destination**: Disentangled the monolithic
+   `TopicDestinationContent` composable into destination-specific composables:
+   `DiscoveryTopicsScreen` (`DiscoveryTopics`), `TopicDetailsScreen` (`DiscoveryTopic`),
+   `ConnectionDetailsScreen` (`DiscoveryConnection`), and `InterestDetailsScreen`
+   (`DiscoveryInterest`). Direct routing in `ReaderShell` clarifies accessibility pane titles
+   and focus targets without performing redundant connection-window catalog reads during
+   topic detail inspection.
+
+### Evidence
+
+All architecture invariants enforced by `LayerRulesTest` passed with 0 violations.
+The full JVM unit test suite (1,007 tests) passed with zero failures or skips.
+Debug APK assembly and androidTest Kotlin compilation passed.
+Instrumented accessibility tests executed via `tools/run-accessibility-tests.ps1`:
+- `TopicScreenAccessibilityTest`: 8/8 passed, 0 failures.
+- `DiscoveryTopicsNavigationAccessibilityTest`: 20/20 passed, 0 failures on attempt 1.
+No behavioral semantics or domain contracts were altered.
+
+
+## 102. Shared request ownership and truthful cache readiness (2026-10-19)
+
+The user authorized revising the existing refactor plan, reported Discovery asking
+for already-opened Notes and Home repeating a listening session, and emphasized
+improving architecture rather than accumulating guards. The plan now distinguishes
+completed extractions from unfinished state/ownership work and unproven acceptance.
+
+### Root causes and ownership changes
+
+The extraction moved related-request identity capture after dispatch. Queued work
+could adopt the post-reset epoch or reverse invocation ownership. A delayed failure
+could also overwrite a newer request. DiscoveryRequests now owns each query lane's
+sequence and publication policy; it captures a typed DiscoveryReadToken before any
+suspension. DiscoveryValidity owns reset/source validity. Search and related Notes
+publish through the owner, including failures, while cancellation cleanup can only
+end loading for the owning request. Semantic and catalog retrieval use the same
+read-token policy. These are shared ownership boundaries, not duplicated local
+predicates at every publication site.
+
+A deterministic saved-topic-storage gate reproduced cached Notes appearing absent
+until saved discoveries finished loading. Initial source inventory now publishes
+before that independent preparation. A sealed Checking/Ready/Failed cache state
+separates unverified inventory from an empty cache, and a failed initial read offers
+recovery rather than an indefinite checking message. Later source changes retain
+the existing evidence-withdrawal reconciliation path. This proves one misleading
+startup path; it does not identify every cause of the user's physical-device report.
+
+A JVM stress run also exposed a real pending-queue state mismatch: one pending Note
+but a separately stored count of zero. The count now derives from the single pending
+membership flow. Queue Destination observes that same list and computes its displayed
+count from one snapshot. There is no second mutable count or added execution scope.
+PublishedTopic consumers now use topic/status; temporary first/second aliases are gone.
+
+The user subsequently reported that opening a saved interest showed zero matches.
+A failing-first regression reproduced a detached success cache: after a successful
+match, a force refresh emptied the visible list; cancellation left the old success
+key in place, so a normal reload returned early and stayed empty. InterestMatchState
+now owns a sealed Idle/Loading/Ready/Unavailable/Failed outcome. Ready carries both
+its typed input key and matching Notes. Loading cannot carry an old success key,
+and cancellation returns the owning request to Idle so re-entry recomputes matches.
+Matching uses DiscoveryRequests before dispatch/store reads, and reconciliation
+updates the captured interest result as one value. UI consumers use this grouped
+state; the former detached key, revision, loading and message fields are removed.
+
+### Regression evidence
+
+Guard/boundary absent | Property that noticed
+--- | ---
+Pre-dispatch related-request ownership absent | Queued-before-clear and reverse-dispatch tests both failed
+Failure ownership check absent | Delayed older read failure overwrote the newer related request
+Early initial source inventory absent | Cached Note was invisible while saved metadata read was suspended
+Explicit cache failure state absent | Failed source read remained in Checking
+Checking presentation absent | Accessibility test found no Checking cached Notes node; the other nine tests passed
+Single pending membership source absent | Existing concurrent queue stress failed with count zero versus one Note
+Coupled interest success key/results absent | Cancelled-refresh test expected the previously matching Note but got an empty list after normal reload
+
+The duplicate-history probe supplies multiple stored snapshots with the same session
+ID. Home and completed history each expose it once. That passes without changing
+history policy and does not reproduce the reported visual duplication. Distinct
+playthroughs remain distinct sessions under the governing contract. No speculative
+per-Note deduplication or history deletion was introduced.
+
+### Verification
+
+Final JVM suite: 1,035 tests, zero failures/errors/skips. Debug assembly and
+androidTest Kotlin compilation passed. The existing 11-test concurrent queue stress
+class passed in five consecutive explicit reruns (55/55); its earlier state mismatch
+is retained as failing evidence, not dismissed as a timing failure.
+
+Individual wrapper runs passed DiscoveryScreenAccessibilityTest 11/11,
+QueueDestinationAccessibilityTest 13/13 and DiscoveryTopicsNavigationAccessibilityTest
+20/20, each on its first attempt. Navigation was rerun after the grouped interest
+state change and again passed 20/20. Wrapper-owned device settings were restored.
+Independent review found no substantive introduced defect in the stabilized slice;
+this is not acceptance of the remaining refactor or physical-device reports.
+
+The combined three-class accessibility selection returned INCOMPLETE: only the
+11-test Discovery class ran out of 44 expected tests. Its zero failures do not make
+that combined run a pass. The individual-class runs above supply the missing evidence.
+
+A real MainActivity emulator probe confirmed application focus, found Discover in
+the android CLI JSON layout, navigated using that observed target, and observed
+0 of 18 cached Notes indexed with Set up Discovery. This independently confirms
+cache inventory is visible even without an installed model. It does not demonstrate
+physical-device semantic matching or reproduce the user's Home duplication.
+
+### Still open
+
+The physical Pixel reconnected late in the round. Read-only metadata inspection
+found 50 cached Notes; a fresh catalog count found one completed semantic record,
+then the observed Discovery screen showed 2 of 50 cached Notes indexed and 3,259
+passages remaining (estimated 17–33 minutes of embedding work). The earlier report
+of 50 completed index records was incorrect. One sampled record's full model,
+tokenizer, dimensions, preprocessing, chunker and storage identities match the current
+INT4 provider. Matching therefore currently has very limited indexed coverage;
+this does not establish whether the saved interest would pass the recommendation
+cutoff after indexing finishes. No cutoff was changed without calibration.
+
+Read-only persisted history inspection found 16 sessions with 16 unique IDs, six
+completed sessions and four single-Note identities appearing in multiple sessions.
+This does not reproduce the reported same-session duplicate; distinguish separate
+playthroughs from repeated Play actions before changing history policy. No private
+Note text, interest text or session identities were written into repository artifacts.
+
+Finish grouped search/preview/processing outcomes and remaining coordinator
+boundaries from the revised plan; reproduce Home's reported duplication in the
+actual UI; verify interest matching after sufficient real indexed coverage and make
+partial coverage clear in interest details. Prior human TalkBack, relevance,
+resource and background-completion gates remain open. No model acquisition,
+physical-device install, push or merge is part of this round.
+
+
+## 103. Incremental Discovery source updates (2026-10-19)
+
+The user requested incremental embedding and discovery for created/updated Notes,
+without restarting the whole library. The existing Integration contract already
+requires source-delta reconciliation, compatible passage reuse and durable progress;
+no generated specification was edited and no new model or worker was introduced.
+
+### Durable passage reuse
+
+Unchanged full records were already skipped, and exact-input passage vectors could
+be reused during an uninterrupted update. Two lifecycle holes defeated that reuse:
+non-indexing reconciliation removed the old record before handing off compatible
+vectors, and cancellation before the first new passage checkpoint lost the same
+vectors. A third destructive-write case replaced retained later passages with only
+the newly completed prefix. Indexing now rebinds compatible vectors to current
+source passage descriptors and durably stages them before withdrawing stale full
+records. Later replacement checkpoints contain the completed prefix plus reusable
+passages not yet visited. A same-revision resumed checkpoint is not redundantly
+rewritten; the existing strictly-growing checkpoint regression caught that issue
+in the first full-suite run and remained unchanged. Failed writes pause work rather
+than declaring success. Eviction, reset and model incompatibility still remove
+ineligible progress; stale source evidence is never exposed as current search data.
+
+### Incremental connection work
+
+ConnectionWork couples opaque per-Note revision/metadata keys, normalized title
+keys, changed endpoints and unfinished directional seeds. A source delta scans
+changed endpoints in both directions and resumes unfinished old seeds. Completed
+seeds do not replay their unchanged targets. Sparse target lists retain original
+catalog indices, so the durable target cursor still resumes correctly. Actual
+candidate comparisons remain bounded by the existing 256-opportunity window;
+unaffected pairs are not traversed in a quadratic skip loop. Retained catalogs keep
+unaffected evidence, and title-collision changes revisit surviving target Notes.
+Evidence for changed input keys is replaced even when the new similarity score is
+equal, so renames/metadata updates cannot retain old titles through a score tie.
+The title identity shares the exact normalization used by explicit-reference
+retrieval, including case, Unicode and whitespace. Current named-reference
+classification remains mandatory for retained reference evidence.
+
+### Safe topic reuse
+
+IncrementalFormation stores only opaque opportunity fingerprints and certified
+isolated complete-link groups, with a model/policy key and integrity checksum.
+A certificate requires every internal pair to be comfortably within the formation
+threshold and every external pair comfortably outside it. Strict margins account
+for Float arithmetic. When all members survive unchanged and new opportunities
+remain separated, the existing exact hierarchical engine starts with that retained
+group instead of singleton sections. Edited or missing members, nearby new evidence,
+incompatible policy/model or a malformed certificate disable that group's reuse.
+
+Certification is optional acceleration, capped at 65,536 checks, with cooperative
+cancellation/yield checks. The cap never drops source evidence or declares incomplete
+processing complete; uncertified groups use ordinary exact formation. Keys are
+cached with the process-owned prepared input instead of regenerated each quantum.
+No pairwise distance matrix, second engine, topic-count ceiling or stale membership
+is introduced. Projection, labels, memberships and relationship evidence are
+revalidated against current records. Broadly coupled changes or uncertified groups
+can still require exact regrouping; this is deliberately not a claim that every
+possible edit can be localized. Existing generations gain certificates through
+normal completed processing, without clearing compatible embeddings.
+
+### Regression evidence
+
+Boundary absent | Observed failing property
+--- | ---
+Durable handoff before deferred withdrawal | Updating one of two passages re-embedded both instead of only the changed passage after controller recreation
+Durable handoff before first new inference | Cancellation forced the unchanged passage to be embedded again
+Retaining unvisited reusable passages in replacement checkpoint | Destructive checkpoint replacement lost the later reusable passage
+Connection endpoint delta | Adding one Note to eight caused 90 index reads rather than fewer than 60, despite the same expected 36 pairs
+Normalized reference-title delta | Removing a case/whitespace title collision failed to discover the now-unambiguous reference
+Certified topic-group seed | An unrelated added Note dissolved the unchanged six-opportunity group in the first formation quantum
+Directional unfinished connection seeds | Adding a thirteenth two-passage Note during a partial sweep exceeded another window instead of finishing the remaining/delta work with all 78 pairs
+Changed-input catalog replacement | A renamed Note retained its old title through an equal-score connection merge
+
+Additional checks compare incremental/cold topic output across nearby additions,
+edits, removal, ordering and metadata changes; reject a corrupted certificate;
+and reopen the shipping FileTopicStore and a new coordinator to prove certificates
+survive real persistence and source-delta invalidation.
+
+### Verification and remaining scope
+
+Final JVM suite: 1,045 tests, zero failures/errors/skips. Debug assembly and
+androidTest Kotlin compilation passed. The targeted
+DiscoveryTopicsNavigationAccessibilityTest wrapper passed 20/20 on the final build,
+first attempt, and restored device settings. An earlier pre-metadata-fix run also
+passed 20/20; it is not substituted for the final-build run. Independent review's
+normalized-title, destructive-checkpoint and sparse-traversal findings were resolved
+and reviewed again; no material remaining finding was reported.
+
+A final MainActivity emulator probe confirmed application focus, located Discover
+in the android CLI JSON layout, navigated to the observed target, and read
+0 of 27 cached Notes indexed with Set up Discovery and View your interests. This
+checks navigation/inventory on the installed final build; the emulator has no model,
+so it does not establish actual-model incremental runtime or recommendation quality.
+The first layout parse rejected a CLI diagnostic prefix before any tap; the retry
+extracted the returned JSON rather than assuming a target or coordinates.
+
+The changed source/document slice passes diff whitespace checks. The global working
+tree still has two pre-existing unrelated Android-test EOF whitespace findings;
+those tests were not modified to conceal that baseline. The new domain helper is
+intentionally tracked; the prior staged refactor was preserved without a broad commit.
+
+This round does not establish private-library relevance, physical-device
+latency/resource gates or human TalkBack speech acceptance. The earlier Home duplicate report and remaining architecture
+plan items remain open. No physical-device install, model acquisition, private
+content export, push or merge is part of this round.
+
+
+## 104. Shared Discovery lifecycle and screen actions (2026-10-19)
+
+The user reported “Discovery is paused” under Discover on the Pixel 8 Pro, asked for
+recommended architecture, then explicitly requested applying one process-owned
+Discovery status/action model throughout relevant screens. Read-only inspection
+found the persisted index manifest had paused=false. After dismissing the notification
+shade and navigating via the observed Discover target, the phone showed 50 of 50
+cached Notes indexed without the reported paused text. This establishes current
+state, not that the original transient observation was mistaken.
+
+### Confirmed defects and ownership
+
+Initial DiscoveryState assumed paused=true, while reconciliation published cache
+readiness before reading persisted pause permission, behind saved-topic storage I/O.
+A deterministic gate reproduced Ready inventory with the wrong pause value. Startup
+now reads permission and publishes it with inventory under the same commit mutex
+used by Pause/Resume. Another failing-first gate proved that the later reconciliation
+copy could overwrite a newer user Pause; that stale pause assignment is removed.
+Until readiness is verified, presentation says Checking Discovery and offers no
+unverified Resume action. Explicit persisted pause remains distinct from automatic
+execution deferral and continues to require Resume.
+
+DiscoveryState now derives typed processingStatus, indexingAction and canSearch.
+The process root supplies execution availability (Android window, playback or device
+resources) rather than screens inferring it from worker flags. Setup, checking,
+processing, power waiting, Android waiting, playback/resource waiting, pause,
+completion and recovery are distinct. Controller reconciliation publishes actual
+pending worker work separately from the pinned inspected generation. A completed
+latest generation therefore does not look busy merely because the user is still
+inspecting an older partial generation, and playback/low power does not create a
+waiting claim when no work remains.
+
+Stopped scheduling is not proof of complete coverage. Review identified storage
+rejection as a counterexample, and a rejecting real-contract TopicStore reproduced
+false Ready status. Explicit index/topic failure channels retain their separate
+owners; the shared status exposes RecoveryRequired and the recovery message even
+when the worker has stopped. Successful persistence clears the corresponding failure;
+Refresh alone does not erase an unresolved processing failure.
+
+### Shared presentation boundary
+
+DiscoveryStatusUi derives lifecycle text, indexed/cached coverage, remaining-work
+text, indexing controls and management availability from one Discovery snapshot.
+Discover/topic collections, interests, interest details, related Notes, topic and
+connection details/catalogs, and Discovery settings consume it. Model-manager state
+still owns asset download/delete progress; it is not a second bulk lifecycle label.
+Refresh remains an independent inspected-generation action; new discoveries can be
+available while processing is paused, without hiding either fact.
+
+The shared notice is passive text: no live region or focus requests on progress
+changes. Pause and background waits do not disable valid cached search/listening.
+Interest refresh is enabled only with eligible cached search and no active matching
+request. Interest match counts are shown only for a completed matching result, rather
+than presenting loading/unavailable as zero. Related Notes does not present its empty
+claim alongside a pending/error query status. Incomplete topic/connection coverage
+no longer produces a complete empty-collection claim. Reader, Player, Browse and
+queue controls retain their own established owners; a bulk Discovery pause does not
+become a listening or navigation restriction.
+
+### Regression evidence
+
+Boundary absent | Observed failing property
+--- | ---
+Early persisted pause publication | Ready inventory still showed paused while saved-topic read was suspended
+Checking presentation | Initial unknown state rendered the explicit pause message
+Pause command ownership | Finishing the saved-topic read overwrote a newer Pause command
+Completed-work precedence | Completed discovery became Waiting for power/playback despite no remaining work
+Explicit processing failure | Rejected topic storage stopped scheduling and incorrectly produced Ready status
+Read-only inventory during pause | Paused reconciliation reported zero instead of the existing validated indexed Note
+
+Additional properties cover startup/setup action availability, usable cached search
+during all bulk deferrals, independent Refresh/pause controls, and actual completion
+while an older partial connection generation remains inspected. The Android power
+fixture uses the shipping descriptor with explicit in-memory model/work data while
+consuming real system battery broadcasts; it does not download a model to test text.
+
+### Verification
+
+Final JVM suite: 1,057 tests, zero failures/errors/skips. `assembleDebug` and
+`compileDebugAndroidTestKotlin` passed. Final-build screen (11/11) and power (1/1) wrapper checks passed on the first
+attempt. Topic-navigation verification results follow below.
+
+The Pixel probe exposed unknown-versus-zero coverage: cached inventory was ready
+before saved discovery preparation/index validation finished. Explicit index
+Checking/Ready state now avoids claiming zero despite persisted records. Read-only
+validation runs during embedding pause/deferral without starting inference. The
+existing power-work regression caught an empty work estimate replacing a withdrawn
+estimate; leaving it null when no jobs are scheduled preserves that property.
+
+Installed the final APK on Pixel 8 Pro (39261FDJG004KS) using `adb install -r`.
+The prior APK was saved locally for rollback. No app data was cleared and no model
+was downloaded. Direct production no_backup listings confirmed 50 cached document
+JSON files and 50 semantic record files after installation. Foreground-window checks
+and CLI layouts showed matching Checking Discovery and Checking indexed Note
+coverage on Discover and Discovery settings, with Pause indexing available rather
+than an incorrect Resume action. Saved-discovery startup preparation remains slow;
+this round does not establish a latency improvement or completion of that work.
+After preparation advanced, Settings reported 50 of 50 cached Notes indexed and
+Finding topics and connections. A physical Pause/Resume round trip showed the
+explicit paused message and Resume control only after Pause; Resume restored the
+original unpaused permission and processing label. A final Discover layout also
+showed 50 of 50, supported topic cards and New discoveries available alongside the
+ongoing processing label. Human TalkBack speech is not
+claimed from semantics-tree observations.
+
+The first final-build topic-navigation run was 19/20: the Refresh test queried its
+row before asynchronous publication was synchronized. Its UI assertion remains
+unchanged; the test now waits for the completed inspected publication before
+querying the row. The first corrected class run passed 20/20, but its repeat caught the same missing
+publication synchronization in the other Refresh test (19/20). Both asynchronous
+Refresh tests now wait for their expected inspected publication, retaining their
+original merged-tree UI assertions. The final corrected class passed 20/20 in two consecutive full-class wrapper runs
+(2/2, no wrapper retries). Screen 11/11 and power 1/1 also passed on the final
+production build; the earlier DiscoveryNavigation class passed 3/3. Final
+instrumented source compilation passed through the wrapper. Slice whitespace
+checks passed. Verification finished after midnight on 2026-10-20.
+The remaining Home duplication report, broader architecture plan items, model/runtime
+resource and human TalkBack/listening acceptance gates remain open. Generated
+Notion specifications were not hand edited.
+
+
+## 105. Complete connection navigation and quieter comparisons (2026-10-20)
+
+The user reported few connections in both Discover and the full Connections screen,
+and excessive screen-reader speech. The existing two-card preview is intentional;
+its limit must never restrict the complete catalog. The full catalog lacked Refresh,
+so an inspected early generation could remain small while new discoveries existed.
+A failing-first device test reproduced exactly the absent Refresh control (20 other
+tests passed). The catalog now exposes the existing explicit Refresh action and
+verifies both a larger adopted edge count and the matching visible count without
+leaving the destination or changing playback. Partial inspected connection coverage
+is explicit, independent of the latest worker's overall lifecycle.
+
+Discover reports preview versus total connection count and keeps the complete-list
+entry available when the inspected catalog exists but its small preview is empty.
+It retains the intentionally small preview and calibrated evidence thresholds.
+
+Review caught that the persisted catalog is globally ranked, not evidence-grouped.
+Position-only category headers would mislabel interleaved reference/similarity rows.
+A process-owned application reading projection now scans validated bounded pages
+once per immutable catalog/cache/reset identity and retains only integer routes.
+Named references and Similar passages remain separately reachable, preserving their
+ranked order within each group. Requested source pages are read once per window;
+full evidence is retained only for requested rows. Group boundaries/counts use
+actual current evidence classification, including legacy pairs. Worker ranking,
+formation, embedding, incremental progress and persisted catalog order are unchanged.
+Source/reset tokens reject stale or partial reads. Clear/release discards the routes.
+
+For TalkBack, cards preserve both readable titles and their single comparison action
+but no longer repeat both titles in the action hint. Catalog lifecycle/count text is
+one logical summary; headings occur at actual group boundaries rather than each
+loaded window. Comparison details prioritize both source excerpts and named Open
+controls, omitting repeated bulk indexing statistics. Evidence-kind and independent
+reference context explanations remain available. No progress live region or automatic
+focus request was added. Actual human TalkBack speech remains an observation gate.
+
+### Regression and verification
+
+- Preview-count and group-boundary JVM properties failed against uncounted and
+  non-boundary presentation implementations before the final helpers were written.
+- Interleaved grouping and stale-reset properties failed against unprojected reads.
+- The Refresh device regression failed because the catalog had no Refresh control.
+- Final JVM suite: 1,061 tests, zero failures/errors/skips. `assembleDebug` and
+  `compileDebugAndroidTestKotlin` passed.
+- First repaired 21-test DiscoveryTopicsNavigationAccessibilityTest wrapper run
+  passed on its first attempt. The final coalesced-reader build also passed all
+  21 tests on its first attempt (two successful repaired class runs, no wrapper
+  retries). Pagination beyond the two-item preview, grouped evidence, Back/focus,
+  complete source excerpts, playback isolation and catalog Refresh remain asserted.
+- Installed the final APK on Pixel 8 Pro with `adb install -r`. Direct production
+  no_backup listings still contain 50 cached document files and 50 semantic records.
+  No app data was cleared, model downloaded, or discovery threshold changed.
+  A foreground check found another app in use; physical interactive verification
+  was not continued over that app. Human TalkBack speech is not claimed.
+- Focused code review found and resolved the raw-ranking/group-boundary issue.
+  Follow-up review found no new material correctness findings. Its stale-read test
+  concern was addressed by changing the token inside the fake page read, and its
+  repeated-decode concern by reading each requested source block once per window.
+
+### Still open
+
+Sparse validated results may reflect unfinished discovery or insufficient evidence;
+this round does not manufacture pairs or relax thresholds to increase a count.
+Startup saved-discovery latency, Home duplication investigation, broader architecture
+items and human quality/TalkBack/listening acceptance remain open from §104.
+
+
+## 106. Separate index verification from saved-discovery restoration (2026-10-20)
+
+The Pixel showed Checking indexed Note coverage and Checking Discovery after the
+Connections update. Foreground-device inspection confirmed both labels while the
+app consumed approximately one CPU core; that observation does not prove the
+specific CPU hotspot or useful completion progress. Startup reconciliation invoked
+TopicCoordinator.invalidate (saved metadata restoration and catalog reconciliation)
+before validating/publishing existing semantic records. Slow saved-generation I/O
+therefore kept an independent index inventory unknown.
+
+A failing-first gated test persisted one real indexed Note, then suspended the saved
+topic metadata read. The old implementation still reported indexedCount=0 instead
+of 1. On initial inventory only, reconciliation now validates existing records and
+publishes indexed coverage before loading saved discoveries. Later source changes
+retain the original early withdrawal ordering so stale published evidence is removed
+before new cache state is exposed. No new embeddings are needed for compatible
+records. Saved-discovery restoration has a separate process-owned status, Loading
+saved discoveries, cleared in finally; explicit pause/recovery retain priority.
+
+This fixes the misleading coupling of checking labels. It does not establish an
+improvement in saved-catalog parsing/validation CPU cost, or pretend that restored
+discoveries are ready before validation finishes. Follow-up review found no material
+source-withdrawal, pause or reset regression in the scoped ordering change.
+
+### Verification
+
+The gated startup regression failed with the old ordering and passed after the
+change. Final JVM suite: 1,063 tests, zero failures/errors/skips. assembleDebug and
+compileDebugAndroidTestKotlin passed. The shipping DiscoveryScreen accessibility
+class passed 11/11 through the wrapper, first attempt. Slice whitespace checks
+passed. The updated APK was installed over Pixel app data without clearing it.
+
+A foreground-verified physical CLI layout then showed 43 of 50 cached Notes indexed
+and Loading saved discoveries, rather than both Checking labels. Direct listings
+confirmed 50 cached document files and 43 semantic record files. Earlier checks had
+50 semantic files; the cause of the seven-record difference has not been established,
+so this round does not claim all prior index records remain compatible or preserved.
+The cached source Notes remain present. No model download or index reset was used.
+
+### Still open
+
+Saved-generation startup CPU/latency and the seven missing complete index records
+still need investigation. Other open
+quality, Home duplication and human TalkBack/listening gates continue from §105.
+
+
+## 107. Saved-topic restore decoding and recovered index coverage (2026-10-20)
+
+Continued the Pixel investigation without clearing source or derived data. A direct
+in-memory structural inspection found 50 cached Notes and subsequently 50 complete
+semantic records using the same pinned Gemma INT4 identity/dimensions. The earlier
+43-record gap had recovered through the running worker; the original cause of those
+seven absent records was not captured and is not retroactively claimed. No global
+rebuild, model download or index reset was requested. The saved generation contained
+694 topics and nine connections, with connectionPassComplete=false.
+
+The Perfetto CPU helper returned a raw trace without usable profiles. The ART
+sampling file initially pulled as empty, but its asynchronous flush later produced
+154,472 bytes. Parsing the AOSP version-3 dual-clock format yielded 9,137 records
+(agreeing with the trace header), zero stack corrections and approximately 10.63
+sampled thread-CPU seconds. About 10.19 seconds were inclusive under topic formation,
+with substantial String/SHA-256 work. The sample captures active formation, not the
+entire cold-start interval; it does not attribute all Loading saved discoveries time
+to one operation. Format reference: https://android.googlesource.com/platform/art/+/c926e2623d15150171f08558adfde9837571f77d/runtime/trace.h
+
+FileTopicStore constructed the entire topic graph during initialization solely to
+find committed catalog filenames. Its decode path also constructed a JSON tree to
+detect the envelope, and registration deserialized the graph again merely to get
+the catalog key. A lightweight streaming envelope header now skips topic contents,
+retains the committed page descriptors and carries the catalog key alongside the
+single required full snapshot decode. Legacy snapshots remain supported; saved
+format, reference identity, catalog order and worker checkpoints are unchanged.
+
+A failing-first regression exposed a related destructive startup behavior: with
+readable envelope metadata but an invalid topic body, construction deleted committed
+catalog pages before the explicit validation read. Construction now identifies the
+committed pages without deserializing topic bodies. Explicit read still validates
+the full body and discards corrupt derived data through the existing recovery path.
+Review found explicit-null-versus-missing snapshot ambiguity; a second failing-first
+test covers null snapshots with and without catalog descriptors. Strict envelope
+validation is retained instead of accepting null as an empty legacy snapshot.
+
+### Formation reservation hotspot
+
+The profile led to the branch-reservation loop: every prior continuity entry rebuilt
+candidate source/page sets and rehashed the same passage bodies. Extracted
+reserveTopicBranches precomputes candidate evidence once per step, memoizes only
+shared passage identities within that call and preserves the existing source-overlap,
+specificity, page-overlap and earlier-candidate ranking. No cache survives a source
+or model generation, no second vector matrix is introduced, and durable formation
+progress remains unchanged. A failing-first work-bound property with 100 prior
+entries and two overlapping groups dropped identity computations from 400 to three,
+while ranking properties and existing engine contracts remain green. Periodic
+cancellation checks also cover hashing within a large candidate.
+
+Optional numeric-only restore stage start/duration diagnostics use the existing
+observer boundary. Observer failures cannot alter processing, and no Note content,
+query text or source identifier is logged. These distinguish metadata decode,
+eligibility/catalog reconciliation and publication on physical runs.
+
+### Publication hotspot
+
+The restore-stage diagnostics measured metadata loading at 7.779 seconds, latest/
+inspected eligibility at 4.3/1.3 ms and catalog eligibility at 12.4 ms, then a long
+publication stage. Topic publication rebuilt member maps, revalidated already-valid
+body evidence and rebuilt overlap token/window features for each topic pair.
+Publication now owns a per-call evidence context: one member map per topic and one
+overlap fingerprint per exact excerpt. Pair-level body checks are redundant only
+because the comparison's private call path first validates every member. All other
+callers retain their normal evidence checks. The exact 256-word cap, polarity set,
+four-word windows, .85 overlap threshold, canonical family checks and greedy
+publication ordering remain unchanged. The new work-bound property failed before
+memoization while the other 29 targeted publication/evidence tests passed; the full
+suite subsequently passed. Review found no material semantic/cache-key regression.
+
+### Verification
+
+Final JVM suite: 1,068 tests, zero failures/errors/skips. assembleDebug and
+compileDebugAndroidTestKotlin passed. Final accessibility verdict follows below.
+Slice whitespace checks passed. New reservation helper/test are intentionally tracked.
+
+Installed the final APK over Pixel data. The final foreground-verified CLI layout
+showed 50 of 50 indexed and topic cards, without Checking/Loading saved discoveries.
+Direct listings retain 50 source documents and 50 complete semantic records. Two
+post-optimization physical restores measured metadata/publication at 7.619/6.990s
+and 7.691/6.730s; subsequent unchanged publication measured 0.418ms in the first
+run. These are stage durations for the observed saved generation, not universal
+cold-start deadlines or a controlled end-to-end before/after speedup. Human TalkBack
+speech/listening remains unobserved.
+
+An aged emulator run lost Android system services: 14/21 tests were incomplete with
+two harness failures, and its automatic retry could install/run zero tests. This
+is recorded as failed/incomplete, never a passing suite. The emulator was restarted
+with setup-emulator.ps1 before the final targeted run.
+
+### Still open
+
+Further reduce the measured ~14–15s metadata/publication restore stages; measure
+remaining catalog validation/formation cost and general physical quality,
+resource and human TalkBack/listening gates. The seven-record gap is currently
+recovered, rather than an outstanding missing-source or missing-index condition.
+Home duplication and the remaining broader architecture plan continue from §106.
+
+## 108. Adaptive storage and a hundred-Note default (2026-10-21)
+
+### Contract and defaults
+
+The user requested storage controls and a practical default that handles roughly
+100 cached Notes. The old defaults were 50 MiB/200 cache entries and a shared
+64 MiB derived-data ceiling. Model INT4 quantization does not reduce the current
+768-dimensional float32 vector payload: each passage uses 3,072 vector bytes.
+The historical 19,304,090-byte benchmark is not current-width sizing evidence.
+
+Amended live Product, UI and Integration sources first, replaced fixed-budget
+requirements and regenerated mirrors with the repository exporter. Inspected all
+mirror diffs; unrelated governing text and the domain-model code block remain
+intact. Automatic Discovery growth replaces the library-wide fixed ceiling;
+Custom starts at 256 MiB. The Note cache defaults to 128 MiB, targeting 100 Notes
+of up to 1 MiB encoded size each. Preserve existing download choices and add the
+100-Note option. The 200-entry resource guard remains separately visible.
+
+A process-owned shared admission gate serializes significant private writes,
+checks the actual volume and keeps max(2 GiB, 10% capacity) free. Unknown space
+waits. Limits count old/new generations and staging across semantic records,
+reusable progress, topic/catalog/checkpoints and model files. Extended storage
+is an explicit optional ceiling of 80% of managed bytes plus free space above
+the reserve, never preallocated or filled as a target. Model transfers recheck
+in bounded buffers so a network download does not hold admission against manual
+reading for its whole duration. WorkManager also requires storage-not-low.
+
+### Measured sizing
+
+Shipping codecs/stores, deterministic synthetic data, no hand-edited API capture:
+
+| Workload | Measured bytes |
+| --- | ---: |
+| 100 near-one-MiB encoded source Notes | 104,493,870 |
+| 100 Notes, 10 passages each, semantic index | 4,087,390 |
+| 100 Notes, 50 passages each, semantic index | 20,330,990 |
+| 100 Notes, 100 passages each, semantic index | 40,635,490 |
+| 100 Notes, 500 passages each, semantic index | 203,231,490 |
+| 100-member topic plus 99-connection catalog | 218,775 |
+| Catalog included in preceding row | 142,248 |
+| Separate checkpoint copy of that fixture | 218,775 |
+
+Reusable passage progress occupies the same bytes as the index when the fixture
+deliberately duplicates it. At 100 passages per Note, two copies total 81,270,980
+bytes (~77.51 MiB), before topic/checkpoint data and temporary replacement peaks.
+This validates 128 MiB for the source reference workload and demonstrates why
+64 MiB is an inadequate universal derived ceiling. It does not predict arbitrary
+Note lengths, formation checkpoint growth or representative library quality.
+An observed shipping atomic write has old plus new files on disk before rename;
+an injected commit failure preserves the old file and cleans the temporary file.
+
+### Defects and review corrections
+
+Storage refusal previously escaped cache saving and could fail an otherwise
+successful manual reading/playback load. Such loads now use the fetched document
+without caching; speculative work still receives the refusal. Refused cache
+writes do not advance the invalidation journal or generation.
+
+Discovery capacity failure previously persisted explicit user Pause, preventing
+normal capacity recovery. It now reports incomplete coverage and leaves explicit
+Pause untouched; increasing capacity permits the existing scheduled retry path.
+Index clear/model deletion retain their rebuilding-disabled behavior.
+
+Independent review found overbroad protection of already-played queue entries
+and unsafe removal of the old per-record allocation bound. Protection now covers
+current/upcoming entries; queue advancement triggers deferred budget enforcement.
+Keep separate 8 MiB semantic-header and 64 MiB semantic/topic-envelope guards,
+validate lengths before reads, and report oversized records as a resource limit
+rather than storage full. Custom-limit reductions do not invalidate existing
+valid files. A canceled cache reduction resets the slider to its saved value.
+
+### Regression evidence
+
+The durable tools/proof-storage-policy.ps1 disables one shipping guard at a time,
+checks the exact named failing case and expected exception type, restores exact
+original bytes, then runs the complete JVM suite. Ten guard removals were detected:
+128 MiB default, protected put pruning, capacity versus explicit Pause, reading
+without cache space, physical reserve, custom limit, refusal journal immutability,
+atomic semantic admission, per-record memory guard, and release of played Notes.
+The reading guard correctly fails with StorageRefused; the other nine fail with
+AssertionError. An initial proof-run classifier incorrectly demanded AssertionError
+for that expected typed exception and rejected the run; the checker now pins the
+specific expected type per case rather than accepting arbitrary failures.
+
+Final restored JVM suite: 1,087 tests, zero failures/errors/skips. Final
+assembleDebug and compileDebugAndroidTestKotlin passed. The wrapper reported
+StorageSettingsAccessibilityTest 5/5 and SettingsScreenAccessibilityTest 13/13,
+both complete with no failures/skips. The storage class initially failed 2/2
+because controls were absent; the later cancel-value assertion failed 1/5 before
+its fix, then passed in the final run. These are scoped classes, not a full
+instrumented-suite claim. The emulator was started through setup-emulator.ps1.
+
+Foreground-verified CLI probing found the real Offline & storage screen,
+128 MiB limit, adjustment controls and extended-storage explanation. Changed
+128 to 256 MiB using a target read from the layout, force-stopped and cold-launched
+the app, reopened settings and observed 256 MiB. Restored 128 MiB without removing
+Notes. All taps and the scroll used current CLI layout bounds; no hard-coded
+coordinates. This demonstrates settings persistence across process restart,
+not TalkBack speech or full-library playback contention acceptance.
+
+New policy/coordinator/adapter/UI controls, sizing/admission/accessibility tests,
+design, plan and proof script are intentionally tracked. Scoped whitespace checks
+passed; pre-existing unrelated changes and their existing whitespace warnings
+were preserved. No commit, push or merge was performed.
+
+### Still open
+
+Human TalkBack speech/listening acceptance and representative full-library quality,
+resource and performance gates remain unobserved by these storage checks. The
+metadata/publication restore work and broader architecture follow-up from §107
+remain open. The 100-Note claim is a bounded sizing workload, not a promise for
+unbounded Note sizes. No remote-library indexing or automatic whole-library
+acquisition is introduced.

@@ -72,7 +72,10 @@ fun DiscoveryScreen(
     onViewInterest: ((String) -> Unit)? = null,
     semanticAvailable: Boolean = true,
     onBrowseNotes: (() -> Unit)? = null,
-    onViewInterests: (() -> Unit)? = null
+    onViewInterests: (() -> Unit)? = null,
+    cacheReady: Boolean = true,
+    cacheError: String? = null,
+    coverageDescription: String? = null
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val submitSearch = { keyboard?.hide(); onSearch() }
@@ -85,12 +88,21 @@ fun DiscoveryScreen(
         .semantics { paneTitle = "Discover" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Discover", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
         continueContent()
-        if (!semanticAvailable || cachedCount == 0) {
+        if (semanticAvailable && cacheError != null) {
+            Text(cacheError, style = MaterialTheme.typography.bodyMedium)
+            onManageDiscovery?.let { action ->
+                TextButton(onClick = action, modifier = Modifier.restoreFocusOn(focusTarget, "discovery_settings", onFocusHandled)) {
+                    Text("Manage discovery")
+                }
+            }
+        } else if (semanticAvailable && !cacheReady) {
+            Text("Checking cached Notes…", style = MaterialTheme.typography.bodyMedium)
+        } else if (!semanticAvailable || cachedCount == 0) {
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(if (!semanticAvailable) "Discover more in your Notes" else "Start with a few Notes",
                         Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-                    Text("$indexedCount of $cachedCount cached Notes indexed", style = MaterialTheme.typography.bodySmall,
+                    Text(coverageDescription ?: "$indexedCount of $cachedCount cached Notes indexed", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (!semanticAvailable) status ?: "Set up the optional on-device model to find topics and connections."
                         else "Open Notes in Browse to make them available for local search and discovery.",
@@ -103,7 +115,7 @@ fun DiscoveryScreen(
                 }
             }
         }
-        if (semanticAvailable && cachedCount > 0) {
+        if (semanticAvailable && cacheReady && cacheError == null && cachedCount > 0) {
         OutlinedTextField(query, onQueryChange, label = { Text("Search your cached Notes") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
             trailingIcon = { if (query.isNotBlank()) IconButton(onClick = submitSearch) {
@@ -112,7 +124,7 @@ fun DiscoveryScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { if (query.isNotBlank()) submitSearch() }))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("$indexedCount of $cachedCount cached Notes indexed", Modifier.weight(1f),
+            Text(coverageDescription ?: "$indexedCount of $cachedCount cached Notes indexed", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { filtersOpen = !filtersOpen }) { Text(if (filtersOpen) "Hide filters" else "Filters") }
         }

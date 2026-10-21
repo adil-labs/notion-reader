@@ -32,7 +32,7 @@ class InterestListeningTest {
             controller.resume(); controller.reconcile(listOf(ReaderIndexEntry(pageId, document.title)), true)
             controller.saveInterest(null, "forest")
             controller.loadInterestMatches(controller.state.value.interests.single().id)
-            val matches = controller.state.value.interestMatches
+            val matches = controller.state.value.interestMatch.matches
             assertEquals(pageId.replace("-", ""), matches.single().pageId)
             val requested = mutableListOf<String>()
             val engine = FakeReaderEngine(document)
@@ -60,10 +60,10 @@ class InterestListeningTest {
             controller.saveInterest(null, "forest")
             val id = controller.state.value.interests.single().id
             controller.loadInterestMatches(id)
-            assertTrue(controller.state.value.interestMatches.isEmpty())
+            assertTrue(controller.state.value.interestMatch.matches.isEmpty())
             controller.resume(); controller.reconcile(listOf(ReaderIndexEntry("forest", "Forest")), true)
             controller.loadInterestMatches(id)
-            assertEquals(listOf("forest"), controller.state.value.interestMatches.map { it.pageId })
+            assertEquals(listOf("forest"), controller.state.value.interestMatch.matches.map { it.pageId })
         } finally { root.deleteRecursively() }
     }
     @Test fun selectedInterestPlaybackAdvancesThroughItsFrozenNotesWhenTheInterestChanges() = runBlocking {
@@ -84,7 +84,7 @@ class InterestListeningTest {
                 ReaderNavigator(), DefaultLoadReaderDocument { id -> loaded += id; documents.first { it.pageId == id } }, discovery = controller)
             val host = ReaderHost(app, processScope)
             host.start()
-            app.prepareDiscoveryPreview(controller.state.value.interestMatches, "Interest: forest")
+            app.prepareDiscoveryPreview(controller.state.value.interestMatch.matches, "Interest: forest")
             app.playDiscoveryPreview()
             assertTrue(app.session.state.value.isPlaying)
             controller.updateFollow(interest.id, "Chess", "chess")
@@ -125,8 +125,8 @@ class InterestListeningTest {
             val before = app.session.queueState.value
             val calls = engine.callCount
             controller.loadInterestMatches(forest.id)
-            assertEquals((1..6).map { "forest$it" }, controller.state.value.interestMatches.map { it.pageId })
-            app.prepareDiscoveryPreview(controller.state.value.interestMatches, "Interest: forest")
+            assertEquals((1..6).map { "forest$it" }, controller.state.value.interestMatch.matches.map { it.pageId })
+            app.prepareDiscoveryPreview(controller.state.value.interestMatch.matches, "Interest: forest")
             controller.movePreview("forest2", -1)
             assertEquals(before, app.session.queueState.value)
             assertEquals(calls, engine.callCount)
@@ -141,7 +141,7 @@ class InterestListeningTest {
             controller.removePreview("forest2")
             assertEquals(expected, app.session.queueState.value.queue!!.items.map { it.pageId })
             controller.clearIndex()
-            assertTrue(controller.state.value.interestMatches.isEmpty())
+            assertTrue(controller.state.value.interestMatch.matches.isEmpty())
             assertEquals(2, controller.state.value.interests.size)
             assertEquals(expected, app.session.queueState.value.queue!!.items.map { it.pageId })
         } finally { root.deleteRecursively() }
@@ -159,10 +159,10 @@ class InterestListeningTest {
             controller.saveInterest(null, "", "seed")
             val id = controller.state.value.interests.single().id
             controller.loadInterestMatches(id)
-            assertEquals(listOf("other"), controller.state.value.interestMatches.map { it.pageId })
+            assertEquals(listOf("other"), controller.state.value.interestMatch.matches.map { it.pageId })
             cache.remove("seed"); controller.reconcile(entries, false); controller.loadInterestMatches(id)
-            assertTrue(controller.state.value.interestMatches.isEmpty())
-            assertTrue(controller.state.value.interestMessage!!.contains("recache", true))
+            assertTrue(controller.state.value.interestMatch.matches.isEmpty())
+            assertTrue(controller.state.value.interestMatch.message!!.contains("recache", true))
         } finally { root.deleteRecursively() }
     }
 
@@ -179,11 +179,11 @@ class InterestListeningTest {
             val id = controller.state.value.interests.single().id
             provider.duringQuery = { controller.updateFollow(id, "Chess", "chess") }
             controller.loadInterestMatches(id)
-            assertTrue(controller.state.value.interestMatches.isEmpty())
+            assertTrue(controller.state.value.interestMatch.matches.isEmpty())
             provider.duringQuery = null
             controller.loadInterestMatches(id)
-            assertEquals(id, controller.state.value.selectedInterestId)
-            assertTrue(controller.state.value.interestMatches.isEmpty())
+            assertEquals(id, controller.state.value.interestMatch.interestId)
+            assertTrue(controller.state.value.interestMatch.matches.isEmpty())
         } finally { root.deleteRecursively() }
     }
 }

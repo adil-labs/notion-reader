@@ -14,6 +14,28 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiscoveryModelDownloadTest {
+    @Test fun storageRefusalPreservesTheOldPackAndDoesNotStartTheNetwork() = runTest {
+        val dir = Files.createTempDirectory("model-space").toFile()
+        try {
+            dir.resolve("current").mkdirs()
+            dir.resolve("current/model").writeText("old")
+            var opened = false
+            val gate = object : com.example.notionreader.domain.document.StorageWriteGate {
+                override suspend fun <T> write(category: com.example.notionreader.domain.document.StorageCategory, additionalPeakBytes: Long, block: suspend () -> T): T {
+                    throw com.example.notionreader.domain.document.StorageRefused(com.example.notionreader.domain.document.StorageFailure.DEVICE_SPACE)
+                }
+            }
+            val manager = LocalDiscoveryModelManager(dir, backgroundScope, { true },
+                artifacts = listOf(ModelArtifact("model", 4, semanticHash("good"))), writeGate = gate,
+                open = { opened = true; ByteArrayInputStream("good".toByteArray()) },
+                ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            manager.download(); testScheduler.runCurrent()
+            assertFalse(opened)
+            assertEquals("old", dir.resolve("current/model").readText())
+            assertFalse(dir.resolve("staging").exists())
+            assertTrue(manager.state.value.message!!.contains("storage"))
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun changingQuantizationAtTheSameRevisionRequiresAnExplicitDownloadAndRetainsTheOldPack() = runTest {
         val dir = Files.createTempDirectory("model-quantization-migration").toFile()
         try {

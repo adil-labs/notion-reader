@@ -16,6 +16,20 @@ class ConnectionPresentationTest {
         assertEquals(ConnectionWindowRequest(0, 20), connectionWindowRequest(19, 20, 10_000))
         assertEquals(ConnectionWindowRequest(0, 0), connectionWindowRequest(0, 20, 0))
     }
+    @Test fun connectionHeadingsBelongToCatalogBoundariesRatherThanLoadedWindows() {
+        assertEquals("Named references (24)", connectionGroupHeading(0, 24, 80))
+        assertNull(connectionGroupHeading(20, 24, 80))
+        assertEquals("Similar passages (56)", connectionGroupHeading(24, 24, 80))
+        assertNull(connectionGroupHeading(40, 24, 80))
+        assertEquals("Similar passages (80)", connectionGroupHeading(0, 0, 80))
+    }
+
+    @Test fun previewCountMakesTheCompleteCatalogDiscoverableWithoutClaimingCompletion() {
+        assertEquals("2 of 80 connections", connectionPreviewCount(2, 80))
+        assertEquals("0 of 80 connections", connectionPreviewCount(0, 80))
+        assertEquals("1 connection", connectionPreviewCount(1, 1))
+    }
+
     private fun pair(index: Int): NoteConnection {
         fun member(id: String): TopicMembership {
             val text = "Forest ecosystems sustain diverse wildlife and protect woodland soil during seasonal rain."

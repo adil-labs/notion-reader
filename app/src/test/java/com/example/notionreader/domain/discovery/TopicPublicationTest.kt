@@ -16,6 +16,17 @@ class TopicPublicationTest {
         return DiscoveredTopic(id, label, members.first().passage,
             EmbeddedPassage(members.first().passage, vector), members, order)
     }
+    @Test fun publicationPreparesExcerptOverlapOnceRatherThanForEveryTopicPair() {
+        val topics = (0 until 20).map { topic("topic$it", "Orbital dynamics $it", theme = "Orbital dynamics $it") }
+        var preparations = 0
+        val result = publishableDiscoveryTopics(topics) { passage ->
+            preparations++; prepareDiscoveryPassageOverlap(passage)
+        }
+        assertTrue(result.isNotEmpty())
+        val excerpts = topics.flatMap { it.members }.map { it.passage.excerpt }.distinct().size
+        assertTrue("Overlap preparation must be bounded by distinct excerpts: $preparations vs $excerpts", preparations <= excerpts)
+    }
+
     @Test fun fallbackCandidatesRemainIntactButAreWithheld() {
         val fallback = topic("fallback", "Notes related to Research", theme = "Overview")
         val input = listOf(fallback)

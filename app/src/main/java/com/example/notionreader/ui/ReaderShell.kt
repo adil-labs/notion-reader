@@ -28,6 +28,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import com.example.notionreader.application.ReaderApp
 import com.example.notionreader.application.ReaderDestination
@@ -127,28 +128,7 @@ fun ReaderShell(
     onDeleteSmartQueue: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val sessionState by app.session.state.collectAsState()
-    val sessionDocument by app.session.document.collectAsState()
-    val queueState by app.session.queueState.collectAsState()
-    val noteDocument by app.noteViewer.document.collectAsState()
-    val noteLoad by app.noteViewer.loadState.collectAsState()
-    val browseState by app.browse.state.collectAsState()
-    val navigation by app.navigator.state.collectAsState()
-    // Not used directly: collecting it is what makes the lambda below re-run when history changes, since
-    // `continueListeningCards()` reads values rather than being a flow.
-    val history by app.history.collectAsState()
-    // Collected for the same reason `history` is: the Saved tab's cards are a projection of the queue
-    // records, and reading the flow here is what makes the tab recompose when one is created or edited.
-    val savedQueueRecords by app.savedQueues.collectAsState()
-    val smartQueueRecords by app.smartQueues.collectAsState()
-    // The pending set and its message, both of which Queue Destination and the Details screen it hands over
-    // to need. Collected here because the shell is what decides when they are rendered and consumed.
-    val queueMessage by app.queueMessage.collectAsState()
-    val settings by app.settings.collectAsState()
-    val cacheStats by app.cacheStats.collectAsState()
-    val recentHistoryMessage = app.recentNotes?.message?.collectAsState()?.value
-    val recentNotesCount = app.recentNotes?.referenceCount?.collectAsState()?.value ?: 0
-    val speechEngineState by app.speechEngineState.collectAsState()
+    val navigation by app.navigator.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val current = navigation.current
 
@@ -158,14 +138,6 @@ fun ReaderShell(
     // system's normal behaviour applies.
     if (navigation.canGoBack) {
         BackHandler { app.back() }
-    }
-
-    // The mini-player is deliberately absent on the Player, whose full surface already owns the same
-    // controls, and absent when there is no resumable session.
-    // Read the collected snapshots here: merely declaring delegated collectAsState values
-    // does not observe them on destinations that never access their delegates (e.g. Discover).
-    val miniPlayerCard = remember(sessionState, sessionDocument, queueState, history) {
-        app.continueListeningCard()
     }
 
     // Each destination keeps its own `rememberSaveable` state while another destination is on screen —
@@ -199,7 +171,7 @@ fun ReaderShell(
                             RelatedNotesScreen(matches.map { it.noteUi() }, onOpenNote, { app.back() },
                                 onGuided = { app.prepareDiscoveryPreview(matches) },
                                 focusTarget = navigation.focusTarget, onFocusHandled = app::focusHandled,
-                                status = discovery.message)
+                                status = discovery.message, discovery = discoveryStatus(discovery))
                         }
                     }
                     ReaderDestination.GuidedListening -> {
@@ -212,13 +184,17 @@ fun ReaderShell(
                                 unavailableIds = discovery.unavailablePreviewIds, status = discovery.previewStatus)
                         }
                     }
-                    ReaderDestination.DiscoveryTopics, ReaderDestination.DiscoveryTopic,
-                    ReaderDestination.DiscoveryConnection, ReaderDestination.DiscoveryConnections, ReaderDestination.DiscoveryInterest -> TopicDestinationContent(app, onOpenNote)
+                    ReaderDestination.DiscoveryTopics -> DiscoveryTopicsScreen(app)
+                    ReaderDestination.DiscoveryTopic -> TopicDetailsScreen(app, onOpenNote)
+                    ReaderDestination.DiscoveryConnection -> ConnectionDetailsScreen(app, onOpenNote)
+                    ReaderDestination.DiscoveryConnections -> ConnectionCatalogContent(app)
+                    ReaderDestination.DiscoveryInterest -> InterestDetailsScreen(app, onOpenNote)
                     ReaderDestination.DiscoverySeeds -> DiscoverySeedsContent(app)
                     ReaderDestination.SettingsDiscovery -> {
                         app.discovery?.let { controller ->
                             val discovery by controller.state.collectAsState()
                             val discoverySettings by app.settings.collectAsState()
+                            val storage by app.storageStatus.collectAsState()
                             val modelManager = app.discoveryModel
                             val model = modelManager?.state?.collectAsState()?.value
                             DiscoverySettingsScreen(
@@ -228,11 +204,10 @@ fun ReaderShell(
                                     modelInstalled = model?.installed ?: false,
                                     downloading = model?.downloading ?: false,
                                     wifiOnly = model?.wifiOnly ?: true,
-                                    indexingPaused = discovery.paused,
-                                    progress = "${discovery.indexedCount} of ${discovery.cachedPageIds.size} cached Notes indexed",
-                                    workDescription = listOfNotNull(discoveryPowerDescription(discovery), discoverySchedulingDescription(discovery), discoveryWorkDescription(discovery))
-                                        .joinToString("\n").ifEmpty { null },
-                                    storageDescription = "${discovery.bytes} bytes of 64 MiB used",
+                                    processing = discoveryStatus(discovery),
+                                    storageDescription = "${com.example.notionreader.ui.settings.formatBytes(storage.discoveryBytes ?: discovery.bytes)} used · " +
+                                        (if (discoverySettings.discoveryStorageAutomatic) "Automatic storage" else "Maximum ${com.example.notionreader.ui.settings.storageSize(discoverySettings.discoveryCustomLimitBytes)}") +
+                                        "\nModel files on device: ${com.example.notionreader.ui.settings.formatBytes(storage.modelBytes)}",
                                     error = model?.message ?: discovery.message,
                                     downloadAllowed = modelManager != null),
                                 onWifiOnlyChange = { modelManager?.setWifiOnly(it) },
@@ -244,94 +219,103 @@ fun ReaderShell(
                                 onClearIndex = { scope.launch { controller.clearIndex() } },
                                 onRebuild = { scope.launch { controller.clearIndex(); controller.resume() } },
                                 onBack = { app.back() },
+                                settings = discoverySettings,
+                                onStorageUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                                storageMessage = storage.message,
+                                extendedMaximumBytes = storage.extendedMaximumBytes,
                                 onEffortChange = { effort -> scope.launch {
                                     app.settingsRepo.updateSettings { it.copy(discoveryEffort = effort) }
                                 } })
                         }
                     }
 
-                    ReaderDestination.Browse -> BrowseScreen(
-                        state = browseState.results,
-                        allEntries = browseState.entries,
-                        isLoading = browseState.isLoading,
-                        error = browseState.error,
-                        queryText = browseState.query.text,
-                        query = browseState.query,
-                        onQueryChange = app.browse::setText,
-                        onSortChange = app.browse::setSort,
-                        onTypeFilterChange = app.browse::setTypeFilter,
-                        onAreaFilterChange = app.browse::setAreaFilter,
-                        onTopicFilterChange = app.browse::setTopicFilter,
-                        onProjectFilterChange = app.browse::setProjectFilter,
-                        onStatusFilterChange = app.browse::setStatusFilter,
-                        onClearFilters = app.browse::clearFilters,
-                        onOpenNote = { entry -> onOpenNoteWithHint(entry.pageId, entry.lastEditedAt) },
-                        onPlayAll = app::playAllVisibleResults,
-                        onAddAllToQueue = onAddAllToQueue,
-                        onClearQuery = app.browse::clearQuery,
-                        onRetry = onRetryBrowseIndex,
-                        onRefresh = onRefreshBrowseIndex,
-                        onExplore = app::openExploreCatalog,
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
-                    )
+                    ReaderDestination.Browse -> {
+                        val browseState by app.browse.state.collectAsStateWithLifecycle()
+                        BrowseScreen(
+                            state = browseState.results,
+                            allEntries = browseState.entries,
+                            isLoading = browseState.isLoading,
+                            error = browseState.error,
+                            queryText = browseState.query.text,
+                            query = browseState.query,
+                            onQueryChange = app.browse::setText,
+                            onSortChange = app.browse::setSort,
+                            onTypeFilterChange = app.browse::setTypeFilter,
+                            onAreaFilterChange = app.browse::setAreaFilter,
+                            onTopicFilterChange = app.browse::setTopicFilter,
+                            onProjectFilterChange = app.browse::setProjectFilter,
+                            onStatusFilterChange = app.browse::setStatusFilter,
+                            onClearFilters = app.browse::clearFilters,
+                            onOpenNote = { entry -> onOpenNoteWithHint(entry.pageId, entry.lastEditedAt) },
+                            onPlayAll = app::playAllVisibleResults,
+                            onAddAllToQueue = onAddAllToQueue,
+                            onClearQuery = app.browse::clearQuery,
+                            onRetry = onRetryBrowseIndex,
+                            onRefresh = onRefreshBrowseIndex,
+                            onExplore = app::openExploreCatalog,
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled
+                        )
+                    }
 
                     ReaderDestination.ExploreCatalog -> ExploreCatalogScreen(
                         catalog = app.exploreCatalog(),
                         onSelect = app::openExploreCard
                     )
 
-                    ReaderDestination.Queues -> QueuesScreen(
-                        // Both lists are read from `history`, which is collected above for the same reason
-                        // Home collects it: the entries are derived from it and from the live session, so
-                        // nothing here has to know which session is which.
-                        continueListening = history.let { app.listeningContinueEntries() },
-                        recentlyCompleted = history.let { app.listeningCompletedEntries() },
-                        // Continue restores the named session; Play on a completed entry starts a new one.
-                        // Two different operations, so two different calls rather than one with a flag.
-                        onContinue = onContinueSession,
-                        onReplay = onReplayCompleted,
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled,
-                        // The ordering is applied by the application layer, so the tab renders the list it
-                        // is given and cannot disagree with Home's *Your queues* about which is newest.
-                        savedQueues = savedQueueRecords.let { app.savedQueueCards() },
-                        onOpenSavedQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
-                        onCreateSavedQueue = app::openCreateSavedQueue,
-                        smartQueues = smartQueueRecords.let { app.smartQueueCards() },
-                        onOpenSmartQueue = { queueId -> app.openSmartQueueDetails(queueId, queueId) },
-                        onCreateSmartQueue = app::openCreateSmartQueue
-                    )
+                    ReaderDestination.Queues -> {
+                        val history by app.history.collectAsStateWithLifecycle()
+                        val savedQueueRecords by app.savedQueues.collectAsStateWithLifecycle()
+                        val smartQueueRecords by app.smartQueues.collectAsStateWithLifecycle()
+                        QueuesScreen(
+                            continueListening = history.let { app.listeningContinueEntries() },
+                            recentlyCompleted = history.let { app.listeningCompletedEntries() },
+                            onContinue = onContinueSession,
+                            onReplay = onReplayCompleted,
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled,
+                            savedQueues = savedQueueRecords.let { app.savedQueueCards() },
+                            onOpenSavedQueue = { queueId -> app.openSavedQueueDetails(queueId, queueId) },
+                            onCreateSavedQueue = app::openCreateSavedQueue,
+                            smartQueues = smartQueueRecords.let { app.smartQueueCards() },
+                            onOpenSmartQueue = { queueId -> app.openSmartQueueDetails(queueId, queueId) },
+                            onCreateSmartQueue = app::openCreateSmartQueue
+                        )
+                    }
 
-                    ReaderDestination.SavedQueueDetails -> SavedQueueDetailsScreen(
-                        // Read from the navigation state rather than held here: the queue the screen is
-                        // about is the pushed stop's subject, and a second copy in the shell would be a
-                        // second source of truth for it.
-                        queue = navigation.currentSubjectId?.let { app.savedQueueCard(it) },
-                        onOpenNote = { pageId -> onOpenNote(pageId) },
-                        onPlay = { queueId -> app.playSavedQueue(queueId) },
-                        // Edit mode's two operations. They perform I/O, so they need the scope the shell
-                        // does not have — hence two callbacks rather than a pass-through. The queue is read
-                        // from the navigation state here as well, because it is the shell that knows which
-                        // queue is open.
-                        onMove = { pageId, move ->
-                            navigation.currentSubjectId?.let { onMoveQueueMember(it, pageId, move) }
-                        },
-                        onRemove = { pageId ->
-                            navigation.currentSubjectId?.let { onRemoveQueueMember(it, pageId) }
-                        },
-                        onRename = { queueId, newName -> onRenameQueue(queueId, newName) },
-                        onDelete = { queueId -> onDeleteQueue(queueId) },
-                        // The operation's own message, which is read here because the Add navigates to this
-                        // screen and a move or a remove happens on it.
-                        report = queueMessage,
-                        onReportShown = app::consumeQueueMessage,
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
-                    )
+                    ReaderDestination.SavedQueueDetails -> {
+                        val queueMessage by app.queueMessage.collectAsStateWithLifecycle()
+                        SavedQueueDetailsScreen(
+                            // Read from the navigation state rather than held here: the queue the screen is
+                            // about is the pushed stop's subject, and a second copy in the shell would be a
+                            // second source of truth for it.
+                            queue = navigation.currentSubjectId?.let { app.savedQueueCard(it) },
+                            onOpenNote = { pageId -> onOpenNote(pageId) },
+                            onPlay = { queueId -> app.playSavedQueue(queueId) },
+                            // Edit mode's two operations. They perform I/O, so they need the scope the shell
+                            // does not have — hence two callbacks rather than a pass-through. The queue is read
+                            // from the navigation state here as well, because it is the shell that knows which
+                            // queue is open.
+                            onMove = { pageId, move ->
+                                navigation.currentSubjectId?.let { onMoveQueueMember(it, pageId, move) }
+                            },
+                            onRemove = { pageId ->
+                                navigation.currentSubjectId?.let { onRemoveQueueMember(it, pageId) }
+                            },
+                            onRename = { queueId, newName -> onRenameQueue(queueId, newName) },
+                            onDelete = { queueId -> onDeleteQueue(queueId) },
+                            // The operation's own message, which is read here because the Add navigates to this
+                            // screen and a move or a remove happens on it.
+                            report = queueMessage,
+                            onReportShown = app::consumeQueueMessage,
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled
+                        )
+                    }
 
                     ReaderDestination.SmartQueueDetails -> {
                         val smartQueue = navigation.currentSubjectId?.let { app.smartQueueCard(it) }
+                        val queueMessage by app.queueMessage.collectAsStateWithLifecycle()
                         SmartQueueDetailsScreen(
                             queue = smartQueue,
                             matchingNotes = smartQueue?.let { app.matchingNotesForSmartQueue(it.queryText) } ?: emptyList(),
@@ -346,15 +330,20 @@ fun ReaderShell(
                         )
                     }
 
-                    ReaderDestination.QueueDestination -> QueueDestinationScreen(
-                        queues = savedQueueRecords.let { app.savedQueueCards() },
-                        pendingCount = app.pendingAddCount,
-                        onCreateNewQueue = app::openCreateSavedQueue,
-                        onChooseQueue = onChooseQueueDestination,
-                        report = queueMessage,
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
-                    )
+                    ReaderDestination.QueueDestination -> {
+                        val savedQueueRecords by app.savedQueues.collectAsStateWithLifecycle()
+                        val pendingAdd by app.pendingAdd.collectAsStateWithLifecycle()
+                        val queueMessage by app.queueMessage.collectAsStateWithLifecycle()
+                        QueueDestinationScreen(
+                            queues = savedQueueRecords.let { app.savedQueueCards() },
+                            pendingCount = pendingAdd.size,
+                            onCreateNewQueue = app::openCreateSavedQueue,
+                            onChooseQueue = onChooseQueueDestination,
+                            report = queueMessage,
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled
+                        )
+                    }
 
                     ReaderDestination.CreateSavedQueue -> CreateSavedQueueScreen(
                         onCreate = onCreateSavedQueue
@@ -364,97 +353,132 @@ fun ReaderShell(
                         onCreate = onCreateSmartQueue
                     )
 
-                    ReaderDestination.Note -> NoteScreen(
-                        // The inspected document, not the one being read. Loading another Note must leave
-                        // the session alone, and this is what makes that visible.
-                        document = noteDocument,
-                        loadState = noteLoad,
-                        // Play means "creates a new Active Queue containing only this Note; starts from the
-                        // beginning; opens Player" — the one place a Note becomes playback, which is why it
-                        // is a named action rather than a side effect of loading.
-                        onPlay = app::playNote,
-                        onRetry = onRetryNoteLoad,
-                        onRefresh = onRefreshNote,
-                        // The Note's own `Add to queue`, which captures this one Note.
-                        onAddToQueue = onAddNoteToQueue,
-                        statusMessage = speechMessage,
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled,
-                        spacing = settings.readerSpacing,
-                        onRelatedNotes = app.discovery?.let { { scope.launch { app.openRelatedNotes(noteDocument.pageId) }; Unit } }
-                    )
+                    ReaderDestination.Note -> {
+                        val noteDocument by app.noteViewer.document.collectAsStateWithLifecycle()
+                        val noteLoad by app.noteViewer.loadState.collectAsStateWithLifecycle()
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        NoteScreen(
+                            // The inspected document, not the one being read. Loading another Note must leave
+                            // the session alone, and this is what makes that visible.
+                            document = noteDocument,
+                            loadState = noteLoad,
+                            // Play means "creates a new Active Queue containing only this Note; starts from the
+                            // beginning; opens Player" — the one place a Note becomes playback, which is why it
+                            // is a named action rather than a side effect of loading.
+                            onPlay = app::playNote,
+                            onRetry = onRetryNoteLoad,
+                            onRefresh = onRefreshNote,
+                            // The Note's own `Add to queue`, which captures this one Note.
+                            onAddToQueue = onAddNoteToQueue,
+                            statusMessage = speechMessage,
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled,
+                            spacing = settings.readerSpacing,
+                            onRelatedNotes = app.discovery?.let { { scope.launch { app.openRelatedNotes(noteDocument.pageId) }; Unit } }
+                        )
+                    }
 
-                    ReaderDestination.Player -> PlayerScreen(
-                        state = sessionState,
-                        // The session's title, not the Note screen's: the Player shows what is being read,
-                        // which is the document Play was pressed on.
-                        documentTitle = sessionDocument.title,
-                        // One entry point for every Player action, so the media session the Background
-                        // Playback spec adds becomes a transport rather than a second implementation.
-                        onCommand = { command, index -> app.invoke(command, index) },
-                        statusMessage = speechMessage,
-                        queueState = queueState,
-                        keepScreenAwake = settings.keepScreenAwake,
-                        defaultGranularity = when (settings.defaultNavigationUnit) {
-                            com.example.notionreader.domain.settings.NavigationUnit.SECTION -> NavigationGranularity.SECTION
-                            com.example.notionreader.domain.settings.NavigationUnit.PART -> NavigationGranularity.PART
-                            com.example.notionreader.domain.settings.NavigationUnit.NOTE -> NavigationGranularity.NOTE
-                        },
-                        onRetryQueueNote = app::retryQueueNote,
-                        onJumpToSection = app::jumpToSection,
-                        onRelatedNotes = app.discovery?.let { { scope.launch { app.openRelatedNotes(sessionDocument.pageId, "player_related") }; Unit } },
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
-                    )
+                    ReaderDestination.Player -> {
+                        val sessionState by app.session.state.collectAsStateWithLifecycle()
+                        val sessionDocument by app.session.document.collectAsStateWithLifecycle()
+                        val queueState by app.session.queueState.collectAsStateWithLifecycle()
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        PlayerScreen(
+                            state = sessionState,
+                            // The session's title, not the Note screen's: the Player shows what is being read,
+                            // which is the document Play was pressed on.
+                            documentTitle = sessionDocument.title,
+                            // One entry point for every Player action, so the media session the Background
+                            // Playback spec adds becomes a transport rather than a second implementation.
+                            onCommand = { command, index -> app.invoke(command, index) },
+                            statusMessage = speechMessage,
+                            queueState = queueState,
+                            keepScreenAwake = settings.keepScreenAwake,
+                            defaultGranularity = when (settings.defaultNavigationUnit) {
+                                com.example.notionreader.domain.settings.NavigationUnit.SECTION -> NavigationGranularity.SECTION
+                                com.example.notionreader.domain.settings.NavigationUnit.PART -> NavigationGranularity.PART
+                                com.example.notionreader.domain.settings.NavigationUnit.NOTE -> NavigationGranularity.NOTE
+                            },
+                            onRetryQueueNote = app::retryQueueNote,
+                            onJumpToSection = app::jumpToSection,
+                            onRelatedNotes = app.discovery?.let { { scope.launch { app.openRelatedNotes(sessionDocument.pageId, "player_related") }; Unit } },
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled
+                        )
+                    }
 
-                    ReaderDestination.Settings -> SettingsScreen(
-                        settings = settings,
-                        cachedNotesCount = cacheStats.noteCount,
-                        cacheSizeBytes = cacheStats.totalBytes,
-                        historyCount = history.size,
-                        speechEngineLabel = speechEngineState.availableEngines.firstOrNull { it.packageName == settings.ttsEnginePackage }?.label,
-                        notionStatus = app.notionConnectionStatus,
-                        onOpenPlayback = app::openSettingsPlayback,
-                        onOpenSpeech = app::openSettingsSpeech,
-                        onOpenOffline = app::openSettingsOffline,
-                        onOpenAppearance = app::openSettingsAppearance,
-                        onOpenNotion = app::openSettingsNotion,
-                        onOpenPrivacy = app::openSettingsPrivacy,
-                        onOpenAbout = app::openSettingsAbout,
-                        onOpenDiscovery = app.discovery?.let { app::openSettingsDiscovery },
-                        focusTarget = navigation.focusTarget,
-                        onFocusHandled = app::focusHandled
-                    )
+                    ReaderDestination.Settings -> {
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        val cacheStats by app.cacheStats.collectAsStateWithLifecycle()
+                        val history by app.history.collectAsStateWithLifecycle()
+                        val speechEngineState by app.speechEngineState.collectAsStateWithLifecycle()
+                        SettingsScreen(
+                            settings = settings,
+                            cachedNotesCount = cacheStats.noteCount,
+                            cacheSizeBytes = cacheStats.totalBytes,
+                            historyCount = history.size,
+                            speechEngineLabel = speechEngineState.availableEngines.firstOrNull { it.packageName == settings.ttsEnginePackage }?.label,
+                            notionStatus = app.notionConnectionStatus,
+                            onOpenPlayback = app::openSettingsPlayback,
+                            onOpenSpeech = app::openSettingsSpeech,
+                            onOpenOffline = app::openSettingsOffline,
+                            onOpenAppearance = app::openSettingsAppearance,
+                            onOpenNotion = app::openSettingsNotion,
+                            onOpenPrivacy = app::openSettingsPrivacy,
+                            onOpenAbout = app::openSettingsAbout,
+                            onOpenDiscovery = app.discovery?.let { app::openSettingsDiscovery },
+                            focusTarget = navigation.focusTarget,
+                            onFocusHandled = app::focusHandled
+                        )
+                    }
 
-                    ReaderDestination.SettingsPlayback -> SettingsPlaybackScreen(
-                        settings = settings,
-                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
-                        onBack = { app.back() }
-                    )
+                    ReaderDestination.SettingsPlayback -> {
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        SettingsPlaybackScreen(
+                            settings = settings,
+                            onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                            onBack = { app.back() }
+                        )
+                    }
 
-                    ReaderDestination.SettingsSpeech -> SettingsSpeechScreen(
-                        settings = settings,
-                        engineState = speechEngineState,
-                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
-                        onBack = { app.back() }
-                    )
+                    ReaderDestination.SettingsSpeech -> {
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        val speechEngineState by app.speechEngineState.collectAsStateWithLifecycle()
+                        SettingsSpeechScreen(
+                            settings = settings,
+                            engineState = speechEngineState,
+                            onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                            onBack = { app.back() }
+                        )
+                    }
 
-                    ReaderDestination.SettingsOffline -> SettingsOfflineScreen(
-                        settings = settings,
-                        cachedNotesCount = cacheStats.noteCount,
-                        cacheSizeBytes = cacheStats.totalBytes,
-                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
-                        onClearCache = { scope.launch { app.clearCache() } },
-                        onBack = { app.back() }
-                    )
+                    ReaderDestination.SettingsOffline -> {
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        val storage by app.storageStatus.collectAsStateWithLifecycle()
+                        val cacheStats by app.cacheStats.collectAsStateWithLifecycle()
+                        SettingsOfflineScreen(
+                            storageMessage = storage.message,
+                            extendedMaximumBytes = storage.extendedMaximumBytes,
+                            settings = settings,
+                            cachedNotesCount = cacheStats.noteCount,
+                            cacheSizeBytes = cacheStats.totalBytes,
+                            onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                            onClearCache = { scope.launch { app.clearCache() } },
+                            onBack = { app.back() }
+                        )
+                    }
 
-                    ReaderDestination.SettingsAppearance -> SettingsAppearanceScreen(
-                        settings = settings,
-                        onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
-                        onBack = { app.back() }
-                    )
+                    ReaderDestination.SettingsAppearance -> {
+                        val settings by app.settings.collectAsStateWithLifecycle()
+                        SettingsAppearanceScreen(
+                            settings = settings,
+                            onUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
+                            onBack = { app.back() }
+                        )
+                    }
 
                     ReaderDestination.SettingsNotion -> {
+                        val browseState by app.browse.state.collectAsStateWithLifecycle()
                         val indexStatus = when (browseState.index) {
                             is com.example.notionreader.application.BrowseIndexStatus.Loaded -> "Up to date"
                             is com.example.notionreader.application.BrowseIndexStatus.Loading -> "Checking…"
@@ -470,17 +494,23 @@ fun ReaderShell(
                         )
                     }
 
-                    ReaderDestination.SettingsPrivacy -> SettingsPrivacyScreen(
-                        historyCount = history.size,
-                        cachedNotesCount = cacheStats.noteCount,
-                        cacheSizeBytes = cacheStats.totalBytes,
-                        onClearHistory = { scope.launch { app.clearHistory() } },
-                        historyMessage = recentHistoryMessage,
-                        recentNotesCount = recentNotesCount,
-                        onClearCache = { scope.launch { app.clearCache() } },
-                        onClearAllData = { scope.launch { app.clearAllLocalData() } },
-                        onBack = { app.back() }
-                    )
+                    ReaderDestination.SettingsPrivacy -> {
+                        val history by app.history.collectAsStateWithLifecycle()
+                        val cacheStats by app.cacheStats.collectAsStateWithLifecycle()
+                        val recentHistoryMessage = app.recentNotes?.message?.collectAsStateWithLifecycle()?.value
+                        val recentNotesCount = app.recentNotes?.referenceCount?.collectAsStateWithLifecycle()?.value ?: 0
+                        SettingsPrivacyScreen(
+                            historyCount = history.size,
+                            cachedNotesCount = cacheStats.noteCount,
+                            cacheSizeBytes = cacheStats.totalBytes,
+                            onClearHistory = { scope.launch { app.clearHistory() } },
+                            historyMessage = recentHistoryMessage,
+                            recentNotesCount = recentNotesCount,
+                            onClearCache = { scope.launch { app.clearCache() } },
+                            onClearAllData = { scope.launch { app.clearAllLocalData() } },
+                            onBack = { app.back() }
+                        )
+                    }
 
                     ReaderDestination.SettingsAbout -> SettingsAboutScreen(
                         onBack = { app.back() }
@@ -489,13 +519,7 @@ fun ReaderShell(
             }
         }
 
-        if (miniPlayerCard != null && current != ReaderDestination.Player) {
-            MiniPlayer(
-                session = miniPlayerCard,
-                onOpenPlayer = app::continueListening,
-                onPlayPause = app::togglePlayPause
-            )
-        }
+        MiniPlayerHost(app = app, visible = current != ReaderDestination.Player)
 
         // Bottom navigation is shown only while the currently rendered destination is a top-level
         // destination (Home, Browse, Queues, Settings). Secondary destinations (Player, Note, Queue details,
@@ -535,5 +559,24 @@ fun ReaderShell(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MiniPlayerHost(app: ReaderApp, visible: Boolean) {
+    if (!visible) return
+    val sessionState by app.session.state.collectAsStateWithLifecycle()
+    val sessionDocument by app.session.document.collectAsStateWithLifecycle()
+    val queueState by app.session.queueState.collectAsStateWithLifecycle()
+    val history by app.history.collectAsStateWithLifecycle()
+    val miniPlayerCard = remember(sessionState, sessionDocument, queueState, history) {
+        app.continueListeningCard()
+    }
+    if (miniPlayerCard != null) {
+        MiniPlayer(
+            session = miniPlayerCard,
+            onOpenPlayer = app::continueListening,
+            onPlayPause = app::togglePlayPause
+        )
     }
 }

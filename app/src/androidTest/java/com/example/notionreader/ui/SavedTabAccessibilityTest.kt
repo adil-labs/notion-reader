@@ -202,6 +202,13 @@ class SavedTabAccessibilityTest {
         compose.onAllNodesWithText("Smart Queue", substring = true).assertCountEquals(0)
     }
 
+    @Test
+    fun savedQueueRowDeclaresButtonRole() {
+        show(queues = listOf(queue(name = "Android accessibility")))
+        compose.onNodeWithText("Android accessibility", substring = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, androidx.compose.ui.semantics.Role.Button))
+    }
+
     /**
      * One node carrying every fragment, which is the whole point of the assertion it is used for.
      *

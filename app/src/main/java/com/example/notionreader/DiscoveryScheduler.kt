@@ -15,6 +15,7 @@ internal class DiscoveryScheduler(context: Context,
         val existing = work.getWorkInfosForUniqueWork(immediateName).get()
         if (existing.any { !it.state.isFinished && tag !in it.tags }) work.cancelUniqueWork(immediateName)
         val constraints = Constraints.Builder()
+            .setRequiresStorageNotLow(true)
             // BatteryNotLow cannot express "30% OR external power" and could strand a
             // persisted job on low-battery charging after process death. Check exact power in-app.
             .setRequiresCharging(nextEffort == DiscoveryEffort.CHARGING_ONLY).build()

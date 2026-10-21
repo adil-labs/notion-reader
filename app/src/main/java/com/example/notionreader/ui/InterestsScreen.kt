@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
     }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
     if (state == null) Text("Interest management is unavailable in this configuration.")
     else {
+        if (!preview) DiscoveryStatusNotice(state)
         val interests = if (preview) state.interests.take(3) else state.interests
         if (interests.isEmpty()) Text("Follow a discovered topic or add an interest of your own.")
         Column(Modifier.semantics { collectionInfo = CollectionInfo(interests.size, 1) },

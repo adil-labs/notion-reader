@@ -42,8 +42,12 @@ class DiscoveryPowerAccessibilityTest {
             compose.setContent {
                 val state by controller.state.collectAsState()
                 DiscoverySettingsScreen(DiscoverySettingsUi("Test model", modelInstalled = true,
-                    indexingPaused = state.paused,
-                    workDescription = listOfNotNull(discoveryPowerDescription(state), estimate).joinToString("\n")),
+                    processing = discoveryStatus(state.copy(
+                        cacheStatus = com.example.notionreader.application.DiscoveryCacheStatus.Ready,
+                        modelAvailable = true,
+                        indexCoverage = com.example.notionreader.application.DiscoveryCoverageStatus.Ready,
+                        embeddingWork = com.example.notionreader.application.DiscoveryEmbeddingWork(3, 25,
+                            com.example.notionreader.application.ProcessingTimeRange(70, 170))))),
                     {}, {}, {}, {}, {}, {}, {}, {}, {})
             }
             compose.onNodeWithText("Waiting for power: connect a charger or reach 30% battery.", substring = true)

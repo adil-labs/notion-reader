@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -131,13 +132,17 @@ fun NoteScreen(
                         } else {
                             document.title
                         }
-                        Text(
-                            text = displayTitle,
-                            style = MaterialTheme.typography.headlineSmall,
-                            modifier = Modifier
-                                .weight(1f)
-                                .semantics { heading() }
-                        )
+                        if (displayTitle.isNotBlank()) {
+                            Text(
+                                text = displayTitle,
+                                style = MaterialTheme.typography.headlineSmall,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .semantics { heading() }
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                         IconButton(
                             onClick = onRefresh,
                             enabled = loadState !is DocumentLoadState.Loading,

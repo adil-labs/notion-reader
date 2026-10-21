@@ -331,6 +331,13 @@ class BrowseScreenAccessibilityTest {
         compose.onNodeWithText("1 result for \"Alpha\"", substring = true).assert(hasNoLiveRegion())
     }
 
+    @Test
+    fun browseResultRowDeclaresButtonRole() {
+        show(state = results("Thoughts are less reactive"))
+        compose.onNodeWithText("Thoughts are less reactive", substring = true)
+            .assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(SemanticsProperties.Role, androidx.compose.ui.semantics.Role.Button))
+    }
+
     /** Matches a node whose merged text contains every fragment. */
     private fun mergedTextContaining(vararg fragments: String) =
         androidx.compose.ui.test.SemanticsMatcher("merged text containing ${fragments.toList()}") { node ->

@@ -121,7 +121,12 @@ class PlaybackService : MediaSessionService() {
         addSession(sessionInstance)
 
         val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-        registerReceiver(noisyReceiver, noisyFilter)
+        ContextCompat.registerReceiver(
+            this,
+            noisyReceiver,
+            noisyFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     /**

@@ -30,6 +30,16 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderAppHistoryTest {
+    @Test fun repeatedSnapshotsOfOneSessionAppearOnlyOnceOnHome() = runTest {
+        val duplicate = storedSession(id = "same-session", notes = listOf(queuedNote("same-note")), completed = true, lastActivityAt = 100L)
+        val store = InMemorySessionStore(listOf(duplicate, duplicate, duplicate.copy(lastActivityAt = 200L)))
+        val (app, _) = app(store)
+        app.loadHistory()
+        assertEquals(listOf("same-session"), app.homeRecentListeningEntries().map { it.sessionId })
+        assertEquals(listOf("same-session"), app.listeningCompletedEntries().map { it.sessionId })
+        assertTrue(app.continueListeningCards().isEmpty())
+    }
+
 
     /** A fixed clock, so recency and retention are assertable rather than dependent on real time. */
     private var now = 1_000L
@@ -351,5 +361,35 @@ class ReaderAppHistoryTest {
         assertTrue(savedQueueStore.read().isEmpty())
         assertTrue("Settings must be reset to defaults", app.settings.value.continueToNextNote)
     }
-}
 
+    @Test
+    fun homeContinueListeningCardsUpdateWhenActiveQueueAdvances() = runTest {
+        val store = InMemorySessionStore()
+        val (app, _) = app(store)
+
+        val queue = com.example.notionreader.domain.queue.ActiveQueue.snapshotOf(
+            listOf(queuedNote("note-1"), queuedNote("note-2")),
+            QueueOrigin.BrowseResults
+        )
+
+        val doc1 = document("note-1", "Note 1")
+        val doc2 = document("note-2", "Note 2")
+        app.session.start(queue)
+        app.session.supplyDocument(doc1)
+        app.session.pause()
+
+        // Initially at Note 1 of 2
+        var cards = app.continueListeningCards(1)
+        assertEquals(1, cards.size)
+        assertEquals("Note 1 of 2", cards.first().queuePosition)
+
+        // Advance queue to Note 2
+        app.session.onCurrentNoteFinished()
+        app.session.supplyDocument(doc2)
+        app.session.pause()
+
+        // Assert that continueListeningCards reflects the new queueState position
+        cards = app.continueListeningCards(1)
+        assertEquals("Note 2 of 2", cards.first().queuePosition)
+    }
+}

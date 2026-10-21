@@ -16,6 +16,9 @@ data class ConnectionEvidence(val references: List<NamedNoteReference> = emptyLi
 private fun referenceText(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFKC)
     .trim().replace(Regex("\\s+"), " ").lowercase(Locale.ROOT)
 
+/** Shared title identity for incremental reference invalidation and candidate uniqueness. */
+internal fun connectionTitleKey(title: String): String = semanticHash(referenceText(title))
+
 private fun explicitTitlePattern(title: String): Regex {
     val instruction = "(?:^|[.!?;,:])\\s*(?:please\\s+|you (?:can|may)\\s+)?(?:open|read|see|consult|refer to|go to)\\s+(?:(?:the\\s+)?note\\s+)?"
     val citation = "(?:\\bas (?:described|discussed|explained) in|\\b(?:the\\s+)?note (?:titled|named|called))\\s+"

@@ -59,7 +59,10 @@ data class SemanticRecord(val pageId: String, val revision: String, val identity
 data class SemanticMatch(val pageId: String, val metadata: SemanticMetadata,
     val passage: SemanticPassage, val score: Float)
 
+enum class SemanticWriteFailure { Storage, RecordMemoryLimit }
+
 interface SemanticIndexStore {
+    val lastWriteFailure: SemanticWriteFailure? get() = null
     /** Drop optional read acceleration under resource pressure; never changes persisted data. */
     fun releaseMemory() {}
     suspend fun pageIds(): Set<String>

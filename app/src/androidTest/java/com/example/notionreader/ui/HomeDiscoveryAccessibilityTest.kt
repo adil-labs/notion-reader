@@ -1,6 +1,8 @@
 package com.example.notionreader.ui
 
+import androidx.compose.ui.semantics.CollectionItemInfo
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.example.notionreader.application.*
@@ -107,7 +109,7 @@ class HomeDiscoveryAccessibilityTest {
         val app = fixture(); show(app)
         val before = app.session.queueState.value
         click("Forest interest")
-        compose.waitUntil(5_000) { app.discovery!!.state.value.interestMatches.size == 3 }
+        compose.waitUntil(5_000) { app.discovery!!.state.value.interestMatch.matches.size == 3 }
         click("Preview listening")
         assertEquals(before, app.session.queueState.value)
         click("Play")
@@ -152,5 +154,33 @@ class HomeDiscoveryAccessibilityTest {
         assertEquals(ReaderDestination.Interests, app.navigator.state.value.current)
         compose.onNodeWithText("Add interest").assertIsFocused()
         assertEquals(before, app.session.queueState.value)
+    }
+
+    @Test
+    fun interestsContentCardsDeclareCollectionItemInfoMatchingRowIndices() {
+        val app = fixture()
+        compose.setContent {
+            InterestsContent(app = app, preview = false)
+        }
+
+        val state = app.discovery!!.state.value
+        val interests = state.interests
+        assertTrue("Fixture must contain interests", interests.isNotEmpty())
+
+        interests.forEachIndexed { index, interest ->
+            val expectedTitle = interest.displayName ?: interest.text
+            compose.onNode(hasText(expectedTitle, substring = true) and hasClickAction())
+                .assert(
+                    SemanticsMatcher.expectValue(
+                        SemanticsProperties.CollectionItemInfo,
+                        CollectionItemInfo(
+                            rowIndex = index,
+                            rowSpan = 1,
+                            columnIndex = 0,
+                            columnSpan = 1
+                        )
+                    )
+                )
+        }
     }
 }

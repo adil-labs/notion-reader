@@ -67,10 +67,15 @@ internal fun DiscoveryContent(app: ReaderApp, onOpenNote: (String) -> Unit) {
         onEditSeed = { app.navigator.open(ReaderDestination.DiscoverySeeds, fromFocusId = "discovery_interest:$it", subjectId = it) },
         onRelated = { scope.launch { app.openRelatedNotes(it, "discovery_related:$it") } },
 
-        onManageDiscovery = if (model?.installed == true && state.message == null && !state.paused) null else ({            app.navigator.open(ReaderDestination.SettingsDiscovery, "discovery_settings") }),
+        onManageDiscovery = if (!discoveryStatus(state).manageAvailable) null else ({
+            app.navigator.open(ReaderDestination.SettingsDiscovery, "discovery_settings") }),
         topicsContent = { TopicPreviews(app) },
         onViewInterests = { app.openInterests("discover_interests") },
-        semanticAvailable = model?.installed ?: (app.discoveryModel == null),        onBrowseNotes = app::openBrowse,
+        coverageDescription = discoveryStatus(state).coverage,
+        cacheReady = state.cacheStatus == com.example.notionreader.application.DiscoveryCacheStatus.Ready,
+        cacheError = (state.cacheStatus as? com.example.notionreader.application.DiscoveryCacheStatus.Failed)?.message,
+        semanticAvailable = state.modelAvailable,
+        onBrowseNotes = app::openBrowse,
         submittedSummary = state.query.takeIf { it.isNotBlank() }?.let { submitted ->
             val values = listOfNotNull(state.filters.selectedType, state.filters.selectedArea, state.filters.selectedTopic,
                 state.filters.selectedProject, state.filters.selectedStatus)
@@ -113,11 +118,11 @@ internal fun DiscoveryContent(app: ReaderApp, onOpenNote: (String) -> Unit) {
             }
         },
         focusTarget = navigation.focusTarget, onFocusHandled = app::focusHandled,
-        status = state.message ?: when {
+        status = state.message?.takeUnless { it == state.processingFailure } ?: when {
             model?.downloading == true -> discoveryModelDownloadProgress(model)
-            model != null && !model.installed -> "Download the optional on-device model in Discovery settings to search cached Notes."
+            !state.modelAvailable -> "Download the optional on-device model in Discovery settings to search cached Notes."
             state.searching -> "Searching cached Notes…"
-            state.query.isNotBlank() && state.results.isEmpty() -> "No matching cached Notes."
+            state.canSearch && state.query.isNotBlank() && state.results.isEmpty() -> "No matching cached Notes."
             else -> null
         })
 }

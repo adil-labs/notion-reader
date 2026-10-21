@@ -11,17 +11,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.notionreader.application.ReaderApp
 
 @Composable
 internal fun HomeDashboard(app: ReaderApp, onOpenNote: (String) -> Unit,
     onContinue: (String) -> Unit, onReplay: (String) -> Unit) {
-    val history by app.history.collectAsState()
-    val playback by app.session.state.collectAsState()
-    val nav by app.navigator.state.collectAsState()
-    val notes = app.recentNotes?.cards?.collectAsState()?.value.orEmpty()
-    val primary = history.let { playback; app.continueListeningCards(1).firstOrNull() }
-    val recent = history.let { app.homeRecentListeningEntries() }
+    val history by app.history.collectAsStateWithLifecycle()
+    val playback by app.session.state.collectAsStateWithLifecycle()
+    val queueState by app.session.queueState.collectAsStateWithLifecycle()
+    val nav by app.navigator.state.collectAsStateWithLifecycle()
+    val notes = app.recentNotes?.cards?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val primary = remember(history, playback, queueState) { app.continueListeningCards(1).firstOrNull() }
+    val recent = remember(history, playback, queueState) { app.homeRecentListeningEntries() }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
         .semantics { paneTitle = "Home" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Home", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->

@@ -8,6 +8,54 @@ import kotlin.math.sin
 class TopicDiscoveryEngineTest {
     private val identity = EmbeddingIdentity("test-dim2", 2)
 
+    @Test fun addingAnUnrelatedNoteKeepsCertifiedUnchangedTopicGroups() {
+        fun record(id: String, degrees: Double): SemanticRecord {
+            val text = "Forest ecology sustains wildlife habitats and protects woodland ecosystems."
+            val p = SemanticPassage("$id:p", id, "$id:s", "Forest ecology", "$id:b", "$id:c", 0, text.length, text, text, 0)
+            val angle = Math.toRadians(degrees)
+            return SemanticRecord(id, "r1", identity, SemanticMetadata(id), listOf(EmbeddedPassage(p, listOf(cos(angle).toFloat(), sin(angle).toFloat()))))
+        }
+        val policy = TopicPolicy(formationDistance = .1f, membership = .9f)
+        val original = (0..5).map { record("p$it", it.toDouble()) }
+        val prior = SectionHierarchicalEngine(identity, .1f, .9f).discover(original, null, policy)
+        val updated = original + record("new", 150.0)
+        val first = SectionHierarchicalEngine(identity, .1f, .9f).step(updated, prior, policy, workBudget = 1)
+        assertTrue("An unrelated addition must not dissolve a certified unchanged group", first.formationProgress!!.clusters.any { it.size == 6 })
+        val incremental = SectionHierarchicalEngine(identity, .1f, .9f).discover(updated, prior, policy)
+        val cold = SectionHierarchicalEngine(identity, .1f, .9f).discover(updated, null, policy)
+        fun groups(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { it.members.map { m -> m.pageId }.toSet() }.toSet()
+        assertEquals("Incremental reuse preserves cold exact grouping", groups(cold), groups(incremental))
+    }
+
+    @Test fun incrementalGroupsAgreeWithColdGroupingAcrossEditsDeletionsAndNearbyAdditions() {
+        fun record(id: String, degrees: Double, revision: String = "r1"): SemanticRecord {
+            val text = "Forest ecology sustains wildlife habitats and protects woodland ecosystems."
+            val p = SemanticPassage("$id:p", id, "$id:s", "Forest ecology", "$id:b", "$id:c", 0, text.length, text, text, 0)
+            val angle = Math.toRadians(degrees)
+            return SemanticRecord(id, revision, identity, SemanticMetadata(id), listOf(EmbeddedPassage(p, listOf(cos(angle).toFloat(), sin(angle).toFloat()))))
+        }
+        val policy = TopicPolicy(formationDistance = .1f, membership = .9f)
+        fun engine() = SectionHierarchicalEngine(identity, .1f, .9f)
+        var records = (0..5).map { record("a$it", it.toDouble()) } + (0..5).map { record("b$it", 100.0 + it) }
+        var prior = engine().discover(records, null, policy)
+        val edits = listOf(records + record("near", 12.0), records + record("bridge", 50.0),
+            records.drop(1), records.map { if (it.pageId == "a0") record("a0", 95.0, "r2") else it },
+            records.reversed(), records.map { it.copy(revision = "metadata-r2", metadata = SemanticMetadata("Renamed ${it.pageId}")) })
+        fun groups(value: TopicSnapshot) = (value.topics + value.provisionalTopics).map { topic ->
+            Triple(topic.label, topic.members.map { it.pageId }.toSet(), topic.members.map { it.revision }.toSet())
+        }.toSet()
+        for (updated in edits) {
+            val cold = engine().discover(updated, prior.copy(formationReuse = null), policy)
+            val incremental = engine().discover(updated, prior, policy)
+            assertEquals(groups(cold), groups(incremental))
+            prior = incremental; records = updated
+        }
+        val saved = prior.formationReuse!!
+        val corrupted = prior.copy(formationReuse = saved.copy(groups = listOf(saved.inputs.indices.toList())))
+        assertEquals(groups(engine().discover(records, prior.copy(formationReuse = null), policy)),
+            groups(engine().discover(records, corrupted, policy)))
+    }
+
     @Test fun membershipKeepsTheStrongestBodyPassageAcrossSectionsAndIgnoresHeadingOnlyEvidence() {
         fun body(id: String, page: String, vector: List<Float>, order: Int): EmbeddedPassage {
             val text = "Atomic transactions commit related writes together and recover safely after interruption."

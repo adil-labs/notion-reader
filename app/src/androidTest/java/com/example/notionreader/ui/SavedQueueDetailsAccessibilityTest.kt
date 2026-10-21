@@ -1,9 +1,14 @@
 package com.example.notionreader.ui
 
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -262,5 +267,41 @@ class SavedQueueDetailsAccessibilityTest {
         compose.onAllNodesWithText("Delete").assertCountEquals(2)
         compose.onAllNodesWithText("Delete")[1].assertIsReachable()
     }
-}
 
+    // ------------------------------------------------------------------------- Role and Disambiguation
+
+    @Test
+    fun savedQueueMemberRowDeclaresButtonRole() {
+        show()
+        compose.onNodeWithText("1. Android TTS overview")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+    }
+
+    @Test
+    fun moveControlsDisambiguateWithMemberTitleInContentDescription() {
+        show()
+        enterEditMode()
+
+        val memberTitle = "AccessibilityService notes"
+        val expectedMoves = listOf("Move up", "Move down", "Move to top", "Move to bottom")
+
+        for (move in expectedMoves) {
+            val disambiguatedMatcher = hasContentDescription("$move for $memberTitle", substring = true) or
+                hasText("$move for $memberTitle", substring = true)
+
+            compose.onNode(disambiguatedMatcher).assertExists().assertIsReachable()
+        }
+    }
+
+    @Test
+    fun removeControlDisambiguatesWithMemberTitleInContentDescription() {
+        show()
+        enterEditMode()
+
+        val memberTitle = "Android TTS overview"
+        val removeMatcher = hasContentDescription("Remove $memberTitle", substring = true) or
+            hasText("Remove $memberTitle", substring = true)
+
+        compose.onNode(removeMatcher).assertExists().assertIsReachable()
+    }
+}
