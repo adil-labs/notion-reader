@@ -8,6 +8,16 @@ import kotlinx.coroutines.yield
 
 enum class DiscoveryWindowResult { COMPLETE, PENDING, DEFERRED, PAUSED, UNAVAILABLE }
 
+internal fun discoveryWindowResult(modelInstalled: Boolean, state: DiscoveryState,
+    eligible: Boolean, hasPendingWork: Boolean): DiscoveryWindowResult = when {
+    !modelInstalled -> DiscoveryWindowResult.UNAVAILABLE
+    state.paused -> DiscoveryWindowResult.PAUSED
+    !eligible -> DiscoveryWindowResult.DEFERRED
+    state.processingFailure != null -> DiscoveryWindowResult.DEFERRED
+    hasPendingWork -> DiscoveryWindowResult.PENDING
+    else -> DiscoveryWindowResult.COMPLETE
+}
+
 /** Serializes foreground and scheduled windows; the step retains durable domain progress. */
 class DiscoveryWorkCoordinator(
     private val monotonicMillis: () -> Long,

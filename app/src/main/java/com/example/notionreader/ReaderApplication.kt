@@ -287,6 +287,11 @@ class ReaderApplication : Application() {
         )
 
         discoveryApp = app
+        discoveryScope.launch {
+            app.navigator.state.map { it.inspectsDiscovery }.distinctUntilChanged().collect {
+                discovery.setTopicsInspected(it)
+            }
+        }
         protectedCacheIds = {
             val queue = app.session.queueState.value
             com.example.notionreader.application.cacheProtectedPageIds(queue.items.map { it.pageId }, queue.index)
@@ -316,14 +321,8 @@ class ReaderApplication : Application() {
                 discoveryPower.value.allows(activeEffort) && discoveryModel.state.value.installed && !app.session.state.value.isPlaying
             app.recentNotes?.refresh()
             discovery.reconcile(app.browse.state.value.entries, eligible)
-            when {
-                !discoveryModel.state.value.installed -> com.example.notionreader.application.DiscoveryWindowResult.UNAVAILABLE
-                discovery.state.value.paused -> com.example.notionreader.application.DiscoveryWindowResult.PAUSED
-                !eligible -> com.example.notionreader.application.DiscoveryWindowResult.DEFERRED
-                discovery.state.value.message != null -> com.example.notionreader.application.DiscoveryWindowResult.DEFERRED
-                discovery.hasPendingWork -> com.example.notionreader.application.DiscoveryWindowResult.PENDING
-                else -> com.example.notionreader.application.DiscoveryWindowResult.COMPLETE
-            }
+            com.example.notionreader.application.discoveryWindowResult(discoveryModel.state.value.installed,
+                discovery.state.value, eligible, discovery.hasPendingWork)
         }
         discoveryWork = {
             discoveryModel.checkInstalled()

@@ -40,6 +40,7 @@ internal class TopicCoordinator(
     private var loaded = false
     @Volatile private var latest = TopicSnapshot()
     @Volatile private var view = TopicView()
+    private var inspected = false
     private val epoch = AtomicLong()
     private var connectionCursor = 0
     private var connectionPassageCursor = 0
@@ -49,9 +50,23 @@ internal class TopicCoordinator(
         val records: List<SemanticRecord>, val engine: SectionHierarchicalEngine)
     private val workspaceLock = Any()
     @Volatile private var formationWorkspace: FormationWorkspace? = null
-    var needsMoreWork: Boolean = false
+    @Volatile var needsMoreWork: Boolean = false
         private set
+
+    private fun retainPendingWork(startEpoch: Long) = synchronized(workspaceLock) {
+        if (startEpoch == epoch.get()) needsMoreWork = true
+    }
+    suspend fun setInspected(active: Boolean) = writes.withLock {
+        if (inspected == active) return@withLock
+        inspected = active
+        if (!active) {
+            view = TopicView(latest, status = latest.message, failure = view.failure)
+            store.pinInspection(latest)
+            changed(view)
+        }
+    }
     suspend fun refresh() = writes.withLock {
+        inspected = true
         val pinned = bulk { store.pinInspection(latest) }
         view = TopicView(latest, status = if (pinned) latest.message else "Connection catalog is unavailable. Retry processing.",
             failure = if (pinned) view.failure else "Connection catalog is unavailable. Retry processing.")
@@ -238,7 +253,7 @@ internal class TopicCoordinator(
                 }) }.copy(sourceSignature = token, connectionWork = ConnectionWork(connectionInputs, connectionTitleKeys))
             } catch (_: WorkPaused) {
                 // Keep the last durable quantum. A policy pause must not cancel the service collector.
-                needsMoreWork = true
+                retainPendingWork(startEpoch)
                 return
             }
         }
@@ -290,9 +305,9 @@ internal class TopicCoordinator(
         connectionTargetCursor = if (latest.sourceSignature == token) latest.connectionTargetCursor else 0
         val connectionPlan = ConnectionWork(connectionInputs, connectionTitleKeys, affectedConnections, unfinishedSeeds)
         val semantic = try { connections(sources, model, startEpoch, cacheRevision, referenceTitles, connectionPlan, compatibleConnections) }
-            catch (_: WorkPaused) { needsMoreWork = true; return }
+            catch (_: WorkPaused) { retainPendingWork(startEpoch); return }
             catch (_: java.io.IOException) {
-                if (epoch.get() != startEpoch || cache.revision.value != cacheRevision) { needsMoreWork = true; return }
+                if (epoch.get() != startEpoch || cache.revision.value != cacheRevision) { retainPendingWork(startEpoch); return }
                 needsMoreWork = false
                 failed("Stored connections are unavailable. Retry processing."); return
             }
@@ -325,7 +340,7 @@ internal class TopicCoordinator(
             val visibleChange = view.snapshot.topics != latest.topics || view.snapshot.connections != latest.connections ||
                 view.snapshot.catalogReference?.fingerprint != latest.catalogReference?.fingerprint ||
                 view.snapshot.complete != latest.complete || view.snapshot.connectionPassComplete != latest.connectionPassComplete
-            view = if (initial) TopicView(latest, status = result.message)
+            view = if (initial || !inspected) TopicView(latest, status = result.message)
                 else view.copy(updated = visibleChange, status = result.message, failure = null)
             store.pinInspection(view.snapshot)
             changed(view)
@@ -417,7 +432,12 @@ internal class TopicCoordinator(
     }
 
     suspend fun clear() = writes.withLock {
-        epoch.incrementAndGet(); formationWorkspace = null; store.clear(); checkpoint?.clear(); pendingFormation = null; latest = TopicSnapshot()
+        synchronized(workspaceLock) {
+            epoch.incrementAndGet()
+            needsMoreWork = false
+            formationWorkspace = null
+        }
+        store.clear(); checkpoint?.clear(); pendingFormation = null; latest = TopicSnapshot()
         view = TopicView(); changed(view)
     }
     suspend fun bytes(): Long = store.bytes() + (checkpoint?.bytes() ?: 0)

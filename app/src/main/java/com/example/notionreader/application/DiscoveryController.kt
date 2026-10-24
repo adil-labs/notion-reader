@@ -79,6 +79,7 @@ class DiscoveryController(
         recommendationThreshold, ::recordTiming)
 
     suspend fun refreshTopics() = withContext(workDispatcher) { topics?.refresh() }
+    suspend fun setTopicsInspected(active: Boolean) = withContext(workDispatcher) { topics?.setInspected(active) }
     fun sourcePageId(id: String): String = state.value.cachedSourceIds[canonicalSemanticId(id)] ?: id
     suspend fun loadInterestMatches(id: String, force: Boolean = false) = interests.loadInterestMatches(id, force)
     suspend fun followTopic(topicId: String, name: String, text: String) = interests.followTopic(topicId, name, text)

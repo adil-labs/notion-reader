@@ -5,6 +5,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryWorkCoordinatorTest {
+    @Test fun aSearchFailureDoesNotShortenAutomaticProcessingWindows() = runBlocking {
+        val failure = "Semantic search failed. Try again or rebuild the index."
+        val state = DiscoveryState(paused = false, searchFailure = failure, message = failure)
+        var steps = 0
+        val coordinator = DiscoveryWorkCoordinator({ 0L }) {
+            discoveryWindowResult(true, state, true, ++steps < 3)
+        }
+        assertEquals(DiscoveryWindowResult.COMPLETE, coordinator.runWindow(100))
+        assertEquals(3, steps)
+        assertEquals(failure, state.searchFailure)
+    }
+
+    @Test fun processingFailuresStillDeferAutomaticWork() {
+        val state = DiscoveryState(paused = false, indexFailure = "Storage is full")
+        assertEquals(DiscoveryWindowResult.DEFERRED, discoveryWindowResult(true, state, true, true))
+    }
     @Test fun aWindowCompletesPendingRoundsWithoutAnotherUserRequest() = runBlocking {
         var steps = 0
         val coordinator = DiscoveryWorkCoordinator({ 0L }) {

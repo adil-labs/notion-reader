@@ -17,6 +17,23 @@ import org.junit.Test
  * decision rather than a contract rule.
  */
 class ReaderNavigatorTest {
+    @Test fun discoveryInspectionSurvivesANoteTripAndEndsWhenItsNavigationContextIsLeft() {
+        val navigator = ReaderNavigator()
+        assertFalse(navigator.state.value.inspectsDiscovery)
+        navigator.openTopLevel(ReaderDestination.Discover)
+        assertTrue(navigator.state.value.inspectsDiscovery)
+        navigator.open(ReaderDestination.DiscoveryTopic, "topic:forest", "forest")
+        navigator.open(ReaderDestination.Note, "note")
+        assertTrue(navigator.state.value.inspectsDiscovery)
+        navigator.back()
+        assertTrue(navigator.state.value.inspectsDiscovery)
+        navigator.openTopLevel(ReaderDestination.Home)
+        assertFalse(navigator.state.value.inspectsDiscovery)
+        navigator.open(ReaderDestination.DiscoveryConnections, "connections")
+        assertTrue(navigator.state.value.inspectsDiscovery)
+        navigator.back()
+        assertFalse(navigator.state.value.inspectsDiscovery)
+    }
     @Test fun restoringATabDoesNotOverwriteRetainedSecondaryNavigation() {
         val cold = ReaderNavigator()
         cold.restoreTopLevelIfNew("Discover")

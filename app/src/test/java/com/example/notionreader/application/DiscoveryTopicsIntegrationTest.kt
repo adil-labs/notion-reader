@@ -18,6 +18,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
+    @Test fun newlyCachedNotesPublishAutomaticallyBeforeAnyDiscoveryViewIsInspected() = runBlocking {
+        val dir = Files.createTempDirectory("automatic-topic-publication").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
+                Provider(), topicStore = Store())
+            suspend fun add(id: String) { cache.put(CachedDocument(ReaderDocument.fromChunkTexts(id, "Forest $id",
+                listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
+            repeat(3) { add("p$it") }
+            controller.resume(); controller.reconcile(emptyList(), true)
+            assertEquals(3, controller.state.value.topicSnapshot.topics.single().members.size)
+            add("p3")
+            repeat(10) { if (controller.hasPendingWork) controller.reconcile(emptyList(), true) }
+            assertFalse(controller.hasPendingWork)
+            assertEquals(4, controller.state.value.topicSnapshot.topics.single().members.size)
+            assertFalse(controller.state.value.topicsUpdated)
+            controller.setTopicsInspected(true)
+            add("p4")
+            repeat(10) { if (controller.hasPendingWork) controller.reconcile(emptyList(), true) }
+            assertFalse(controller.hasPendingWork)
+            assertEquals(4, controller.state.value.topicSnapshot.topics.single().members.size)
+            assertTrue(controller.state.value.topicsUpdated)
+            controller.setTopicsInspected(false)
+            assertEquals(5, controller.state.value.topicSnapshot.topics.single().members.size)
+            assertFalse(controller.state.value.topicsUpdated)
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun aHundredNoteConnectionSweepResumesAndReconcilesMovesAndRemovalsExactly() = runBlocking {
         val dir = Files.createTempDirectory("hundred-note-connections").toFile()
         try {
@@ -322,6 +350,7 @@ class DiscoveryTopicsIntegrationTest {
                 "Forest ecology sustains diverse wildlife habitats and woodland ecosystems.",
                 "Forest ecology protects river habitats and supports diverse wildlife populations.")), null, Instant.EPOCH)) }
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(), topicStore = Store())
+            controller.setTopicsInspected(true)
             controller.reconcile(emptyList(), true)
             assertTrue(controller.hasPendingWork)
             repeat(10) { if (controller.hasPendingWork) controller.reconcile(emptyList(), true) }

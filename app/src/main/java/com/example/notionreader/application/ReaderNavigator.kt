@@ -84,6 +84,11 @@ data class ReaderNavigation(
      */
     val focusTarget: String? = null
 ) {
+    /** Preserve inspected ordering while a Note or listening flow sits above Discovery. */
+    val inspectsDiscovery: Boolean get() = top == ReaderDestination.Discover || secondary.any {
+        it.destination in setOf(ReaderDestination.DiscoveryTopics, ReaderDestination.DiscoveryTopic,
+            ReaderDestination.DiscoveryConnection, ReaderDestination.DiscoveryConnections)
+    }
     /** The destination on screen. */
     val current: ReaderDestination get() = secondary.lastOrNull()?.destination ?: top
 

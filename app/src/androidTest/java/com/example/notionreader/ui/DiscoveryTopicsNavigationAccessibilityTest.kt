@@ -100,6 +100,8 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         }
         val app = ReaderApp(ReaderSession(ReaderEngineImpl(speech, documents.first())), NoteViewer(documents.first()),
             ReaderNavigator(ReaderNavigation(top = ReaderDestination.Discover)), DefaultLoadReaderDocument { id -> documents.first { it.pageId == id } }, discovery = controller)
+        // This fixture bypasses ReaderApplication's process-owned navigation collector.
+        controller.setTopicsInspected(app.navigator.state.value.inspectsDiscovery)
         app.loadBrowseIndex { entries }
         Fixture(app, cache, entries)
     }
