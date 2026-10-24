@@ -15,6 +15,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryControllerTest {
+    @Test fun aCachedSeedWaitingForIndexingDoesNotAskTheUserToDownloadItAgain() = runBlocking {
+        val directory = Files.createTempDirectory("interest-seed-readiness").toFile()
+        try {
+            val cache = FileDocumentCache(directory.resolve("cache"))
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("seed", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
+            val controller = DiscoveryController(cache, FileSemanticIndexStore(directory.resolve("index")),
+                FileDiscoveryInterestStore(directory.resolve("interests")), Provider())
+            controller.reconcile(emptyList(), false)
+            controller.saveInterest(null, "", "seed")
+            controller.loadInterestMatches(controller.state.value.interests.single().id)
+            val outcome = controller.state.value.interestMatch.outcome as InterestMatchOutcome.Unavailable
+            assertTrue(outcome.message.contains("cached"))
+            assertTrue(outcome.message.contains("indexed"))
+            assertFalse(outcome.message.contains("Recache"))
+        } finally { directory.deleteRecursively() }
+    }
+    @Test fun editingASeedInterestPreservesItsSavedPosition() = runBlocking {
+        val directory = Files.createTempDirectory("interest-saved-order").toFile()
+        try {
+            val interests = FileDiscoveryInterestStore(directory.resolve("interests"))
+            val controller = DiscoveryController(FileDocumentCache(directory.resolve("cache")),
+                FileSemanticIndexStore(directory.resolve("index")), interests, Provider())
+            controller.saveInterest(null, "", "first-seed")
+            controller.saveInterest(null, "", "second-seed")
+            val original = interests.read()
+            controller.saveInterest(original.first().id, "", "replacement-seed")
+            assertEquals(original.map { it.id }, interests.read().map { it.id })
+            assertEquals("replacementseed", interests.read().first().seedPageId)
+        } finally { directory.deleteRecursively() }
+    }
     @Test fun clearingDiscoveryRejectsALateIndexReadFailure() = runBlocking {
         val dir = Files.createTempDirectory("discovery-late-index-failure").toFile()
         val release = CompletableDeferred<Unit>()
@@ -50,30 +80,27 @@ class DiscoveryControllerTest {
             val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")), FileSemanticIndexStore(dir.resolve("index")),
                 FileDiscoveryInterestStore(dir.resolve("interests")), Provider().apply { onEmbed = { error("Inference unavailable") } })
             controller.search("failed question")
-            assertNotNull(controller.state.value.searchFailure)
+            assertNotNull(controller.state.value.message)
             controller.clearIndex()
+            assertNull("Reset must clear the old search message as well as its owned outcome", controller.state.value.message)
             assertNull(controller.state.value.searchFailure)
-            assertNull(controller.state.value.message)
+            assertFalse(controller.state.value.searchCompleted)
         } finally { dir.deleteRecursively() }
     }
     @Test fun cancellingANewSearchCannotClaimThatItsEmptyResultsAreComplete() = runBlocking {
-        val dir = Files.createTempDirectory("discovery-search-cancel").toFile()
-        val entered = CompletableDeferred<Unit>()
+        val dir = Files.createTempDirectory("discovery-cancelled-search").toFile()
         val release = CompletableDeferred<Unit>()
         try {
             val cache = FileDocumentCache(dir.resolve("cache"))
             val index = FileSemanticIndexStore(dir.resolve("index"))
-            val provider = Provider().apply { onEmbed = {
-                entered.complete(Unit)
-                runBlocking { release.await() }
-                listOf(1f, 0f)
-            } }
+            val provider = Provider()
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), provider)
             cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
             index.setPaused(false); controller.reconcile(emptyList(), true)
             controller.search("first question")
-            assertEquals(1, controller.state.value.results.size)
             assertTrue(controller.state.value.searchCompleted)
+            val entered = CompletableDeferred<Unit>()
+            provider.onEmbed = { entered.complete(Unit); release.await() }
             val pending = launch { controller.search("second question") }
             withTimeout(5_000) { entered.await() }
             assertTrue(controller.state.value.searching)

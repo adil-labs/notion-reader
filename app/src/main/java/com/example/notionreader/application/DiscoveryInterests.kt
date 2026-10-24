@@ -34,6 +34,9 @@ internal class DiscoveryInterests(
     suspend fun loadInterestMatches(id: String, force: Boolean = false) {
         val request = matching.begin()
         val interestEpoch = interestGeneration.get()
+        fun publishMatch(transform: (DiscoveryState) -> DiscoveryState) = matching.publish(mutable, request) {
+            if (interestEpoch == interestGeneration.get()) transform(it) else it
+        }
         try {
             withContext(workDispatcher) {
                 if (!matching.isCurrent(request)) return@withContext
@@ -44,12 +47,12 @@ internal class DiscoveryInterests(
                 val current = state.value.interestMatch
                 val ready = current.outcome as? InterestMatchOutcome.Ready
                 if (!force && ready != null && current.interestId == id && ready.key == key) return@withContext
-                matching.publish(mutable, request) {
+                publishMatch {
                     it.copy(interestMatch = InterestMatchState(id, InterestMatchOutcome.Loading))
                 }
                 if (interest == null || !modelAvailable()) {
                     val message = if (interest == null) "Interest unavailable." else "Set up Discovery in Settings to find matching Notes."
-                    matching.publish(mutable, request) {
+                    publishMatch {
                         it.copy(interestMatch = InterestMatchState(id, InterestMatchOutcome.Unavailable(message)))
                     }
                     return@withContext
@@ -60,9 +63,11 @@ internal class DiscoveryInterests(
                         else runtime.inference.withLock { runtime.embedExactInput(interest.text) }
                     vector?.let { retrieval.retrieve(it, BrowseQuery.Default, 20, interest.seedPageId, recommendationThreshold) }
                 } } finally { runtime.foregroundQueries.decrementAndGet() }
-                if (interestEpoch == interestGeneration.get()) matching.publish(mutable, request) {
+                publishMatch {
                     val outcome = if (matches == null) InterestMatchOutcome.Unavailable(
-                        "Seed Note unavailable. Recache it in Browse to find matching Notes.")
+                        if (interest.seedPageId != null && canonicalSemanticId(interest.seedPageId) in it.cachedPageIds)
+                            "Seed Note is cached, but no indexed content is available for matching. Check Discovery settings."
+                        else "Seed Note unavailable. Recache it in Browse to find matching Notes.")
                     else InterestMatchOutcome.Ready(requireNotNull(key), matches,
                         if (matches.isEmpty()) "No matching indexed Notes for this interest. Try editing it or caching more Notes." else null)
                     it.copy(interestMatch = InterestMatchState(id, outcome))
@@ -71,7 +76,7 @@ internal class DiscoveryInterests(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            matching.publish(mutable, request) {
+            publishMatch {
                 it.copy(interestMatch = InterestMatchState(id,
                     InterestMatchOutcome.Failed("Matching Notes are unavailable. Try again.")))
             }
@@ -100,6 +105,7 @@ internal class DiscoveryInterests(
         }
         if (updated == current) return@withLock
         interestStore.write(updated); interestGeneration.incrementAndGet()
+        if (mutable.value.interestMatch.interestId == id) matching.reset()
         mutable.update { it.copy(interests = updated, interestMatch = if (it.interestMatch.interestId == id) InterestMatchState(id) else it.interestMatch) }
     }
     suspend fun refreshRecommendations() {
@@ -126,9 +132,15 @@ internal class DiscoveryInterests(
             }
             val ordered = recommendations.sortedWith(compareByDescending<SemanticMatch> { it.score }.thenBy { it.pageId }).distinctBy { it.pageId }
             val older = olderMatches.sortedWith(compareByDescending<SemanticMatch> { it.score }.thenBy { it.pageId }).distinctBy { it.pageId }.take(5)
-            if (epoch == runtime.generation.get() && interestsEpoch == interestGeneration.get() && sourceRevision == cache.revision.value) mutable.update { it.copy(recommendations = ordered.take(5), older = older) }
+            mutable.update {
+                if (epoch == runtime.generation.get() && interestsEpoch == interestGeneration.get() && sourceRevision == cache.revision.value)
+                    it.copy(recommendations = ordered.take(5), older = older) else it
+            }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { mutable.update { it.copy(message = "Interest recommendations are unavailable. Try again.") } }
+        catch (_: Exception) { mutable.update {
+            if (epoch == runtime.generation.get() && interestsEpoch == interestGeneration.get() && sourceRevision == cache.revision.value)
+                it.copy(message = "Interest recommendations are unavailable. Try again.") else it
+        } }
     }
 
     suspend fun saveInterest(id: String?, text: String, seedPageId: String? = null) = interestWrites.withLock {
@@ -139,9 +151,10 @@ internal class DiscoveryInterests(
         val interest = DiscoveryInterest(id ?: UUID.randomUUID().toString(), if (seedPageId == null) label else "", seedPageId?.let(::canonicalSemanticId),
             old?.displayName, old?.originTopicId)
         if (old == interest) return@withLock
-        val updated = current.filterNot { it.id == interest.id } + interest
+        val updated = if (old == null) current + interest else current.map { if (it.id == interest.id) interest else it }
         interestStore.write(updated)
         interestGeneration.incrementAndGet()
+        if (mutable.value.interestMatch.interestId == interest.id) matching.reset()
         mutable.update { it.copy(interests = updated, interestMatch = if (it.interestMatch.interestId == interest.id) InterestMatchState(interest.id) else it.interestMatch) }
     }
     suspend fun removeInterest(id: String) = interestWrites.withLock {
@@ -149,8 +162,9 @@ internal class DiscoveryInterests(
         val updated = interestStore.read().filterNot { it.id == id }
         interestStore.write(updated)
         interestGeneration.incrementAndGet()
+        if (mutable.value.interestMatch.interestId == id) matching.reset()
         mutable.update { it.copy(interests = updated, recommendations = emptyList(), older = emptyList(),
-            interestMatch = if (it.interestMatch.interestId == id) InterestMatchState(id) else it.interestMatch) }
+            interestMatch = if (it.interestMatch.interestId == id) InterestMatchState() else it.interestMatch) }
     }
     suspend fun clearInterests() = interestWrites.withLock { runtime.embeddingMemo.clear(); interestStore.write(emptyList()); interestGeneration.incrementAndGet(); matching.reset(); mutable.update { it.copy(interests = emptyList(), recommendations = emptyList(), older = emptyList(), interestMatch = InterestMatchState()) } }
 }

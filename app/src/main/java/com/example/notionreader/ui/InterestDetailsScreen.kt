@@ -33,7 +33,8 @@ internal fun InterestDetailsScreen(
     val modelInstalled = state.modelAvailable
 
     LaunchedEffect(subject, interest, modelInstalled, state.cacheStatus, state.cachedRevision, state.indexedRevision) {
-        if (state.cacheStatus == com.example.notionreader.application.DiscoveryCacheStatus.Ready) subject?.let { controller.loadInterestMatches(it) }
+        if (state.cacheStatus == com.example.notionreader.application.DiscoveryCacheStatus.Ready)
+            interest?.let { controller.loadInterestMatches(it.id) }
     }
 
     val name = interest?.displayName
