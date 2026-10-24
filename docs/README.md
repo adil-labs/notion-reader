@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#108-adaptive-storage-and-a-hundred-note-default-2026-10-21)
+[the current decision-record entry](decisions.md#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§108)](#108-adaptive-storage-and-a-hundred-note-default-2026-10-21)
+[current implementation and open work (§111)](#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -10677,3 +10677,304 @@ metadata/publication restore work and broader architecture follow-up from §107
 remain open. The 100-Note claim is a bounded sizing workload, not a promise for
 unbounded Note sizes. No remote-library indexing or automatic whole-library
 acquisition is introduced.
+
+## 109. Pixel Discover audit and request lifecycle recovery (2026-10-21)
+
+### Scope and findings
+
+The requested S25 was unavailable; the user connected a Pixel 8 Pro instead.
+Physical evidence in this round is Android 17/API 37 on that Pixel, not Samsung
+coverage. Reviewed governing Product/UI/Integration Discovery semantics, the
+current implementation boundary and §108 before changing behavior. These fixes
+implement existing error, reset, incomplete-coverage and playback-isolation rules;
+no generated specification was edited.
+
+A failed new search retained the previous query's matches. Background reconciliation
+also cleared the foreground search error, making failure resemble a successful
+empty result. Search now owns its failure and completion state, withdraws old
+matches on a new request, and declares completion only after successful retrieval.
+Cancellation cannot announce a completed empty search. Index clear removes both
+the owned error and its legacy status copy. Recommendation success/failure and
+index-read failure publication reject superseded reset/source/interest generations;
+recommendation guards run inside the state update transform.
+
+A real-device background topic checkpoint hit the existing one MiB continuity
+bound with 50 cached Notes. The store correctly preserved the previous generation,
+but the UI called the resource bound a validation failure and suggested retrying.
+It now describes the continuity memory limit and incomplete coverage explicitly.
+The bound remains separate from adaptive disk storage, as the governing contract
+requires. This is not proof that topic formation completes for 100 arbitrary Notes.
+A temporary diagnostic printed only the structural rejection category; it was
+removed and the final APK was rebuilt and installed.
+
+### Regression evidence
+
+The tracked `tools/proof-discovery-search-lifecycle.ps1` mutates the shipping guards,
+requires exactly the selected named test to fail with AssertionError, restores the
+original source bytes, then runs the full JVM suite. All six lifecycle guards were
+proved together; the subsequently added continuity explanation was proved separately.
+
+| Guard removed | Test that noticed |
+| --- | --- |
+| Withdraw previous search matches | aFailedNewSearchCannotShowResultsFromThePreviousQuery |
+| Reject late recommendation publication | clearingDiscoveryRejectsALateRecommendationFailure |
+| Preserve foreground error during reconciliation | backgroundIndexCheckingCannotEraseASearchFailure |
+| Reset request completion state | cancellingANewSearchCannotClaimThatItsEmptyResultsAreComplete |
+| Clear legacy search status | clearingTheIndexRemovesThePreviousSearchFailure |
+| Reject late index-read failure | clearingDiscoveryRejectsALateIndexReadFailure |
+| Describe continuity resource bound | continuityMemoryLimitReportsIncompleteCoverageInsteadOfInvalidData |
+
+The last test uses the shipping FileTopicStore, actually exceeds its continuity
+bound, checks rejection and prior-generation preservation, and checks both
+checkpoint/publication descriptions. Final restored JVM suite: **1,094 tests,
+zero failures/errors/skips**. assembleDebug and compileDebugAndroidTestKotlin pass.
+
+### Physical verification
+
+The repository wrapper reported complete Pixel runs for:
+
+- DiscoveryScreenAccessibilityTest: 11/11, first attempt.
+- DiscoveryTopicsNavigationAccessibilityTest: 21/21, first attempt.
+- DiscoverySearchFailureAccessibilityTest: 1/1, final first-attempt run, including
+  index-clear error removal. This test uses isolated synthetic storage and checks
+  failure rendering, old-result withdrawal, background error preservation and
+  unchanged listening state.
+
+That is 33 distinct targeted tests, not the full instrumented suite. An earlier
+new-test run lost the Activity in its first attempt and passed its harness retry;
+it was not two successful runs. A combined three-class invocation ran only 1/33:
+the wrapper correctly returned INCOMPLETE despite Gradle success. Its invocation
+mismatch remains unclassified; individual complete runs provide the scoped evidence.
+The same new test also passed 1/1 on the emulator before its final clear assertion.
+Successful final physical tests had touch exploration disabled; they cannot prove
+human TalkBack speech acceptance. No accessibility assertion was weakened.
+
+Foreground-verified shipping-app probes observed 50/50 indexed cached Notes,
+semantic search to Note and Back with submitted query/results retained, saved topic
+detail to listening preview with Play/Save controls, and no PlaybackService started
+by preview. The real connection catalog opened and displayed 9/9 saved connections
+with incomplete-coverage status. No Play, clear-index, model-removal or interest-save
+action was invoked against private user storage. Final cache inspection still found
+50 source records. Existing model and library were retained. Dynamic topic loading
+moved a target between one layout read and tap; the resulting topic detail was
+identified and the intended interests observation was discarded, not counted as a
+pass. Private layouts and diagnostics remain in ignored build output.
+
+### Still open
+
+Representative topic formation exceeds the continuity bound on this phone's
+library: previous topics/connections remain usable, but the resource boundary is
+now explained rather than mislabeled. A future continuity representation/budget
+change needs measured memory and identity-preservation evidence; retry alone is
+not a fix. Human TalkBack listening/speech acceptance, S25-specific testing,
+representative quality, full-scale resource/performance gates, real-library interests
+editing/comparison probing and the broader §107 architecture work remain open.
+The §108 hundred-Note storage sizing workload does not promise unbounded Note sizes
+or completion within every separate processing/memory bound.
+
+---
+
+## 110. Coordinated storage presentation across Offline and Discovery (2026-10-24)
+
+### Context and authorization
+
+The user authorized a coordinated storage settings presentation cleanup across Discovery settings
+and Offline & storage settings (guided by `docs/superpowers/specs/2026-10-24-storage-settings-design.md`
+and `docs/superpowers/plans/2026-10-24-storage-settings.md`).
+The change aligns terminology and accounting across both screens using existing Compose settings
+components, existing storage policy constants, and existing persisted preferences. No storage algorithms,
+admission bounds, write gates, or embedding models were modified.
+
+### Presentation architecture
+
+1. **Shared structure and accounting:**
+   - Each category leads with purpose and actual bytes used, independent from maximum permissions.
+   - Separate typed fields (`discoveryBytes: Long?`, `modelBytes: Long`) are exposed to presentation
+     rather than parsing display strings.
+   - Zero usage is explicitly distinct from missing measurements: unmeasured state (`discoveryBytes == null`)
+     displays "Usage unavailable", whereas a measured zero displays "0 KB used".
+   - Offline Notes displays actual count and bytes even at zero usage ("0 Notes · 0 KB") rather than omitting bytes.
+   - Downloaded model files are accounted separately from Discovery data and do not count toward custom data limits.
+
+2. **Storage management and consequences:**
+   - Discovery storage replaces the ambiguous switch with accessible radio choices: "Automatic (recommended)"
+     and "Set a maximum". Selecting custom mode preserves persisted choices across toggles.
+   - Custom mode reveals the "Storage limit" slider. Explanation explicitly clarifies that preparation waits
+     when the limit is reached while existing eligible results are retained. Lowering the limit does not imply
+     or trigger result deletion.
+   - Offline "Storage limit" preserves confirmation dialog before reductions that may evict cached content,
+     and retains the queue-cleanup deferral notice when active queue items exceed the limit.
+   - "Clear cached Notes" retains confirmation dialog and explicitly describes source removal consequences for
+     dependent Discovery results.
+
+3. **Expandable explanations and shared limits:**
+   - Detailed policy is placed behind an accessible expandable "How storage works" row (`Role.Button`,
+     `stateDescription` "Collapsed"/"Expanded") without moving focus or announcing repeated updates.
+   - In Offline & storage, the shared "Allow larger storage limits" preference lives inside "How storage works",
+     and when collapsed, shows visible summary "Larger storage limits: Enabled" if active.
+   - In Discovery, "How storage works" explains separate model/data accounting, cache-only eligibility, device
+     reserve (greater of 2 GiB or 10% capacity), and explicitly directs to Offline & storage for larger limits.
+   - Routine size selection is kept clean by grouping clear/rebuild/delete controls under "Index management".
+
+### Regression and failing-first evidence
+
+The new contract assertions in `StorageSettingsAccessibilityTest` were added first and verified failing:
+- `zeroUsageIsDistinctFromMissingMeasurementsInDiscovery`: failed against the old presentation with
+  `AssertionError: Expected exactly '1' node but could not find any node that satisfies: (Text contains 'Usage unavailable')`.
+- Restored and verified: all 9 accessibility tests pass on `emulator-5554`.
+
+| Guard / Case verified | Test that noticed |
+| --- | --- |
+| Missing measurement vs measured zero | zeroUsageIsDistinctFromMissingMeasurementsInDiscovery |
+| Actual zero usage formatting in Offline | zeroUsageShowsActualBytesInOfflineNotes |
+| Automatic/Custom radio toggling & limit survival | discoveryStorageManagementRadioChoicesSurviveTogglingAndRetainCustomLimit |
+| Larger limit summary visible when collapsed | largerStorageLimitsInOfflineRemainDiscoverableWhenCollapsed |
+| Cross-screen policy & limit discovery | largerStorageLimitsAreExplainedInDiscovery |
+| Note-cache reduction confirmation & queue deferral | loweringCacheLimitWaitsForConfirmationAndCancelPreservesTheLimit |
+| Accessibility slider adjustment & persistence | storageSliderCanBeAdjustedThroughAccessibilityAndPersistsTheChoice |
+| Full settings roundtrip in DataStore | storageChoicesRoundTripThroughTheShippingPreferencesRepository |
+
+### Physical and device verification
+
+1. **JVM test suite:** `:app:testDebugUnitTest` passed (1,102 tests, 0 failures/errors/skips; count checked from XML during independent review).
+2. **Compilation:** `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` passed cleanly.
+3. **Instrumented accessibility suite (wrapper `tools/run-accessibility-tests.ps1` on `emulator-5554`):**
+   - `StorageSettingsAccessibilityTest`: 9/9 passed, 0 failures (attempt 1).
+   - `DiscoveryPolishAccessibilityTest`: 4/4 passed, 0 failures (attempt 1).
+   - `DiscoveryPowerAccessibilityTest`: 1/1 passed, 0 failures (attempt 1).
+   - `SettingsScreenAccessibilityTest`: 13/13 passed, 0 failures (attempt 1).
+4. **Live device layout probe:**
+   - Installed `app-debug.apk` onto `emulator-5554`.
+   - Verified foreground `com.example.notionreader/.MainActivity`.
+   - Navigated to Settings -> Offline & storage: observed "Offline Notes (60 Notes · 1.7 MB)", "Storage limit: 128 MiB", reduction warning copy, expanded "How storage works", confirmed "Allow larger storage limits" toggle.
+   - Pressed Back: verified focus restoration to "Offline & storage" row.
+   - Navigated to Discovery settings: observed "Discovery data: 0.8 KB used", "Downloaded model: Not downloaded", "Automatic (recommended)" radio checked, selected "Set a maximum" radio -> slider appeared with "Storage limit: 256 MiB", tapped "How storage works" -> verified 4-point accounting & policy explanation.
+
+### Still open
+
+Human TalkBack listening and speech acceptance testing; physical Samsung S25 device verification;
+continuity memory representation for large libraries (>50 cached Notes, §109);
+and the broader §107 architecture roadmap remain open.
+
+## 111. Storage review and automatic Discovery / interest audits (2026-10-24)
+
+The user requested AGY implementation/audit with Codex review and fixes, then separate
+parallel audits of newly cached Note processing and saved interests. AGY implemented
+§110 and performed three read-only processing/interest audits. Codex checked the
+findings against shipping code, governing Product/UI/Integration amendments, existing
+tests and the latest decisions. Generated mirrors and real API fixtures were not edited.
+
+### Independent storage corrections
+
+- Incomplete or incompatible model files still occupy disk: display measured model bytes
+  independently of installation readiness. Missing measurements remain unavailable rather
+  than becoming a manufactured zero. The derived-data row consumes the aggregate storage
+  measurement, not a partial index-only fallback. Removed the unused concatenated description.
+- Coordinated usage labels now use bytes/KiB/MiB/GiB, matching the binary maximum controls.
+  The approximately 207 MB download estimate remains a distinct decimal pack size.
+- The expandable policy row retains its state across recreation, has a minimum target
+  height, and excludes its decorative triangle from speech semantics. The Note-cache
+  reduction confirmation also explains dependent Discovery evidence removal.
+- §110's AGY report repeated the historical 1,094 JVM count. The actual then-current
+  XML reports counted 1,102; the historical verification line above is corrected.
+  Duplicate §110 handoff entries were consolidated into the detailed record.
+
+### Confirmed processing defects and fixes
+
+The automatic window classifier used a shared message field, so a foreground search
+failure prematurely deferred a window despite valid pending work. It now uses the typed
+processing failure. This was not proof of permanent indexing starvation: reconciliation
+could still perform a slice before deferral. The root calls the same classifier tested
+on the JVM; it is not a duplicated test-only implementation.
+
+Topic clear left `needsMoreWork` true, and an obsolete formation unwind could set it
+again. Clear now resets it under the same lock as epoch-sensitive pending publication.
+Obsolete formation/connection unwind cannot overwrite a newer reset's pending state.
+
+Every topic generation after the initial one was pinned, even when nobody had opened
+Discovery. Newly cached Notes could finish processing yet require Refresh to appear.
+Pinning now reflects actual navigation inspection, owned by the process: Discover or
+a retained topic/connection navigation context pins ordering, including a trip to a
+Note. Leaving that context adopts the saved latest generation. Uninspected generations
+publish automatically; Refresh still only adopts results in an inspected view and does
+not perform processing. Existing pinned-view assertions remain intact.
+
+### Confirmed interest defects and fixes
+
+Matching failures did not check the interest mutation generation, unlike success.
+Editing or removing an interest while inference was suspended allowed a late error
+to replace the newer idle state. All matching publication checks mutation ownership
+inside the state update; edits/removal invalidate the affected matching lane. Removal
+clears the selected match identity. Details no longer starts a fresh request for a
+missing interest after removal. Seed edits now update in saved position rather than
+remove-and-append. A cached seed with no indexed content now gets an indexing-readiness
+explanation rather than an instruction to download the same offline Note again.
+
+### Reviewed findings not applied as proposed
+
+- Keeping the old topic files after failed source invalidation would retain withdrawn
+  private passages. Mandatory source removal takes precedence over keeping a now-invalid
+  generation. The proposed continuity-bound invalidation trigger was not reproduced;
+  normal publication rejection already preserves valid prior storage.
+- Unavailable continuity records have opaque, unmapped source identities. Retaining all
+  of them after confirmed deletion cannot prove removal of the deleted Note's identities.
+  Remaining page identities survive; a richer privacy-safe mapping is separate work.
+- The `KEEP` scheduling report omitted the existing WorkManager-completion observer,
+  which wakes pending reconciliation after a worker finishes. No scheduler policy change
+  was justified by that report. Periodic recovery and OS deferral remain intentional.
+- Removing old-revision connection evidence during deferred processing is mandatory,
+  not a regression. Deferral does not permit stale private evidence to remain eligible.
+- The claimed display-name editing defect used an old Discover editing branch that the
+  shipping route bypasses. Current details edits names and text through `updateFollow`.
+  Legacy aggregate recommendations are not supplied to the shipping Discover screen;
+  clearing that unused aggregate did not establish the claimed visible disappearance.
+
+### Failing-first evidence
+
+| Old behavior exercised | Tests that failed for the intended assertion |
+| --- | --- |
+| Hide bytes when model readiness is false | incompleteModelFilesStillAppearInMeasuredStorageUsage |
+| Label binary usage as MB | discoveryUsageAndLimitsUseConsistentBinaryUnits |
+| Shared-message automatic-work classifier | aSearchFailureDoesNotShortenAutomaticProcessingWindows; processingFailuresStillDeferAutomaticWork |
+| Pending work survives clear / obsolete unwind | clearingPartialDiscoveryRemovesItsPendingWork; obsoleteFormationCannotRestorePendingWorkAfterClear |
+| Uninspected new cached Notes stay pinned | newlyCachedNotesPublishAutomaticallyBeforeAnyDiscoveryViewIsInspected |
+| Publish failures after an interest mutation | removingAnInterestRejectsItsLateMatchingFailure; editingAnInterestRejectsFailureFromItsPreviousDefinition |
+| Append a changed seed to the saved list | editingASeedInterestPreservesItsSavedPosition |
+| Tell a cached but unindexed seed to recache | aCachedSeedWaitingForIndexingDoesNotAskTheUserToDownloadItAgain |
+
+The first reset-proof attempt failed its precondition because its real index defaulted
+to paused. After explicitly unpausing it, both reset tests reached the intended path
+and failed on pending-state assertions; the competing case proves one reset actually
+occurs inside the old quantum. That setup failure is not counted as regression evidence.
+Storage's two new review tests failed while the other nine passed. AGY's original new
+tests also initially misused repeated Compose `setContent`; the harness was corrected,
+not the accessibility properties. Three inspected-navigation device tests subsequently
+timed out because their synthetic app bypassed the process-owned inspection collector.
+The fixture now explicitly declares its inspected navigation context, preserving every
+count, Refresh and focus assertion. None of these failures was retried as a known flake.
+
+### Verification and remaining gates
+
+Final verification finished on October 25 IST; this round began on October 24.
+Final `:app:testDebugUnitTest :app:assembleDebug :app:compileDebugAndroidTestKotlin`
+completed successfully. XML reports count **1,112 JVM tests, zero failures/errors/skips**.
+The repository wrapper completed **21/21 DiscoveryTopicsNavigationAccessibilityTest**
+and **11/11 StorageSettingsAccessibilityTest**, plus **1/1 DiscoverySearchFailureAccessibilityTest**,
+all first-attempt complete passes on
+`emulator-5554` (API 36). A newly attached phone made one unqualified invocation refuse
+to choose a device before running any tests; subsequent invocations explicitly select
+the emulator with `-Device emulator-5554`. That refusal is not a failed app test.
+
+After the final build, foreground-verified Android CLI layout probes observed Offline
+Notes usage (50 Notes, 1.6 MiB), its separate 128 MiB limit, removal consequences and
+expanded shared larger-limit preference. Discovery showed 860 bytes of derived data,
+zero measured model bytes, both management choices, the limit consequence, expandable
+explanation and Index management heading. Targets and scroll bounds came from current
+layout JSON; no reset, clear, download or preference-change action was invoked.
+
+The model was not downloaded on the emulator. Synthetic embedding providers prove the
+processing/publication contracts, not representative Gemma quality, Android scheduling
+latency or full-scale performance. No private phone library was cleared or replaced.
+Human TalkBack speech/listening, Samsung-specific behavior, representative quality and
+the existing resource/architecture gates from §109 remain open. No new model, background
+execution deadline, or automatic downloading policy was introduced.

@@ -5,7 +5,16 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#107-saved-topic-restore-decoding-and-recovered-index-coverage-2026-10-20)).
+Discovery refinement is in progress ([current round](docs/decisions.md#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)).
+Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
+radio-selected Automatic vs custom maximums, separate model file reporting, truthful consequences and
+accessible expandable policy explanations with discoverable shared larger-limit preferences.
+Usage uses binary units and includes incomplete model files. New cached-Note generations publish
+automatically outside inspected Discovery views; inspected ordering stays pinned until Refresh.
+Interest edits and removal reject obsolete matching failures, and seed changes preserve saved order.
+Search errors remain visible during background indexing, new queries withdraw old
+matches, and index resets reject late failures. Memory-bound topic coverage is
+reported explicitly while previous discoveries remain available.
 Validated Note connections are retained independently of topic membership and
 homepage limits, with separate reference/similarity evidence, on-demand catalog reads,
 pinned inspection, bounded lazy browsing and privacy-safe page retirement.
