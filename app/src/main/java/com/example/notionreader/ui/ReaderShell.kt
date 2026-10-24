@@ -205,9 +205,8 @@ fun ReaderShell(
                                     downloading = model?.downloading ?: false,
                                     wifiOnly = model?.wifiOnly ?: true,
                                     processing = discoveryStatus(discovery),
-                                    storageDescription = "${com.example.notionreader.ui.settings.formatBytes(storage.discoveryBytes ?: discovery.bytes)} used · " +
-                                        (if (discoverySettings.discoveryStorageAutomatic) "Automatic storage" else "Maximum ${com.example.notionreader.ui.settings.storageSize(discoverySettings.discoveryCustomLimitBytes)}") +
-                                        "\nModel files on device: ${com.example.notionreader.ui.settings.formatBytes(storage.modelBytes)}",
+                                    discoveryBytes = storage.discoveryBytes,
+                                    modelBytes = storage.modelBytes.takeIf { storage.discoveryBytes != null },
                                     error = model?.message ?: discovery.message,
                                     downloadAllowed = modelManager != null),
                                 onWifiOnlyChange = { modelManager?.setWifiOnly(it) },

@@ -1,13 +1,15 @@
 package com.example.notionreader.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,7 +57,7 @@ fun SettingsOfflineScreen(
     var pendingLimit by remember { mutableStateOf<Long?>(null) }
     pendingLimit?.let { proposed ->
         AlertDialog(onDismissRequest = { pendingLimit = null }, title = { Text("Reduce Note cache limit?") },
-            text = { Text("Cached Notes currently use ${formatBytes(cacheSizeBytes)}. Reducing the limit to ${storageSize(proposed)} may remove older offline Notes. Speculative downloads are removed first. Current and upcoming queue Notes are protected; cleanup waits if they exceed the limit.") },
+            text = { Text("Cached Notes currently use ${formatStorageBytes(cacheSizeBytes)}. Reducing the limit to ${storageSize(proposed)} may remove older offline Notes and dependent Discovery results. Speculative downloads are removed first. Current and upcoming queue Notes are protected; cleanup waits if they exceed the limit.") },
             confirmButton = { TextButton(onClick = { onUpdate { it.copy(noteCacheLimitBytes = proposed) }; pendingLimit = null }) { Text("Reduce limit") } },
             dismissButton = { TextButton(onClick = { pendingLimit = null }) { Text("Cancel") } })
     }
@@ -207,33 +209,79 @@ fun SettingsOfflineScreen(
         }
 
         SettingsSection(title = "STORAGE") {
-            storageMessage?.let { Text(it) }
-            Text("The default 128 MiB cache is sized for about 100 Notes of up to 1 MiB each. A separate 200-Note safety limit also applies.")
-            if (cachedNotesCount >= 200) Text("The 200-Note safety limit has been reached. Increasing the byte limit does not increase this count limit.")
-            if (cacheSizeBytes > settings.noteCacheLimitBytes) Text("Cache cleanup is waiting for protected queue Notes. Playback remains available.")
-            StorageLimitControl("Note cache limit", settings.noteCacheLimitBytes,
-                if (settings.extendedStorage) extendedMaximumBytes else 0L) { next ->
-                if (next < settings.noteCacheLimitBytes && cacheSizeBytes > next) pendingLimit = next
-                else onUpdate { it.copy(noteCacheLimitBytes = next) }
-            }
-            SettingsSwitchRow(title = "Allow extended storage", checked = settings.extendedStorage,
-                onCheckedChange = { value -> onUpdate { it.copy(extendedStorage = value) } },
-                summary = "Offers a larger maximum of up to 80% of safely available space. Space is used only as needed; at least 2 GiB or 10% of device capacity stays free.")
-            val storageValue = if (cachedNotesCount > 0) {
-                "$cachedNotesCount Notes · ${formatBytes(cacheSizeBytes)}"
-            } else {
-                "No Notes cached"
-            }
             SettingsStatusRow(
-                title = "Cached Notes",
-                value = storageValue
+                title = "Offline Notes",
+                value = "$cachedNotesCount Notes · ${formatStorageBytes(cacheSizeBytes)}"
             )
+            Text(
+                text = "Downloaded copies used for offline reading and Discovery.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            SettingsDivider()
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StorageLimitControl(
+                    label = "Storage limit",
+                    bytes = settings.noteCacheLimitBytes,
+                    extendedMaximum = if (settings.extendedStorage) extendedMaximumBytes else 0L
+                ) { next ->
+                    if (next < settings.noteCacheLimitBytes && cacheSizeBytes > next) pendingLimit = next
+                    else onUpdate { it.copy(noteCacheLimitBytes = next) }
+                }
+                Text(
+                    text = "Increasing the limit does not download additional Notes by itself. Reducing the limit can remove offline copies and dependent Discovery results.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (cacheSizeBytes > settings.noteCacheLimitBytes) {
+                    Text(
+                        text = "Cache cleanup is waiting for protected queue Notes. Playback remains available.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (cachedNotesCount >= 200) {
+                    Text(
+                        text = "The 200-Note safety limit has been reached. Increasing the byte limit does not increase this count limit.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                storageMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             SettingsDivider()
             SettingsActionRow(
                 title = "Clear cached Notes",
+                summary = "Removes downloaded copies from this device. Dependent Discovery results are also cleared.",
                 enabled = cachedNotesCount > 0,
                 onClick = { showConfirmClearCache = true }
             )
+            SettingsDivider()
+            ExpandableStorageExplanation(
+                collapsedSummary = if (settings.extendedStorage) "Larger storage limits: Enabled" else null
+            ) {
+                Text(
+                    text = "The default 128 MiB cache is sized for about 100 Notes of up to 1 MiB each. A separate 200-Note safety limit also applies.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                SettingsSwitchRow(
+                    title = "Allow larger storage limits",
+                    checked = settings.extendedStorage,
+                    onCheckedChange = { value -> onUpdate { it.copy(extendedStorage = value) } },
+                    summary = "Offers larger storage limits for both Offline Notes and Discovery (up to 80% of safely available space). Space is used only as needed; at least 2 GiB or 10% of device capacity stays free."
+                )
+            }
         }
     }
 }
