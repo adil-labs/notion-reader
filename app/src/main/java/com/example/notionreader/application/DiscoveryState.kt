@@ -66,6 +66,8 @@ data class DiscoveryState(
     val preview: List<SemanticMatch> = emptyList(), val interests: List<DiscoveryInterest> = emptyList(),
     val cachedPageIds: Set<String> = emptySet(), val cachedTitles: Map<String, String> = emptyMap(), val indexedCount: Int = 0,
     val indexing: Boolean = false, val searching: Boolean = false, val paused: Boolean = true,
+    val searchFailure: String? = null,
+    val searchCompleted: Boolean = false,
     val bytes: Long = 0, val message: String? = null,
     val indexFailure: String? = null, val topicFailure: String? = null,
     val topicSnapshot: TopicSnapshot = TopicSnapshot(), val topicsUpdated: Boolean = false,

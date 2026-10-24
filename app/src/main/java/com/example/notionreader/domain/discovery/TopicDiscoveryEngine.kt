@@ -143,7 +143,7 @@ class SectionHierarchicalEngine(
         val topics = if (saved != null) previous!!.topics.toMutableList() else mutableListOf()
         val provisional = if (saved != null) previous!!.provisionalTopics.toMutableList() else mutableListOf()
         val emptyProjections = saved?.emptyProjectionClusters?.toMutableList() ?: mutableListOf()
-        val registry = previous?.continuity.orEmpty().associateByTo(linkedMapOf()) { it.id }
+        val registry = previous?.let(::withContinuityAnchors)?.continuity.orEmpty().associateByTo(linkedMapOf()) { it.id }
         val claimed = (topics + provisional).map { it.id }.toMutableSet()
         var nextOrder = (registry.values.maxOfOrNull { it.createdOrder } ?: 0L) + 1
         var work = 0
@@ -246,7 +246,8 @@ class SectionHierarchicalEngine(
                 val id = match?.id ?: UUID.randomUUID().toString(); claimed += id
                 val order = match?.createdOrder ?: nextOrder++
                 matches.drop(1).forEach { (old, _) -> registry[old.id] = old.copy(replacementId = id) }
-                registry[id] = TopicContinuity(id, order, pages, sources)
+                registry[id] = TopicContinuity(id, order, pages, sources,
+                    anchorSourceId = topicEvidenceIdentity(anchor.passage))
                 val candidate = nameSubjectCandidate(id, order, projection, members.values.toList())
                 if (topicEvidenceIsValid(candidate)) topics += candidate
                 else provisional += candidate

@@ -248,7 +248,8 @@ content immediately. Literal labels keep source provenance and do not change mer
 because a new candidate has a slightly higher score.
 
 Topic, connection, staging and continuity bytes share adaptive storage accounting.
-Continuity has a 1 MiB sub-budget; exhaustion pauses new identity creation with
+Continuity has a 4 MiB sub-budget, sized separately for dense hundred-Note workloads
+and retained legacy identities; exhaustion pauses new identity creation with
 incomplete coverage rather than silently deleting identity records. Index clear
 explicitly discards continuity. Cache removal reasons must be typed and propagated;
 cache snapshots alone cannot distinguish eviction from confirmed access loss.

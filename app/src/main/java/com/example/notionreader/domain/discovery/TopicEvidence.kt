@@ -19,8 +19,10 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
     }
     val registry = snapshot.continuity.mapNotNull { continuity ->
         val pages = if (permanent) continuity.pageIds.filter(::available).toSet() else continuity.pageIds
-        if (pages.isEmpty()) null else continuity.copy(pageIds = pages,
-            sourceIds = if (permanent && continuity.pageIds.any { !available(it) }) continuity.sourceIds.intersect(survivingSources[continuity.id].orEmpty()) else continuity.sourceIds)
+        val sources = if (permanent && continuity.pageIds.any { !available(it) })
+            continuity.sourceIds.intersect(survivingSources[continuity.id].orEmpty()) else continuity.sourceIds
+        if (pages.isEmpty()) null else continuity.copy(pageIds = pages, sourceIds = sources,
+            anchorSourceId = continuity.anchorSourceId?.takeIf { it in sources })
     }
     fun removeEvidence(input: List<DiscoveredTopic>): List<DiscoveredTopic> = input.mapNotNull { topic ->
         val members = topic.members.filter { available(it.pageId) }

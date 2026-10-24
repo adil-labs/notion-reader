@@ -15,6 +15,139 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryControllerTest {
+    @Test fun clearingDiscoveryRejectsALateIndexReadFailure() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-late-index-failure").toFile()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val backing = FileSemanticIndexStore(dir.resolve("index"))
+            val entered = CompletableDeferred<Unit>()
+            var holdReads = false
+            val index = object : SemanticIndexStore by backing {
+                override suspend fun read(pageId: String): SemanticRecord? {
+                    if (holdReads) { entered.complete(Unit); release.await(); error("Old index read failed") }
+                    return backing.read(pageId)
+                }
+            }
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
+            index.setPaused(false); controller.reconcile(emptyList(), true)
+            controller.search("forest question")
+            assertFalse(controller.state.value.results.isEmpty())
+            holdReads = true
+            val pending = async { controller.reconcile(emptyList(), false) }
+            withTimeout(5_000) { entered.await() }
+            controller.clearIndex()
+            release.complete(Unit); pending.await()
+            assertNull("Old index reads cannot publish a recovery failure after reset", controller.state.value.indexFailure)
+            assertNull(controller.state.value.message)
+            assertTrue(controller.state.value.paused)
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
+    @Test fun clearingTheIndexRemovesThePreviousSearchFailure() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-search-reset-message").toFile()
+        try {
+            val controller = DiscoveryController(FileDocumentCache(dir.resolve("cache")), FileSemanticIndexStore(dir.resolve("index")),
+                FileDiscoveryInterestStore(dir.resolve("interests")), Provider().apply { onEmbed = { error("Inference unavailable") } })
+            controller.search("failed question")
+            assertNotNull(controller.state.value.searchFailure)
+            controller.clearIndex()
+            assertNull(controller.state.value.searchFailure)
+            assertNull(controller.state.value.message)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun cancellingANewSearchCannotClaimThatItsEmptyResultsAreComplete() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-search-cancel").toFile()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val provider = Provider().apply { onEmbed = {
+                entered.complete(Unit)
+                runBlocking { release.await() }
+                listOf(1f, 0f)
+            } }
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), provider)
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
+            index.setPaused(false); controller.reconcile(emptyList(), true)
+            controller.search("first question")
+            assertEquals(1, controller.state.value.results.size)
+            assertTrue(controller.state.value.searchCompleted)
+            val pending = launch { controller.search("second question") }
+            withTimeout(5_000) { entered.await() }
+            assertTrue(controller.state.value.searching)
+            assertFalse(controller.state.value.searchCompleted)
+            assertTrue(controller.state.value.results.isEmpty())
+            pending.cancelAndJoin()
+            assertFalse(controller.state.value.searching)
+            assertFalse(controller.state.value.searchCompleted)
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
+    @Test fun backgroundIndexCheckingCannotEraseASearchFailure() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-search-error-ownership").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val provider = Provider()
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), provider)
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
+            index.setPaused(false); controller.reconcile(emptyList(), true)
+            provider.onEmbed = { error("Inference unavailable") }
+            controller.search("failed question")
+            val failure = controller.state.value.message
+            assertNotNull(failure)
+            controller.reconcile(emptyList(), false)
+            assertEquals("Background work must not turn a failed query into a successful empty result", failure, controller.state.value.message)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun aFailedNewSearchCannotShowResultsFromThePreviousQuery() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-search-failure").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val provider = Provider()
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), provider)
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
+            index.setPaused(false); controller.reconcile(emptyList(), true)
+            controller.search("first question")
+            assertEquals(listOf("p"), controller.state.value.results.map { it.pageId })
+            provider.onEmbed = { error("Inference unavailable") }
+            controller.search("different question")
+            assertEquals("different question", controller.state.value.query)
+            assertTrue("Old matches must never be labelled as results of the failed new query", controller.state.value.results.isEmpty())
+            assertNotNull(controller.state.value.message)
+            assertFalse(controller.state.value.searching)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun clearingDiscoveryRejectsALateRecommendationFailure() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-late-recommendation-failure").toFile()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val backing = FileSemanticIndexStore(dir.resolve("index"))
+            val entered = CompletableDeferred<Unit>()
+            var holdReads = false
+            val index = object : SemanticIndexStore by backing {
+                override suspend fun read(pageId: String): SemanticRecord? {
+                    if (holdReads) { entered.complete(Unit); release.await(); error("Old read failed") }
+                    return backing.read(pageId)
+                }
+            }
+            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Forest", listOf("Forest ecology")), null, Instant.EPOCH))
+            index.setPaused(false); controller.reconcile(emptyList(), true)
+            controller.saveInterest(null, "forest interest")
+            holdReads = true
+            val pending = async { controller.refreshRecommendations() }
+            withTimeout(5_000) { entered.await() }
+            controller.clearIndex()
+            val cleared = controller.state.value
+            release.complete(Unit); pending.await()
+            assertEquals("Cleared Discovery must reject old failures as well as old results", cleared, controller.state.value)
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
     @Test fun increasingStorageCapacityRecoversWithoutAnExplicitResume() = runBlocking {
         val dir = Files.createTempDirectory("discovery-recover-space").toFile()
         try {

@@ -34,15 +34,19 @@ private data class DecodedTopics(val snapshot: TopicSnapshot,
 
 @Serializable
 private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: ConnectionCatalogManifest,
-    val schemaVersion: Int = 1, val engineVersion: Int = SectionHierarchicalEngine.VERSION,
-    val catalogKey: String? = null)
+    val schemaVersion: Int = 2, val engineVersion: Int = SectionHierarchicalEngine.VERSION,
+    val catalogKey: String? = null, val topicGraph: StoredTopicGraph? = null)
 
 /** Store under the app's noBackupFilesDir. Budget includes the old file during atomic staging. */
 class FileTopicStore(private val directory: File, private val maxBytes: Long = Long.MAX_VALUE,
     private val otherBytes: suspend () -> Long = { 0L },
     private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted) : TopicStore {
     private val mutex = Mutex()
-    private companion object { const val MAX_RECORD_BYTES = 64L * 1024 * 1024 }
+    private companion object {
+        const val MAX_RECORD_BYTES = 64L * 1024 * 1024
+        // Separate from disk capacity: accommodates dense hundred-Note continuity and legacy identities.
+        const val MAX_CONTINUITY_BYTES = 4 * 1024 * 1024
+    }
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val catalog = FileConnectionCatalog(directory, json)
     private val file get() = File(directory, "topics.json")
@@ -100,7 +104,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             snapshot.connectionTargetCursor !in 0..snapshot.connectionTargetCount)
             return TopicValidationReason.InvalidSnapshotProgress
         if (snapshot.generation < 0) return TopicValidationReason.InvalidGeneration
-        if (json.encodeToString(snapshot.continuity).toByteArray(Charsets.UTF_8).size > 1024 * 1024) return TopicValidationReason.ContinuityBound
+        if (json.encodeToString(snapshot.continuity).toByteArray(Charsets.UTF_8).size > MAX_CONTINUITY_BYTES) return TopicValidationReason.ContinuityBound
         if (anchors.isNotEmpty() && (identity == null || identity.dimensions <= 0)) return TopicValidationReason.InvalidIdentity
         for (topic in anchors) {
             if (topic.id.isBlank() || topic.label.isBlank() || topic.anchor.vector.size != identity!!.dimensions ||
@@ -124,12 +128,18 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     }
     private fun decode(payload: String): DecodedTopics {
         val header = json.decodeFromString<TopicStoreHeader>(payload)
-        require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..1)
+        require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..2)
         return if (header.isEnvelope) {
             val envelope = json.decodeFromString<TopicStoreEnvelope>(payload)
             require(envelope.snapshot.connections.isEmpty() && catalog.valid(envelope.catalog))
-            DecodedTopics(envelope.snapshot, envelope.catalog, envelope.catalogKey)
+            require(envelope.schemaVersion != 2 || envelope.topicGraph != null)
+            DecodedTopics(envelope.topicGraph?.restore(envelope.snapshot) ?: envelope.snapshot, envelope.catalog, envelope.catalogKey)
         } else DecodedTopics(json.decodeFromString<TopicSnapshot>(payload), null, null)
+    }
+    private fun envelope(snapshot: TopicSnapshot, manifest: ConnectionCatalogManifest, key: String?,
+        checkActive: () -> Unit = {}): TopicStoreEnvelope {
+        val (base, graph) = StoredTopicGraph.separate(snapshot, checkActive)
+        return TopicStoreEnvelope(base, manifest, catalogKey = key, topicGraph = graph)
     }
     private fun discard() {
         catalogs.clear(); currentCatalogKey = null; pinnedCatalogKey = null
@@ -312,8 +322,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 val (snapshot, _) = decode(file.readText())
                 val manifest = catalogs[currentCatalogKey]
                 if (manifest != null) {
-                    val payload = json.encodeToString(TopicStoreEnvelope(snapshot.copy(catalogReference = null), manifest,
-                        catalogKey = currentCatalogKey)).toByteArray(Charsets.UTF_8)
+                    val payload = json.encodeToString(envelope(snapshot.copy(catalogReference = null), manifest,
+                        currentCatalogKey)).toByteArray(Charsets.UTF_8)
                     if (!fits(payload.size, external)) throw java.io.IOException("Insufficient storage for evidence withdrawal")
                     writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, payload.size.toLong()) {
                         atomicSemanticWrite(file, payload)
@@ -344,8 +354,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 else reused?.value ?: stageCatalog(snapshot.connections, snapshot.identity, external, staged)
                     ?: return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
             val key = ref?.key ?: reused?.key ?: UUID.randomUUID().toString()
-            val payload = json.encodeToString(TopicStoreEnvelope(snapshot.copy(connections = emptyList(), catalogReference = null), manifest,
-                catalogKey = key)).toByteArray(Charsets.UTF_8)
+            val payload = json.encodeToString(envelope(snapshot.copy(connections = emptyList(), catalogReference = null), manifest,
+                key) { context.ensureActive() }).toByteArray(Charsets.UTF_8)
             if (payload.size > MAX_RECORD_BYTES) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.RecordMemoryLimit)
             if (!fits(payload.size, external)) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
             writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, payload.size.toLong()) {

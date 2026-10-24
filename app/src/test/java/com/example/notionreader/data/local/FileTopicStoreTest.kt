@@ -13,6 +13,81 @@ import org.junit.rules.TemporaryFolder
 import kotlinx.serialization.json.*
 
 class FileTopicStoreTest {
+    @Test fun sharedTopicEvidenceIsStoredOnceAndRestoredWithoutChangingMemberships() = runBlocking {
+        val directory = temporary.newFolder()
+        val model = EmbeddingIdentity("shared-evidence", 2)
+        val text = "Forest ecosystems shelter wildlife and preserve woodland biodiversity. ".repeat(100)
+        val passage = SemanticPassage("p:body", "p", "p:section", "Forest ecosystems", "p:block", "p:chunk",
+            0, text.length, text, text, 0)
+        val vector = listOf(1f, 0f)
+        val member = TopicMembership("p", SemanticMetadata("Forest"), passage, 1f, passage, "r")
+        val topics = (0 until 100).map { DiscoveredTopic("t$it", "Forest ecosystems", passage,
+            EmbeddedPassage(passage, vector), listOf(member), it.toLong()) }
+        val snapshot = TopicSnapshot(topics = topics, identity = model, complete = true)
+        assertEquals(TopicWriteResult.Written, FileTopicStore(directory).writeDetailed(snapshot))
+        val file = File(directory, "topics.json")
+        assertTrue("Shared evidence should not consume one copy per topic/member/anchor", file.length() < 150_000)
+        val restored = FileTopicStore(directory).read()!!
+        assertEquals(snapshot, restored)
+        assertSame(restored.topics.first().anchor.passage, restored.topics.last().members.single().passage)
+        val compact = Json.parseToJsonElement(file.readText()).jsonObject
+        val legacy = JsonObject(compact.filterKeys { it != "topicGraph" } + mapOf(
+            "schemaVersion" to JsonPrimitive(1),
+            "snapshot" to Json.encodeToJsonElement(TopicSnapshot.serializer(), snapshot)))
+        file.writeText(legacy.toString())
+        val upgraded = FileTopicStore(directory)
+        assertEquals("Inline legacy generations remain readable", snapshot, upgraded.read())
+        assertEquals(TopicWriteResult.Written, upgraded.writeDetailed(snapshot))
+        assertTrue(file.length() < 150_000)
+        assertEquals(snapshot, FileTopicStore(directory).read())
+    }
+
+    @Test fun compactProjectionCheckpointsResumeWithoutLosingPartialMembershipEvidence() = runBlocking {
+        val directory = temporary.newFolder()
+        val model = EmbeddingIdentity("compact-projection", 2)
+        val records = (0..1).map { n ->
+            val text = "Forest ecosystems support diverse wildlife and woodland habitats."
+            val p = SemanticPassage("p$n:body", "p$n", "p$n:section", "Forest ecosystems", "p$n:block", "p$n:chunk",
+                0, text.length, text, text, n)
+            SemanticRecord("p$n", "r1", model, SemanticMetadata("p$n"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))
+        }
+        var partial = SectionHierarchicalEngine(model).step(records, null, TopicPolicy(), 1)
+        var rounds = 0
+        while (partial.formationProgress?.projectionMembers.orEmpty().isEmpty() && rounds++ < 30)
+            partial = SectionHierarchicalEngine(model).step(records, partial, TopicPolicy(), 1)
+        assertTrue(partial.formationProgress!!.projectionMembers.isNotEmpty())
+        assertEquals(TopicWriteResult.Written, FileTopicStore(directory).writeDetailed(partial))
+        val restored = FileTopicStore(directory).read()!!
+        assertEquals(partial, restored)
+        val completed = SectionHierarchicalEngine(model).discover(records, restored, TopicPolicy())
+        assertTrue(completed.complete)
+        assertEquals(setOf("p0", "p1"), completed.topics.single().members.map { it.pageId }.toSet())
+        val file = File(directory, "topics.json")
+        val root = Json.parseToJsonElement(file.readText()).jsonObject
+        val graph = root.getValue("topicGraph").jsonObject
+        val members = graph.getValue("projectionMembers").jsonArray
+        val invalid = JsonObject(members.first().jsonObject + ("passage" to JsonPrimitive(Int.MAX_VALUE)))
+        file.writeText(JsonObject(root + ("topicGraph" to JsonObject(graph +
+            ("projectionMembers" to JsonArray(listOf(invalid) + members.drop(1)))))).toString())
+        assertNull("Invalid table references are corruption, never partial success", FileTopicStore(directory).read())
+        assertEquals(0L, FileTopicStore(directory).bytes())
+    }
+    @Test fun aHundredNoteContinuityWorkloadFitsTheDefaultWithoutRemovingPriorIdentities() = runBlocking {
+        val directory = temporary.newFolder()
+        val pages = (0 until 100).map { semanticHash("page:$it").take(32) }
+        val continuity = (0 until 1200).map { topic ->
+            val members = (0 until 10).map { pages[(topic + it) % pages.size] }.toSet()
+            val evidence = members.map { semanticHash("$topic:$it") }.toSet()
+            TopicContinuity(semanticHash("topic:$topic"), topic.toLong(), members, evidence,
+                anchorSourceId = evidence.first())
+        }
+        val snapshot = TopicSnapshot(continuity = continuity)
+        val encoded = kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(TopicContinuity.serializer()), continuity)
+        assertTrue("The workload must exercise the former one MiB failure", encoded.toByteArray().size > 1024 * 1024)
+        assertEquals(TopicWriteResult.Written, FileTopicStore(directory).writeDetailed(snapshot))
+        assertEquals(snapshot, FileTopicStore(directory).read())
+    }
     @Test fun malformedEnvelopeSnapshotsCannotBecomeSuccessfulEmptyStores() = runBlocking {
         for (invalidSnapshot in listOf(JsonNull, buildJsonObject { put("schemaVersion", -1) })) {
             for (keepCatalog in listOf(true, false)) {

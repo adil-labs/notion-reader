@@ -293,6 +293,7 @@ tasks.register<JavaExec>("privateDiscoveryReview") {
     dependsOn("compileDebugUnitTestKotlin")
     classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
     mainClass.set("com.example.notionreader.tooling.PrivateDiscoveryReview")
+    workingDir(rootProject.projectDir)
     args(providers.gradleProperty("discoveryReviewDirectory").getOrElse(""),
         providers.gradleProperty("discoveryReviewRounds").getOrElse("32"),
         providers.gradleProperty("discoveryReviewSeconds").getOrElse("60"))

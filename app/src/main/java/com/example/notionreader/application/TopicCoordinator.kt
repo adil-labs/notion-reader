@@ -13,6 +13,11 @@ import java.util.concurrent.atomic.AtomicLong
 internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val updated: Boolean = false,
     val status: String? = null, val failure: String? = null)
 
+/** Shared with explicit host replay so resume diagnostics describe the shipping input identity. */
+internal fun topicSourceSignature(model: EmbeddingIdentity, policy: TopicPolicy, metadataVersion: Int,
+    sources: Map<String, String>): String = semanticHash(model.toString() + policy.toString() + metadataVersion +
+        sources.toSortedMap().toString() + "hierarchical:" + SectionHierarchicalEngine.VERSION)
+
 /** Owns completed generations, not a screen or a listening session. */
 internal class TopicCoordinator(
     private val cache: DocumentCache,
@@ -185,8 +190,7 @@ internal class TopicCoordinator(
     private suspend fun buildGeneration(sources: Map<String, String>, metadataVersion: Int,
         cacheRevision: Long) {
         val model = identity()
-        val token = semanticHash(model.toString() + policy.toString() + metadataVersion +
-            sources.toSortedMap().toString() + "hierarchical:" + SectionHierarchicalEngine.VERSION)
+        val token = topicSourceSignature(model, policy, metadataVersion, sources)
         if (latest.sourceSignature == token && latest.complete && latest.connectionPassComplete) {
             formationWorkspace = null
             needsMoreWork = false; return
@@ -195,7 +199,7 @@ internal class TopicCoordinator(
         val context = currentCoroutineContext()
         val resume = (pendingFormation ?: checkpoint?.read())?.takeIf { it.sourceSignature == token && it.identity == model &&
             it.policyVersion == policy.version && it.engineVersion == SectionHierarchicalEngine.VERSION &&
-            (it.formationProgress != null || it.complete) }
+            (it.formationProgress != null || it.complete) }?.let { withContinuityAnchors(it, latest) }
         var referenceTitles = if (latest.sourceSignature == token) latest.referenceTitles else emptyMap()
         var connectionInputs = if (latest.sourceSignature == token) latest.connectionWork.inputs else emptyMap()
         var connectionTitleKeys = if (latest.sourceSignature == token) latest.connectionWork.titleKeys else emptyMap()
@@ -429,6 +433,8 @@ internal class TopicCoordinator(
 /** Recovery descriptions contain structural categories only, never source evidence. */
 internal fun persistenceFailureMessage(result: TopicWriteResult.Rejected, checkpoint: Boolean = false): String {
     val subject = if (checkpoint) "Topic checkpoint" else "Topic"
+    if (result.validationReason == TopicValidationReason.ContinuityBound)
+        return "$subject reached the continuity memory limit; discovery coverage is incomplete. Previous discoveries remain available."
     return when (result.failure) {
         TopicWriteFailure.BudgetExceeded -> "$subject storage is full; discovery coverage is incomplete. Free derived storage and retry."
         TopicWriteFailure.RecordMemoryLimit -> "$subject exceeds the safe record memory limit; discovery coverage is incomplete. Previous discoveries remain available."

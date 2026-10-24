@@ -18,6 +18,79 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
+    @Test fun aHundredNoteConnectionSweepResumesAndReconcilesMovesAndRemovalsExactly() = runBlocking {
+        val dir = Files.createTempDirectory("hundred-note-connections").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val index = FileSemanticIndexStore(dir.resolve("index"))
+            val store = FileTopicStore(dir.resolve("topics"))
+            val checkpoint = FileTopicStore(dir.resolve("checkpoint"))
+            val model = EmbeddingIdentity("hundred-note-connections", 10)
+            val groups = (0 until 100).associate { "p$it" to it / 10 }.toMutableMap()
+            val sources = groups.keys.associateWith { "r1" }.toMutableMap()
+            suspend fun record(id: String) {
+                val text = "Forest ecosystems support wildlife habitats and woodland biodiversity."
+                val p = SemanticPassage("$id:p", id, "$id:s", "Forest ecosystems", "$id:b", "$id:c",
+                    0, text.length, text, text, 0)
+                assertTrue(index.write(SemanticRecord(id, sources.getValue(id), model, SemanticMetadata(id),
+                    listOf(EmbeddedPassage(p, List(10) { if (it == groups.getValue(id)) 1f else 0f })))))
+            }
+            for (id in groups.keys) record(id)
+            index.setPaused(false)
+            fun worker() = TopicCoordinator(cache, index, store, checkpoint, { model }, TopicPolicy(),
+                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
+            suspend fun complete() {
+                var coordinator = worker()
+                repeat(80) { round ->
+                    if (round % 7 == 0) coordinator = worker()
+                    coordinator.invalidate(sources)
+                    coordinator.build(sources, 0, cache.revision.value)
+                    if (!coordinator.needsMoreWork) {
+                        assertTrue(store.read()!!.complete)
+                        assertTrue(store.read()!!.connectionPassComplete)
+                        return
+                    }
+                }
+                fail("A bounded sweep must complete despite coordinator restarts")
+            }
+            fun expected() = groups.keys.flatMap { left -> groups.keys.filter { right ->
+                left < right && groups[left] == groups[right]
+            }.map { right -> setOf(left, right) } }.toSet()
+            suspend fun actual() = store.read()!!.connections.map { setOf(it.left.pageId, it.right.pageId) }.toSet()
+            complete()
+            assertEquals(450, actual().size)
+            assertEquals(expected(), actual())
+            sources.remove("p99"); groups.remove("p99"); index.remove("p99")
+            groups["p0"] = 1; sources["p0"] = "r2"; record("p0")
+            val changed = worker(); changed.invalidate(sources)
+            assertTrue(store.read()!!.connections.none { it.left.pageId in setOf("p0", "p99") || it.right.pageId in setOf("p0", "p99") })
+            complete()
+            assertEquals(expected(), actual())
+            assertTrue(store.read()!!.connections.all { pair ->
+                pair.left.revision == sources[pair.left.pageId] && pair.right.revision == sources[pair.right.pageId]
+            })
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun continuityMemoryLimitReportsIncompleteCoverageInsteadOfInvalidData() = runBlocking {
+        val dir = Files.createTempDirectory("continuity-limit-message").toFile()
+        try {
+            val store = FileTopicStore(dir)
+            val prior = TopicSnapshot(generation = 7)
+            assertEquals(TopicWriteResult.Written, store.writeDetailed(prior))
+            val oversized = prior.copy(continuity = listOf(TopicContinuity("opaque", 1,
+                sourceIds = setOf("x".repeat(4 * 1024 * 1024)))))
+            val rejected = store.writeDetailed(oversized) as TopicWriteResult.Rejected
+            assertEquals(TopicValidationReason.ContinuityBound, rejected.validationReason)
+            assertEquals(prior, store.read())
+            for (checkpoint in listOf(false, true)) {
+                val message = persistenceFailureMessage(rejected, checkpoint)
+                assertTrue(message.contains("continuity memory limit"))
+                assertTrue(message.contains("coverage is incomplete"))
+                assertFalse(message.contains("validation failed"))
+                assertFalse(message.contains("Retry processing"))
+            }
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun addingANoteRetainsUnchangedConnectionsWithoutRepeatingTheirPairReads() = runBlocking {
         val dir = Files.createTempDirectory("incremental-connections").toFile()
         try {

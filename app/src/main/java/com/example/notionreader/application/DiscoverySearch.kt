@@ -32,7 +32,8 @@ internal class DiscoverySearch(
     suspend fun search(text: String, filters: BrowseQuery) {
         val started = System.nanoTime()
         val request = queries.begin()
-        queries.publish(mutable, request) { it.copy(query = text, filters = filters, searching = true, message = null) }
+        queries.publish(mutable, request) { it.copy(query = text, filters = filters, results = emptyList(), searching = true, message = null,
+            searchFailure = null, searchCompleted = false) }
         try {
             withContext(workDispatcher) { searchInBackground(text, filters, request, started) }
         } finally {
@@ -71,13 +72,14 @@ internal class DiscoverySearch(
             } finally {
                 runtime.foregroundQueries.decrementAndGet()
             }
-            queries.publish(mutable, request) { it.copy(results = results) }
+            queries.publish(mutable, request) { it.copy(results = results, searchCompleted = true) }
             if (queries.isCurrent(request)) completed = 1L
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             queries.publish(mutable, request) {
-                it.copy(message = "Semantic search failed. Try again or rebuild the index.")
+                it.copy(message = "Semantic search failed. Try again or rebuild the index.",
+                    searchFailure = "Semantic search failed. Try again or rebuild the index.")
             }
         } finally {
             recordTiming(mapOf(

@@ -23,7 +23,18 @@ internal fun reserveTopicBranches(prior: List<TopicContinuity>, groups: List<Lis
             val union = old.sourceIds.size + ids.size - overlap
             val specificity = if (union == 0) 0L else overlap * 1_000_000L / union
             index to (if (overlap == 0) 0L else overlap * 1_000_000_000L + specificity * 100L + old.pageIds.count { it in pages })
-        }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Int, Long>> { it.second }.thenBy { it.first })
+        }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Int, Long>> { it.second }
+            .thenByDescending { old.anchorSourceId != null && old.anchorSourceId in candidates[it.first].first }
+            .thenBy { it.first })
         old.id to ranked.firstOrNull()?.first
     }
+}
+
+/** Upgrade opaque continuity using available current/prior evidence, including resumed legacy checkpoints. */
+internal fun withContinuityAnchors(snapshot: TopicSnapshot, prior: TopicSnapshot = snapshot): TopicSnapshot {
+    val anchors = (prior.topics + prior.provisionalTopics + snapshot.topics + snapshot.provisionalTopics)
+        .associate { it.id to topicEvidenceIdentity(it.anchor.passage) }
+    return snapshot.copy(continuity = snapshot.continuity.map { old ->
+        if (old.anchorSourceId != null) old else old.copy(anchorSourceId = anchors[old.id]?.takeIf { it in old.sourceIds })
+    })
 }

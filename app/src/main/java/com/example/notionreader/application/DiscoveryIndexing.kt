@@ -128,7 +128,7 @@ internal class DiscoveryIndexing(
             }
             var indexed = 0
             val jobs = mutableListOf<Pair<String, Int>>()
-            mutable.update { it.copy(message = null) }
+            mutable.update { it.copy(message = it.searchFailure) }
             for ((id, source) in sources) {
                 currentCoroutineContext().ensureActive()
                 while (runtime.foregroundQueries.get() > 0) delay(10)
@@ -297,7 +297,8 @@ internal class DiscoveryIndexing(
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: BulkWorkDeferred) { /* Policy deferral is not an index failure. */ }
         catch (_: Exception) { mutable.update {
-            if (it.cacheStatus != DiscoveryCacheStatus.Ready) {
+            if (runtime.generation.get() != epoch) it
+            else if (it.cacheStatus != DiscoveryCacheStatus.Ready) {
                 val message = "Cached Notes could not be checked. Try again from Discovery settings."
                 it.copy(cacheStatus = DiscoveryCacheStatus.Failed(message), message = message)
             } else it.copy(message = "Discovery index unavailable. Rebuild the index to retry.", indexFailure = "Discovery index unavailable. Rebuild the index to retry.")

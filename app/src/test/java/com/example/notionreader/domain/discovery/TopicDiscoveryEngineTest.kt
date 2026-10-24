@@ -8,6 +8,41 @@ import kotlin.math.sin
 class TopicDiscoveryEngineTest {
     private val identity = EmbeddingIdentity("test-dim2", 2)
 
+    @Test fun unchangedOverlappingSubjectsKeepTheirOwnIdentitiesWithoutGrowingContinuity() {
+        val records = listOf(sampleRecord("forest", 0.0, sectionTitle = "Forest Ecosystems"),
+            sampleRecord("water", 40.0, sectionTitle = "Water Conservation"))
+        val policy = TopicPolicy(formationDistance = .1f, membership = .6f)
+        fun engine() = SectionHierarchicalEngine(identity, .1f, .6f)
+        var previous = engine().discover(records, null, policy)
+        val original = (previous.topics + previous.provisionalTopics).associate { it.anchor.passage.id to it.id }
+        assertEquals(2, original.size)
+        repeat(4) {
+            previous = engine().discover(records, previous, policy)
+            assertEquals("Overlapping memberships do not merge distinct surviving anchor branches", original,
+                (previous.topics + previous.provisionalTopics).associate { it.anchor.passage.id to it.id })
+            assertEquals("Unchanged inputs must not manufacture historical identities", 2, previous.continuity.size)
+        }
+    }
+
+    @Test fun legacyOverlappingTopicIdentitiesSurviveAResumedRebuild() {
+        val records = listOf(sampleRecord("forest", 0.0, sectionTitle = "Forest Ecosystems"),
+            sampleRecord("water", 40.0, sectionTitle = "Water Conservation"))
+        val policy = TopicPolicy(formationDistance = .1f, membership = .6f)
+        fun engine() = SectionHierarchicalEngine(identity, .1f, .6f)
+        val first = engine().discover(records, null, policy)
+        val legacy = first.copy(continuity = first.continuity.map { it.copy(anchorSourceId = null) })
+        val expected = (first.topics + first.provisionalTopics).associate { it.anchor.passage.id to it.id }
+        var resumed = engine().step(records, legacy, policy, workBudget = 1)
+        var rounds = 0
+        while (!resumed.complete && rounds++ < 100) {
+            resumed = engine().step(records, resumed, policy, workBudget = 1)
+        }
+        assertTrue(resumed.complete)
+        assertEquals(expected, (resumed.topics + resumed.provisionalTopics).associate { it.anchor.passage.id to it.id })
+        assertEquals(2, resumed.continuity.size)
+        assertTrue(resumed.continuity.all { it.anchorSourceId != null })
+    }
+
     @Test fun addingAnUnrelatedNoteKeepsCertifiedUnchangedTopicGroups() {
         fun record(id: String, degrees: Double): SemanticRecord {
             val text = "Forest ecology sustains wildlife habitats and protects woodland ecosystems."

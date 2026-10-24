@@ -131,7 +131,8 @@ class DiscoveryController(
         if (preserveTopicContinuity) topics?.invalidate(emptyMap()) else topics?.clear()
         mutable.update { it.copy(relatedPageId = null, results = emptyList(), related = emptyList(), recommendations = emptyList(), older = emptyList(),
             interestMatch = InterestMatchState(), indexedRevision = it.indexedRevision + 1,
-            preview = emptyList(), indexedCount = 0, indexCoverage = DiscoveryCoverageStatus.Ready, embeddingWork = null, paused = true, indexFailure = null, topicFailure = null, searching = false, bytes = index.bytes()) }
+            preview = emptyList(), indexedCount = 0, indexCoverage = DiscoveryCoverageStatus.Ready, embeddingWork = null, paused = true, indexFailure = null, topicFailure = null, searching = false,
+            searchFailure = null, searchCompleted = false, message = null, bytes = index.bytes()) }
         wake.value++
     }
     fun preparePreview(matches: List<SemanticMatch>, label: String = "Discovery recommendations") =

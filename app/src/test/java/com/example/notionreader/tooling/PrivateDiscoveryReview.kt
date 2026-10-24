@@ -1,6 +1,7 @@
 package com.example.notionreader.tooling
 
 import com.example.notionreader.application.TopicCoordinator
+import com.example.notionreader.application.topicSourceSignature
 import com.example.notionreader.data.local.*
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.runBlocking
@@ -120,7 +121,7 @@ object PrivateDiscoveryReview {
         // Exact signature agreement is required before calling this an unchanged-input resume.
         val metadataComplete = records.map { it.pageId }.toSet() == sources.keys
         val replayMetadataVersion = semanticMetadataHash(records.associate { it.pageId to it.metadata })
-        val replaySignature = semanticHash(model.toString() + TopicPolicy().toString() + replayMetadataVersion + sources.toSortedMap().toString())
+        val replaySignature = topicSourceSignature(model, TopicPolicy(), replayMetadataVersion, sources)
         val inputSignatureMatches = metadataComplete && initial.sourceSignature == replaySignature
         var stopReason = "roundBudget"
         for (round in 0 until roundLimit) {

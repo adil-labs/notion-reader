@@ -13,7 +13,8 @@ data class DiscoveredTopic(val id: String, val label: String, val labelSource: S
     val subjectVector: List<Float> = anchor.vector)
 @Serializable
 data class TopicContinuity(val id: String, val createdOrder: Long, val pageIds: Set<String> = emptySet(),
-    val sourceIds: Set<String> = emptySet(), val replacementId: String? = null)
+    val sourceIds: Set<String> = emptySet(), val replacementId: String? = null,
+    val anchorSourceId: String? = null)
 @Serializable
 data class NoteConnection(val id: String, val left: TopicMembership, val right: TopicMembership, val score: Float,
     val independentNamedReference: Boolean = false, val evidenceKind: ConnectionEvidenceKind? = null)
