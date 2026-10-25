@@ -524,7 +524,9 @@ of at least 2 GiB or 10% of volume capacity, whichever is greater. The Note cach
 defaults to 128 MiB, sized for about 100 Notes of up to 1 MiB encoded size each,
 and retains a separately displayed 200-Note guard. Accessible storage sliders,
 confirmed cache reductions and an optional extended maximum give explicit control.
-Per-record memory safeguards remain separate from library capacity. Exact cosine search
+Per-record memory safeguards remain separate from library capacity. Topic generations use
+streamed reads and atomic streamed writes, enforcing the 64 MiB envelope limit during encoding
+without allocating a complete JSON string and byte array. Exact cosine search
 streams per-document vectors. Clearing the index pauses rebuilding until Resume/Rebuild; deleting
 the model clears the index and automatic continuity while preserving explicit interests. Full local
 reset clears interests too. Cache eviction removes derived content but retains opaque recache

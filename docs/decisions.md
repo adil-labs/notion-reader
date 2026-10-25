@@ -11137,3 +11137,62 @@ unchanged policy thresholds retain their prior calibration limits. No 8192-token
 native inference, API 26 native run, peak/full-scale memory/battery/playback
 contention, or human TalkBack speech acceptance is claimed. Existing product open
 work from §111 remains open; emulator and S25 runtime/E2E execution are now observed.
+
+## 117. S25 topic persistence memory crashes (2026-10-25)
+
+The user reported repeated crashes and requested an architectural fix. S25
+SM-S931B / API 37 logcat contains repeated `OutOfMemoryError` failures in
+`FileTopicStore.writeDetailed`, including 19:32, 19:34 and 21:32. Serialization
+attempted contiguous allocations of roughly 64–100 MB against a 256 MiB managed
+heap. The envelope's 64 MiB guard ran only after constructing a complete JSON
+String and UTF-8 ByteArray; even a permitted record could exhaust memory through
+overlapping copies. This is a persistence allocation defect, not evidence of a
+LiteRT backend failure.
+
+Keep the existing schema and domain contracts. The data layer now counts actual
+streamed UTF-8 bytes into a bounded discard sink before storage admission, then
+streams the same envelope into the shared atomic writer. The record limit and
+cancellation checks run during both passes. The existing writer still owns file
+sync, atomic replacement and staging cleanup; its byte-array entry point delegates
+to the same primitive. Catalog reconciliation uses the same streamed envelope
+path. Header and envelope reads stream from disk after checking file length,
+including constructor cleanup, metadata reads, legacy reads and inspection pinning.
+This removes record-sized JSON copies without changing heap limits, suppressing
+OOM, changing model selection or deleting installed library data. The prior valid
+generation survives ordinary rejected replacement writes, and resource refusal
+continues through the existing incomplete-coverage result.
+
+### Regression proof and verification
+
+| Guard removed | Test that noticed |
+| --- | --- |
+| Original post-allocation record-size check | `oversizedTopicWritesStopEncodingAtTheRecordBoundAndPreservePriorEvidence` fails with the explicit late-encoding sentinel in `StoredTopic` serialization after 64 MiB, before any size rejection. |
+
+The failing-first run selected exactly this one test and failed for that named
+reason. The streamed implementation passes the complete FileTopicStore class and
+the full JVM suite: **1,123 tests, zero failures/errors/skips**. Debug assembly and
+androidTest Kotlin compilation pass. Existing migration, corruption, storage budget,
+catalog, cancellation and I/O-failure contracts remain covered by that suite.
+
+The repository wrapper reports a complete first-attempt **1/1** pass for
+`TopicStoreMemoryDeviceTest` on S25. It writes and reopens a synthetic 48 MiB
+generation twice, rejects a generation over 64 MiB, and reopens the preserved prior
+generation. The test uses a UUID-named temporary directory and removes its own
+evidence; it does not replace private Notes, interests or listening state. Device
+screen and accessibility settings were restored by the wrapper.
+
+After installation, ordinary foreground launch succeeded. The existing private
+library naturally wrote successive approximately 32–33 MB checkpoints and a
+36,348,866-byte published topics envelope, after which the checkpoint directory
+was empty. Process 22180 stayed alive with no AndroidRuntime error for that process.
+A force-stop and cold launch exercised reopening the saved generation successfully.
+These observations establish the previously failing persistence path on this phone;
+they do not establish representative semantic quality, peak model memory, arbitrary
+library scale or human TalkBack speech acceptance. Existing product open gates
+remain as recorded in §111 and §115 and the governing contracts. No generated
+Notion mirror was edited in this round.
+
+Independent read-only review found no actionable regression in the changed
+persistence paths. Streaming removes whole-record copies; the serialization
+library can still allocate for an individual string. This round does not claim
+constant memory for arbitrarily large individual fields.

@@ -13,6 +13,31 @@ import org.junit.rules.TemporaryFolder
 import kotlinx.serialization.json.*
 
 class FileTopicStoreTest {
+    @Test fun oversizedTopicWritesStopEncodingAtTheRecordBoundAndPreservePriorEvidence() = runBlocking {
+        val directory = temporary.newFolder()
+        val prior = TopicSnapshot(generation = 7, connections = connections(2))
+        assertTrue(FileTopicStore(directory).write(prior))
+        val before = directory.listFiles()!!.associate { it.name to it.length() }
+        var encoding = false
+        val vector = object : AbstractList<Float>() {
+            override val size = 2
+            override fun get(index: Int): Float {
+                check(!encoding) { "Encoding continued beyond the 64 MiB record bound" }
+                return if (index == 0) 1f else 0f
+            }
+        }
+        val passage = SemanticPassage("p", "p", "s", null, "b", "c", 0, 4, "body", "body", 0)
+        val label = "x".repeat(1024 * 1024)
+        val topics = (0 until 70).map { n -> DiscoveredTopic("t$n", label, passage,
+            EmbeddedPassage(passage, if (n == 69) vector else listOf(1f, 0f)), emptyList(), n.toLong()) }
+        val store = FileTopicStore(directory, otherBytes = { encoding = true; 0L })
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.RecordMemoryLimit),
+            store.writeDetailed(TopicSnapshot(topics = topics, identity = EmbeddingIdentity("bounded", 2),
+                connections = connections(3))))
+        assertEquals(before, directory.listFiles()!!.associate { it.name to it.length() })
+        assertEquals(prior, FileTopicStore(directory).read())
+    }
+
     @Test fun sharedTopicEvidenceIsStoredOnceAndRestoredWithoutChangingMemberships() = runBlocking {
         val directory = temporary.newFolder()
         val model = EmbeddingIdentity("shared-evidence", 2)

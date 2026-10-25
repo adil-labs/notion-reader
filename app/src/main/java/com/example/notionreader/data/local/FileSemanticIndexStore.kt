@@ -18,10 +18,14 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 internal fun atomicSemanticWrite(target: File, bytes: ByteArray, onStaged: (File) -> Unit = {}) {
+    atomicSemanticWrite(target, onStaged) { it.write(bytes) }
+}
+
+internal fun atomicSemanticWrite(target: File, onStaged: (File) -> Unit = {}, write: (FileOutputStream) -> Unit) {
     target.parentFile!!.mkdirs()
     val staging = File(target.parentFile, "${target.name}.${UUID.randomUUID()}.tmp")
     try {
-        FileOutputStream(staging).use { it.write(bytes); it.fd.sync() }
+        FileOutputStream(staging).use { write(it); it.fd.sync() }
         onStaged(staging)
         try { Files.move(staging.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING) }
         catch (_: java.nio.file.AtomicMoveNotSupportedException) { Files.move(staging.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING) }
