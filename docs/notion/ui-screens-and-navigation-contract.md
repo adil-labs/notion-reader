@@ -4,7 +4,7 @@
   Source page: Notion Reader — UI Screens & Navigation Contract
   Page id:     3dec9345-e10a-81b6-9cd2-d54532ad6fcd
   Notion URL:  https://app.notion.com/p/Notion-Reader-UI-Screens-Navigation-Contract-3dec9345e10a81b69cd2d54532ad6fcd
-  Notion last edited: 10/25/2026 12:18:00
+  Notion last edited: 10/25/2026 15:38:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -1636,4 +1636,18 @@ Follow the official LiteRT-LM Android embedding API: a pinned published .litertl
 The Kotlin embedding API does not expose source offsets. A small native bridge may read the unchanged SentencePiece section directly from the verified bundle into memory, run Google's SentencePiece processor and convert its UTF-8 byte offsets into Kotlin UTF-16 offsets. Pin the section location and digest to the immutable bundle identity; validate bounds and reject malformed input. No model or tokenizer conversion/export is performed. The complete pack is the single 164626432-byte published bundle, displayed approximately as 165 MB.
 
 Use the documented clustering prefix task: clustering | text: with a space before trimmed input. Version preprocessing and tokenizer identity for this change, and rebuild incompatible derived state. Keep the existing sole exact Discovery engine, optional explicit atomic acquisition, source evidence, saved interests, listening state and resource/privacy rules. CPU remains the measured emulator baseline; a separate generic LiteRT interpreter or legacy ONNX provider is unnecessary. Historical ONNX benchmark sources and results may remain outside shipping application source sets. Public emulator tests must cover real acquisition, source offsets including Unicode and literal special strings, exact context budgeting, finite normalized embeddings and the Discovery journey. ARM64/API26 runtime, representative quality, peak memory and human speech acceptance remain separate gates.
+
+# Discovery execution backend selection
+
+Settings offer a persisted Automatic (default), CPU, GPU or NPU preference for on-device Discovery. Show the requested preference separately from the effective backend and any unavailable/fallback reason. Selection does not download anything, change listening state, discard interests, or clear compatible derived discoveries. Changes take effect at a serialized inference boundary; native work stays off the UI thread and old engines close before replacement.
+
+Automatic compares CPU and available validated accelerators on fixed public short and longer inputs, using median warm execution time, and selects the faster validated backend for this process and preference. This is a bounded device-local comparison, not a universal throughput or battery claim. Explicit accelerator choices are best effort with truthful CPU fallback on unsupported initialization, invalid outputs or execution failure. Validate accelerated embeddings against CPU on fixed public probes before admitting them to the existing embedding identity; reject incompatible outputs. Avoid retry loops for an accelerator rejected during the current selection. CPU failure remains a visible failure, not fabricated successful output.
+
+Use the official LiteRT-LM Android backend APIs and optional GPU native-library declarations. NPU execution requires the published matching-SoC model plus compatible vendor runtime/dispatch libraries; hardware presence alone is insufficient. Do not claim NPU execution when these prerequisites are absent. Additional model/runtime acquisition must remain explicit and verified, never triggered silently by selecting a preference. Do not convert or export models. Keep one serialized process-owned execution path and the existing resource/privacy limits. Emulator evidence does not establish S25 accelerator execution.
+
+# Bounded accelerator context and optional S25 NPU pack
+
+Accelerator execution is limited to at most 512 instructed tokens to avoid allocating all 8192-token GPU signatures. Longer valid inputs retain the 8192-token CPU path; explain the effective per-input fallback without truncating input or changing source chunking. Keep one live engine, and close it before switching input backends. Accelerator timings cover only the supported bounded context.
+
+For SM8750 devices, Settings may explicitly acquire the additional official embeddinggemma-2-text-270m_Qualcomm_SM8750.litertlm artifact from the same pinned repository/revision: 187596800 bytes, SHA256 b5615709768db4ca4fb4f04514e7e41b0680ccb12dd5f90371193f7fd12e7c99. Show the additional approximately 188 MB, separate download/cancel/delete controls and Wi-Fi-only policy. Preserve the base bundle for CPU/GPU fallback and authoritative source tokenization. Reuse atomic checksum verification and managed-storage admission, with no implicit download. Package official Qualcomm dispatch and QAIRT runtime dependencies; validate actual execution before reuse of the embedding space. Published CPU and NPU tokenizer and embedding metadata sections must agree. Selecting NPU on other chipsets explains the absence of a supported published pack and falls back to CPU. Pixel 8 Pro Tensor G3 has no matching published NPU artifact in the pinned inventory, so evaluate CPU/GPU there without conversion.
 
