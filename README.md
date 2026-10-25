@@ -532,6 +532,10 @@ the model clears the index and automatic continuity while preserving explicit in
 reset clears interests too. Cache eviction removes derived content but retains opaque recache
 continuity; confirmed deletion or access loss removes that continuity as well.
 
+The complete topic catalog composes visible rows lazily, with stable topic keys and
+return-focus scrolling. Its Major subjects, other established subjects and Emerging
+topics remain in saved order; catalog size does not require composing every card.
+
 ### Discovery architecture and acceptance
 
 All builds use one section-aware hierarchical engine, owned by the process coordinator.

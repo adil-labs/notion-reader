@@ -48,10 +48,12 @@ class DiscoveryTopicsNavigationAccessibilityTest {
 
     private fun fixture(emptyInitial: Boolean = false, fallbackLabel: Boolean = false,
         namedReference: Boolean = false, mixedConnections: Boolean = false, emerging: Boolean = false,
-        independentReference: Boolean = false, hierarchy: Boolean = false, fullCatalog: Boolean = false): Fixture = runBlocking {
+        independentReference: Boolean = false, hierarchy: Boolean = false, fullCatalog: Boolean = false,
+        topicCatalogSize: Int = 0): Fixture = runBlocking {
         val provider = FixedProvider()
         val notes = listOf("a" to "Alpha", "b" to "Beta", "c" to "Gamma") +
-            if (fullCatalog) (3..7).map { "n$it" to "Forest $it" } else emptyList()
+            (if (fullCatalog) (3..7).map { "n$it" to "Forest $it" } else emptyList()) +
+            (0 until topicCatalogSize).map { "catalog$it" to "Evidence $it" }
         val documents = notes.map { (id, title) ->
             ReaderDocument.fromChunkTexts(id, title, listOf(if (hierarchy && id == "a")
                 "River ecosystems is a part of Forest ecology. Rivers sustain wildlife across woodland habitats."
@@ -75,7 +77,10 @@ class DiscoveryTopicsNavigationAccessibilityTest {
             EmbeddedPassage(members.first().passage, listOf(1f, 0f)), if (emerging) members.take(1) else members, 1)
         val child = if (hierarchy) DiscoveredTopic("river", "River ecosystems", members[1].passage,
             EmbeddedPassage(members[1].passage, listOf(1f, 0f)), listOf(members[1]), 2) else null
-        val topics = listOfNotNull(topic, child)
+        val topics = listOfNotNull(topic, child) + members.takeLast(topicCatalogSize).mapIndexed { n, member ->
+            DiscoveredTopic("catalog-topic-$n", "Forest ecology", member.passage,
+                EmbeddedPassage(member.passage, listOf(1f, 0f)), listOf(member), (n + 3).toLong())
+        }
         val relationships = if (hierarchy) buildSubjectRelationships(topics, documents.map { index.read(it.pageId)!! }) else emptyList()
         val snapshot = TopicSnapshot(topics = if (emptyInitial) emptyList() else topics, identity = provider.identity,
             subjectRelationships = relationships,
@@ -115,6 +120,22 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     private fun openTopic() {
         compose.onNodeWithText("Forest ecology").performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
+    }
+
+    @Test fun theFullTopicCatalogOnlyComposesViewportRowsAndRestoresAnOffscreenTopic() {
+        val (app, _, _) = fixture(topicCatalogSize = 72)
+        assertEquals(73, app.discovery!!.state.value.publishedTopics.size)
+        show(app)
+        compose.onNodeWithText("See all topics").performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        org.junit.Assert.assertTrue("The complete catalog must not compose every topic at once",
+            compose.onAllNodesWithText("1 available Note").fetchSemanticsNodes().size < 20)
+        compose.onNodeWithContentDescription("Topic catalog").performScrollToIndex(75)
+        compose.onNode(hasText("Evidence 71") and hasClickAction()).assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.navigator.state.value.current == ReaderDestination.DiscoveryTopic }
+        compose.runOnIdle { app.back() }
+        compose.onNode(hasText("Evidence 71") and hasClickAction()).assertIsFocused()
     }
 
     @Test fun catalogPaginationRetainsEveryConnectionBeyondPreviewLimits() {

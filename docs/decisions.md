@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§115)](#115-published-litert-migration-and-s25-end-to-end-verification-2026-10-25)
+[current crash investigation (§118)](#118-s25-full-topic-catalog-composition-memory-crash-2026-10-25)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11196,3 +11196,62 @@ Independent read-only review found no actionable regression in the changed
 persistence paths. Streaming removes whole-record copies; the serialization
 library can still allocate for an individual string. This round does not claim
 constant memory for arbitrarily large individual fields.
+
+## 118. S25 full-topic catalog composition memory crash (2026-10-25)
+
+A follow-up live-log check found a later S25 crash at 21:43:33 in process 25748.
+The user confirmed the trigger was **See all topics**. This corrects any inference
+that §117's short observation window established general app stability: its large
+persistence path succeeded, but the complete catalog remained unsafe. The main
+thread exhausted the 256 MiB heap; preceding diagnostics identify Compose
+`SlotWriter.insertSlots` while the process was repeatedly collecting at 254–255 MiB.
+The final OOM could not allocate its own stack trace and an ANR trace was retained.
+
+The full catalog was a scrolling Column invoking `TopicPreviews(all = true)`.
+Its nested collections eagerly composed every major, established and emerging
+topic row, unlike the bounded Discover preview. Replace that complete-list path
+with a LazyColumn whose individual headings and topic rows have stable keys and
+content types. Preserve existing grouping and saved ordering, publication and
+source-eligibility filtering, progress/Refresh and Back. Scroll the recorded
+topic focus target into view before its established real-focus modifier runs.
+Keep the compact main feed bounded to three rows per publication class, and
+share its progress presentation with the catalog. Do not retain a second eager
+full-list implementation, drop valid topics, raise the heap or suppress OOM.
+
+The existing UI and Product contracts require the complete stable accessible
+catalog and meaningful Back focus; this changes rendering, not those semantics.
+Official Android CLI list guidance confirms that Column eagerly composes all
+children while lazy lists compose viewport items, and recommends stable keys.
+
+### Regression proof
+
+| Guard removed | Test that noticed |
+| --- | --- |
+| Original eager full-topic catalog | `theFullTopicCatalogOnlyComposesViewportRowsAndRestoresAnOffscreenTopic` fails at its viewport-count assertion against a 73-topic fixture; the other 21 tests in the targeted class pass. |
+
+The test also scrolls to the final topic, opens it through semantic OnClick and
+asserts restored focus after Back. It uses synthetic in-memory evidence; it does
+not read or replace the phone's private library. A read-only independent review
+found no actionable issue in the UI or regression-test changes.
+
+### Verification
+
+The targeted wrapper subsequently reports **22/22, zero failures/errors/skips** on
+the API 36 emulator, including final-row access and real focus restoration. The
+full JVM suite passes with **1,123 tests**, as do debug assembly and explicit
+androidTest Kotlin compilation. No accessibility assertion was removed or relaxed.
+
+Installed the updated build on S25/API 37 and opened **See all topics** using a
+target read from current Android CLI layout JSON. Five successive layout/scroll
+observations exposed only five or six topic Note-count rows each, and the same
+process (9403) remained alive with no AndroidRuntime error during the probe.
+Managed-heap allocation sampled after scrolling was approximately 150 MiB;
+whole-process PSS was approximately 327 MiB and includes native/mapped memory.
+These are sampled observations, not peak-memory bounds or a promise of arbitrary
+library-scale acceptance. TalkBack remained enabled; no claim of human speech
+acceptance follows. No private content was exported or library state cleared.
+
+The requested focused-commit delegation was stopped before any commit when the
+new crash was found. Resume it after this verification with this additional fix
+and regression evidence included. Existing product open gates remain in §111,
+§115 and the governing specifications.
