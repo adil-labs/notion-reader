@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[current implementation and open work (§111)](#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)
+[current implementation and open work (§115)](#115-published-litert-migration-and-s25-end-to-end-verification-2026-10-25)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -10978,3 +10978,162 @@ latency or full-scale performance. No private phone library was cleared or repla
 Human TalkBack speech/listening, Samsung-specific behavior, representative quality and
 the existing resource/architecture gates from §109 remain open. No new model, background
 execution deadline, or automatic downloading policy was introduced.
+
+## 112. Antigravity delegation instructions and launch evidence (2026-10-25)
+
+The Windows topic-naming experiment was assigned to `agy`, but its initial headless
+invocation ended without substantive output: a required `command` permission could
+not be prompted for and was auto-denied. No experiment files or results were produced.
+The initial progress claim that the experiment was running was premature.
+
+At the user's request, reviewed `D:/repos/git-explain/AGENTS.md` and adapted its
+Antigravity CLI delegation workflow into this repository's agent guide. Preserve
+explicit scoped permissions, streamed events, bounded edit/command scope, independent
+diff/output review, and rejection of empty success or denied-action results. Never
+use the permission-bypass flag. Temporary evidence belongs under ignored
+`build/agy-tasks/`; accepted reproducible tools and reports belong in tracked paths.
+Rust-specific instructions were not imported. No machine settings were changed.
+
+Checked the installed CLI help and available models; `gemini-3.8-flash-medium` was
+listed. Documentation-only validation uses diff review and `git diff --check`;
+Android builds/tests are not evidence for this instruction change. This round does
+not restart the blocked experiment or satisfy any Discovery quality/resource gate.
+Current implementation and product open work remain in §111 and its references.
+
+## 113. Windows topic-name prototype and supervised agy execution (2026-10-25)
+
+The first resumed agy task completed its scoped hardware inventory but drifted
+through over 200 reading steps without producing a harness. Stopped that process
+and assigned a narrower synthetic prototype. It created the twelve-case harness;
+primary review reproduced invalid-support acceptance and an object-ID crash, fixed
+those checks and other reproducibility gaps, and verified self-check/dry-run.
+Explicit exact-command permissions then allowed agy to execute local inference.
+
+The reviewed batch returned 14/14 responses, with two missing-support-list schema
+failures and three excessive abstentions on supported subsets containing distractors.
+The live command remained red (exit 1). Generated subject names were promising on
+coherent evidence, but the prompt's whole-set/subset ambiguity limits diagnosis.
+The comparison was a simple extractive proxy, not the shipping algorithm. Retained
+inputs, raw responses, parameters, model digest, examples and recommendation are in
+`tools/semantic-discovery/topic-naming-experiment/report.md` and its evidence file.
+
+The installed 8.9B Ministral model is not a small Android model. The first host
+request took 43.32 seconds; the remaining thirteen had a 1.136-second median.
+No Android, battery, playback, peak-model-memory or representative discovery quality
+acceptance follows. Continue host research before considering integration. No
+production behavior changed; §111's product open gates remain open.
+
+## 114. Gemma 270M naming comparison and MiniCPM candidate check (2026-10-25)
+
+User requested a 270M model. Downloaded Ollama Gemma 3 270M, extended only the
+experimental allowlist, passed self-check/dry-run and delegated the same fourteen
+local requests to agy with exact command permission. All responses returned, but
+all copied the schema's literal topic placeholder and omitted supporting IDs.
+The live command exited 1; no failures were relaxed or retried. First request was
+23.939 seconds and subsequent-request median 0.283 seconds. Unusable short outputs
+do not demonstrate equivalent useful throughput to the 8B comparison.
+
+Preserved raw evidence and primary assessment under the tracked experiment paths
+described in §113. The unchanged multi-part prompt may be unsuitable for this tiny
+model; this result does not establish impossibility of a simpler naming-only task.
+The requested MiniCPM lookup found standalone 0.5B and 1B text candidates; the
+approximately 324M DSpark checkpoint requires its larger paired target. No MiniCPM
+download or inference occurred. No Android code or product semantics changed.
+
+## 115. Published LiteRT migration and S25 end-to-end verification (2026-10-25)
+
+The user requested replacement of ONNX with LiteRT/LiteRT-LM, the same model,
+published official artifacts without conversion/export, clean Android integration,
+and emulator plus connected S25 verification. After the ABI question the user
+explicitly directed replacement of the old path. Product, UI and Integration
+sources were amended in Notion, mirrors regenerated and diffs inspected. Prior
+user changes in the guide, decisions and topic-naming experiment were preserved.
+
+### Final implementation
+
+Use the official Kotlin EmbeddingEngine API in pinned LiteRT-LM 0.18.1, off-main,
+serialized, lazily initialized and explicitly closed/reopened, with two-thread CPU.
+The only optional download is the published official EmbeddingGemma 2 Text 270M
+INT4 bundle: revision 9be6e8b90982095dc05c2bd162e4b954ee4dbac7, 164626432 bytes,
+SHA256 2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb.
+No weights/graph/tokenizer conversion, training or model export was performed.
+App ABIs are arm64-v8a and x86_64; minimum API remains 26. App and test APKs have
+no ONNX dependency. Native packaging contains LiteRT-LM and the tokenizer bridge.
+
+The first attempt retained an external HF source tokenizer while LiteRT inference
+used the bundle. Independent inspection found real literal-control/user-defined
+symbol differences. A temporary HF adapter was investigated and then retired.
+The final JNI bridge reads the exact bundled SentencePiece section into memory,
+runs Google's SentencePiece 0.2.1 through locked Rust bindings 0.14, and converts
+UTF-8 byte spans into Kotlin UTF-16 source offsets. There is no separate tokenizer
+download or compatibility emulation. Use the official clustering text prefix
+before trimmed input. Preprocessing 4 and bundled-tokenizer identity invalidate
+incompatible derived state while preserving explicit interests/listening state.
+Explicit atomic acquisition preserves old bytes until verified replacement;
+Settings truthfully show the single approximately 165 MB pack.
+
+Fourteen historical ONNX/MiniLM device benchmark tests and support sources moved
+intact under tools/semantic-discovery/historical-onnx, outside app source sets.
+Their original assertions/thresholds remain historical controls, not passing
+LiteRT tests. Pure historical JVM policy/tokenizer helpers are test-only.
+
+### Failures and regression proofs
+
+- The new model-pack test failed against the original ONNX repository as intended.
+  The first exact Rust filter selected zero tests and was rejected. With the full
+  module-qualified filter, literal-control expectations failed against old HF IDs.
+- Disabling UTF-16 conversion in the final bridge failed independent Unicode
+  offset assertions for accents, emoji and ZWJ families. Restoring it passes both
+  native tests. A restored backup timestamp initially reused the bad Cargo artifact;
+  touching the actual source forced the fresh correct build. Neither zero-test
+  nor stale output is acceptance evidence.
+- Emulator dlopen exposed missing C++ exception typeinfo. Link NDK libc++abi.a by
+  absolute path. Adding the unversioned NDK directory to -L instead selected
+  non-PIC x86_64 libc.a and failed; that build was rejected. Direct archive linking
+  passes on emulator and S25, with 16 KiB ELF alignment. Android CMake uses Ninja
+  rather than accidentally selecting the Windows Visual Studio generator.
+- An early combined-class invocation ran one of two expected tests. The wrapper
+  correctly returned INCOMPLETE; accepted evidence uses separate complete classes.
+- S25 inference initially looked only in emulator staging and failed before
+  inference (model bytes expected, zero found). It now selects the installed pack
+  when present, verifies its full checksum, then falls back to isolated staging.
+  Locked-phone preflight refusals ran no tests; the owner unlocked it. These setup
+  issues were not retried as flakes and no assertions/timeouts were weakened.
+
+### Accepted verification and limits
+
+JVM XML reports count **1,113 tests, zero failures/errors/skips**. Debug assembly,
+androidTest Kotlin compilation and actual host JNI parity pass. Two native tests
+pass. JNI/device checks match **109 independent Python SentencePiece token/UTF-16
+cases**, literal symbols, special tokens, exact 8191/8192/8193 token budgets,
+over-limit rejection and close/reopen. Wrapper completeness, signatures,
+real-output classifier, empty-failure classifier, headless allowlist and deployment
+allowlist checks pass. The current device-suite count is source-derived **303**,
+reflecting the fourteen intentional historical retirements; no full-suite pass
+is claimed.
+
+API 36 x86_64 emulator: complete **1/1 inference** and **1/1 public six-Note
+Discovery journey** pass. Samsung S25 SM-S931B/API 37: complete **1/1 Settings
+acquisition** (fresh verified production download), **1/1 inference**, and
+**1/1 public Discovery journey** pass. Journeys index six Notes, publish three
+supported subjects, retain four connections (three semantic), rank search,
+navigate source evidence accessibly, restore focus and preserve listening state.
+S25's public journey took 2,691 ms. Its sampled whole-process PSS was about
+479 MiB, not isolated/peak model memory. Phone screen timeout, stay-awake and
+touch-exploration settings were restored. No private Notes, interests, queues
+or listening snapshots were cleared or replaced for these tests. Ordinary app
+launch was foreground-verified and automatic cache processing observed; that
+is not a completed-private-library or quality claim.
+
+Compact public evidence is tracked in
+tools/semantic-discovery/litert-migration-2026-10-25.json, alongside reusable
+staging, inspection, reference and JNI sources. Automatic approval review refused
+deletion of temporary native compiler output; it remains ignored.
+
+Old ONNX vector cosine agreement is now about 0.973–0.978 for the final prefix and
+export, reported separately rather than called parity. Public smoke separation
+and the six-Note journey do not establish representative semantic quality. The
+unchanged policy thresholds retain their prior calibration limits. No 8192-token
+native inference, API 26 native run, peak/full-scale memory/battery/playback
+contention, or human TalkBack speech acceptance is claimed. Existing product open
+work from §111 remains open; emulator and S25 runtime/E2E execution are now observed.

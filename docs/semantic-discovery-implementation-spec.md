@@ -145,14 +145,22 @@ artifacts, preprocessing/chunker versions, dimensions and storage version.
 
 ## Model and privacy
 
-Current optional model: text-only EmbeddingGemma 2 INT4, 768 dimensions, using
-community ONNX export revision `daa72c51243991dfcaf9f9137d2c573d8f7790c0` and Gemma
-terms. ONNX Runtime Android 1.31.0 validates Vulkan execution against CPU on the first real input and falls back to two-thread CPU on unavailable, failed or invalid GPU output. The 206,696,682-byte
-pack includes a pinned graph, external weights, tokenizer and configuration assets.
-Use the exported `sentence_embedding`, with L2 normalization, never mean pooling
-its hidden states. Native Hugging Face Tokenizers 0.22.1 supplies exact BPE token
-IDs and converted UTF-16 evidence offsets. The clustering instruction and BOS/EOS
-are included; the provider rejects inputs over 8,192 tokens without truncation.
+Current optional model: the published official LiteRT-community EmbeddingGemma 2
+text-only 270M INT4 bundle, 768 dimensions, revision
+`9be6e8b90982095dc05c2bd162e4b954ee4dbac7`. LiteRT-LM Android 0.18.1
+runs locally through LiteRT CPU with two threads. No local model conversion or
+export is performed. The complete 164,626,432-byte pack is one published
+`.litertlm` file, including the authoritative SentencePiece tokenizer. A small JNI
+bridge uses Google SentencePiece 0.2.1 through locked Rust bindings to read that
+section into memory without exporting or modifying a model. Its pinned section
+starts at byte 32,768, spans 4,689,013 bytes, and has SHA256
+`e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03`.
+The bridge converts SentencePiece UTF-8 byte spans into Kotlin UTF-16 evidence
+offsets. Inference and source chunking use the same tokenizer. Use Google's
+documented `task: clustering | text: ` prefix before trimmed input and BOS/EOS
+insertion. Preprocessing version 4 and the bundled-tokenizer identity invalidate
+incompatible state. Reject inputs over 8,192 tokens without truncation.
+App ABIs are arm64-v8a and x86_64, with minimum API 26 unchanged.
 Bounded source windows remain complete and overlapping rather than using the
 whole context for every passage.
 
@@ -162,9 +170,11 @@ identity changes invalidate incompatible vectors and derived checkpoints, preser
 explicit interests and listening state. Policy 16 retains exact-formation distance
 0.10, membership 0.90, retention 0.89, semantic connection 0.90 and recommendation
 0.90. These decisions are separate from search's unthresholded top-20 ranking and
-from named-reference admission. The actual shipping formation path was tested on
-500 public WOS Notes, and real inference plus a six-Note end-to-end journey on a
-Pixel 8 Pro/API37. Other runtime ABI/API combinations, full-scale resource limits,
+from named-reference admission. Historical ONNX formation was tested on 500 public WOS Notes and a six-Note
+Pixel 8 Pro/API37 journey. Those measurements do not qualify the new LiteRT bundle.
+The LiteRT emulator smoke checks normalized, repeatable embeddings, public-input
+discrimination and frozen source offsets. Old ONNX vector agreement is measured
+separately rather than presented as equivalence. Other runtime ABI/API combinations, full-scale resource limits,
 independent quality and human speech/listening gates remain unqualified.
 
 Model acquisition is explicit and optional, showing exact size/source/license,

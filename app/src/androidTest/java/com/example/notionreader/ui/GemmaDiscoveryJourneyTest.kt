@@ -33,8 +33,8 @@ class GemmaDiscoveryJourneyTest {
     @Test fun cachedNotesProduceSubjectsConnectionsAndSearchThroughAccessibleNavigation() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val installed = File(context.noBackupFilesDir, "discovery-model/current")
-        val model = if (File(installed, GemmaModelPack.graph).isFile) installed
-            else File(context.cacheDir, "gemma-benchmark-q4")
+        val model = if (File(installed, GemmaModelPack.bundleFile).isFile) installed
+            else File(context.cacheDir, "litert-gemma-test")
         val directory = kotlin.io.path.createTempDirectory(context.cacheDir.toPath(), "gemma-journey-").toFile()
         val provider = GemmaEmbeddingProvider(model)
         try {

@@ -365,6 +365,20 @@ On-demand agent skills live under `.agents/skills/` when installed. Project rule
 
 Project-specific skills required for completion should be committed/tracked. Check `git status --short` when adding tooling; a working file in an ignored/untracked location is not durable repository infrastructure.
 
+### Antigravity CLI delegation (`agy`)
+
+Use `agy` when the user requests delegation. Assign bounded work with explicit allowed edit paths; the primary agent owns integration, permission decisions, and qualitative review. Delegation does not change the governing specifications or definition of done.
+
+- Check `agy --help` and `agy models` before choosing options or a model. Prefer Flash for mechanically verifiable execution when available; do not assume model identifiers or `--mode auto` work across accounts. Do not combine a tiered model with a conflicting `--effort`.
+- Use noninteractive execution: `agy --mode accept-edits --print <prompt> --output-format stream-json --print-timeout 15m`. Allow 30 minutes for an explicitly bounded serialized model evaluation when needed. Capture streamed events and the actual process/session, not only final prose.
+- Each prompt specifies the task, allowed edit paths, relevant files/symbols, acceptance checks, exact authorized commands, and report destination. Require preservation of existing work and prohibit unrelated edits, commits, configuration changes, installs, and model requests unless explicitly within the assigned scope.
+- Configure command permissions explicitly in the user's Antigravity settings. Bare command-name rules did not authorize argument-bearing commands in the tested Windows CLI; use exact commands or narrow argument patterns. Never use `--dangerously-skip-permissions`. On denial, identify the exact denied command and resolve its authorization before resuming; do not evade it through another tool or spelling. Keep credentials and machine-specific permissions out of the repository.
+- A launched process is not evidence that work started. Confirm substantive tool events before reporting progress. A `SUCCESS` result with an empty response or nonempty `denied_actions` is not completion. A quiet stream is not proof of termination. Resume with `--conversation <id>` after resolving a blocker when useful.
+- Store temporary prompts, streamed logs, task-start snapshots, and preliminary reports under ignored `build/agy-tasks/`. Keep reproducible harnesses and accepted reports in intentional tracked `tools/` or `docs/` paths; ignored output alone is not durable verification infrastructure.
+- Review the diff against the task-start snapshot and inspect command outputs and exit codes independently. Apply this repository's failing-first regression discipline and verification order. Do not overlap tasks editing the same files or using shared Gradle/device/model resources.
+- For local-model experiments, assign one reviewed runner command where practical. Record model/runtime identity, input and prompt versions, settings, raw outputs, timing and memory evidence. Grade factual grounding and usefulness independently of JSON validity, response length, or latency; verify claimed improvements against exact output examples. Use public, consented, or purpose-built inputs and preserve the discovery privacy boundary. Windows results do not establish Android performance, accessibility, or release acceptance.
+- For failed text matches, inspect line endings and normalize only assigned files when necessary. Keep environment workarounds local to the child process; do not change machine-wide settings to conceal resource failures.
+
 ## 12. Documentation and change record
 
 When a round materially changes behavior, architecture, verification, or the explanation of a past defect:

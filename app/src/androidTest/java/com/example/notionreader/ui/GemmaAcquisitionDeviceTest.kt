@@ -27,7 +27,7 @@ class GemmaAcquisitionDeviceTest {
         val model = app.discoveryModel as LocalDiscoveryModelManager
         val beforeSession = app.session.state.value
         assertFalse("Do not run acquisition over an active listening session", beforeSession.isPlaying)
-        assertEquals(206696682L, model.state.value.totalBytes)
+        assertEquals(164626432L, model.state.value.totalBytes)
         assertTrue(model.state.value.description.startsWith("EmbeddingGemma 2 INT4"))
         app.openSettingsDiscovery()
         compose.setContent { ReaderShell(app, null, { runBlocking { app.openNote(it) } }, onRetryNoteLoad = {},

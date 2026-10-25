@@ -2,6 +2,7 @@
 .gradle/
 build/
 app/build/
+native/discovery-tokenizer/target/
 .kotlin/
 
 # Secrets and machine-specific configuration

@@ -4,7 +4,7 @@
   Source page: Notion Reader — Notion Integration Implementation Spec
   Page id:     3dec9345-e10a-81e8-8b28-e7d04672e53e
   Notion URL:  https://app.notion.com/p/Notion-Reader-Notion-Integration-Implementation-Spec-3dec9345e10a81e88b28e7d04672e53e
-  Notion last edited: 10/21/2026 06:28:00
+  Notion last edited: 10/25/2026 12:18:00
   Notion is authoritative. Re-run the exporter after editing there.
 -->
 
@@ -758,4 +758,22 @@ On capacity exhaustion pause additional indexing or downloads and retain eligibl
 Evict speculative prefetch Notes before least recently used unprotected Notes. Protect the current and upcoming active-queue Notes through writes and pruning. Reducing a limit explains offline removal before confirmation; defer cleanup where protected content exceeds a limit and explain the overage. Never delete saved queues, interests, listening history or listening snapshots to satisfy cache limits. Increasing capacity never downloads the whole library or expands cache-only Discovery eligibility.
 
 Settings expose actual Note-cache use, byte limit and entry guard; Discovery shows Automatic or Custom maximum, actual derived use, model download size and incomplete coverage truthfully. Sliders provide meaningful size labels and accessibility adjustment actions and persist after adjustment. Explain local automatic growth at setup and once to existing users; ordinary growth needs no repeated confirmation. Storage eligibility supplements existing power, scheduling, playback and resource restrictions; it never authorizes unlimited processing. WorkManager storage-not-low is a coarse guard alongside authoritative write-time checks.
+
+# User-requested LiteRT runtime migration
+
+The user directs replacement of the existing ONNX runtime path with Google LiteRT and LiteRT-LM, preserving the EmbeddingGemma 2 model family, text-only Discovery role, INT4 precision and normalized 768-dimensional embeddings. This supersedes earlier ONNX-runtime and ONNX-file requirements and four-ABI compatibility gates. Supported app ABIs become arm64-v8a and x86_64; minimum Android API remains 26. Remove the legacy MiniLM runtime path rather than retaining a competing production engine.
+
+Use LiteRT-LM 0.18.1 and its LiteRT execution engine. Pin litert-community/embeddinggemma-2-text-270m-litert-lm revision 9be6e8b90982095dc05c2bd162e4b954ee4dbac7, file embeddinggemma-2-text-270m.litertlm, 164626432 bytes, SHA256 2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb. Preserve verified external tokenizer assets for source-offset chunking and test their agreement with the bundled tokenizer. Preserve existing clustering instruction semantics unless measured export requirements require a separately versioned preprocessing change. Runtime/export changes have a distinct embedding identity; never mix previous vectors or checkpoints with new ones.
+
+Acquisition remains explicit, checksum-verified and atomic. An old ONNX installation is incompatible but startup validation must not delete it or download a replacement. Preserve Notes, explicit interests, Saved Queues, listening state and unrelated settings. Retain process ownership, one serialized worker, source provenance, storage, power, playback, accessibility and privacy rules. Validate real CPU inference on the x86_64 emulator, tokenizer/source offsets, finite normalized dimensions, meaningful public-input similarities and old-reference differences. Emulator evidence does not establish ARM64 performance, representative quality, API26 native execution or human listening acceptance. Accelerated inference requires separate correctness evidence and safe CPU fallback.
+
+Use only the prebuilt models published in the official LiteRT community repositories. Do not locally convert or export model weights or graphs for LiteRT or LiteRT-LM. The source-offset tokenizer may be acquired separately from the pinned official google/embeddinggemma-2 repository; include it in the verified total pack size.
+
+# LiteRT Android implementation refinement
+
+Follow the official LiteRT-LM Android embedding API: a pinned published .litertlm bundle, background EmbeddingEngine initialization, serialized computeEmbedding calls and deterministic close/reopen. Use the existing EmbeddingGemma 2 Text 270M INT4 bundle without conversion or export. It contains the authoritative SentencePiece tokenizer. Source chunking, context budgeting and inference must all use that tokenizer; do not retain a separate HF tokenizer download or emulate its symbol rules.
+
+The Kotlin embedding API does not expose source offsets. A small native bridge may read the unchanged SentencePiece section directly from the verified bundle into memory, run Google's SentencePiece processor and convert its UTF-8 byte offsets into Kotlin UTF-16 offsets. Pin the section location and digest to the immutable bundle identity; validate bounds and reject malformed input. No model or tokenizer conversion/export is performed. The complete pack is the single 164626432-byte published bundle, displayed approximately as 165 MB.
+
+Use the documented clustering prefix task: clustering | text: with a space before trimmed input. Version preprocessing and tokenizer identity for this change, and rebuild incompatible derived state. Keep the existing sole exact Discovery engine, optional explicit atomic acquisition, source evidence, saved interests, listening state and resource/privacy rules. CPU remains the measured emulator baseline; a separate generic LiteRT interpreter or legacy ONNX provider is unnecessary. Historical ONNX benchmark sources and results may remain outside shipping application source sets. Public emulator tests must cover real acquisition, source offsets including Unicode and literal special strings, exact context budgeting, finite normalized embeddings and the Discovery journey. ARM64/API26 runtime, representative quality, peak memory and human speech acceptance remain separate gates.
 

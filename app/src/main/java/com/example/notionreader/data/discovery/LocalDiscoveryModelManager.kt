@@ -29,17 +29,14 @@ class LocalDiscoveryModelManager(
     private val artifacts: List<ModelArtifact> = Artifacts,
     private val open: (String) -> InputStream = ::openModelUrl,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val repository: String = "sentence-transformers/all-MiniLM-L6-v2",
+    private val repository: String = GemmaModelPack.repository,
     private val revision: String = Revision,
     private val description: String = "English MiniLM-L6-v2 · ${artifacts.sumOf { it.bytes }} bytes · sentence-transformers/all-MiniLM-L6-v2 · Apache-2.0 · ONNX Runtime MIT · local inference",
     private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted
 ) : DiscoveryModelManager {
     companion object {
-        const val Revision = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
-        val Artifacts = listOf(
-            ModelArtifact("model_qint8_arm64.onnx", 23026053, "4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474", "onnx/model_qint8_arm64.onnx"),
-            ModelArtifact("vocab.txt", 231508, "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3")
-        )
+        const val Revision = GemmaModelPack.revision
+        val Artifacts get() = GemmaModelPack.artifacts
         private fun openModelUrl(url: String): InputStream {
             val connection = URI(url).toURL().openConnection() as HttpURLConnection
             connection.connectTimeout = 15000; connection.readTimeout = 15000
