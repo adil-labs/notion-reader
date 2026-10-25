@@ -76,6 +76,13 @@ android {
     // Preserve replacement behavior for the legacy installer too.
     installation { installOptions.add("-r") }
     sourceSets.getByName("main").jniLibs.srcDir(tokenizerOutput.get().dir("jniLibs").asFile)
+    packaging.jniLibs {
+        // QNN loads its Hexagon skeleton from a real native-library directory.
+        useLegacyPackaging = true
+        excludes += setOf("**/libLiteRtCompilerPlugin_Qualcomm.so", "**/libQnnDsp*.so",
+            "**/libQnnGpu.so", "**/libQnnHtpPrepare.so", "**/libQnnHtpV68*.so",
+            "**/libQnnHtpV69*.so", "**/libQnnHtpV73*.so", "**/libQnnHtpV75*.so", "**/libQnnHtpV81*.so")
+    }
     sourceSets.getByName("androidTest").assets.srcDir(layout.buildDirectory.dir("generated/gemmaTestAssets").get().asFile)
 
     defaultConfig {
@@ -225,6 +232,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     // Official embedding API, pinned for reproducible published-bundle inference.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.1")
+    // Official Qualcomm dispatch + QAIRT matching the runtime's upstream dependency.
+    implementation("com.google.ai.edge.litert:litert-npu-runtime-qualcomm:2.3.0")
+    implementation("com.qualcomm.qti:qnn-runtime:2.50.0")
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
 
     implementation(composeBom)

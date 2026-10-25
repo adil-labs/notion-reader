@@ -7,6 +7,7 @@ package com.example.notionreader.domain.settings
  * on the shape of user preferences without violating layer boundaries.
  */
 data class ReaderSettings(
+    val discoveryBackend: DiscoveryBackend = DiscoveryBackend.AUTOMATIC,
     val discoveryEffort: DiscoveryEffort = DiscoveryEffort.BALANCED,
     // Playback
     val defaultNavigationUnit: NavigationUnit = NavigationUnit.SECTION,

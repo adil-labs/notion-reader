@@ -242,9 +242,23 @@ class ReaderApplication : Application() {
             revision = com.example.notionreader.data.discovery.GemmaModelPack.revision,
             description = com.example.notionreader.data.discovery.GemmaModelPack.description
         )
+        lateinit var embeddingProvider: com.example.notionreader.data.discovery.GemmaEmbeddingProvider
+        val npuModel = if (android.os.Build.VERSION.SDK_INT >= 31 && android.os.Build.SOC_MODEL.equals("SM8750", ignoreCase = true))
+            com.example.notionreader.data.discovery.LocalDiscoveryModelManager(
+                File(noBackupFilesDir, "discovery-model/npu-sm8750"), discoveryScope,
+                unmetered = { AndroidNetworkState(this).isUnmetered }, writeGate = storageWrites,
+                artifacts = com.example.notionreader.data.discovery.GemmaModelPack.npuArtifacts,
+                description = "Optional SM8750 NPU model · additional 188 MB · published EmbeddingGemma 2",
+                onInstalled = { embeddingProvider.installationChanged(); discovery.requestAutomaticContinuation() },
+                onDeleted = { embeddingProvider.installationChanged() }
+            ) else null
+        embeddingProvider = com.example.notionreader.data.discovery.GemmaEmbeddingProvider(discoveryModel.modelDirectory,
+            npuBundle = { npuModel?.takeIf { it.state.value.installed }?.let {
+                File(it.modelDirectory, com.example.notionreader.data.discovery.GemmaModelPack.npuBundleFile)
+            } }, nativeLibraryDirectory = applicationInfo.nativeLibraryDir)
         discovery = com.example.notionreader.application.DiscoveryController(
             documentCache, semanticIndex, interestStore,
-            com.example.notionreader.data.discovery.GemmaEmbeddingProvider(discoveryModel.modelDirectory),
+            embeddingProvider,
             modelAvailable = { discoveryModel.state.value.installed },
             recommendationThreshold = com.example.notionreader.data.discovery.GemmaModelPack.recommendationThreshold,
             topicPolicy = com.example.notionreader.data.discovery.GemmaModelPack.topicPolicy,
@@ -281,12 +295,18 @@ class ReaderApplication : Application() {
             cacheTelemetry = cacheTelemetry,
             discovery = discovery,
             discoveryModel = discoveryModel,
+            discoveryNpuModel = npuModel,
             storageStatus = storageBudget.status,
             recentNotes = recentNotes,
             isNotionConfigured = BuildConfig.NOTION_TOKEN.isNotBlank()
         )
 
         discoveryApp = app
+        discoveryScope.launch {
+            settingsRepository.settings.map { it.discoveryBackend }.distinctUntilChanged().collect {
+                embeddingProvider.selectBackend(settingsRepository.readCurrentSettings().discoveryBackend)
+            }
+        }
         discoveryScope.launch {
             app.navigator.state.map { it.inspectsDiscovery }.distinctUntilChanged().collect {
                 discovery.setTopicsInspected(it)
@@ -305,7 +325,7 @@ class ReaderApplication : Application() {
                 discovery.requestAutomaticContinuation()
             }
         }
-        verifyDiscoveryModel = { discoveryModel.checkInstalled() }
+        verifyDiscoveryModel = { discoveryModel.checkInstalled(); npuModel?.checkInstalled() }
         discoveryCoordinator = com.example.notionreader.application.DiscoveryWorkCoordinator(
             android.os.SystemClock::elapsedRealtime) {
             activeEffort = settingsRepository.readCurrentSettings().discoveryEffort

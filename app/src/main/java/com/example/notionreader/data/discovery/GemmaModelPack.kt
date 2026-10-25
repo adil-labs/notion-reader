@@ -9,6 +9,9 @@ object GemmaModelPack {
     const val repository = "litert-community/embeddinggemma-2-text-270m-litert-lm"
     const val instruction = "task: clustering | text: "
     const val bundleFile = "embeddinggemma-2-text-270m.litertlm"
+    const val npuBundleFile = "embeddinggemma-2-text-270m_Qualcomm_SM8750.litertlm"
+    val npuArtifacts = listOf(ModelArtifact(npuBundleFile, 187596800,
+        "b5615709768db4ca4fb4f04514e7e41b0680ccb12dd5f90371193f7fd12e7c99"))
     fun instructedText(text: String): String = instruction + text.trim()
     // Section location is verified by inspect-litert-tokenizer.py against this bundle's SHA256.
     const val tokenizerOffset = 32768L

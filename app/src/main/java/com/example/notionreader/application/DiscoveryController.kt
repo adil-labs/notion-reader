@@ -43,6 +43,8 @@ class DiscoveryController(
     }
     private fun mayContinueWork() = !mutable.value.paused && mutable.value.power?.allows(mutable.value.effort) != false && mayContinueIndexing()
     val state = mutable.asStateFlow()
+    val embeddingRuntime: kotlinx.coroutines.flow.StateFlow<EmbeddingRuntimeState> =
+        (provider as? ObservableEmbeddingRuntime)?.runtimeState ?: MutableStateFlow(EmbeddingRuntimeState())
     val hasPendingWork: Boolean get() = indexing.reconciliationPending || topics?.needsMoreWork == true ||
         state.value.indexedCount < state.value.cachedPageIds.size || state.value.cachedRevision != cache.revision.value
     fun requestAutomaticContinuation() { wake.value++ }

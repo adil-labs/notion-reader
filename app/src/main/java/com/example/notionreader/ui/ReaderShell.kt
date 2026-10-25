@@ -194,12 +194,18 @@ fun ReaderShell(
                         app.discovery?.let { controller ->
                             val discovery by controller.state.collectAsState()
                             val discoverySettings by app.settings.collectAsState()
+                            val embeddingRuntime by controller.embeddingRuntime.collectAsState()
                             val storage by app.storageStatus.collectAsState()
                             val modelManager = app.discoveryModel
                             val model = modelManager?.state?.collectAsState()?.value
+                            val npuManager = app.discoveryNpuModel
+                            val npu = npuManager?.state?.collectAsState()?.value
                             DiscoverySettingsScreen(
                                 DiscoverySettingsUi(modelDescription = model?.description ?: "Model unavailable in this configuration",
                                     effort = discoverySettings.discoveryEffort,
+                                    backend = discoverySettings.discoveryBackend,
+                                    runtime = embeddingRuntime,
+                                    npuModel = npu,
                                     downloadProgress = discoveryModelDownloadProgress(model),
                                     modelInstalled = model?.installed ?: false,
                                     downloading = model?.downloading ?: false,
@@ -222,6 +228,12 @@ fun ReaderShell(
                                 onStorageUpdate = { transform -> scope.launch { app.updateSettings(transform) } },
                                 storageMessage = storage.message,
                                 extendedMaximumBytes = storage.extendedMaximumBytes,
+                                onNpuDownload = { npuManager?.download() },
+                                onNpuCancel = { npuManager?.cancelDownload() },
+                                onNpuDelete = { scope.launch { npuManager?.delete() } },
+                                onBackendChange = { backend -> scope.launch {
+                                    app.settingsRepo.updateSettings { it.copy(discoveryBackend = backend) }
+                                } },
                                 onEffortChange = { effort -> scope.launch {
                                     app.settingsRepo.updateSettings { it.copy(discoveryEffort = effort) }
                                 } })

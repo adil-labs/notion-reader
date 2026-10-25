@@ -31,7 +31,7 @@ class LocalDiscoveryModelManager(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val repository: String = GemmaModelPack.repository,
     private val revision: String = Revision,
-    private val description: String = "English MiniLM-L6-v2 · ${artifacts.sumOf { it.bytes }} bytes · sentence-transformers/all-MiniLM-L6-v2 · Apache-2.0 · ONNX Runtime MIT · local inference",
+    private val description: String = GemmaModelPack.description,
     private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted
 ) : DiscoveryModelManager {
     companion object {

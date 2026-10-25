@@ -461,7 +461,7 @@ interface is *usable* with one, which is a different thing from coordinating wit
 
 Discovery is optional and automatic. Settings → Discovery → Download model (also reached through
 Discover's Set up Discovery) installs the text-only EmbeddingGemma 2 INT4 pack (165 MB, including its bundled tokenizer). Downloads
-use the published official LiteRT-community bundle, including its authoritative SentencePiece tokenizer with pinned revisions and verified checksums; Wi-Fi-only is the default. LiteRT-LM CPU inference
+use the published official LiteRT-community bundle, including its authoritative SentencePiece tokenizer with pinned revisions and verified checksums; Wi-Fi-only is the default. LiteRT-LM inference
 runs locally. Note content and queries are not sent to an embedding service, and model binaries
 are not bundled in the APK. Bundled SentencePiece tokenization with UTF-16 source offsets and 768-dimensional sentence embeddings replace incompatible derived data while preserving explicit interests and listening state. Browse and listening work without the model.
 
@@ -472,6 +472,17 @@ The S25 also passes Settings acquisition through the production downloader.
 See [the migration evidence](tools/semantic-discovery/litert-migration-2026-10-25.json)
 and decision §115. These are scoped device checks, not representative quality,
 peak-memory, API26 runtime or human TalkBack speech acceptance.
+
+Settings offer Automatic, CPU, GPU and NPU. Automatic compares median warm CPU and
+validated accelerator execution on public inputs; it selected GPU on the connected
+S25 and Pixel 8 Pro. Accelerator contexts are capped at 512 instructed tokens;
+longer valid inputs use CPU without truncation. Preferences persist, while status
+shows the effective backend and fallback reason. Switching preserves the index,
+interests and listening state. See decision §116 for scoped timings and evidence.
+The optional additional 188 MB SM8750 NPU pack uses the published model directly
+and requires an explicit Wi-Fi-only download. Its vectors currently fail CPU-space
+validation on S25, so it is rejected and falls back to CPU. Pixel 8 Pro's Tensor G3
+has no matching published NPU artifact. Neither case is claimed as working NPU inference.
 
 Only cached Notes are indexed. Semantic search has its own metadata filters and relevance order;
 Browse keyword search and Smart Queues retain their behavior. Results show literal source passages.
@@ -554,14 +565,14 @@ See decisions.md §76 for migration, regression proofs and remaining gates.
 
 Device backend research is recorded in [the Gemma benchmark](docs/gemma-device-backends-2026-10-18.md).
 These are historical ONNX backend results. The current default uses the published
-EmbeddingGemma 2 text-only INT4 bundle through LiteRT-LM CPU on arm64-v8a and x86_64.
-No model conversion or export is performed. QNN NPU remains a fixed-length research prototype; those results
+EmbeddingGemma 2 text-only INT4 bundle through LiteRT-LM with validated CPU/GPU selection on arm64-v8a and x86_64.
+No model conversion or export is performed. Historical QNN NPU results
 do not establish general Note or Discovery quality acceptance.
 
 The [Vulkan follow-up](docs/gemma-vulkan-2026-10-19.md) verifies Gemma GPU
 execution on S25 through ONNX Runtime WebGPU/Dawn. Pixel basic Vulkan compute
 works, but Gemma GPU readback failed in that historical ONNX investigation.
-The LiteRT migration uses CPU; those GPU measurements do not qualify LiteRT acceleration.
+Current LiteRT GPU evidence is recorded separately in decision §116.
 
 
 Discovery efficiency now retains one prepared generation across processing slices,
