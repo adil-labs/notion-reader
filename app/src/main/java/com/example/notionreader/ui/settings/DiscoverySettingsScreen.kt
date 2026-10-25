@@ -74,7 +74,7 @@ fun DiscoverySettingsScreen(
         Text("Model & setup", Modifier.semantics { heading() })
         Text(state.modelDescription)
         if (!state.modelInstalled && !state.downloading) {
-            Text("Pack download is approximately 207 MB. Embeddings run on this device. Only cached Notes are indexed.")
+            Text("Pack download is approximately 165 MB. Embeddings run on this device. Only cached Notes are indexed.")
         } else {
             Text("Embeddings run on this device. Only cached Notes are indexed.")
         }

@@ -460,10 +460,18 @@ interface is *usable* with one, which is a different thing from coordinating wit
 ## Local semantic discovery
 
 Discovery is optional and automatic. Settings → Discovery → Download model (also reached through
-Discover's Set up Discovery) installs the text-only EmbeddingGemma 2 INT4 pack (207 MB, including its tokenizer). Downloads
-use a pinned community ONNX export revision and verified graph, external-weight and tokenizer checksums; Wi-Fi-only is the default. ONNX Runtime CPU inference
+Discover's Set up Discovery) installs the text-only EmbeddingGemma 2 INT4 pack (165 MB, including its bundled tokenizer). Downloads
+use the published official LiteRT-community bundle, including its authoritative SentencePiece tokenizer with pinned revisions and verified checksums; Wi-Fi-only is the default. LiteRT-LM CPU inference
 runs locally. Note content and queries are not sent to an embedding service, and model binaries
-are not bundled in the APK. Native Hugging Face tokenization and 768-dimensional sentence embeddings replace incompatible MiniLM derived data while preserving explicit interests and listening state. Browse and listening work without the model.
+are not bundled in the APK. Bundled SentencePiece tokenization with UTF-16 source offsets and 768-dimensional sentence embeddings replace incompatible derived data while preserving explicit interests and listening state. Browse and listening work without the model.
+
+The published LiteRT bundle and official clustering prefix are verified on the API36
+x86_64 emulator and Samsung S25 (SM-S931B/API37): real inference and the public
+six-Note indexing/topic/connection/search/evidence-navigation journey pass on both.
+The S25 also passes Settings acquisition through the production downloader.
+See [the migration evidence](tools/semantic-discovery/litert-migration-2026-10-25.json)
+and decision §115. These are scoped device checks, not representative quality,
+peak-memory, API26 runtime or human TalkBack speech acceptance.
 
 Only cached Notes are indexed. Semantic search has its own metadata filters and relevance order;
 Browse keyword search and Smart Queues retain their behavior. Results show literal source passages.
@@ -545,13 +553,15 @@ See decisions.md §76 for migration, regression proofs and remaining gates.
 
 
 Device backend research is recorded in [the Gemma benchmark](docs/gemma-device-backends-2026-10-18.md).
-The current default is INT4 with automatic, numerically validated Vulkan selection
-and CPU fallback. QNN NPU remains a fixed-length research prototype; those results
+These are historical ONNX backend results. The current default uses the published
+EmbeddingGemma 2 text-only INT4 bundle through LiteRT-LM CPU on arm64-v8a and x86_64.
+No model conversion or export is performed. QNN NPU remains a fixed-length research prototype; those results
 do not establish general Note or Discovery quality acceptance.
 
 The [Vulkan follow-up](docs/gemma-vulkan-2026-10-19.md) verifies Gemma GPU
 execution on S25 through ONNX Runtime WebGPU/Dawn. Pixel basic Vulkan compute
-works, but Gemma GPU readback fails. The default is now INT4 with validated automatic Vulkan and CPU fallback.
+works, but Gemma GPU readback failed in that historical ONNX investigation.
+The LiteRT migration uses CPU; those GPU measurements do not qualify LiteRT acceleration.
 
 
 Discovery efficiency now retains one prepared generation across processing slices,

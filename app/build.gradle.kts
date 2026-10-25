@@ -27,7 +27,7 @@ tasks.withType<Test>().configureEach {
 
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(buildAndroidTokenizer) }
 val gemmaTestAssets = tasks.register<Copy>("generateGemmaTestAssets") {
-    from(rootProject.file("tools/semantic-discovery")) { include("gemma2-android-reference.json", "gemma2-q4-android-reference.json") }
+    from(rootProject.file("tools/semantic-discovery")) { include("gemma2-android-reference.json", "gemma2-q4-android-reference.json", "litert-tokenizer-reference.json") }
     into(layout.buildDirectory.dir("generated/gemmaTestAssets"))
 }
 tasks.matching { it.name == "preDebugAndroidTestBuild" || it.name == "preReleaseAndroidTestBuild" }.configureEach { dependsOn(gemmaTestAssets) }
@@ -39,7 +39,7 @@ tasks.register<JavaExec>("verifyGemmaTokenizer") {
     mainClass.set("com.example.notionreader.tooling.GemmaTokenizerParity")
     workingDir(rootProject.projectDir)
     systemProperty("discovery.tokenizer.library", tokenizerOutput.get().file("host/discovery_tokenizer.dll").asFile.absolutePath)
-    args(providers.gradleProperty("gemmaTokenizerJson").getOrElse(""), rootProject.file("tools/semantic-discovery/gemma2-android-reference.json"))
+    args(providers.gradleProperty("gemmaModelBundle").getOrElse(""), rootProject.file("tools/semantic-discovery/litert-tokenizer-reference.json"))
 }
 
 
@@ -81,6 +81,7 @@ android {
     defaultConfig {
         applicationId = "com.example.notionreader"
         minSdk = 26
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         targetSdk = 36
 
         versionCode = 1
@@ -222,8 +223,8 @@ fun quote(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\
 dependencies {
     // Stable compatible release; bounded ordinary workers, no foreground/expedited execution.
     implementation("androidx.work:work-runtime-ktx:2.11.2")
-    // Standalone API26 native-load and ARM64 semantic-quality gates recorded in tools/semantic-discovery.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
+    // Official embedding API, pinned for reproducible published-bundle inference.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.1")
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
 
     implementation(composeBom)

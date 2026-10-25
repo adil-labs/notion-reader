@@ -1,37 +1,48 @@
 use jni::{objects::{JClass, JString}, sys::{jboolean, jintArray, jlong}, JNIEnv};
-use std::{collections::HashMap, sync::{Mutex, OnceLock, atomic::{AtomicI64, Ordering}}};
-use tokenizers::Tokenizer;
+use std::{collections::HashMap, fs::File, io::{Read, Seek, SeekFrom}, sync::{Mutex, OnceLock, atomic::{AtomicI64, Ordering}}};
+use sentencepiece::SentencePieceProcessor;
 
-fn load(path: &str) -> Result<Tokenizer, String> {
-    let mut tokenizer = Tokenizer::from_file(path).map_err(|_| "Cannot load verified tokenizer".to_owned())?;
-    tokenizer.with_padding(None);
-    tokenizer.with_truncation(None).map_err(|_| "Cannot disable truncation".to_owned())?;
-    Ok(tokenizer)
+// Read the pinned published bundle section into memory. Never writes or converts a model.
+fn load_bundle_section(path: &str, offset: i64, length: i32) -> Result<SentencePieceProcessor, String> {
+    if offset < 32 || !(1..=16 * 1024 * 1024).contains(&length) { return Err("Invalid tokenizer section".into()); }
+    let mut file = File::open(path).map_err(|_| "Cannot open verified bundle")?;
+    let end = (offset as u64).checked_add(length as u64).ok_or("Invalid tokenizer bounds")?;
+    if end > file.metadata().map_err(|_| "Cannot inspect bundle")?.len() { return Err("Truncated tokenizer section".into()); }
+    file.seek(SeekFrom::Start(offset as u64)).map_err(|_| "Cannot read tokenizer section")?;
+    let mut bytes = vec![0; length as usize];
+    file.read_exact(&mut bytes).map_err(|_| "Cannot read tokenizer section")?;
+    let processor = SentencePieceProcessor::from_serialized_proto(&bytes).map_err(|_| "Invalid bundled SentencePiece tokenizer")?;
+    if processor.bos_id() != Some(2) || processor.eos_id() != Some(1) { return Err("Incompatible tokenizer special tokens".into()); }
+    Ok(processor)
 }
 
-// Return id/start/end triples. HF char offsets are Unicode scalars; Kotlin offsets are UTF-16.
-fn encode(tokenizer: &Tokenizer, text: &str, special: bool) -> Result<Vec<i32>, String> {
-    let encoded = tokenizer.encode_char_offsets(text, special).map_err(|_| "Tokenizer encoding failed".to_owned())?;
-    let mut offsets = Vec::with_capacity(text.chars().count() + 1);
-    offsets.push(0i32);
-    for c in text.chars() { offsets.push(offsets.last().unwrap() + c.len_utf16() as i32); }
-    let mut result = Vec::with_capacity(encoded.len() * 3);
-    for (&id, &(start,end)) in encoded.get_ids().iter().zip(encoded.get_offsets()) {
-        if end >= offsets.len() || start > end { return Err("Invalid tokenizer offsets".to_owned()); }
-        result.extend([id as i32, offsets[start], offsets[end]]);
+// SentencePiece offsets are UTF-8 bytes; Kotlin source evidence uses UTF-16 code units.
+fn encode(tokenizer: &SentencePieceProcessor, text: &str, special: bool) -> Result<Vec<i32>, String> {
+    let pieces = tokenizer.encode(text).map_err(|_| "Tokenizer encoding failed")?;
+    let mut offsets = vec![-1i32; text.len() + 1];
+    let mut utf16 = 0i32;
+    for (byte, character) in text.char_indices() { offsets[byte] = utf16; utf16 += character.len_utf16() as i32; }
+    offsets[text.len()] = utf16;
+    let mut result = Vec::with_capacity((pieces.len() + 2) * 3);
+    if special { result.extend([2, 0, 0]); }
+    for piece in pieces {
+        let (begin, end) = (piece.span.0 as usize, piece.span.1 as usize);
+        if begin > end || end > text.len() || offsets[begin] < 0 || offsets[end] < 0 { return Err("Invalid tokenizer source offsets".into()); }
+        result.extend([piece.id as i32, offsets[begin], offsets[end]]);
     }
+    if special { result.extend([1, utf16, utf16]); }
     Ok(result)
 }
 
-static TOKENIZERS: OnceLock<Mutex<HashMap<i64, Tokenizer>>> = OnceLock::new();
+static TOKENIZERS: OnceLock<Mutex<HashMap<i64, SentencePieceProcessor>>> = OnceLock::new();
 static NEXT_ID: AtomicI64 = AtomicI64::new(1);
-fn registry() -> &'static Mutex<HashMap<i64, Tokenizer>> { TOKENIZERS.get_or_init(|| Mutex::new(HashMap::new())) }
+fn registry() -> &'static Mutex<HashMap<i64, SentencePieceProcessor>> { TOKENIZERS.get_or_init(|| Mutex::new(HashMap::new())) }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_notionreader_data_discovery_NativeTokenizerBridge_open(mut env: JNIEnv, _: JClass, path: JString) -> jlong {
+pub extern "system" fn Java_com_example_notionreader_data_discovery_NativeTokenizerBridge_open(mut env: JNIEnv, _: JClass, path: JString, offset: jlong, length: i32) -> jlong {
     let result = (|| {
         let path: String = env.get_string(&path).map_err(|_| "Invalid tokenizer path")?.into();
-        let tokenizer = load(&path)?;
+        let tokenizer = load_bundle_section(&path, offset, length)?;
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         registry().lock().map_err(|_| "Tokenizer unavailable")?.insert(id, tokenizer);
         Ok::<i64,String>(id)
@@ -61,24 +72,42 @@ pub extern "system" fn Java_com_example_notionreader_data_discovery_NativeTokeni
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn bundled() -> SentencePieceProcessor {
+        load_bundle_section(&std::env::var("GEMMA_LITERT_BUNDLE").expect("Set GEMMA_LITERT_BUNDLE"), 32768, 4689013).unwrap()
+    }
     #[test]
-    fn pinned_reference_ids_and_utf16_offsets_match() {
-        let reference: serde_json::Value = serde_json::from_str(include_str!("../../../tools/semantic-discovery/gemma2-android-reference.json")).unwrap();
-        let file = std::env::var("GEMMA_TOKENIZER_JSON").expect("Set GEMMA_TOKENIZER_JSON to the verified tokenizer.json");
-        let tokenizer = load(&file).unwrap();
+    fn published_sentencepiece_ids_offsets_special_strings_and_context_boundaries_match() {
+        let tokenizer = bundled();
+        let reference: serde_json::Value = serde_json::from_str(include_str!("../../../tools/semantic-discovery/litert-tokenizer-reference.json")).unwrap();
         for case in reference["cases"].as_array().unwrap() {
             let text = case["text"].as_str().unwrap();
             let actual = encode(&tokenizer, text, false).unwrap();
-            let ids: Vec<i32> = case["tokenIds"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i32).collect();
-            let offsets: Vec<i32> = case["utf16Offsets"].as_array().unwrap().iter().flat_map(|v| v.as_array().unwrap().iter().map(|n| n.as_i64().unwrap() as i32)).collect();
-            assert_eq!(actual.chunks_exact(3).map(|x| x[0]).collect::<Vec<_>>(), ids, "ids {text:?}");
-            assert_eq!(actual.chunks_exact(3).flat_map(|x| [x[1],x[2]]).collect::<Vec<_>>(), offsets, "offsets {text:?}");
-            let instructed = format!("{}{}", reference["instruction"].as_str().unwrap(), text);
-            let expected: Vec<i32> = case["instructedTokenIds"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i32).collect();
+            let expected: Vec<i32> = case["ids"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i32).collect();
+            assert_eq!(actual.chunks_exact(3).map(|x| x[0]).collect::<Vec<_>>(), expected, "bundle ids {text:?}");
+            let expected: Vec<i32> = case["utf16Offsets"].as_array().unwrap().iter().flat_map(|v| v.as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i32)).collect();
+            assert_eq!(actual.chunks_exact(3).flat_map(|x| [x[1],x[2]]).collect::<Vec<_>>(), expected, "bundle offsets {text:?}");
+            let instructed = format!("task: clustering | text: {}", text.trim());
+            let expected: Vec<i32> = case["instructedIds"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i32).collect();
             assert_eq!(encode(&tokenizer, &instructed, true).unwrap().chunks_exact(3).map(|x| x[0]).collect::<Vec<_>>(), expected);
         }
+        for boundary in reference["boundaries"].as_array().unwrap() {
+            let text = format!("task: clustering | text: {}", " token".repeat(boundary["repeats"].as_u64().unwrap() as usize).trim());
+            assert_eq!(encode(&tokenizer, &text, true).unwrap().len() / 3, boundary["tokens"].as_u64().unwrap() as usize);
+        }
+    }
+    #[test]
+    fn invalid_section_bounds_are_rejected_before_reading_or_allocating() {
+        for (offset,length) in [(-1,1),(0,1),(32,0),(32,-1),(32,16777217),(i64::MAX,1)] {
+            assert!(load_bundle_section("missing-bundle",offset,length).is_err());
+        }
+        let path = std::env::temp_dir().join(format!("tokenizer-truncated-{}", std::process::id()));
+        std::fs::write(&path, [0;64]).unwrap();
+        assert!(load_bundle_section(path.to_str().unwrap(),32,64).is_err());
+        assert!(load_bundle_section(path.to_str().unwrap(),32,32).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 }

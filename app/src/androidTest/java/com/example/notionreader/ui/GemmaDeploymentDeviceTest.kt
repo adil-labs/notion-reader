@@ -18,7 +18,7 @@ import kotlin.math.sqrt
  * Run only when the owner has requested installation. Never clears Notes, interests or listening data.
  */
 class GemmaDeploymentDeviceTest {
-    @Test fun explicitlyRequestedInt4DeploymentUsesVerifiedAcquisitionAndAutomaticLocalBackend() = runBlocking {
+    @Test fun explicitlyRequestedInt4DeploymentUsesVerifiedAcquisitionAndLiteRtCpu() = runBlocking {
         org.junit.Assume.assumeTrue("Production acquisition requires explicit wrapper -DeployModel",
             androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("allowModelDeployment") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -28,7 +28,7 @@ class GemmaDeploymentDeviceTest {
         val model = app.discoveryModel as LocalDiscoveryModelManager
         model.checkInstalled()
         val alreadyInstalled = model.state.value.installed
-        assertEquals(206696682L, model.state.value.totalBytes)
+        assertEquals(164626432L, model.state.value.totalBytes)
         if (!alreadyInstalled) {
             // This test invocation is the user's explicit installation request; network preference remains enforced.
             model.download()
@@ -49,13 +49,20 @@ class GemmaDeploymentDeviceTest {
                 val expected = case.getValue("vector").jsonArray.map { it.jsonPrimitive.double }
                 val cosine = actual.indices.sumOf { actual[it].toDouble() * expected[it] } /
                     sqrt(actual.sumOf { it.toDouble() * it } * expected.sumOf { it * it })
-                assertTrue("Installed backend must match the INT4 host reference", cosine >= .9995)
-                rows += buildJsonObject { put("cosine", cosine); put("backend", provider.runtimeBackend.name) }
+                assertEquals(768, actual.size)
+                assertTrue(actual.all { it.isFinite() })
+                assertEquals(1.0, actual.sumOf { it.toDouble() * it }, .00001)
+                val repeated = provider.embed(case.getValue("input").jsonPrimitive.content)
+                assertTrue("Installed LiteRT model must be repeatable",
+                    actual.indices.sumOf { actual[it].toDouble() * repeated[it] } >= .99999)
+                // Different published quantizations are not required to reproduce old ONNX vectors.
+                // The original .9995 ONNX parity assertion remains in its historical control test.
+                rows += buildJsonObject { put("historicalOnnxCosine", cosine); put("backend", provider.runtimeBackend) }
             }
             File(application.getExternalFilesDir(null), "gemma-int4-deployment.json").writeText(buildJsonObject {
                 put("device", android.os.Build.MODEL); put("model", GemmaModelPack.identity.model)
                 put("bytes", model.state.value.totalBytes); put("alreadyInstalled", alreadyInstalled)
-                put("verified", true); put("backend", provider.runtimeBackend.name); put("publicReferences", JsonArray(rows))
+                put("verified", true); put("backend", provider.runtimeBackend); put("publicReferences", JsonArray(rows))
             }.toString())
         } finally { provider.release() }
     }

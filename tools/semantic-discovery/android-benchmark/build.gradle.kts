@@ -11,6 +11,9 @@ val shippingSources = tasks.register<Sync>("shippingSources") {
         include("com/example/notionreader/data/document/DocumentCache.kt", "com/example/notionreader/data/document/CachedDocument.kt")
         include("com/example/notionreader/data/discovery/OnnxEmbeddingProvider.kt", "com/example/notionreader/data/discovery/BertWordPieceTokenizer.kt")
     }
+    from("../historical-onnx/main") {
+        include("com/example/notionreader/data/discovery/OnnxEmbeddingProvider.kt", "com/example/notionreader/data/discovery/BertWordPieceTokenizer.kt")
+    }
     into(layout.buildDirectory.dir("generated/shipping"))
 }
 val publicAssets = tasks.register<Sync>("publicAssets") {

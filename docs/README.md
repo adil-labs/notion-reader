@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)
+[the current decision-record entry](decisions.md#115-published-litert-migration-and-s25-end-to-end-verification-2026-10-25)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

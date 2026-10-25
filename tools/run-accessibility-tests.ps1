@@ -115,13 +115,10 @@ function Test-ModelDeploymentSelection([string]$Class, [bool]$Requested) {
 function Test-HeadlessInferenceSelection([string]$Class, [bool]$Requested) {
     if (-not $Requested) { return $false }
     $allowed = @(
-        'com.example.notionreader.ui.GemmaBackendBenchmarkTest',
-        'com.example.notionreader.ui.GemmaXnnpackMatchedThreadsBenchmarkTest',
-        'com.example.notionreader.ui.GemmaQnnProbeTest',
-        'com.example.notionreader.ui.GemmaVulkanProbeTest',
+        'com.example.notionreader.ui.LiteRtGemmaDeviceTest',
         'com.example.notionreader.ui.GemmaDeploymentDeviceTest'
     )
-    if ($Class -cnotin $allowed) { throw 'HeadlessInference permits only the five explicit non-UI Gemma device classes, selected individually.' }
+    if ($Class -cnotin $allowed) { throw 'HeadlessInference permits only the explicit non-UI LiteRT device classes, selected individually.' }
     return $true
 }
 

@@ -1,0 +1,363 @@
+{
+  "version": 1,
+  "description": "Synthetic benchmark cases for topic naming from bounded selected passages",
+  "cases": [
+    {
+      "id": "calib_01_coherent_technical",
+      "split": "calibration",
+      "category": "coherent_topic",
+      "repeat_for_stability": true,
+      "description": "Multiple passages discussing SQLite Write-Ahead Logging (WAL) concurrency and checkpoints.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Write-Ahead Logging Mechanics",
+          "text": "SQLite WAL mode replaces the rollback journal with a write-ahead log file. Readers do not block writers, and a writer does not block readers. Reads happen concurrently with incoming writes by traversing snapshots."
+        },
+        {
+          "id": "p2",
+          "heading": "Checkpoint Operations",
+          "text": "As transactions accumulate in the -wal file, checkpoint operations copy recorded frames back into the main database file. Passive, full, and restart checkpoints govern when readers must transition to newer frames."
+        },
+        {
+          "id": "p3",
+          "heading": "Shared Memory Concurrency",
+          "text": "In WAL mode, SQLite uses a shared-memory -shm index to help readers locate committed pages in the write-ahead log. Each read transaction observes a consistent snapshot while another connection can append new transactions."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "SQLite WAL Mode Concurrency",
+        "supporting_passage_ids": ["p1", "p2", "p3"],
+        "membership_distractors": [],
+        "notes": "Clear, technical, single-domain consensus across all three passages."
+      }
+    },
+    {
+      "id": "calib_02_boilerplate_abstain",
+      "split": "calibration",
+      "category": "boilerplate",
+      "repeat_for_stability": false,
+      "description": "Standard corporate web disclaimers, cookie banners, and copyright notices containing zero semantic topic content.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Privacy & Cookies",
+          "text": "We use essential cookies and tracking technologies to optimize platform functionality and measure analytics. By continuing to browse, you agree to our cookie policy and standard terms."
+        },
+        {
+          "id": "p2",
+          "heading": "Legal Notice",
+          "text": "All rights reserved. No part of this publication may be reproduced, distributed, or transmitted in any form without the prior written permission of the publisher, except in brief quotations."
+        },
+        {
+          "id": "p3",
+          "heading": "Footer Navigation",
+          "text": "Terms of Service | Privacy Policy | Cookie Preferences | California Privacy Disclosures | Contact Support | System Status"
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": true,
+        "expected_topic": null,
+        "supporting_passage_ids": [],
+        "membership_distractors": ["p1", "p2", "p3"],
+        "notes": "Must abstain. No meaningful subject matter is being discussed."
+      }
+    },
+    {
+      "id": "calib_03_misleading_heading",
+      "split": "calibration",
+      "category": "misleading_heading",
+      "repeat_for_stability": false,
+      "description": "Passages where the section heading says 'Q3 Financial Performance' but the text exclusively details espresso extraction and PID temperature control.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Q3 Financial Performance and Margin Growth",
+          "text": "Espresso extraction stability depends critically on PID temperature controllers managing the brew boiler. Small thermal swings of 0.5 degrees Celsius drastically alter the solubility of chlorogenic acids."
+        },
+        {
+          "id": "p2",
+          "heading": "Executive Earnings Summary",
+          "text": "Saturated group heads receive preheated water directly from the dual boiler, eliminating the thermal drop that occurs in traditional E61 heat exchangers during rapid back-to-back shots."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Espresso Boiler PID Temperature Stability",
+        "supporting_passage_ids": ["p1", "p2"],
+        "membership_distractors": [],
+        "notes": "The model must ignore the deceptive corporate financial headings and extract the topic from the passage content."
+      }
+    },
+    {
+      "id": "calib_04_membership_distractor",
+      "split": "calibration",
+      "category": "distractor_separation",
+      "repeat_for_stability": false,
+      "description": "Three passages on sourdough bread fermentation hydration, accompanied by an irrelevant passage on bicycle disc brake pad bedding.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Bakers Percentages and Hydration",
+          "text": "For artisanal sourdough, 75 percent hydration yields an open crumb while retaining workable dough elasticity when mixed with high-protein bread flour."
+        },
+        {
+          "id": "p2",
+          "heading": "Autolyse and Gluten Structure",
+          "text": "A sixty-minute autolyse before adding starter allows flour enzymatic activity to jumpstart gluten formation, making wet sourdough dough significantly easier to shape."
+        },
+        {
+          "id": "p3",
+          "heading": "Bulk Fermentation Indicators",
+          "text": "Track volume expansion and dome development rather than clock time to gauge when sourdough bulk fermentation has achieved the ideal 30 to 50 percent rise."
+        },
+        {
+          "id": "p4",
+          "heading": "Bicycle Maintenance",
+          "text": "Bedding in new hydraulic disc brake pads requires 20 to 30 controlled decelerations from moderate speed to deposit an even layer of pad material onto the rotor surface."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Sourdough Fermentation and Hydration",
+        "supporting_passage_ids": ["p1", "p2", "p3"],
+        "membership_distractors": ["p4"],
+        "notes": "Demonstrates clear separation between topic naming (sourdough) and membership correctness (p4 is rejected as a distractor)."
+      }
+    },
+    {
+      "id": "heldout_01_unrelated_shared_vocabulary",
+      "split": "held-out",
+      "category": "polysemy_shared_vocab",
+      "repeat_for_stability": false,
+      "description": "Passages sharing the word 'bank' (geomorphological river bank erosion vs commercial retail banking liquidity reserve).",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Riparian Zone Ecology",
+          "text": "River bank erosion accelerates during spring runoff when deep-rooted willow vegetation is removed, causing sediment slumping into the channel."
+        },
+        {
+          "id": "p2",
+          "heading": "Monetary Liquidity Constraints",
+          "text": "The central bank increased commercial bank reserve ratio requirements to curb unsecured lending and stabilize overnight interbank credit rates."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": true,
+        "expected_topic": null,
+        "supporting_passage_ids": [],
+        "membership_distractors": ["p1", "p2"],
+        "notes": "Shared keyword 'bank' represents two entirely distinct semantic senses. Model should abstain from inventing a synthetic combined topic."
+      }
+    },
+    {
+      "id": "heldout_02_contradiction_common_subject",
+      "split": "held-out",
+      "category": "contradiction_common_subject",
+      "repeat_for_stability": true,
+      "description": "Two conflicting scientific claims debating the impact of moderate caffeine intake on human deep sleep architecture.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Somnology Trial A",
+          "text": "Polysomnography measurements demonstrate that consuming 200mg of caffeine within eight hours of bedtime degrades slow-wave delta sleep by up to 25 percent."
+        },
+        {
+          "id": "p2",
+          "heading": "Circadian Meta-Analysis B",
+          "text": "Recent cohort meta-analyses found that habitual caffeine consumers experience no statistically significant reduction in deep slow-wave sleep duration when consumed six hours prior to sleep."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Caffeine Effects on Slow-Wave Deep Sleep",
+        "supporting_passage_ids": ["p1", "p2"],
+        "membership_distractors": [],
+        "notes": "Passages disagree on the empirical outcome, but share an identical, coherent research subject. The topic name must reflect the subject, not pick a side."
+      }
+    },
+    {
+      "id": "heldout_03_mixed_topics_abstain",
+      "split": "held-out",
+      "category": "mixed_topics",
+      "repeat_for_stability": false,
+      "description": "Three passages covering completely disjoint domains: soil pH, quantum key distribution, and 19th-century French poetry.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Horticultural Chemistry",
+          "text": "Soil acidification with elemental sulfur takes several months as Thiobacillus bacteria oxidize sulfur into sulfate ions to lower rhizosphere pH."
+        },
+        {
+          "id": "p2",
+          "heading": "Quantum Cryptography",
+          "text": "The BB84 quantum key distribution protocol detects eavesdropping by measuring polarization states across non-orthogonal conjugate bases."
+        },
+        {
+          "id": "p3",
+          "heading": "Symbolist Literature",
+          "text": "Charles Baudelaire's Les Fleurs du mal revolutionized modern European poetic diction through dark urban imagery and strict metrical sonnet forms."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": true,
+        "expected_topic": null,
+        "supporting_passage_ids": [],
+        "membership_distractors": ["p1", "p2", "p3"],
+        "notes": "Arbitrary assortment of unrelated subjects. Model must abstain rather than fabricating an umbrella category like 'Science and Culture'."
+      }
+    },
+    {
+      "id": "heldout_04_duplicates_near_identical",
+      "split": "held-out",
+      "category": "duplicates",
+      "repeat_for_stability": false,
+      "description": "Near-identical syndicated text explaining the git rebase --onto command workflow.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Git Rebase Onto Tutorial",
+          "text": "The command git rebase --onto newbase upstream branch extracts commits from branch that are not in upstream and transplants them sequentially onto newbase."
+        },
+        {
+          "id": "p2",
+          "heading": "Transplanting Topic Branches",
+          "text": "To transplant a topic branch in git, execute git rebase --onto newbase upstream branch. This takes commits from branch beyond upstream and applies them onto newbase."
+        },
+        {
+          "id": "p3",
+          "heading": "Workflow Rebase Onto Summary",
+          "text": "Executing git rebase --onto newbase upstream branch reapplies commits on branch that diverged from upstream directly onto the target newbase commit."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Git Rebase Onto Workflow",
+        "supporting_passage_ids": ["p1", "p2", "p3"],
+        "membership_distractors": [],
+        "notes": "Redundant/duplicate passages should not confuse topic extraction; all supporting passages reinforce the same specific command workflow."
+      }
+    },
+    {
+      "id": "heldout_05_coherent_medical_clinical",
+      "split": "held-out",
+      "category": "coherent_topic",
+      "repeat_for_stability": false,
+      "description": "Three clinical passages diagnosing cobalamin (Vitamin B12) deficiency through serum biomarkers and neurological signs.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Biochemical Biomarkers",
+          "text": "Elevated serum methylmalonic acid and homocysteine levels provide sensitive diagnostic confirmation of intracellular vitamin B12 deficiency before macrocytic anemia manifests."
+        },
+        {
+          "id": "p2",
+          "heading": "Subacute Combined Degeneration",
+          "text": "Neurological sequelae of cobalamin deficiency involve demyelination of the posterior and lateral columns of the spinal cord, presenting as symmetric sensory ataxia and loss of proprioception."
+        },
+        {
+          "id": "p3",
+          "heading": "Replacement Protocols",
+          "text": "High-dose intramuscular cyanocobalamin or hydroxocobalamin injections rapidly restore cellular cofactor stores and halt progressive peripheral neuropathy in pernicious anemia patients."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Vitamin B12 Deficiency Neuropathy and Diagnosis",
+        "supporting_passage_ids": ["p1", "p2", "p3"],
+        "membership_distractors": [],
+        "notes": "Coherent multi-passage clinical topic requiring specific medical precision."
+      }
+    },
+    {
+      "id": "heldout_06_misleading_heading_architecture",
+      "split": "held-out",
+      "category": "misleading_heading",
+      "repeat_for_stability": false,
+      "description": "Generic 'General Architecture Notes' heading over passages detailing Kubernetes Horizontal Pod Autoscaler metrics API.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "General Architecture Notes",
+          "text": "The Horizontal Pod Autoscaler controller queries the custom.metrics.k8s.io or external.metrics.k8s.io API to compute desired replica counts based on target average value equations."
+        },
+        {
+          "id": "p2",
+          "heading": "Miscellaneous Documentation",
+          "text": "When metrics server reports utilization surpassing the targetCPUUtilizationPercentage threshold, HPA scales deployment replicas proportionally up to the configured maxReplicas limit."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Kubernetes Horizontal Pod Autoscaler Scaling Metrics",
+        "supporting_passage_ids": ["p1", "p2"],
+        "membership_distractors": [],
+        "notes": "Headings are overly vague/misleading; model must extract the specific Kubernetes HPA subject from passage text."
+      }
+    },
+    {
+      "id": "heldout_07_boilerplate_with_single_signal",
+      "split": "held-out",
+      "category": "distractor_separation",
+      "repeat_for_stability": false,
+      "description": "Two legal/disclaimer passages with one solitary valid technical instruction about PostgreSQL pg_dump snapshot backups.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Warranty Disclaimer",
+          "text": "The software is provided as is, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability or fitness for a particular purpose."
+        },
+        {
+          "id": "p2",
+          "heading": "Database Backup Procedure",
+          "text": "PostgreSQL pg_dump produces consistent logical backups without blocking concurrent read-write transactions by running inside a synchronized transaction snapshot."
+        },
+        {
+          "id": "p3",
+          "heading": "Confidentiality Notice",
+          "text": "This electronic transmission contains confidential and privileged information intended solely for the use of the individual or entity named as the recipient."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "PostgreSQL pg_dump Logical Backups",
+        "supporting_passage_ids": ["p2"],
+        "membership_distractors": ["p1", "p3"],
+        "notes": "Tests isolating a solitary substantive passage among dominant boilerplate distractors."
+      }
+    },
+    {
+      "id": "heldout_08_multitopic_umbrella_distractor",
+      "split": "held-out",
+      "category": "distractor_separation",
+      "repeat_for_stability": false,
+      "description": "Two passages detailing Jetpack Compose stability and skipping, plus one passage on Room SQL migrations.",
+      "passages": [
+        {
+          "id": "p1",
+          "heading": "Compose Compiler Metrics",
+          "text": "The Jetpack Compose compiler flags unstable parameter classes, preventing composable functions from being skipped during parent recomposition passes."
+        },
+        {
+          "id": "p2",
+          "heading": "Immutable and Stable Annotations",
+          "text": "Marking data model classes with @Immutable or @Stable guarantees to the Compose runtime that property values never change without notifying the composition snapshot."
+        },
+        {
+          "id": "p3",
+          "heading": "Room Database Migrations",
+          "text": "Android Room AutoMigration uses exported schema JSON files to generate SQL ALTER TABLE statements between database version increments."
+        }
+      ],
+      "ground_truth": {
+        "should_abstain": false,
+        "expected_topic": "Jetpack Compose Recomposition Stability",
+        "supporting_passage_ids": ["p1", "p2"],
+        "membership_distractors": ["p3"],
+        "notes": "Both topics relate to Android development, but the dominant cohesive topic is Compose skipping/stability; Room migration is an out-of-scope distractor."
+      }
+    }
+  ]
+}

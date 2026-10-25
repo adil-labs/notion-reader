@@ -1,0 +1,135 @@
+{
+  "date": "2026-10-25",
+  "runtime": "LiteRT-LM Android 0.18.1 CPU, two threads",
+  "modelRepository": "litert-community/embeddinggemma-2-text-270m-litert-lm",
+  "modelRevision": "9be6e8b90982095dc05c2bd162e4b954ee4dbac7",
+  "modelBytes": 164626432,
+  "modelSha256": "2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
+  "tokenizer": "Exact bundled Google SentencePiece payload; Google SentencePiece0.2.1 via locked Rust bindings0.14",
+  "instruction": "task: clustering | text: ",
+  "preprocessingVersion": 4,
+  "jvm": {
+    "tests": 1113,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "nativeTests": {
+    "tests": 2,
+    "failures": 0
+  },
+  "jniReferenceCases": 109,
+  "wrapperChecks": [
+    "completeness",
+    "signatures",
+    "real-output classifier",
+    "empty-failure classifier",
+    "headless allowlist",
+    "deployment allowlist"
+  ],
+  "deviceRuns": {
+    "emulatorInference": "1/1 complete pass",
+    "emulatorJourney": "1/1 complete pass",
+    "s25SettingsAcquisition": "1/1 complete pass; fresh verified acquisition",
+    "s25Inference": "1/1 complete pass",
+    "s25Journey": "1/1 complete pass"
+  },
+  "initialFailures": [
+    "Emulator dlopen exposed missing static C++ ABI; fixed with direct NDK libc++abi archive linking, avoiding unversioned libc.a search shadowing.",
+    "S25 inference fixture initially read emulator-only cache; corrected to use installed pack after full checksum verification.",
+    "One combined-class invocation ran only one of two expected tests and was INCOMPLETE; separate complete class runs are the accepted evidence.",
+    "Locked S25 preflight refusals ran no tests; owner unlocked, wrapper restored settings."
+  ],
+  "limits": [
+    "Public six-Note UI/pipeline journey, not representative private-library quality acceptance.",
+    "Post-inference whole-process memory, not peak isolated model memory or a matched performance benchmark.",
+    "8191/8192/8193 tokenizer budgets verified; no8192-token inference acceptance claim.",
+    "API26 native runtime and human TalkBack speech/listening not observed."
+  ],
+  "reports": {
+    "emulatorInference": {
+      "model": "embeddinggemma-2:litert:int4:9be6e8b90982095dc05c2bd162e4b954ee4dbac7:2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
+      "runtime": "LiteRT-LM 0.18.1 CPU",
+      "device": "sdk_gphone64_x86_64",
+      "api": 36,
+      "relatedCosine": 0.9857834819560196,
+      "unrelatedCosine": 0.7802855645959283,
+      "oldOnnxReferenceCosines": [
+        0.9770040302395616,
+        0.9766399533397389,
+        0.973279093304909
+      ],
+      "milliseconds": [
+        405,
+        66,
+        65,
+        79,
+        66,
+        205,
+        69,
+        145,
+        360
+      ],
+      "processPssKiB": 490215,
+      "limits": "Public smoke inputs and post-inference memory, not representative quality or peak memory"
+    },
+    "emulatorJourney": {
+      "device": "sdk_gphone64_x86_64",
+      "api": 36,
+      "indexedNotes": 6,
+      "passes": 1,
+      "subjects": [
+        "RabbitMQ acknowledgments",
+        "Riparian ecology",
+        "PostgreSQL transaction isolation"
+      ],
+      "connections": 4,
+      "semanticConnections": 3,
+      "elapsedMilliseconds": 3798,
+      "observedEstimateMinimumSeconds": 1,
+      "observedEstimateMaximumSeconds": 1
+    },
+    "s25Inference": {
+      "model": "embeddinggemma-2:litert:int4:9be6e8b90982095dc05c2bd162e4b954ee4dbac7:2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
+      "runtime": "LiteRT-LM 0.18.1 CPU",
+      "device": "SM-S931B",
+      "api": 37,
+      "relatedCosine": 0.9861171918204404,
+      "unrelatedCosine": 0.7800389658312523,
+      "oldOnnxReferenceCosines": [
+        0.9775980390786504,
+        0.9769477184485503,
+        0.9734670560384364
+      ],
+      "milliseconds": [
+        772,
+        184,
+        184,
+        183,
+        183,
+        523,
+        184,
+        435,
+        822
+      ],
+      "processPssKiB": 489920,
+      "limits": "Public smoke inputs and post-inference memory, not representative quality or peak memory"
+    },
+    "s25Journey": {
+      "device": "SM-S931B",
+      "api": 37,
+      "indexedNotes": 6,
+      "passes": 1,
+      "subjects": [
+        "RabbitMQ acknowledgments",
+        "Riparian ecology",
+        "PostgreSQL transaction isolation"
+      ],
+      "connections": 4,
+      "semanticConnections": 3,
+      "elapsedMilliseconds": 2691,
+      "observedEstimateMinimumSeconds": 1,
+      "observedEstimateMaximumSeconds": 1
+    }
+  }
+}

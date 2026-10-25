@@ -1,13 +1,12 @@
 package com.example.notionreader.data.discovery
 
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import com.example.notionreader.domain.discovery.EmbeddingProvider
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.EmbeddingEngine
+import com.google.ai.edge.litertlm.EmbeddingEngineConfig
+import com.google.ai.edge.litertlm.EmbeddingOptions
+import com.google.ai.edge.litertlm.InputData
 import java.io.File
-import java.nio.FloatBuffer
-import java.nio.LongBuffer
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
@@ -19,60 +18,38 @@ internal fun normalizeGemmaOutput(output: FloatArray): List<Float> {
     return output.map { (it / norm).toFloat() }
 }
 
-/** Uses publisher projection/pooling, validating local Vulkan against CPU before reuse. */
+/** LiteRT-LM owns bundled tokenization, projection and pooling; CPU is the baseline. */
 class GemmaEmbeddingProvider(private val directory: File) : EmbeddingProvider {
-    private companion object { val gpuDisabled = AtomicBoolean(false) }
     override val identity = GemmaModelPack.identity
-    override val tokenizer = GemmaTokenizer(File(directory, "tokenizer.json"))
+    override val tokenizer = GemmaTokenizer(File(directory, GemmaModelPack.bundleFile))
     private val lock = Any()
-    private val selection = GemmaBackendSelection({ backend -> createSession(backend) }, gpuDisabled)
-    val runtimeBackend: GemmaRuntimeBackend get() = synchronized(lock) { selection.backend }
+    private var engine: EmbeddingEngine? = null
+    val runtimeBackend: String get() = "CPU"
 
     override suspend fun embed(text: String): List<Float> = withContext(Dispatchers.Default) {
         synchronized(lock) {
-            val ids = tokenizer.inputIds(text)
-            require(ids.size in 1..8192) { "Embedding input exceeds Gemma's 8192 token context" }
-            selection.embed(ids)
-        }
-    }
-
-    private fun createSession(backend: GemmaRuntimeBackend): GemmaBackendSession {
-        val env = OrtEnvironment.getEnvironment().also { it.setTelemetry(false) }
-        val session = OrtSession.SessionOptions().use { options ->
-            options.setIntraOpNumThreads(2)
-            if (backend == GemmaRuntimeBackend.VULKAN) {
-                options.addWebGPU(mapOf("dawnBackendType" to "Vulkan", "validationMode" to "basic"))
+            require(tokenizer.inputIds(text).size in 1..8192) { "Embedding input exceeds Gemma's 8192 token context" }
+            val active = engine ?: EmbeddingEngine(EmbeddingEngineConfig(
+                modelPath = File(directory, GemmaModelPack.bundleFile).absolutePath,
+                backend = Backend.CPU(threadCount = 2), maxInputLength = 8192
+            )).also { candidate ->
+                try { candidate.initialize() } catch (failure: Throwable) {
+                    try { candidate.close() } catch (_: Exception) { }
+                    throw failure
+                }
+                engine = candidate
             }
-            env.createSession(File(directory, GemmaModelPack.graph).absolutePath, options)
-        }
-        return object : GemmaBackendSession {
-            override fun run(ids: LongArray): FloatArray {
-                val shape = longArrayOf(1, ids.size.toLong())
-                val tensors = linkedMapOf<String, OnnxTensor>()
-                try {
-                    for (name in session.inputNames) {
-                        tensors[name] = when (name) {
-                            "input_ids" -> OnnxTensor.createTensor(env, LongBuffer.wrap(ids), shape)
-                            "attention_mask" -> OnnxTensor.createTensor(env, LongBuffer.wrap(LongArray(ids.size) { 1 }), shape)
-                            "position_ids" -> OnnxTensor.createTensor(env, LongBuffer.wrap(LongArray(ids.size) { it.toLong() }), shape)
-                            "image_features", "video_features", "audio_features" -> OnnxTensor.createTensor(env, FloatBuffer.allocate(0), longArrayOf(0, 512))
-                            else -> error("Unsupported Gemma input contract")
-                        }
-                    }
-                    check(session.outputNames.contains("sentence_embedding"))
-                    session.run(tensors, setOf("sentence_embedding")).use { result ->
-                        @Suppress("UNCHECKED_CAST")
-                        val output = result[0].value as Array<FloatArray>
-                        require(output.size == 1)
-                        return output[0].copyOf()
-                    }
-                } finally { tensors.values.forEach { it.close() } }
-            }
-            override fun close() { session.close() }
+            normalizeGemmaOutput(active.computeEmbedding(
+                listOf(InputData.Text(GemmaModelPack.instructedText(text))),
+                EmbeddingOptions(normalize = true, insertSpecialTokens = true, outputSize = 768)
+            ).embedding)
         }
     }
 
     override fun release() = synchronized(lock) {
-        try { selection.close() } finally { tokenizer.close() }
+        val previous = engine
+        engine = null
+        try { previous?.close() } finally { tokenizer.close() }
+        Unit
     }
 }

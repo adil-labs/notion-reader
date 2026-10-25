@@ -1,3 +1,26 @@
+## Current LiteRT verification (2026-10-25)
+
+Use the published EmbeddingGemma 2 Text 270M INT4 bundle, including its authoritative
+SentencePiece tokenizer, without conversion/export. The optional pack is
+164626432 bytes (about 165 MB). The app has no ONNX dependency. Experiments below
+and under historical-onnx are prior-runtime evidence.
+
+After installing the debug APK, stage-litert-gemma.ps1 downloads through hf,
+verifies pinned size/SHA256 and stages isolated emulator cache (emulator only).
+inspect-litert-tokenizer.py regenerates token/offset references read-only from the
+published bundle; Python dependencies are flatbuffers and sentencepiece 0.2.2.
+The verifyGemmaTokenizer Gradle task accepts the gemmaModelBundle property.
+See native/discovery-tokenizer/README.md for bridge build details and licenses.
+
+Run each selected class separately through tools/run-accessibility-tests.ps1
+with an explicit Device: LiteRtGemmaDeviceTest and GemmaDiscoveryJourneyTest.
+Production acquisition uses GemmaAcquisitionDeviceTest with explicit DeployModel
+and an unlocked screen. Never clear private data to test a migration. Headless
+inference is opt-in for native-only classes. Accepted emulator/S25 evidence and
+limits are in litert-migration-2026-10-25.json.
+
+## Historical ONNX experiments
+
 # Semantic discovery feasibility evidence
 
 ## Active Gemma INT8 Android verification

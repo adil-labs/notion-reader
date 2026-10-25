@@ -1,0 +1,713 @@
+{
+  "schema_version": "1.0.0",
+  "survey_date": "2026-10-25",
+  "purpose": "Notion Reader topic-name generation experiment SLM candidates survey",
+  "summary": {
+    "total_candidates": 14,
+    "verified_onnx": 8,
+    "unverified": 3,
+    "excluded": 3
+  },
+  "candidates": [
+    {
+      "candidate_id": "qwen2.5-0.5b-instruct",
+      "model_name": "Qwen2.5-0.5B-Instruct",
+      "publisher": "Alibaba Cloud (Qwen Team)",
+      "status": "verified_onnx",
+      "parameter_count": "0.49B",
+      "parameter_class": "<=1B",
+      "source_model_url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
+      "onnx_repo_id": "onnx-community/Qwen2.5-0.5B-Instruct",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "22942cb7d7ba4cc81bb4673549ca4d4614469b5e",
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_uint8.onnx",
+        "onnx/model_q4.onnx",
+        "onnx/model_bnb4.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json",
+        "quantize_config.json"
+      ],
+      "quantizations_available": ["fp32", "uint8", "q4", "bnb4"],
+      "approx_download_size_bytes": {
+        "model_uint8.onnx": 512096636,
+        "model_q4.onnx": 786400642,
+        "model.onnx": 1993796793
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "probable",
+      "runtime_notes": "Self-contained single-file ONNX graphs for uint8 and q4 (<2GB limit). Uses standard Qwen2 architecture (Llama-like RMSNorm, SwiGLU, RoPE). Compatible with standard ONNX Runtime CPU execution provider and Transformers.js WebML/WASM.",
+      "benchmarks_original_model": {
+        "ifeval": 50.1,
+        "mmlu": 47.4,
+        "gsm8k": 53.6,
+        "source": "Alibaba Qwen2.5 Technical Report (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Exact latency/memory profile on Android ARM CPU across varying quantization levels",
+        "Topic naming accuracy and schema constraint satisfaction under compact multi-passage input"
+      ]
+    },
+    {
+      "candidate_id": "smollm2-360m-instruct",
+      "model_name": "SmolLM2-360M-Instruct",
+      "publisher": "Hugging Face (HuggingFaceTB)",
+      "status": "verified_onnx",
+      "parameter_count": "360M",
+      "parameter_class": "<=1B",
+      "source_model_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct",
+      "onnx_repo_id": "onnx-community/SmolLM2-360M-Instruct-ONNX",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/SmolLM2-360M-Instruct-ONNX",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "fe7c7db4c8921c9e3fa1c65cfd296fb3b1b1a8f9",
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_uint8.onnx",
+        "onnx/model_bnb4.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "quantize_config.json"
+      ],
+      "quantizations_available": ["fp32", "uint8", "bnb4"],
+      "approx_download_size_bytes": {
+        "model_uint8.onnx": 363115262,
+        "model_bnb4.onnx": 366836866,
+        "model.onnx": 1448145769
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "probable",
+      "runtime_notes": "Llama architecture (LlamaForCausalLM), standard ORT ops. Single self-contained ONNX file (~363 MB for uint8). No external weight shards needed.",
+      "benchmarks_original_model": {
+        "ifeval": 63.8,
+        "mmlu": 50.8,
+        "gsm8k": 39.8,
+        "source": "SmolLM2 Technical Report (arXiv:2502.02737, Hugging Face 2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Topic naming adherence under passage ID grounding constraint",
+        "Exact per-token latency on mid-range Android ARM CPUs"
+      ]
+    },
+    {
+      "candidate_id": "smollm2-135m-instruct",
+      "model_name": "SmolLM2-135M-Instruct",
+      "publisher": "Hugging Face (HuggingFaceTB)",
+      "status": "verified_onnx",
+      "parameter_count": "135M",
+      "parameter_class": "<=1B",
+      "source_model_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct",
+      "onnx_repo_id": "onnx-community/SmolLM2-135M-Instruct-ONNX",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct-ONNX",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "b8a5c0f183b78c55955a5364f610c36668b5e681",
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_uint8.onnx",
+        "onnx/model_bnb4.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "quantize_config.json"
+      ],
+      "quantizations_available": ["fp32", "uint8", "bnb4"],
+      "approx_download_size_bytes": {
+        "model_uint8.onnx": 135658468,
+        "model_bnb4.onnx": 173947195,
+        "model.onnx": 538868107
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "probable",
+      "runtime_notes": "Extremely small footprint (~136 MB for uint8). Self-contained single file. Standard LlamaForCausalLM ops.",
+      "benchmarks_original_model": {
+        "ifeval": 53.0,
+        "mmlu": 28.5,
+        "gsm8k": 18.6,
+        "source": "SmolLM2 Technical Report (arXiv:2502.02737, Hugging Face 2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Susceptibility to schema repetition or hallucinations when presented with 3+ passages",
+        "Abstention accuracy on distractor-heavy contexts"
+      ]
+    },
+    {
+      "candidate_id": "h2o-danube3-500m-chat",
+      "model_name": "H2O-Danube3-500M-Chat",
+      "publisher": "H2O.ai",
+      "status": "verified_onnx",
+      "parameter_count": "500M",
+      "parameter_class": "<=1B",
+      "source_model_url": "https://huggingface.co/h2oai/h2o-danube3-500m-chat",
+      "onnx_repo_id": "h2oai/h2o-danube3-500m-chat",
+      "onnx_repo_url": "https://huggingface.co/h2oai/h2o-danube3-500m-chat",
+      "onnx_provenance": "Official Publisher (H2O.ai)",
+      "pinned_revision": "c202f976c26875541e738ea978c8158fa536da9a",
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_uint8.onnx",
+        "onnx/model_quantized.onnx",
+        "onnx/model_bnb4.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer.model",
+        "tokenizer_config.json",
+        "special_tokens_map.json"
+      ],
+      "quantizations_available": ["fp32", "uint8", "quantized_int8", "bnb4"],
+      "approx_download_size_bytes": {
+        "model_uint8.onnx": 514382129,
+        "model_quantized.onnx": 514382080,
+        "model.onnx": 2054879671
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "probable",
+      "runtime_notes": "Published directly by H2O.ai under an onnx/ directory. IMPORTANT: The chat template explicitly throws an exception if the 'system' role is provided ('System role not supported'). Prompts must format instructions within the first user turn ('<|prompt|>...</s><|answer|>').",
+      "benchmarks_original_model": {
+        "ifeval": null,
+        "mmlu": 39.5,
+        "gsm8k": 18.2,
+        "source": "H2O-Danube3 Technical Report (arXiv:2407.03278, 2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Instruction following fidelity without a formal system prompt role",
+        "Exact task latency and RAM consumption on Android devices"
+      ]
+    },
+    {
+      "candidate_id": "gemma-3-270m-it",
+      "model_name": "Gemma 3 270M IT",
+      "publisher": "Google",
+      "status": "verified_onnx",
+      "parameter_count": "270M",
+      "parameter_class": "<=1B",
+      "source_model_url": "https://huggingface.co/google/gemma-3-270m-it",
+      "onnx_repo_id": "onnx-community/gemma-3-270m-it-ONNX",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/gemma-3-270m-it-ONNX",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "2dbbfdb1b59bd034eb959428c6a7da9dd7ea27f0",
+      "license": "Gemma Terms of Use",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_q4.onnx",
+        "onnx/model_quantized.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": [
+        "onnx/model_q4.onnx_data",
+        "onnx/model_quantized.onnx_data",
+        "onnx/model.onnx_data"
+      ],
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "chat_template.jinja",
+        "tokenizer.json",
+        "tokenizer.model",
+        "tokenizer_config.json",
+        "special_tokens_map.json"
+      ],
+      "quantizations_available": ["fp32", "fp16", "q4", "q4f16", "quantized_int8"],
+      "approx_download_size_bytes": {
+        "model_quantized.onnx_data": 545028608,
+        "tokenizer.json": 20323013,
+        "tokenizer.model": 4689074
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "unknown_custom_gemma3_ops",
+      "runtime_notes": "Architecture is gemma3_text. Uses external data files (.onnx_data) even for small sizes. Large 256k vocabulary leads to ~25MB tokenizer overhead. In prior prototype testing with complex multi-part JSON prompts, it failed 14/14 cases by copying schema placeholders.",
+      "benchmarks_original_model": {
+        "ifeval": null,
+        "mmlu": 38.2,
+        "gsm8k": 12.5,
+        "source": "Google Gemma 3 Technical Report (2025)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Whether a simplified non-JSON or single-turn topic prompt eliminates schema copy failure",
+        "Compatibility of Gemma 3 attention soft-capping/RMSNorm with stock Android ONNX Runtime CPU"
+      ]
+    },
+    {
+      "candidate_id": "minicpm5-1b",
+      "model_name": "MiniCPM5-1B",
+      "publisher": "OpenBMB",
+      "status": "verified_onnx",
+      "parameter_count": "1.1B",
+      "parameter_class": "<=1B",
+      "source_model_url": "https://huggingface.co/openbmb/MiniCPM5-1B",
+      "onnx_repo_id": "skjortan/MiniCPM5-1B-ONNX",
+      "onnx_repo_url": "https://huggingface.co/skjortan/MiniCPM5-1B-ONNX",
+      "onnx_provenance": "Community Exporter (skjortan)",
+      "pinned_revision": "86b33cfa5405a52ed93f676e8ffa43f14a2d5370",
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_q4.onnx",
+        "onnx/model_q4f16.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json"
+      ],
+      "quantizations_available": ["q4", "q4f16"],
+      "approx_download_size_bytes": {
+        "model_q4.onnx": 1353588708,
+        "model_q4f16.onnx": 930792939,
+        "tokenizer.json": 9894271
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "unknown",
+      "runtime_notes": "LlamaForCausalLM architecture export for Transformers.js / WebGPU. Note: OpenBMB official repo does NOT provide an official ONNX export (publisher status: unverified). This community export provides self-contained single-file ONNX weights.",
+      "benchmarks_original_model": {
+        "ifeval": null,
+        "mmlu": 52.4,
+        "gsm8k": 54.2,
+        "source": "OpenBMB MiniCPM Series Technical Reports (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Quality degradation introduced by community q4 quantization",
+        "Execution performance on Android mobile CPU"
+      ]
+    },
+    {
+      "candidate_id": "llama-3.2-1b-instruct-standard",
+      "model_name": "Llama-3.2-1B-Instruct",
+      "publisher": "Meta",
+      "status": "verified_onnx",
+      "parameter_count": "1.23B",
+      "parameter_class": "1B-3B",
+      "source_model_url": "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct",
+      "onnx_repo_id": "onnx-community/Llama-3.2-1B-Instruct-ONNX",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/Llama-3.2-1B-Instruct-ONNX",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "14007543b6dc92de88daf96a9aa85d2f95ace6ef",
+      "license": "Llama 3.2 Community License",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_q4.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": [
+        "onnx/model_q4.onnx_data"
+      ],
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json"
+      ],
+      "quantizations_available": ["fp32", "q4"],
+      "approx_download_size_bytes": {
+        "model_q4.onnx": 149000,
+        "model_q4.onnx_data": 1814691840,
+        "tokenizer.json": 17200000
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "probable",
+      "runtime_notes": "Optimum/Transformers.js format. Uses external data split for the 4-bit tensor data (~1.69 GB). Standard Llama 3.2 architecture with 128k context and GQA.",
+      "benchmarks_original_model": {
+        "ifeval": 59.5,
+        "mmlu": 49.3,
+        "gsm8k": 44.4,
+        "source": "Meta Llama 3.2 Model Card & Announcement (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Exact cold-start load time with 1.7GB external data file on mobile flash storage",
+        "Whether 1.23B parameter model exceeds target Android CPU thermal and memory budget"
+      ]
+    },
+    {
+      "candidate_id": "llama-3.2-1b-instruct-genai",
+      "model_name": "Llama-3.2-1B-Instruct (GenAI)",
+      "publisher": "Meta",
+      "status": "verified_onnx",
+      "parameter_count": "1.23B",
+      "parameter_class": "1B-3B",
+      "source_model_url": "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct",
+      "onnx_repo_id": "onnx-community/Llama-3.2-1B-Instruct-GENAI-ONNX",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/Llama-3.2-1B-Instruct-GENAI-ONNX",
+      "onnx_provenance": "Community / Microsoft ONNX Runtime Team",
+      "pinned_revision": "e983c740a38fcfa57fb4d124b18b644974c3d966",
+      "license": "Llama 3.2 Community License",
+      "gated": false,
+      "exact_onnx_paths": [
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/model.onnx"
+      ],
+      "external_data_shards": [
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/model.onnx.data"
+      ],
+      "companion_assets": [
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/genai_config.json",
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/config.json",
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/tokenizer.json",
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/tokenizer_config.json",
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/special_tokens_map.json"
+      ],
+      "quantizations_available": ["cpu-int4-rtn-block-32-acc-level-4", "cuda-int4", "cuda-fp16"],
+      "approx_download_size_bytes": {
+        "model.onnx": 105158,
+        "model.onnx.data": 1237356544,
+        "tokenizer.json": 9085657
+      },
+      "runtime_type": "onnxruntime_genai_custom_ops",
+      "genai_custom_ops": true,
+      "android_cpu_compatible": "requires_ort_genai_mobile_bindings",
+      "runtime_notes": "Requires Microsoft ONNX Runtime GenAI (onnxruntime-genai) rather than standard ONNX Runtime session inference. Contains custom operators tailored for the GenAI generator pipeline. Highly optimized for mobile/CPU execution with block-32 accuracy level 4 quantization.",
+      "benchmarks_original_model": {
+        "ifeval": 59.5,
+        "mmlu": 49.3,
+        "gsm8k": 44.4,
+        "source": "Meta Llama 3.2 Model Card & Announcement (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Integration complexity of onnxruntime-genai C/C++ or AAR on Android compared to vanilla onnxruntime-android",
+        "Instruction adhering rate on task-specific passage naming"
+      ]
+    },
+    {
+      "candidate_id": "qwen2.5-1.5b-instruct",
+      "model_name": "Qwen2.5-1.5B-Instruct",
+      "publisher": "Alibaba Cloud (Qwen Team)",
+      "status": "verified_onnx",
+      "parameter_count": "1.54B",
+      "parameter_class": "1B-3B",
+      "source_model_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct",
+      "onnx_repo_id": "onnx-community/Qwen2.5-1.5B-Instruct",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/Qwen2.5-1.5B-Instruct",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "d54957e3af1be04546436e874a60fe386041b244",
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_uint8.onnx",
+        "onnx/model.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json",
+        "quantize_config.json"
+      ],
+      "quantizations_available": ["fp32", "uint8"],
+      "approx_download_size_bytes": {
+        "model_uint8.onnx": 1578954395,
+        "tokenizer.json": 7031673
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "probable",
+      "runtime_notes": "Single self-contained uint8 ONNX file (1.58 GB). Reference candidate for quality scaling against the 0.5B variant.",
+      "benchmarks_original_model": {
+        "ifeval": 66.8,
+        "mmlu": 60.9,
+        "gsm8k": 75.5,
+        "source": "Alibaba Qwen2.5 Technical Report (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Whether 1.58GB RAM footprint is feasible on target Android devices without OOM risk during concurrent TTS audio playback",
+        "Cold start time on mobile"
+      ]
+    },
+    {
+      "candidate_id": "llama-3.2-3b-instruct",
+      "model_name": "Llama-3.2-3B-Instruct",
+      "publisher": "Meta",
+      "status": "verified_onnx",
+      "parameter_count": "3.21B",
+      "parameter_class": "1B-3B",
+      "source_model_url": "https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct",
+      "onnx_repo_id": "onnx-community/Llama-3.2-3B-Instruct-ONNX",
+      "onnx_repo_url": "https://huggingface.co/onnx-community/Llama-3.2-3B-Instruct-ONNX",
+      "onnx_provenance": "Community (onnx-community / Hugging Face Transformers.js)",
+      "pinned_revision": "cab364e7d0e1de7aa09e3abc932be92361c5b55f",
+      "license": "Llama 3.2 Community License",
+      "gated": false,
+      "exact_onnx_paths": [
+        "onnx/model_q4.onnx"
+      ],
+      "external_data_shards": [
+        "onnx/model_q4.onnx_data"
+      ],
+      "companion_assets": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json"
+      ],
+      "quantizations_available": ["q4"],
+      "approx_download_size_bytes": {
+        "model_q4.onnx_data": 2350000000
+      },
+      "runtime_type": "standard_onnxruntime_cpu",
+      "genai_custom_ops": false,
+      "android_cpu_compatible": "unlikely_due_to_resource_constraints",
+      "runtime_notes": "Quality upper-bound reference. Footprint exceeds target mobile device budgets (over 2.5 GB RAM resident).",
+      "benchmarks_original_model": {
+        "ifeval": 77.4,
+        "mmlu": 63.4,
+        "gsm8k": 77.7,
+        "source": "Meta Llama 3.2 Announcement (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Host Windows evaluation benchmark relative to 1B models"
+      ]
+    },
+    {
+      "candidate_id": "smollm2-1.7b-instruct",
+      "model_name": "SmolLM2-1.7B-Instruct",
+      "publisher": "Hugging Face (HuggingFaceTB)",
+      "status": "unverified",
+      "parameter_count": "1.7B",
+      "parameter_class": "1B-3B",
+      "source_model_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+      "onnx_repo_id": null,
+      "onnx_repo_url": null,
+      "onnx_provenance": null,
+      "pinned_revision": null,
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": null,
+      "external_data_shards": null,
+      "companion_assets": null,
+      "quantizations_available": null,
+      "approx_download_size_bytes": null,
+      "runtime_type": null,
+      "genai_custom_ops": null,
+      "android_cpu_compatible": null,
+      "runtime_notes": "Official HuggingFaceTB repository does not host pre-built ONNX artifacts. Only unofficial third-party community uploads (e.g. elbruno) exist, without institutional verification or multi-format ONNX maintenance.",
+      "benchmarks_original_model": {
+        "ifeval": 74.6,
+        "mmlu": 54.8,
+        "gsm8k": 62.4,
+        "source": "SmolLM2 Technical Report (arXiv:2502.02737, Hugging Face 2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Whether official onnx-community will export SmolLM2-1.7B"
+      ]
+    },
+    {
+      "candidate_id": "gemma-2-2b-it",
+      "model_name": "Gemma 2 2B IT",
+      "publisher": "Google",
+      "status": "unverified",
+      "parameter_count": "2.6B",
+      "parameter_class": "1B-3B",
+      "source_model_url": "https://huggingface.co/google/gemma-2-2b-it",
+      "onnx_repo_id": null,
+      "onnx_repo_url": null,
+      "onnx_provenance": null,
+      "pinned_revision": null,
+      "license": "Gemma Terms of Use",
+      "gated": false,
+      "exact_onnx_paths": null,
+      "external_data_shards": null,
+      "companion_assets": null,
+      "quantizations_available": null,
+      "approx_download_size_bytes": null,
+      "runtime_type": null,
+      "genai_custom_ops": null,
+      "android_cpu_compatible": null,
+      "runtime_notes": "No verified canonical ONNX export exists in onnx-community or from Google. Gemma 2 introduced logit soft-capping and interleaved sliding-window attention which caused widespread exporter incompatibilities with ONNX opsets.",
+      "benchmarks_original_model": {
+        "ifeval": 56.1,
+        "mmlu": 53.3,
+        "gsm8k": 55.4,
+        "source": "Google Gemma 2 Technical Report (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Whether custom ONNX export with custom sliding-window ops is feasible without runtime crashes on Android"
+      ]
+    },
+    {
+      "candidate_id": "minicpm-2b-official",
+      "model_name": "MiniCPM-2B-sft / MiniCPM-1B (Official)",
+      "publisher": "OpenBMB",
+      "status": "unverified",
+      "parameter_count": "1.2B - 2.4B",
+      "parameter_class": "<=1B / 1B-3B",
+      "source_model_url": "https://huggingface.co/openbmb/MiniCPM-2B-sft-bf16",
+      "onnx_repo_id": null,
+      "onnx_repo_url": null,
+      "onnx_provenance": null,
+      "pinned_revision": null,
+      "license": "Apache-2.0",
+      "gated": false,
+      "exact_onnx_paths": null,
+      "external_data_shards": null,
+      "companion_assets": null,
+      "quantizations_available": null,
+      "approx_download_size_bytes": null,
+      "runtime_type": null,
+      "genai_custom_ops": null,
+      "android_cpu_compatible": null,
+      "runtime_notes": "OpenBMB does not distribute official ONNX weights for pure text models. Official distributions are PyTorch safetensors, GGUF, or multimodal vision models (MiniCPM-V).",
+      "benchmarks_original_model": {
+        "ifeval": null,
+        "mmlu": 53.8,
+        "gsm8k": 53.8,
+        "source": "OpenBMB MiniCPM Technical Report (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": [
+        "Absence of official publisher ONNX support"
+      ]
+    },
+    {
+      "candidate_id": "phi-3-mini-4k-instruct",
+      "model_name": "Phi-3-mini-4k-instruct",
+      "publisher": "Microsoft",
+      "status": "excluded",
+      "parameter_count": "3.82B",
+      "parameter_class": ">3B",
+      "source_model_url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct",
+      "onnx_repo_id": "microsoft/Phi-3-mini-4k-instruct-onnx",
+      "onnx_repo_url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx",
+      "onnx_provenance": "Official Publisher (Microsoft)",
+      "pinned_revision": "9a2f6460ef68aa76cc0e653565ff1e20251f2868",
+      "license": "MIT",
+      "gated": false,
+      "exact_onnx_paths": [
+        "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx"
+      ],
+      "external_data_shards": null,
+      "companion_assets": null,
+      "quantizations_available": ["cpu-int4", "cuda-int4", "directml-int4"],
+      "approx_download_size_bytes": null,
+      "runtime_type": "onnxruntime_genai_custom_ops",
+      "genai_custom_ops": true,
+      "android_cpu_compatible": "excessive_resource_consumption",
+      "runtime_notes": "Exceeds parameter threshold: 3.82B parameters is >3B. Official ONNX exists from Microsoft, but memory footprint (>2.2GB INT4) and compute load exceed on-device Android CPU targets.",
+      "benchmarks_original_model": {
+        "ifeval": 69.1,
+        "mmlu": 68.8,
+        "gsm8k": 82.5,
+        "source": "Microsoft Phi-3 Technical Report (2024)"
+      },
+      "benchmarks_onnx_artifact": {
+        "device_latency": null,
+        "resident_memory": null,
+        "source": null
+      },
+      "unknowns": null
+    }
+  ]
+}
