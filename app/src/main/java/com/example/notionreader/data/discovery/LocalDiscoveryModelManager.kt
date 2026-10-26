@@ -16,9 +16,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class ModelArtifact(val path: String, val bytes: Long, val sha256: String,
-    val remotePath: String = path)
-
 /** Optional download, never a constructor side effect. Only a verified complete pack is usable. */
 class LocalDiscoveryModelManager(
     private val directory: File,
@@ -54,6 +51,9 @@ class LocalDiscoveryModelManager(
         description = description
     ))
     override val state = mutable.asStateFlow()
+    private fun ownedBytes(): Long = listOf("current", "staging", "previous").sumOf { name ->
+        File(directory, name).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
 
     /** Called from the process worker, not the UI thread; integrity is checked after process death. */
     suspend fun checkInstalled() = withContext(ioDispatcher) { mutex.withLock {
@@ -67,6 +67,7 @@ class LocalDiscoveryModelManager(
         if (valid && previous.exists()) check(previous.deleteRecursively())
         // No download can own staging while startup validation owns this mutex.
         File(directory, "staging").deleteRecursively()
+        mutable.update { it.copy(storageBytes = ownedBytes()) }
     } }
 
     override fun setWifiOnly(wifiOnly: Boolean) { mutable.update { it.copy(wifiOnly = wifiOnly) } }
@@ -101,7 +102,7 @@ class LocalDiscoveryModelManager(
                                     output.write(buffer, 0, read)
                                 }
                                 downloaded += read
-                                mutable.update { it.copy(downloadedBytes = downloaded) }
+                                mutable.update { it.copy(downloadedBytes = downloaded, storageBytes = ownedBytes()) }
                             }
                             output.fd.sync()
                         } }
@@ -127,7 +128,7 @@ class LocalDiscoveryModelManager(
                 } catch (_: com.example.notionreader.domain.document.StorageRefused) {
                     mutable.update { it.copy(message = "Not enough safe device storage for the model download. Free space and retry.") }
                 } catch (_: Exception) { mutable.update { it.copy(installed = false, message = "Model download failed or could not be verified. Retry the download.") } }
-                finally { staging.deleteRecursively(); mutable.update { it.copy(downloading = false) } }
+                finally { staging.deleteRecursively(); mutable.update { it.copy(downloading = false, storageBytes = ownedBytes()) } }
             }
         }
     }
@@ -140,7 +141,7 @@ class LocalDiscoveryModelManager(
             check(!modelDirectory.exists() || modelDirectory.deleteRecursively())
             File(directory, "staging").deleteRecursively()
             File(directory, "previous").deleteRecursively()
-            mutable.update { it.copy(downloadedBytes = 0, message = null) }
+            mutable.update { it.copy(downloadedBytes = 0, message = null, storageBytes = ownedBytes()) }
         } }
     }
     private fun digest(file: File): String {

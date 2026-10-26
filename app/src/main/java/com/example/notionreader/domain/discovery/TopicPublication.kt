@@ -2,12 +2,16 @@ package com.example.notionreader.domain.discovery
 
 
 /** Display-only policy: candidate persistence and opaque continuity retain every input topic. */
-enum class TopicPublicationStatus { Established, Emerging }
+enum class TopicPublicationStatus { Established, Emerging, Pending, NoMatches }
 
 fun discoveryTopicPublicationStatus(topic: DiscoveredTopic): TopicPublicationStatus? {
     if (!hasPublishedSubject(topic)) return null
-    return if (topic.members.map { canonicalSemanticId(it.pageId) }.distinct().size == 1)
-        TopicPublicationStatus.Emerging else TopicPublicationStatus.Established
+    if (topic.currentTopicMatches == null) return TopicPublicationStatus.Pending
+    return when (topic.matchingMembers.map { canonicalSemanticId(it.pageId) }.distinct().size) {
+        0 -> TopicPublicationStatus.NoMatches
+        1 -> TopicPublicationStatus.Emerging
+        else -> TopicPublicationStatus.Established
+    }
 }
 
 fun publishableDiscoveryTopics(topics: List<DiscoveredTopic>): List<DiscoveredTopic> =
@@ -36,14 +40,23 @@ private val publicationWords = Regex("[\\p{L}\\p{N}][\\p{L}\\p{N}'’-]*")
 private fun literalIn(text: String, label: String): Boolean =
     Regex("(?<![\\p{L}\\p{N}])${Regex.escape(label)}(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
-private fun hasSubjectLabel(topic: DiscoveredTopic): Boolean {
-    val label = topic.label.trim()
-    if (label.length !in 3..100 || label.lowercase() in genericPublicationLabels ||
+/** Lexical guard only; supported paraphrases still require measured semantic review. */
+internal fun specificTopicWording(label: String, minimumLength: Int = 1): Boolean {
+    if (label.length !in minimumLength..100 || label.lowercase() in genericPublicationLabels ||
         label.lowercase() in referenceHeadings || label.startsWith("Notes related to ", true)) return false
     val tokens = publicationWords.findAll(label).map { it.value.lowercase() }.toList()
-    if (tokens.isEmpty() || tokens.first() in phraseEdges || tokens.last() in phraseEdges) return false
+    return tokens.isNotEmpty() && tokens.first() !in phraseEdges && tokens.last() !in phraseEdges
+}
+
+private fun hasSubjectLabel(topic: DiscoveredTopic): Boolean {
+    val generated = topic.currentGeneratedLabel != null
+    // Before naming, cluster wording can assess candidate evidence eligibility only.
+    // Presentation must use effectiveLabel; it must never expose this evidence fallback.
+    val label = (topic.currentGeneratedLabel?.text ?: topic.label).trim()
+    if (!specificTopicWording(label, if (generated) 1 else 3)) return false
     // A heading is complete as authored; a phrase must have meaningful, bounded word edges.
-    if (!supportsLabel(topic.labelSource, label)) return false
+    // Validated provenance permits paraphrases; this is not a semantic-entailment proof.
+    if (!generated && !supportsLabel(topic.labelSource, label)) return false
     val members = topic.members.distinctBy { canonicalSemanticId(it.pageId) }
     val titlePrefix = Regex("^${Regex.escape(label)}\\s*(?:[—–:|]|\\s-\\s)\\s*\\S", RegexOption.IGNORE_CASE)
     val familyCount = members.count { titlePrefix.containsMatchIn(it.metadata.title.trim()) }
@@ -57,14 +70,18 @@ private fun supportsLabel(passage: SemanticPassage, label: String): Boolean =
 
 /** Labels are source-backed; semantic membership is validated independently of label wording. */
 internal fun topicEvidenceIsValid(topic: DiscoveredTopic): Boolean =
-    hasSubjectLabel(topic) && topic.members.isNotEmpty() && topic.labelSource.isBodyEvidence() &&
+    hasSubjectLabel(topic) && topicBodyEvidenceIsValid(topic)
+
+private fun topicBodyEvidenceIsValid(topic: DiscoveredTopic): Boolean =
+    topic.members.isNotEmpty() && topic.labelSource.isBodyEvidence() &&
         topic.members.any { it.passage == topic.labelSource } &&
         topic.members.all { member ->
             canonicalSemanticId(member.pageId) == canonicalSemanticId(member.passage.pageId) &&
                 member.passage.isBodyEvidence() && member.score.isFinite() && member.score >= TopicPolicy().retention
         }
 
-private fun hasPublishedSubject(topic: DiscoveredTopic): Boolean = topicEvidenceIsValid(topic)
+// Naming failure leaves the same eligible group inspectable under neutral presentation.
+private fun hasPublishedSubject(topic: DiscoveredTopic): Boolean = topicBodyEvidenceIsValid(topic)
 
 private class PublicationEvidence(private val prepareOverlap: (SemanticPassage) -> DiscoveryPassageOverlap) {
     private val pages = java.util.IdentityHashMap<DiscoveredTopic, Map<String, TopicMembership>>()

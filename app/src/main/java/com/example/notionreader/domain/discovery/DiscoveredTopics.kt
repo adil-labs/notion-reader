@@ -10,7 +10,23 @@ data class TopicMembership(val pageId: String, val metadata: SemanticMetadata, v
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
     val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,
-    val subjectVector: List<Float> = anchor.vector)
+    val subjectVector: List<Float> = anchor.vector,
+    @kotlinx.serialization.Transient val generatedLabel: GeneratedTopicLabel? = null,
+    @kotlinx.serialization.Transient val topicMatches: TopicMatches? = null) {
+    internal val labelEvidenceFingerprint by lazy { computeTopicLabelFingerprint(this) }
+    private val checkedGeneratedLabel by lazy { generatedLabel?.let { reusableTopicLabel(this, it, it.identity) } }
+    /** Cluster wording is evidence, never a provisional display name. */
+    val effectiveLabel: String get() = checkedGeneratedLabel?.text ?: "Topic name pending"
+    val currentGeneratedLabel: GeneratedTopicLabel? get() = checkedGeneratedLabel
+    val currentTopicMatches: TopicMatches? get() = topicMatches?.takeIf { matches ->
+        val concept = currentGeneratedLabel
+        concept != null && matches.query.topicId == id && matches.query.conceptWorkKey == concept.workKey &&
+            matches.query.text == topicConceptQuery(concept)
+    }
+    /** Seed memberships are proposal evidence; they are never fallback retrieved Notes. */
+    val matchingMembers: List<TopicMembership> get() = currentTopicMatches?.members.orEmpty()
+}
+data class TopicMatches(val query: TopicRetrievalQuery, val members: List<TopicMembership>)
 @Serializable
 data class TopicContinuity(val id: String, val createdOrder: Long, val pageIds: Set<String> = emptySet(),
     val sourceIds: Set<String> = emptySet(), val replacementId: String? = null,

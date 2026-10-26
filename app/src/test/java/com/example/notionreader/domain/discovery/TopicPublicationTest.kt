@@ -27,10 +27,11 @@ class TopicPublicationTest {
         assertTrue("Overlap preparation must be bounded by distinct excerpts: $preparations vs $excerpts", preparations <= excerpts)
     }
 
-    @Test fun fallbackCandidatesRemainIntactButAreWithheld() {
+    @Test fun sourceFallbackWordingDoesNotHideAnOtherwiseEligibleUnnamedGroup() {
         val fallback = topic("fallback", "Notes related to Research", theme = "Overview")
         val input = listOf(fallback)
-        assertTrue(publishableDiscoveryTopics(input).isEmpty())
+        assertEquals(input, publishableDiscoveryTopics(input))
+        assertEquals("Topic name pending", fallback.effectiveLabel)
         assertSame(fallback, input.single())
     }
     @Test fun supportedCompleteSubjectLabelsArePublished() {
@@ -42,22 +43,29 @@ class TopicPublicationTest {
         }
         assertEquals(listOf(heading, phrase), publishableDiscoveryTopics(listOf(heading, phrase)))
     }
-    @Test fun genericUnsupportedAndTruncatedLabelsAreWithheld() {
+    @Test fun poorClusterWordingCannotNameOrHideAnOtherwiseEligibleGroup() {
         val inputs = listOf(topic("generic", "Overview"), topic("invented", "Quantum botany", theme = "Orbital mechanics"),
             topic("fragment", "bodies move and", theme = "Orbital mechanics"))
-        assertTrue(publishableDiscoveryTopics(inputs).isEmpty())
+        inputs.forEach { candidate ->
+            assertEquals(listOf(candidate), publishableDiscoveryTopics(listOf(candidate)))
+            assertEquals("Topic name pending", candidate.effectiveLabel)
+        }
     }
-    @Test fun genericDocumentContainersDoNotBecomePublishedSubjects() {
+    @Test fun genericContainerHeadingsAreEvidenceOnlyAndDoNotNameTheGroup() {
         for (heading in listOf("Body", "Abstract", "Main text", "Full text")) {
             val candidate = topic("container", heading)
-            assertNull("Container heading is not a subject: $heading", discoveryTopicPublicationStatus(candidate))
-            assertTrue(publishableDiscoveryTopics(listOf(candidate)).isEmpty())
+            assertFalse("Container heading is not a source subject: $heading", topicEvidenceIsValid(candidate))
+            assertEquals(listOf(candidate), publishableDiscoveryTopics(listOf(candidate)))
+            assertEquals("Topic name pending", candidate.effectiveLabel)
             assertEquals(heading, candidate.label)
         }
     }
-    @Test fun repeatedNegativeOrModalClausesDoNotBecomeSubjectLabels() {
+    @Test fun negativeOrModalClusterClausesDoNotBecomeDisplayedNames() {
         for (label in listOf("no longer operates", "never returns again", "could become unavailable", "would require approval")) {
-            assertTrue("A repeated clause is not a subject: $label", publishableDiscoveryTopics(listOf(topic(label, label))).isEmpty())
+            val candidate = topic(label, label)
+            assertFalse("A repeated clause is not a source subject: $label", topicEvidenceIsValid(candidate))
+            assertEquals(listOf(candidate), publishableDiscoveryTopics(listOf(candidate)))
+            assertEquals("Topic name pending", candidate.effectiveLabel)
         }
     }
     @Test fun titleFamilyPrefixesNeedIndependentSubjectHeadings() {
@@ -70,7 +78,8 @@ class TopicPublicationTest {
                 anchor = base.anchor.copy(passage = members.first().passage))
         }
         val ambiguous = family(false)
-        assertTrue(publishableDiscoveryTopics(listOf(ambiguous)).isEmpty())
+        assertFalse(topicEvidenceIsValid(ambiguous))
+        assertEquals(listOf(ambiguous), publishableDiscoveryTopics(listOf(ambiguous)))
         assertEquals("Civic Atlas", ambiguous.label)
         val authoredSubject = family(true)
         assertEquals(listOf(authoredSubject), publishableDiscoveryTopics(listOf(authoredSubject)))
@@ -81,11 +90,11 @@ class TopicPublicationTest {
         val oneHeading = twoHeadings.copy(members = twoHeadings.members.mapIndexed { index, member ->
             if (index == 1) member.copy(passage = member.passage.copy(sectionTitle = "Implementation")) else member
         })
-        assertTrue(publishableDiscoveryTopics(listOf(oneHeading)).isEmpty())
+        assertFalse(topicEvidenceIsValid(oneHeading))
     }
     @Test fun repeatedMemberFamilyViewsCollapseDeterministically() {
         val first = topic("first", order = 1)
-        val repeated = topic("repeat", order = 2, pages = listOf("a", "b", "c", "d"), theme = "Energy transfer")
+        val repeated = topic("repeat", order = 2, pages = listOf("a", "b", "c", "d"))
         assertEquals(listOf(first), publishableDiscoveryTopics(listOf(repeated, first)))
     }
     @Test fun equalAuthoredLabelsCannotCollapseIndependentPassageSubjects() {
@@ -121,7 +130,9 @@ class TopicPublicationTest {
                 sectionTitle = "Other research", excerpt = "A separate subject explains processes in a different field."))
         })
         val substring = topic("substring", "Orbital mechanic", theme = "Orbital mechanics")
-        assertEquals(listOf(weak), publishableDiscoveryTopics(listOf(weak, substring)))
+        assertTrue(topicEvidenceIsValid(weak)); assertFalse(topicEvidenceIsValid(substring))
+        assertEquals(listOf(substring), publishableDiscoveryTopics(listOf(substring)))
+        assertEquals("Topic name pending", substring.effectiveLabel)
     }
     @Test fun differentLabelsAndDistantVectorsAloneCannotProveIndependentThemes() {
         val first = topic("first", order = 1)

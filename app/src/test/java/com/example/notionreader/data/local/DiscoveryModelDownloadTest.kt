@@ -14,6 +14,23 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiscoveryModelDownloadTest {
+    @Test fun modelStorageMeasuresOwnedFilesAndExcludesSiblingModelPacks() = runTest {
+        val dir = Files.createTempDirectory("model-accounting").toFile()
+        try {
+            dir.resolve("current").mkdirs(); dir.resolve("current/model").writeText("good")
+            dir.resolve("current/installed").writeText("test-revision")
+            dir.resolve("generative/current").mkdirs(); dir.resolve("generative/current/model").writeText("unrelated pack")
+            val manager = LocalDiscoveryModelManager(dir, backgroundScope, { true },
+                artifacts = listOf(ModelArtifact("model", 4, semanticHash("good"))), revision = "test-revision",
+                ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            assertNull(manager.state.value.storageBytes)
+            manager.checkInstalled()
+            assertEquals(17L, manager.state.value.storageBytes)
+            manager.delete()
+            assertEquals(0L, manager.state.value.storageBytes)
+            assertEquals("unrelated pack", dir.resolve("generative/current/model").readText())
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun storageRefusalPreservesTheOldPackAndDoesNotStartTheNetwork() = runTest {
         val dir = Files.createTempDirectory("model-space").toFile()
         try {

@@ -260,7 +260,7 @@ class TopicDiscoveryEngineTest {
         assertNotEquals(old.topics.single().id, rebuilt.topics.single { it.label == "Forest Ecosystems" }.id)
     }
 
-    @Test fun sourceRemovalPreservesUnrelatedEmergingAndDemotesTheRemainingEstablishedSubject() {
+    @Test fun sourceRemovalPreservesUnrelatedSeedsWhileMatchingRemainsPending() {
         val records = listOf(sampleRecord("a", 0.0, sectionTitle = "Forest Ecosystems"),
             sampleRecord("b", 0.0, sectionTitle = "Forest Ecosystems"),
             sampleRecord("c", 180.0, sectionTitle = "Planetary Astronomy"))
@@ -270,7 +270,7 @@ class TopicDiscoveryEngineTest {
         val removed = invalidateTopics(original, setOf("a"), false, mapOf(forest.id to remaining))
         assertEquals(2, removed.topics.size)
         assertTrue(removed.topics.all { it.members.size == 1 })
-        assertTrue(removed.topics.all { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Emerging })
+        assertTrue(removed.topics.all { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Pending })
     }
 
     @Test fun aPoisonedCheckpointCannotSkipUnprocessedSections() {
