@@ -21,6 +21,16 @@ sources before implementing. Files in `notion/` are generated mirrors: amend
 Notion, run `tools/export-notion-doc.ps1 -All`, and inspect the diff. Never patch a
 mirror directly. The two hand-authored governing specs are edited locally.
 
+## Unified knowledge system target design
+
+[Knowledge system design suite](knowledge-system/README.md) records the proposed
+local-first structured knowledge architecture, user requirements, identity and
+provenance model, Notion hierarchy/sync, incremental Discovery, query/ranking,
+accessibility, evaluation and roadmap. These documents are **non-governing target
+designs**, not evidence of implementation or release acceptance. Inventory existing
+capabilities and amend the authoritative Notion sources before changing behavior;
+never edit their generated mirrors directly.
+
 ## Discovery reading path
 
 - The Product contract owns automatic discovery, evidence, privacy, interests,
