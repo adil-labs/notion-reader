@@ -43,7 +43,9 @@ data class DiscoverySettingsUi(
     val runtime: EmbeddingRuntimeState = EmbeddingRuntimeState(),
     val npuModel: com.example.notionreader.domain.discovery.DiscoveryModelState? = null,
     val discoveryBytes: Long? = null,
-    val modelBytes: Long? = null
+    val modelBytes: Long? = null,
+    val topicModel: com.example.notionreader.domain.discovery.DiscoveryModelState? = null,
+    val topicNamingActivationMessage: String? = null
 )
 
 @Composable
@@ -67,7 +69,11 @@ fun DiscoverySettingsScreen(
     onBackendChange: (DiscoveryBackend) -> Unit = {},
     onNpuDownload: () -> Unit = {},
     onNpuCancel: () -> Unit = {},
-    onNpuDelete: () -> Unit = {}
+    onNpuDelete: () -> Unit = {},
+    onTopicModelDownload: () -> Unit = {},
+    onTopicModelCancel: () -> Unit = {},
+    onTopicModelDelete: () -> Unit = {},
+    onTopicModelWifiOnlyChange: (Boolean) -> Unit = {}
 ) {
     Column(
         modifier = modifier
@@ -101,6 +107,30 @@ fun DiscoverySettingsScreen(
             Button(onClick = onCancelDownload) { Text("Cancel download") }
         } else if (!state.modelInstalled) {
             Button(onClick = onDownload, enabled = state.downloadAllowed) { Text("Download model") }
+        }
+
+        state.topicModel?.let { model ->
+            Text("Topic naming model", Modifier.semantics { heading() })
+            Text(model.description)
+            Text("Optional local naming for existing groups. Reading, playback and search remain available without this model.")
+            state.topicNamingActivationMessage?.let { Text(it) }
+            Text("Topic model files: ${model.storageBytes?.let(::formatStorageBytes) ?: "Checking usage…"}")
+            Text("Download size: ${formatStorageBytes(model.totalBytes)}")
+            model.message?.let { Text(it) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = model.wifiOnly, onCheckedChange = onTopicModelWifiOnlyChange,
+                    modifier = Modifier.semantics { contentDescription = "Topic model download using Wi-Fi only" })
+                Spacer(Modifier.width(8.dp))
+                Text("Topic model download using Wi-Fi only")
+            }
+            when {
+                model.downloading -> {
+                    Text("Topic model download: ${formatStorageBytes(model.downloadedBytes)} of ${formatStorageBytes(model.totalBytes)}")
+                    Button(onClick = onTopicModelCancel) { Text("Cancel topic model download") }
+                }
+                model.installed -> Button(onClick = onTopicModelDelete) { Text("Delete topic naming model") }
+                else -> Button(onClick = onTopicModelDownload) { Text("Download topic naming model") }
+            }
         }
 
         // Processing Section

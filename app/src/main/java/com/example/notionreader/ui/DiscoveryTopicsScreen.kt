@@ -39,6 +39,7 @@ internal fun DiscoveryTopicsScreen(app: ReaderApp) {
         val major = published.filter { it.topic.id in parents }
         val established = published.filter { it.topic.id !in parents && it.status == TopicPublicationStatus.Established }
         val emerging = published.filter { it.topic.id !in parents && it.status == TopicPublicationStatus.Emerging }
+        val preparing = published.filter { it.topic.id !in parents && it.status in setOf(TopicPublicationStatus.Pending, TopicPublicationStatus.NoMatches) }
         buildList {
             if (major.isNotEmpty()) {
                 add(TopicCatalogRow("major", heading = "Major subjects"))
@@ -49,6 +50,10 @@ internal fun DiscoveryTopicsScreen(app: ReaderApp) {
             if (emerging.isNotEmpty()) {
                 add(TopicCatalogRow("emerging", heading = "Emerging topics"))
                 emerging.forEach { add(TopicCatalogRow("topic:${it.topic.id}", topic = it.topic)) }
+            }
+            if (preparing.isNotEmpty()) {
+                add(TopicCatalogRow("matching", heading = "Topics and matching progress"))
+                preparing.forEach { add(TopicCatalogRow("topic:${it.topic.id}", topic = it.topic)) }
             }
         }
     }
@@ -76,7 +81,7 @@ internal fun DiscoveryTopicsScreen(app: ReaderApp) {
         items(rows, key = { it.key }, contentType = { if (it.topic != null) "topic" else "heading" }) { row ->
             if (row.topic != null) TopicNavigationRow(row.topic, {
                 app.navigator.open(ReaderDestination.DiscoveryTopic, row.key, row.topic.id)
-            }, nav.focusTarget, app::focusHandled)
+            }, nav.focusTarget, app::focusHandled, displayName = topicDisplayName(row.topic, state.interests))
             else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(checkNotNull(row.heading), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
                 if (row.key == "emerging") Text("Subjects supported by one cached Note.", style = MaterialTheme.typography.bodySmall)

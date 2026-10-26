@@ -32,7 +32,8 @@ internal fun discoveryStatus(state: DiscoveryState): DiscoveryStatusUi {
         DiscoveryProcessingStatus.WaitingForAndroid -> "Waiting for an Android processing window. Discovery resumes automatically."
         DiscoveryProcessingStatus.WaitingForPlayback -> "Waiting for listening to pause. Discovery resumes automatically."
         DiscoveryProcessingStatus.WaitingForResources -> "Waiting for device resources. Discovery resumes automatically."
-        DiscoveryProcessingStatus.Ready -> if (state.topicSnapshot.topics.isEmpty() && state.topicSnapshot.connections.isEmpty() &&
+        DiscoveryProcessingStatus.Ready -> if (state.topicNaming != null && state.topicNaming != TopicNamingStatus.Ready) state.topicStatus
+            else if (state.topicSnapshot.topics.isEmpty() && state.topicSnapshot.connections.isEmpty() &&
             (state.topicSnapshot.catalogReference?.count ?: 0) == 0 && !state.topicsUpdated)
             "No supported groups yet. Search your Notes or add an interest." else null
         else -> discoveryProcessingDescription(state)
@@ -47,9 +48,9 @@ internal fun discoveryStatus(state: DiscoveryState): DiscoveryStatusUi {
         if (status in setOf(DiscoveryProcessingStatus.Checking, DiscoveryProcessingStatus.SetupRequired,
                 DiscoveryProcessingStatus.CacheUnavailable)) null else discoveryWorkDescription(state),
         state.indexingAction,
-        status in setOf(DiscoveryProcessingStatus.SetupRequired, DiscoveryProcessingStatus.Paused,
+        state.topicNaming == TopicNamingStatus.Unavailable || status in setOf(DiscoveryProcessingStatus.SetupRequired, DiscoveryProcessingStatus.Paused,
             DiscoveryProcessingStatus.CacheUnavailable, DiscoveryProcessingStatus.RecoveryRequired, DiscoveryProcessingStatus.WaitingForPower) || state.message != null,
-        status != DiscoveryProcessingStatus.Ready)
+        status != DiscoveryProcessingStatus.Ready || state.topicNaming?.let { it != TopicNamingStatus.Ready } == true)
 }
 
 internal fun discoveryProgress(state: DiscoveryState): DiscoveryProgressUi =
@@ -93,11 +94,15 @@ internal fun discoveryWorkDescription(state: DiscoveryState): String? {
     return "${work.remainingNotes} Notes, ${work.remainingPassages} passages remaining. $duration Subject and connection analysis is additional; its time is not yet estimated."
 }
 
-/** Presentation descriptors only; persisted labels and topic/follow identities are untouched. */
-internal fun topicPreviewTitle(label: String): String = when {
-    label.startsWith("Notes related to ") -> "Related Notes"
-    label.trim().lowercase() in setOf("related knowledge", "notes", "summary", "overview", "details", "content") -> "Similar Notes"
-    else -> label
+internal fun topicDisplayName(topic: com.example.notionreader.domain.discovery.DiscoveredTopic,
+    interests: List<com.example.notionreader.domain.discovery.DiscoveryInterest> = emptyList()): String =
+    interests.firstOrNull { it.originTopicId == topic.id }?.displayName?.trim()?.takeIf { it.isNotEmpty() }
+        ?: topic.effectiveLabel
+
+internal fun topicNamingEvidence(topic: com.example.notionreader.domain.discovery.DiscoveredTopic):
+    List<com.example.notionreader.domain.discovery.TopicMembership> {
+    val ids = topic.currentGeneratedLabel?.evidenceIds ?: return emptyList()
+    return ids.mapNotNull { id -> topic.members.firstOrNull { it.passage.id == id } }
 }
 
 internal fun recentListeningTitle(entry: HistoryEntry): String = entry.originLabel
@@ -105,7 +110,7 @@ internal fun recentListeningTitle(entry: HistoryEntry): String = entry.originLab
 
 /** Attribution, not an inferred replacement topic name. Resolved only from eligible members. */
 internal fun topicSourceContext(topic: com.example.notionreader.domain.discovery.DiscoveredTopic): String? =
-    if (topicPreviewTitle(topic.label) == topic.label) null else topic.members.firstOrNull {
+    if (topic.currentGeneratedLabel != null) null else topic.members.firstOrNull {
         com.example.notionreader.domain.discovery.canonicalSemanticId(it.pageId) ==
             com.example.notionreader.domain.discovery.canonicalSemanticId(topic.labelSource.pageId)
     }?.metadata?.title?.takeIf { it.isNotBlank() }

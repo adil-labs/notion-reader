@@ -62,8 +62,8 @@ fun SettingsAboutScreen(
                             "• Kotlinx Serialization (Apache 2.0)\n" +
                             "• Ktor HTTP Client (Apache 2.0)\n" +
                             "• AndroidX DataStore (Apache 2.0)\n" +
-                            "• ONNX Runtime (MIT)\n" +
-                            "• Optional MiniLM-L6-v2 model (Apache 2.0)",
+                            "• LiteRT-LM\n" +
+                            "• Optional EmbeddingGemma and Gemma models",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

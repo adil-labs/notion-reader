@@ -6,6 +6,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryPresentationTest {
+    @Test fun unavailableNamingIsVisibleEvenWhenGroupingAndEmbeddingAreComplete() {
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
+            topicSnapshot = TopicSnapshot(complete = true, connectionPassComplete = true), workPending = false,
+            topicNaming = TopicNamingStatus.Unavailable,
+            topicStatus = "Topic naming is unavailable. Install the topic naming model in Discovery settings.")
+        val ui = discoveryStatus(state)
+        assertEquals(state.topicStatus, ui.message); assertTrue(ui.incomplete); assertTrue(ui.manageAvailable)
+        assertEquals(DiscoveryProcessingStatus.Ready, state.processingStatus)
+    }
+    @Test fun runningNamingDoesNotClaimThatGroupingIsStillBeingComputed() {
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
+            topicSnapshot = TopicSnapshot(complete = true, connectionPassComplete = true), workPending = true,
+            topicNaming = TopicNamingStatus.Running, topicStatus = "Naming topics…")
+        assertEquals("Naming topics…", discoveryStatus(state).message)
+    }
     @Test fun checkingDiscoveryDoesNotClaimTheUserPausedIt() {
         assertEquals("Checking Discovery…", discoveryProgress(DiscoveryState()).message)
     }
@@ -161,11 +176,6 @@ class DiscoveryPresentationTest {
         assertEquals("No supported groups yet. Search your Notes or add an interest.", discoveryProgress(
             DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 4, topicSnapshot = TopicSnapshot(complete = true, connectionPassComplete = true))).message)
         assertEquals("Finding topics and connections…", discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 4)).message)
-    }
-    @Test fun genericPreviewNamesAreHonestWithoutInventingOrRewritingTopics() {
-        assertEquals("Related Notes", topicPreviewTitle("Notes related to A very long source Note title"))
-        assertEquals("Similar Notes", topicPreviewTitle("Related knowledge"))
-        assertEquals("Forest ecology", topicPreviewTitle("Forest ecology"))
     }
     @Test fun experimentalSingleNoteCoverageDoesNotClaimThreeNotesAreRequired() {
         val ui = discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,

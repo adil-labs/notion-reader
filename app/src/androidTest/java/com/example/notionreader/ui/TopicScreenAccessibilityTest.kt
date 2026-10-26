@@ -60,20 +60,38 @@ class TopicScreenAccessibilityTest {
         compose.onNodeWithText("Set up Discovery").assertIsFocused()
     }
     @Test fun aTopicIsOneNamedNavigationStopWithDistinctNoteCountAndOneRepresentativeTitle() {
-        val passage = SemanticPassage("p", "a", "s", "Ecology", "b", "c", 0, 4, "Roots", "Roots", 0)
+        val body = "Forest ecosystems support wildlife and shelter animals in healthy woodland habitats."
+        val passage = SemanticPassage("p", "a", "s", "Ecology", "b", "c", 0, body.length, body, body, 0)
         val members = (1..4).map { number -> TopicMembership("note$number", SemanticMetadata("Title $number"),
-            passage.copy(pageId = "note$number"), .9f, passage) }
-        val topic = DiscoveredTopic("stable", "Forest ecology", passage, EmbeddedPassage(passage, listOf(1f)),
-            members + members.first(), 1)
+            passage.copy(id = "p$number", pageId = "note$number"), .9f, passage, "r1") }
+        val seed = DiscoveredTopic("stable", "Forest ecology", passage, EmbeddedPassage(passage, listOf(1f)),
+            listOf(members.first()), 1)
+        val request = topicLabelRequest(seed, TopicLabelIdentity("a", "t", "c", "p", "s", "v", "GPU"), 0)!!
+        val label = (validateTopicLabel(request, "Woodland ecology", request.evidence.map { it.passageId }, request.groupFingerprint, 0,
+            "Ecological relationships within woodland habitats.") as TopicLabelValidation.Accepted).label
+        val query = TopicRetrievalQuery(seed.id, label.workKey, topicConceptQuery(label)!!, EmbeddingIdentity("fixture", 1), TopicRetrievalPolicy(.8f))
+        val topic = seed.copy(generatedLabel = label, topicMatches = TopicMatches(query, members + members.first()))
         var opens = 0
         compose.setContent { TopicNavigationRow(topic, { opens++ }) }
-        compose.onNodeWithText("4 available Notes").assertIsReachable()
+        compose.onNodeWithText("4 matching Notes").assertIsReachable()
         compose.onNodeWithText("Title 1").assertExists()
         compose.onNodeWithText("Title 2").assertDoesNotExist()
         compose.onNodeWithText("Title 4").assertDoesNotExist()
         compose.onAllNodes(hasClickAction()).assertCountEquals(1)
-        compose.onNodeWithText("Forest ecology").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Forest ecology").assertDoesNotExist()
+        compose.onNodeWithText("Woodland ecology").assertIsReachable().performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(1, opens)
+    }
+    @Test fun unnamedSeedsNeverPresentTheirMembersAsRetrievedMatches() {
+        val body = "Forest ecosystems support wildlife and shelter animals in woodland habitats."
+        val passage = SemanticPassage("p", "note", "s", "Ecology", "b", "c", 0, body.length, body, body, 0)
+        val seed = DiscoveredTopic("pending", "Internal cluster name", passage, EmbeddedPassage(passage, listOf(1f)),
+            listOf(TopicMembership("note", SemanticMetadata("Seed title"), passage, .9f, passage, "r1")), 1)
+        compose.setContent { TopicNavigationRow(seed, {}) }
+        compose.onNodeWithText("Matching Notes pending").assertIsReachable()
+        compose.onNodeWithText("1 matching Note").assertDoesNotExist()
+        compose.onNodeWithText("Internal cluster name").assertDoesNotExist()
+        compose.onNodeWithText("Topic name pending").assertIsReachable()
     }
 
     @Test fun memberEvidenceIsReadableAndOpenUsesTheMemberIdentity() {

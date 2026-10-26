@@ -56,11 +56,11 @@ internal fun TopicDetailsScreen(
         val relationshipTargets = edges.flatMap { listOf("relationship:${it.id}", "relationship_source:${it.id}") }.toSet()
 
         Text(
-            text = topic?.let { topicPreviewTitle(it.label) } ?: "Topic currently unavailable",
+            text = topic?.let { topicDisplayName(it, state.interests) } ?: "Topic currently unavailable",
             modifier = Modifier.restoreFocusOn(
                 nav.focusTarget?.takeIf { target ->
                     target != "preview_guided" && target != "topic_follow:$subject" &&
-                        target !in relationshipTargets && topic?.members.orEmpty().none { it.pageId == target }
+                        target !in relationshipTargets && topic?.matchingMembers.orEmpty().none { it.pageId == target }
                 },
                 nav.focusTarget,
                 app::focusHandled
@@ -84,12 +84,14 @@ internal fun TopicDetailsScreen(
                 )
             }
             Text(topicNoteCount(topic), style = MaterialTheme.typography.labelLarge)
+            topic.currentGeneratedLabel?.definition?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
             SubjectRelationshipRows(app, topic, published, visibleRelationships, titles)
 
             Button(
-                onClick = { app.prepareDiscoveryPreview(controller.topicPreview(topic.id), "Topic: ${topic.label}") },
-                modifier = Modifier.restoreFocusOn(nav.focusTarget, "preview_guided", app::focusHandled)
+                onClick = { app.prepareDiscoveryPreview(controller.topicPreview(topic.id), "Topic: ${topicDisplayName(topic, state.interests)}") },
+                modifier = Modifier.restoreFocusOn(nav.focusTarget, "preview_guided", app::focusHandled),
+                enabled = topic.matchingMembers.isNotEmpty()
             ) {
                 Text("Preview listening")
             }
@@ -122,14 +124,14 @@ internal fun TopicDetailsScreen(
 
             if (evidenceExpanded) {
                 Text(
-                    "Grouped by similar indexed passages. The label comes from a source Note.",
+                    "A source group proposes this topic's name and definition. Matching Notes are retrieved from indexed passages and may differ from the original group. A saved alias takes precedence.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
                     "${state.indexedCount} of ${state.cachedPageIds.size} cached Notes indexed",
                     style = MaterialTheme.typography.bodySmall
                 )
-                Text("Label source", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+                Text("Group evidence", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
                 topic.labelSource.sectionTitle?.takeIf { it.isNotBlank() }?.let { Text(it) }
                 Text(topic.labelSource.excerpt)
                 TextButton(
@@ -139,17 +141,29 @@ internal fun TopicDetailsScreen(
                     },
                     modifier = Modifier.restoreFocusOn(nav.focusTarget.takeIf { labelSourceActivated }, topic.labelSource.pageId, app::focusHandled)
                 ) {
-                    Text("Open label source Note")
+                    Text("Open group evidence Note")
                 }
                 topic.members.map { it.anchor }.distinctBy { it.id }.filter { it.id != topic.labelSource.id }.forEach { anchor ->
                     Text("Comparison context", style = MaterialTheme.typography.titleSmall)
                     anchor.sectionTitle?.takeIf { it.isNotBlank() }?.let { Text(it) }
                     Text(anchor.excerpt)
                 }
+                val namingEvidence = topicNamingEvidence(topic)
+                if (namingEvidence.isNotEmpty()) {
+                    Text("Naming evidence", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+                    Text("These source passages were supplied for the current generated name. Source citations do not by themselves prove the name is accurate.")
+                    namingEvidence.forEach { member ->
+                        key(member.passage.id) {
+                            Text(member.metadata.title, style = MaterialTheme.typography.labelMedium)
+                            Text(member.passage.excerpt)
+                        }
+                    }
+                }
             }
 
-            Text("Notes in this topic", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-            val members = topic.members.distinctBy { it.pageId }
+            Text("Matching Notes", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+            val members = topic.matchingMembers.distinctBy { it.pageId }
+            if (members.isEmpty()) Text(topicNoteCount(topic), style = MaterialTheme.typography.bodyMedium)
             Column(
                 modifier = Modifier.semantics { collectionInfo = CollectionInfo(minOf(members.size, visibleMembers), 1) },
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -184,8 +198,8 @@ internal fun TopicDetailsScreen(
 
             if (following) {
                 InterestDefinitionDialog(
-                    initialName = topic.label,
-                    initialText = topic.label,
+                    initialName = topic.currentGeneratedLabel?.text.orEmpty(),
+                    initialText = topic.currentGeneratedLabel?.let(::topicConceptQuery).orEmpty(),
                     title = "Follow topic",
                     onCancel = { following = false }
                 ) { name, text ->
@@ -244,7 +258,7 @@ private fun SubjectRelationshipRows(
                         onClick = { app.navigator.open(ReaderDestination.DiscoveryTopic, "relationship:${edge.id}", other.id) },
                         modifier = Modifier.restoreFocusOn(nav.focusTarget, "relationship:${edge.id}", app::focusHandled)
                     ) {
-                        Text("Open $action: ${other.label}")
+                        Text("Open $action: ${topicDisplayName(other, app.discovery?.state?.value?.interests.orEmpty())}")
                     }
                     Text(edge.evidence.excerpt, style = MaterialTheme.typography.bodyMedium)
                     Text(

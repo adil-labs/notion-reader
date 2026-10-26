@@ -69,20 +69,21 @@ internal fun TopicPreviews(app: ReaderApp) {
     val connections = prepared.connections
     val established = published.filter { it.status == TopicPublicationStatus.Established }.map { it.topic }
     val emerging = published.filter { it.status == TopicPublicationStatus.Emerging }.map { it.topic }
+    val preparing = published.filter { it.status == TopicPublicationStatus.Pending || it.status == TopicPublicationStatus.NoMatches }.map { it.topic }
     Text("Topics in your Notes", Modifier.restoreFocusOn(nav.focusTarget?.takeIf { target ->
         (target == "all_topics" && topics.isEmpty()) ||
             (target == "all_connections" && connections.isEmpty()) ||
             (target.startsWith("topic:") && topics.none { "topic:${it.id}" == target }) ||
             (target.startsWith("connection:") && connections.none { "connection:${it.id}" == target })
     }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-    if (!discoveryStatus(state).incomplete && established.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
+    if (!discoveryStatus(state).incomplete && topics.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
         style = MaterialTheme.typography.bodyMedium)
     TopicProgressNotice(state) { controller.refreshTopics() }
     Column(Modifier.semantics { collectionInfo = CollectionInfo(minOf(3, established.size), 1) },
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         established.take(3).forEach { topic -> key(topic.id) {
             TopicNavigationRow(topic, { app.navigator.open(ReaderDestination.DiscoveryTopic, "topic:${topic.id}", topic.id) },
-                nav.focusTarget, app::focusHandled)
+                nav.focusTarget, app::focusHandled, displayName = topicDisplayName(topic, state.interests))
         } }
     }
     if (emerging.isNotEmpty()) {
@@ -92,9 +93,16 @@ internal fun TopicPreviews(app: ReaderApp) {
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             emerging.take(3).forEach { topic -> key(topic.id) {
                 TopicNavigationRow(topic, { app.navigator.open(ReaderDestination.DiscoveryTopic, "topic:${topic.id}", topic.id) },
-                    nav.focusTarget, app::focusHandled)
+                    nav.focusTarget, app::focusHandled, displayName = topicDisplayName(topic, state.interests))
             } }
         }
+    }
+    if (preparing.isNotEmpty()) {
+        Text("Topics and matching progress", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+        preparing.take(3).forEach { topic -> key(topic.id) {
+            TopicNavigationRow(topic, { app.navigator.open(ReaderDestination.DiscoveryTopic, "topic:${topic.id}", topic.id) },
+                nav.focusTarget, app::focusHandled, displayName = topicDisplayName(topic, state.interests))
+        } }
     }
     if (topics.isNotEmpty()) TextButton(onClick = {
         app.navigator.open(ReaderDestination.DiscoveryTopics, "all_topics")
@@ -205,17 +213,17 @@ internal fun InterestDefinitionDialog(initialName: String, initialText: String, 
 
 @Composable
 internal fun TopicNavigationRow(topic: DiscoveredTopic, onOpen: () -> Unit,
-    focusTarget: String? = null, onFocusHandled: () -> Unit = {}) {
+    focusTarget: String? = null, onFocusHandled: () -> Unit = {}, displayName: String = topic.effectiveLabel) {
     OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth()
         .restoreFocusOn(focusTarget, "topic:${topic.id}", onFocusHandled)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(topicPreviewTitle(topic.label), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(displayName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             topicSourceContext(topic)?.let { Text("Source: $it", style = MaterialTheme.typography.bodySmall,
                 maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text(topicNoteCount(topic), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary)
-            topic.members.distinctBy { it.pageId }.let { members ->
+            topic.matchingMembers.distinctBy { it.pageId }.let { members ->
                 listOfNotNull(members.firstOrNull { it.metadata.title != topicSourceContext(topic) } ?: members.firstOrNull())
             }.forEach { Text(it.metadata.title,
                 style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
@@ -224,8 +232,9 @@ internal fun TopicNavigationRow(topic: DiscoveredTopic, onOpen: () -> Unit,
 }
 
 internal fun topicNoteCount(topic: DiscoveredTopic): String {
-    val count = topic.members.distinctBy { canonicalSemanticId(it.pageId) }.size
-    return "$count available ${if (count == 1) "Note" else "Notes"}"
+    if (topic.currentTopicMatches == null) return "Matching Notes pending"
+    val count = topic.matchingMembers.distinctBy { canonicalSemanticId(it.pageId) }.size
+    return if (count == 0) "No matching Notes" else "$count matching ${if (count == 1) "Note" else "Notes"}"
 }
 
 @Composable
