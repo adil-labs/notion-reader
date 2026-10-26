@@ -5,7 +5,7 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#132-cluster-seeded-concepts-and-retrieved-notes-2026-10-26)).
+Discovery refinement is in progress ([current round](docs/decisions.md#134-native-structural-knowledge-phase-1-2026-10-26)).
 The [current Discovery plan](docs/superpowers/plans/2026-10-26-cluster-seeded-topic-retrieval.md)
 uses grouping as seed evidence, local Gemma 4 E2B names and definitions, then embedding retrieval
 across eligible indexed Notes as the sole topic pipeline, updating the catalog in place.
@@ -231,15 +231,18 @@ Only the root may name `data`, `platform` and `application` together for wiring.
   ordering) and `ResumePolicy`. Pure, and JVM-testable with no dispatcher.
 - `domain/discovery/` — keyword Browse, semantic model/index/interest ports, source-aware
   token-bounded chunking, vector validation and deterministic Note-level ranking.
+- `domain/structure/` — `StructuralDocument`, `StructuralBlock`, `StructuralContainer`, `StructuralParent`, `StructuralEdge`, `StructuralAnchor`, `StructuralIndex` and the `StructuralKnowledgeRepository` port. Provider-independent factual hierarchy, explicit relations, section breadcrumbs and non-spoken structural anchors.
 - `player/` — `ReaderState` (the immutable reading position and navigation), `ReaderEngine`, and the
   `SpeechEngine` port. Depends only on `domain`.
 - `application/` — the use cases and application state: `ReaderSession` (the owner of playback),
   `NoteViewer` (the inspected Note, deliberately separate), `QueueLoader`, `BrowseModel`,
-  `LoadReaderDocument`, `ReaderNavigator`, and the read models `ContinueListeningCard` and
+  `LoadReaderDocument`, `ReaderNavigator`, `StructuralKnowledgeCoordinator`, `StructuralWorkScheduler`,
+  `StructuralNoteWriteGate`, and the read models `ContinueListeningCard` and
   `HistoryEntry`.
 - `data/notion/` — `NotionApi` (HTTP, retry, error mapping), `NotionModels` (JSON), `NotionRepository`, `NotionTokenProvider` port.
 - `data/content/` — `NotionBlockNormalizer` (Notion block types → `NormalizedBlock`),
   `ReaderDocumentMapper`, `TextChunker`.
+- `data/structure/` — `FileStructuralKnowledgeStore` (concurrency-safe atomic per-page/container JSON storage in `noBackupFilesDir`, eligibility epochs, durable pending page work), `NotionStructuralExtractor` (normalized tree → structural facts), `NotionStructuralDiscovery`.
 - `data/document/` — `CachedDocumentRepository` (stale-while-revalidate caching and offline playback orchestration), `DocumentCache` port.
 - `data/local/` — `SessionCodec` (the versioned wire form), `DataStoreSessionStore`, `FileDocumentCache` (concurrency-safe atomic cache in `noBackupFilesDir` with LRU pruning), and `ReaderDocumentCodec`.
 - `platform/` — `AndroidSpeechEngine` and Player/media adapters; the root `PlaybackService` wires Media3 to the process-owned session.

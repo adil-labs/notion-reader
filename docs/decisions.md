@@ -11468,3 +11468,28 @@ Still open: fresh family-separated semantic acceptance of this exact pipeline; i
 The user explicitly instructed enabling immediately without waiting for the remaining acceptance work. Enabled the sole cluster-evidence → generated name/definition → embedding-matched Notes pipeline in the production composition root. Renamed the switch to enabledForDiscovery so activation does not misrepresent uncompleted acceptance measurements. Existing model installation, source validity, cancellation, memory-pressure and storage checks remain in effect. This instruction supersedes the previous activation hold; it does not turn outstanding measurements into passing evidence.
 
 Full JVM suite and debug assembly passed. Installed the resulting debug APK over the existing S25 installation with adb install -r and launched MainActivity. The process remained present and the immediate AndroidRuntime error buffer showed no crash. This launch check does not establish sustained runtime stability. Fresh semantic/resource/scale acceptance remains open as recorded in §132.
+
+
+## 134. Native structural knowledge (Phase 1) (2026-10-26)
+
+Implemented the Phase 1 native structural knowledge pipeline subordinate to the governing contracts. It captures typed, versioned structural facts from Notion without altering reader playback, user state, topic catalogs, or existing UI flows.
+
+Key components and architectural invariants:
+- `domain/structure`: Domain records (`StructuralDocument`, `StructuralBlock`, `StructuralContainer`, `StructuralParent`, `StructuralEdge`, `StructuralAnchor`, `StructuralIndex`) and query repository port (`StructuralKnowledgeRepository`). Supports explicit parent types (page, block, database, data source, workspace), canonical Notion UUID normalization, child-page/block containment, explicit relations/mentions/links, speech chunk mappings, and non-spoken structural anchors.
+- `data/notion`: Extended `NotionModels.kt` and `NotionApi.kt` additively for parent metadata, reference properties, data sources, and paginated property items. Retained source compatibility for existing fakes. Pagination caps at 500 requests and rejects malformed/repeating cursors.
+- `data/structure`: `NotionStructuralExtractor` normalizes block trees into structural records (depth limit 10, max 5,000 blocks); `FileStructuralKnowledgeStore` provides atomic, per-page/container JSON persistence in `noBackupFilesDir` under schema version 1. Enforces strict source-identity and epoch eligibility: credentials switches or whole-cache invalidation increment the epoch and reject orphaned payloads; ambiguous 404s map to `MISSING_OR_INACCESSIBLE`, never confirmed deletion without explicit trash observation.
+- `application` & `ReaderApplication`: `StructuralKnowledgeCoordinator` orchestrates background extraction, metadata updates, and cache synchronization; `StructuralWorkScheduler` schedules bounded work windows adhering to user effort settings and battery/metered constraints; `ReaderApplication` isolates structural storage so unexpected store failures fail closed without aborting reader document loading or Discovery.
+
+Failing-first evidence:
+
+| Guard absent | Intended tests that failed |
+| --- | --- |
+| Storage epoch & credential eligibility | `FileStructuralKnowledgeStoreTest`: `anInvalidEpochCannotAdmitPersistedRecords`, `credentialsSwitchClearsEligibilityBeforePayloads`, `wholeCacheClearAdvancesEpochAndRejectsPriorSnapshots` (3 tests); `epochMismatchRejectsPayloadSnapshot` (1 test) |
+| Reader isolation gate | `StructuralPipelineIntegrationTest`: `incompatibleStructuralStateCannotPreventReadingOrBrowse` failed with `AssertionError: Derived structure must not block the shipping reader` |
+
+Verification:
+- Full JVM suite: 1,353 tests passing cleanly across parallel forks.
+- Debug assembly (`:app:assembleDebug`) and Android-test compilation (`:app:compileDebugAndroidTestKotlin`) pass with 0 warnings.
+- Failing-first store proof (`tools/proof-structural-store.ps1`): 3 expected assertion failures on eligibility guard removal, 1 expected assertion failure on epoch guard removal, 32 passed on restoration.
+- Failing-first isolation proof (`tools/proof-structural-isolation.ps1`): 1 expected assertion failure on guard removal, 1 passed with exit code 0 on restoration.
+- Instrumented integration test (`StructuralPipelineIntegrationTest`): 1/1 passed via `tools/run-accessibility-tests.ps1` on connected emulator (API 35/16).
