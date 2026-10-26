@@ -11,7 +11,7 @@ import kotlinx.coroutines.yield
 import java.util.concurrent.atomic.AtomicLong
 
 internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val updated: Boolean = false,
-    val status: String? = null, val failure: String? = null)
+    val status: String? = null, val failure: String? = null, val naming: TopicNamingStatus? = null)
 
 /** Shared with explicit host replay so resume diagnostics describe the shipping input identity. */
 internal fun topicSourceSignature(model: EmbeddingIdentity, policy: TopicPolicy, metadataVersion: Int,
@@ -33,7 +33,9 @@ internal class TopicCoordinator(
     private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
     private val formationWorkBudget: Int = 250_000,
     private val shouldYield: () -> Boolean = { false },
-    private val operationTimings: (Map<String, Long>) -> Unit = {}
+    private val operationTimings: (Map<String, Long>) -> Unit = {},
+    private val labels: TopicLabelCoordinator? = null,
+    private val retrievals: TopicRetrievalCoordinator? = null
 ) {
     private class WorkPaused : RuntimeException()
     private val writes = Mutex()
@@ -41,6 +43,8 @@ internal class TopicCoordinator(
     @Volatile private var latest = TopicSnapshot()
     @Volatile private var view = TopicView()
     private var inspected = false
+    private var namingStatus: String? = null
+    private var naming: TopicNamingStatus? = null
     private val epoch = AtomicLong()
     private var connectionCursor = 0
     private var connectionPassageCursor = 0
@@ -60,7 +64,7 @@ internal class TopicCoordinator(
         if (inspected == active) return@withLock
         inspected = active
         if (!active) {
-            view = TopicView(latest, status = latest.message, failure = view.failure)
+            view = TopicView(latest, status = namingStatus ?: latest.message, failure = view.failure, naming = naming)
             store.pinInspection(latest)
             changed(view)
         }
@@ -68,8 +72,8 @@ internal class TopicCoordinator(
     suspend fun refresh() = writes.withLock {
         inspected = true
         val pinned = bulk { store.pinInspection(latest) }
-        view = TopicView(latest, status = if (pinned) latest.message else "Connection catalog is unavailable. Retry processing.",
-            failure = if (pinned) view.failure else "Connection catalog is unavailable. Retry processing.")
+        view = TopicView(latest, status = if (pinned) namingStatus ?: latest.message else "Connection catalog is unavailable. Retry processing.",
+            failure = if (pinned) view.failure else "Connection catalog is unavailable. Retry processing.", naming = naming)
         changed(view)
     }
 
@@ -95,6 +99,8 @@ internal class TopicCoordinator(
     }
 
     suspend fun invalidate(sources: Map<String, String>) = writes.withLock {
+        val restoring = !loaded
+        val cacheRevision = cache.revision.value
         if (!loaded) {
             latest = restoreStep("restoreMetadata") { store.readMetadata() } ?: TopicSnapshot()
             view = TopicView(latest, status = latest.message)
@@ -170,6 +176,17 @@ internal class TopicCoordinator(
                 shown = remove(shown, ids, permanent)
             }
         }
+        suspend fun withdrawNames(snapshot: TopicSnapshot) {
+            if (events.any { it.reason == CacheRemovalReason.RESET }) {
+                labels?.clear()
+                retrievals?.clear()
+            } else {
+                labels?.withdraw(snapshot)
+                // Graph persistence omits generated overlays; restore valid concepts before pruning queries.
+                val named = labels?.restore(snapshot, { cache.revision.value == cacheRevision }) ?: snapshot
+                retrievals?.withdraw(named)
+            }
+        }
         if (next != latest || events.isNotEmpty()) {
             epoch.incrementAndGet()
             formationWorkspace = null
@@ -179,6 +196,8 @@ internal class TopicCoordinator(
             latest = next
             view = view.copy(snapshot = shown)
             changed(view)
+            // A failed graph write must not skip removal of private derived names.
+            withdrawNames(next)
             val invalidationWrite = store.writeDetailed(next)
             if (invalidationWrite is TopicWriteResult.Rejected) {
                 // A rejected write must not leave removed private passages on disk.
@@ -191,8 +210,18 @@ internal class TopicCoordinator(
             events.maxOfOrNull { it.generation }?.let {
                 cache.acknowledgeInvalidations(minOf(it, invalidationAcknowledgementLimit()))
             }
-        }
-        view = view.copy(snapshot = shown)
+        } else withdrawNames(latest)
+        val restoreEpoch = epoch.get()
+        fun current() = epoch.get() == restoreEpoch && cache.revision.value == cacheRevision
+        latest = labels?.restore(latest, ::current) ?: latest
+        shown = labels?.restore(shown, ::current, readSaved = restoring || !inspected) ?: shown
+        latest = retrievals?.restore(latest, sources, current = ::current) ?: latest
+        shown = retrievals?.restore(shown, sources, readSaved = restoring || !inspected, current = ::current) ?: shown
+        naming = labels?.status(latest)
+        namingStatus = namingMessage(naming, labels?.unavailableMessage?.invoke())
+        if (latest.complete) needsMoreWork = !latest.connectionPassComplete || naming == TopicNamingStatus.Pending ||
+            retrievals != null && latest.topics.any { it.currentGeneratedLabel != null && it.currentTopicMatches == null }
+        view = view.copy(snapshot = shown, naming = naming, status = view.failure ?: namingStatus ?: latest.message)
         store.pinInspection(view.snapshot)
         restoreStep("restorePublication") { changed(view) }
     }
@@ -208,7 +237,9 @@ internal class TopicCoordinator(
         val token = topicSourceSignature(model, policy, metadataVersion, sources)
         if (latest.sourceSignature == token && latest.complete && latest.connectionPassComplete) {
             formationWorkspace = null
-            needsMoreWork = false; return
+            needsMoreWork = false
+            labelGeneration(cacheRevision)
+            return
         }
         val startEpoch = epoch.get()
         val context = currentCoroutineContext()
@@ -345,6 +376,49 @@ internal class TopicCoordinator(
             store.pinInspection(view.snapshot)
             changed(view)
         }
+        labelGeneration(cacheRevision)
+    }
+
+    /** Native inference never holds writes: source withdrawal must remain immediate. */
+    private suspend fun labelGeneration(cacheRevision: Long) {
+        val labeler = labels ?: return
+        val startEpoch = epoch.get()
+        val model = identity()
+        val base = latest
+        if (!base.complete) return
+        fun current() = startEpoch == epoch.get() && cache.revision.value == cacheRevision && identity() == model &&
+            latest.sourceSignature == base.sourceSignature && latest.generation == base.generation
+        suspend fun publish(snapshot: TopicSnapshot) = writes.withLock {
+            if (!current()) return@withLock
+            latest = snapshot
+            val changedNames = view.snapshot.topics != snapshot.topics
+            view = if (inspected) view.copy(updated = view.updated || changedNames, status = "Naming topics…", failure = null, naming = TopicNamingStatus.Running)
+                else TopicView(snapshot, status = "Naming topics…", naming = TopicNamingStatus.Running)
+            changed(view)
+        }
+        if (labeler.status(base) == TopicNamingStatus.Pending) {
+            needsMoreWork = true
+            publish(base)
+        }
+        val result = labeler.process(base, startEpoch, ::current, ::publish)
+        if (!current() || result.stale) return
+        val matches = retrievals?.process(result.snapshot, base.acceptedRevisions, ::current)
+        writes.withLock {
+            if (!current() || result.stale || matches?.stale == true) return@withLock
+            latest = matches?.snapshot ?: result.snapshot
+            needsMoreWork = !latest.connectionPassComplete || result.pending || matches?.pending == true
+            naming = when {
+                result.unavailable -> TopicNamingStatus.Unavailable
+                result.pending -> TopicNamingStatus.Pending
+                else -> TopicNamingStatus.Ready
+            }
+            val failure = result.failure ?: matches?.failure
+            namingStatus = failure ?: if (matches?.pending == true) "Matching Notes to topics…" else namingMessage(naming, labeler.unavailableMessage())
+            view = if (inspected) view.copy(updated = view.updated || view.snapshot.topics != latest.topics,
+                status = namingStatus ?: latest.message, failure = failure, naming = naming)
+                else TopicView(latest, status = namingStatus ?: latest.message, failure = failure, naming = naming)
+            changed(view)
+        }
     }
     private suspend fun connections(sources: Map<String, String>, model: EmbeddingIdentity,
         startEpoch: Long, cacheRevision: Long, titles: Map<String, String>, work: ConnectionWork, compatible: Boolean): List<NoteConnection> {
@@ -437,10 +511,10 @@ internal class TopicCoordinator(
             needsMoreWork = false
             formationWorkspace = null
         }
-        store.clear(); checkpoint?.clear(); pendingFormation = null; latest = TopicSnapshot()
+        store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null; pendingFormation = null; latest = TopicSnapshot()
         view = TopicView(); changed(view)
     }
-    suspend fun bytes(): Long = store.bytes() + (checkpoint?.bytes() ?: 0)
+    suspend fun bytes(): Long = store.bytes() + (checkpoint?.bytes() ?: 0) + (labels?.bytes() ?: 0) + (retrievals?.bytes() ?: 0)
 
     /** Drop the sole retained generation. In-flight locals observe the epoch change and unwind cooperatively. */
     fun releaseMemory() = synchronized(workspaceLock) {
@@ -448,6 +522,13 @@ internal class TopicCoordinator(
         formationWorkspace = null
         if (checkpoint != null) pendingFormation = null
     }
+}
+
+private fun namingMessage(status: TopicNamingStatus?, unavailableMessage: String? = null): String? = when (status) {
+    TopicNamingStatus.Unavailable -> unavailableMessage ?: "Topic naming is unavailable. Install the topic naming model in Discovery settings."
+    TopicNamingStatus.Pending -> "Topic naming is pending."
+    TopicNamingStatus.Running -> "Naming topics…"
+    else -> null
 }
 
 /** Recovery descriptions contain structural categories only, never source evidence. */

@@ -74,7 +74,9 @@ class ReaderApp(
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() },
     val recentNotes: RecentNotesController? = null,
-    val storageStatus: StateFlow<com.example.notionreader.domain.document.StorageStatus> = kotlinx.coroutines.flow.MutableStateFlow(com.example.notionreader.domain.document.StorageStatus())
+    val storageStatus: StateFlow<com.example.notionreader.domain.document.StorageStatus> = kotlinx.coroutines.flow.MutableStateFlow(com.example.notionreader.domain.document.StorageStatus()),
+    val discoveryTopicModel: DiscoveryModelManager? = null,
+    val topicNamingActivationMessage: String? = null
 ) {
     val notionConnectionStatus: NotionConnectionStatus
         get() {
@@ -474,6 +476,7 @@ class ReaderApp(
         recentNotes?.clear()
         discoveryModel?.delete()
         discoveryNpuModel?.delete()
+        discoveryTopicModel?.delete()
         discovery?.clearIndex()
         discovery?.clearInterests()
         historyCoordinator.clearHistory()

@@ -58,19 +58,14 @@ internal class DiscoverySearch(
                 }
                 return
             }
-            runtime.foregroundQueries.incrementAndGet()
-            val results = try {
-                runtime.bulkGate.withLock {
-                    val vector = runtime.inference.withLock {
-                        waitNs = System.nanoTime() - started
-                        val embeddingStarted = System.nanoTime()
-                        runtime.embedExactInput(text).also { embeddingNs = System.nanoTime() - embeddingStarted }
-                    }
-                    val retrievalStarted = System.nanoTime()
-                    retrieval.retrieve(vector, filters, 20).also { retrievalNs = System.nanoTime() - retrievalStarted }
+            val results = runtime.foregroundStep {
+                val vector = runtime.inference.withLock {
+                    waitNs = System.nanoTime() - started
+                    val embeddingStarted = System.nanoTime()
+                    runtime.embedExactInput(text).also { embeddingNs = System.nanoTime() - embeddingStarted }
                 }
-            } finally {
-                runtime.foregroundQueries.decrementAndGet()
+                val retrievalStarted = System.nanoTime()
+                retrieval.retrieve(vector, filters, 20).also { retrievalNs = System.nanoTime() - retrievalStarted }
             }
             queries.publish(mutable, request) { it.copy(results = results, searchCompleted = true) }
             if (queries.isCurrent(request)) completed = 1L

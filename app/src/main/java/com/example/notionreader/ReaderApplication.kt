@@ -69,6 +69,16 @@ class ReaderApplication : Application() {
     private val discoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val discoveryForeground = MutableStateFlow(false)
     private val discoveryResourcesAvailable = MutableStateFlow(true)
+    private val discoveryMemory by lazy {
+        com.example.notionreader.application.DiscoveryMemoryGate({
+            val memory = android.app.ActivityManager.MemoryInfo()
+            (getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(memory)
+            com.example.notionreader.application.DiscoveryDeviceMemory(memory.availMem, memory.totalMem, memory.threshold, memory.lowMemory)
+        }, android.os.SystemClock::elapsedRealtime)
+    }
+    private fun hasDiscoveryMemory(force: Boolean = false): Boolean = discoveryMemory.allows(force).also {
+        discoveryResourcesAvailable.value = it
+    }
     private val discoveryPower = MutableStateFlow(com.example.notionreader.application.DiscoveryPowerState())
     private val discoveryBatteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -93,9 +103,7 @@ class ReaderApplication : Application() {
         scheduledWindowLock.withLock {
             host
             verifyDiscoveryModel()
-            val memory = android.app.ActivityManager.MemoryInfo()
-            (getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(memory)
-            discoveryResourcesAvailable.value = !memory.lowMemory
+            hasDiscoveryMemory(force = true)
             scheduledDiscovery = true
             try { discoveryCoordinator.runWindow(120_000) }
             finally { scheduledDiscovery = false }
@@ -108,7 +116,7 @@ class ReaderApplication : Application() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private var started = 0
             override fun onActivityStarted(activity: android.app.Activity) {
-                started++; discoveryResourcesAvailable.value = true; discoveryForeground.value = true
+                started++; hasDiscoveryMemory(force = true); discoveryForeground.value = true
             }
             override fun onActivityStopped(activity: android.app.Activity) {
                 started = (started - 1).coerceAtLeast(0); discoveryForeground.value = started > 0
@@ -125,7 +133,8 @@ class ReaderApplication : Application() {
         super.onTrimMemory(level)
         if (level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
             level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
-            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            discoveryMemory.invalidate()
             discoveryResourcesAvailable.value = false
             discoveryScope.launch { processDiscovery?.releaseModel() }
         }
@@ -165,7 +174,7 @@ class ReaderApplication : Application() {
     @Volatile private var protectedCacheIds: () -> Set<String> = { emptySet() }
     private fun directoryBytes(directory: File): Long = if (!directory.exists()) 0L else
         directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-checkpoint")
+    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-checkpoint", "discovery-topic-labels", "discovery-topic-matches")
     private val storageBudget by lazy {
         val availability = com.example.notionreader.platform.AndroidStorageAvailability(noBackupFilesDir)
         com.example.notionreader.application.StorageBudgetCoordinator(
@@ -213,24 +222,40 @@ class ReaderApplication : Application() {
         val passageProgressDirectory = File(noBackupFilesDir, "semantic-passage-progress")
         val topicDirectory = File(noBackupFilesDir, "discovery-topics")
         val topicCheckpointDirectory = File(noBackupFilesDir, "discovery-topic-checkpoint")
-        fun storageBytes(directory: File): Long = directory.listFiles()?.sumOf { it.length() } ?: 0L
+        val labelDirectory = File(noBackupFilesDir, "discovery-topic-labels")
+        val matchDirectory = File(noBackupFilesDir, "discovery-topic-matches")
+        fun storageBytes(directory: File): Long = directoryBytes(directory)
+        fun otherDiscoveryBytes(excluded: File): Long = derivedNames.asSequence()
+            .map { File(noBackupFilesDir, it) }.filter { it != excluded }.sumOf(::storageBytes)
+        val topicLabels = com.example.notionreader.data.local.FileTopicLabelStore(labelDirectory, writeGate = storageWrites)
+        val topicMatches = com.example.notionreader.data.local.FileTopicRetrievalStore(matchDirectory, writeGate = storageWrites)
         val semanticIndex = com.example.notionreader.data.local.FileSemanticIndexStore(semanticDirectory,
             writeGate = storageWrites,
-            otherBytes = { storageBytes(passageProgressDirectory) + storageBytes(topicDirectory) + storageBytes(topicCheckpointDirectory) })
+            otherBytes = { otherDiscoveryBytes(semanticDirectory) })
         val passageProgressStore = com.example.notionreader.data.local.FileSemanticIndexStore(passageProgressDirectory,
             writeGate = storageWrites,
-            otherBytes = { storageBytes(semanticDirectory) + storageBytes(topicDirectory) + storageBytes(topicCheckpointDirectory) })
+            otherBytes = { otherDiscoveryBytes(passageProgressDirectory) })
         val topicStore = com.example.notionreader.data.local.FileTopicStore(topicDirectory,
             writeGate = storageWrites,
-            otherBytes = { storageBytes(passageProgressDirectory) + storageBytes(semanticDirectory) + storageBytes(topicCheckpointDirectory) })
+            otherBytes = { otherDiscoveryBytes(topicDirectory) })
         val topicCheckpointStore = com.example.notionreader.data.local.FileTopicStore(topicCheckpointDirectory,
             writeGate = storageWrites,
-            otherBytes = { storageBytes(passageProgressDirectory) + storageBytes(semanticDirectory) + storageBytes(topicDirectory) })
+            otherBytes = { otherDiscoveryBytes(topicCheckpointDirectory) })
         val interestStore = com.example.notionreader.data.local.FileDiscoveryInterestStore(File(noBackupFilesDir, "discovery-interests"))
         val recentNotes = com.example.notionreader.application.RecentNotesController(
             com.example.notionreader.data.local.FileRecentNoteHistoryStore(File(noBackupFilesDir, "recent-note-history")), documentCache)
         lateinit var discovery: com.example.notionreader.application.DiscoveryController
         lateinit var discoveryApp: ReaderApp
+        val topicModel = com.example.notionreader.data.discovery.GenerativeModelManager(
+            File(noBackupFilesDir, "discovery-model"), discoveryScope,
+            unmetered = { AndroidNetworkState(this).isUnmetered }, writeGate = storageWrites,
+            onInstalled = { discovery.requestAutomaticContinuation() },
+            onDeleted = { discovery.releaseTopicLabelModel() })
+        val labelBackend = com.example.notionreader.data.discovery.TopicLabelBackend.GPU
+        val topicLabeler = com.example.notionreader.data.discovery.GemmaTopicLabeler.create(topicModel,
+            File(cacheDir, "topic-label-runtime"), mayRun = {
+                hasDiscoveryMemory(force = true)
+            }, backend = labelBackend)
         val discoveryModel = com.example.notionreader.data.discovery.LocalDiscoveryModelManager(
             File(noBackupFilesDir, "discovery-model"), discoveryScope,
             writeGate = storageWrites,
@@ -266,9 +291,18 @@ class ReaderApplication : Application() {
                 if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
             },
             topicStore = topicStore, topicCheckpointStore = topicCheckpointStore, passageProgressStore = passageProgressStore,
+            topicLabelRuntime = topicLabeler, topicLabelStore = topicLabels,
+            topicRetrievalStore = topicMatches,
+            topicLabelIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.identity(labelBackend.provenance) },
+            topicLabelModelAvailable = { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery && topicModel.state.value.installed },
+            topicLabelUnavailableMessage = {
+                if (!com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery)
+                    com.example.notionreader.data.discovery.GenerativeModelPack.pendingAcceptanceMessage
+                else "Topic naming is unavailable. Install the topic naming model in Discovery settings."
+            },
             invalidationAcknowledgementLimit = { recentNotes.processedInvalidationGeneration },
             mayContinueIndexing = { discoveryCoordinator.windowOpen && (discoveryForeground.value || scheduledDiscovery) &&
-                discoveryResourcesAvailable.value && discoveryPower.value.allows(activeEffort) &&
+                hasDiscoveryMemory() && discoveryPower.value.allows(activeEffort) &&
                 discoveryPower.value.allows(discoveryApp.settings.value.discoveryEffort) &&
                 discoveryModel.state.value.installed && !discoveryApp.session.state.value.isPlaying }
         )
@@ -296,6 +330,9 @@ class ReaderApplication : Application() {
             discovery = discovery,
             discoveryModel = discoveryModel,
             discoveryNpuModel = npuModel,
+            discoveryTopicModel = topicModel,
+            topicNamingActivationMessage = com.example.notionreader.data.discovery.GenerativeModelPack.pendingAcceptanceMessage
+                .takeUnless { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery },
             storageStatus = storageBudget.status,
             recentNotes = recentNotes,
             isNotionConfigured = BuildConfig.NOTION_TOKEN.isNotBlank()
@@ -325,14 +362,14 @@ class ReaderApplication : Application() {
                 discovery.requestAutomaticContinuation()
             }
         }
-        verifyDiscoveryModel = { discoveryModel.checkInstalled(); npuModel?.checkInstalled() }
+        verifyDiscoveryModel = { discoveryModel.checkInstalled(); npuModel?.checkInstalled(); topicModel.checkInstalled() }
         discoveryCoordinator = com.example.notionreader.application.DiscoveryWorkCoordinator(
             android.os.SystemClock::elapsedRealtime) {
             activeEffort = settingsRepository.readCurrentSettings().discoveryEffort
             storageBudget.refresh()
             discovery.updateWorkAvailability(activeEffort, when {
                 app.session.state.value.isPlaying -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForPlayback
-                !discoveryResourcesAvailable.value -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForResources
+                !hasDiscoveryMemory() -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForResources
                 !discoveryForeground.value && !scheduledDiscovery -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForAndroid
                 else -> com.example.notionreader.application.DiscoveryExecutionAvailability.Available
             })
@@ -346,6 +383,7 @@ class ReaderApplication : Application() {
         }
         discoveryWork = {
             discoveryModel.checkInstalled()
+            topicModel.checkInstalled()
             discoveryScope.launch {
                 discoveryScheduler.completions().map { infos -> infos.map { it.id to it.state } }.distinctUntilChanged().collect { infos ->
                     if (infos.any { it.second.isFinished } && discovery.hasPendingWork && !discovery.state.value.paused)

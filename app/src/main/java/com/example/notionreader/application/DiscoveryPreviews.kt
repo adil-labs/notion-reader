@@ -15,7 +15,7 @@ internal class DiscoveryPreviews(
 ) {
     fun topicPreview(topicId: String): List<SemanticMatch> =
         mutable.value.topicSnapshot.topics
-            .firstOrNull { it.id == topicId }?.members.orEmpty().take(5).map { it.toMatch() }
+            .firstOrNull { it.id == topicId }?.matchingMembers.orEmpty().take(5).map { it.toMatch() }
 
     suspend fun connectionPreview(
         connectionId: String,

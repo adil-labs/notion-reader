@@ -18,6 +18,56 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
+    private fun conceptController(directory: java.io.File, cache: FileDocumentCache, index: FileSemanticIndexStore,
+        provider: EmbeddingProvider): DiscoveryController {
+        val identity = TopicLabelIdentity("fixture", "tokens", "template", "prompt", "schema", "policy", "fixture")
+        val generator = object : TopicLabelRuntime {
+            override suspend fun label(request: TopicLabelRequest) = TopicLabelRun.Completed(TopicLabelCandidate(
+                "Forest ecosystems", request.evidence.map { it.passageId }, "Ecological relationships within forests."))
+            override suspend fun close() {}
+        }
+        return DiscoveryController(cache, index, FileDiscoveryInterestStore(directory.resolve("interests")), provider,
+            topicStore = Store(), topicLabelRuntime = generator, topicLabelModelAvailable = { true },
+            topicLabelIdentity = { identity }, topicLabelStore = FileTopicLabelStore(directory.resolve("labels")),
+            topicRetrievalStore = FileTopicRetrievalStore(directory.resolve("matches")))
+    }
+    @Test fun theCanonicalCatalogUsesTheSharedLabelRuntimeAndRetainsFollowsAcrossRestart() = runBlocking {
+        val dir = Files.createTempDirectory("canonical-label-catalog").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
+            val interests = FileDiscoveryInterestStore(dir.resolve("interests")); val graph = Store()
+            val labelIdentity = TopicLabelIdentity("a", "t", "c", "p", "s", "v", "GPU")
+            var calls = 0
+            val native = object : TopicLabelRuntime {
+                override suspend fun label(request: TopicLabelRequest): TopicLabelRun {
+                    calls++
+                    return TopicLabelRun.Completed(TopicLabelCandidate("Forest ecosystems", request.evidence.map { it.passageId }, "Ecological relationships within forests."))
+                }
+                override suspend fun close() {}
+            }
+            fun controller() = DiscoveryController(cache, index, interests, Provider(), topicStore = graph,
+                topicLabelRuntime = native, topicLabelModelAvailable = { true },
+                topicLabelStore = FileTopicLabelStore(dir.resolve("labels")), topicLabelIdentity = { labelIdentity },
+                topicRetrievalStore = FileTopicRetrievalStore(dir.resolve("matches")))
+            repeat(2) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i",
+                listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
+            val first = controller(); first.resume(); first.reconcile(emptyList(), true)
+            val topic = first.state.value.topicSnapshot.topics.single()
+            assertEquals("Forest ecosystems", topic.effectiveLabel); assertEquals(1, calls)
+            assertEquals(setOf("p0", "p1"), topic.matchingMembers.map { it.pageId }.toSet())
+            assertEquals(topic.id, first.state.value.publishedTopics.single().topic.id)
+            first.followTopic(topic.id, "My woodland", "forest wildlife")
+            val restarted = controller(); restarted.reconcile(emptyList(), false); restarted.refreshTopics()
+            assertEquals("Forest ecosystems", restarted.state.value.topicSnapshot.topics.single().effectiveLabel)
+            assertEquals(setOf("p0", "p1"), restarted.state.value.topicSnapshot.topics.single().matchingMembers.map { it.pageId }.toSet())
+            assertEquals("My woodland", restarted.state.value.interests.single().displayName)
+            assertEquals(topic.id, restarted.state.value.interests.single().originTopicId)
+            assertEquals(1, calls)
+            restarted.clearIndex(); assertEquals(0L, FileTopicLabelStore(dir.resolve("labels")).bytes())
+            assertEquals(0L, FileTopicRetrievalStore(dir.resolve("matches")).bytes())
+            assertEquals("My woodland", interests.read().single().displayName)
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun newlyCachedNotesPublishAutomaticallyBeforeAnyDiscoveryViewIsInspected() = runBlocking {
         val dir = Files.createTempDirectory("automatic-topic-publication").toFile()
         try {
@@ -492,8 +542,7 @@ class DiscoveryTopicsIntegrationTest {
                 cache.put(CachedDocument(document.copy(sections = document.sections.map {
                     it.copy(title = "Forest ecology") }), null, Instant.EPOCH))
             }
-            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
-                provider, topicStore = Store())
+            val controller = conceptController(dir, cache, index, provider)
             index.setPaused(false)
             controller.reconcile(emptyList(), true)
             assertFalse(controller.hasPendingWork)
@@ -1498,7 +1547,7 @@ class DiscoveryTopicsIntegrationTest {
         val dir = Files.createTempDirectory("topic-preview-retention").toFile()
         try {
             val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
-            val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), Provider(), topicStore = Store())
+            val controller = conceptController(dir, cache, index, Provider())
             repeat(3) { i -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf("forest ecology protects wildlife and supports healthy woodland habitats.")), null, Instant.EPOCH)) }
             index.setPaused(false); controller.reconcile(emptyList(), true); controller.refreshTopics()
             controller.preparePreview(controller.topicPreview(controller.state.value.topicSnapshot.topics.single().id))
