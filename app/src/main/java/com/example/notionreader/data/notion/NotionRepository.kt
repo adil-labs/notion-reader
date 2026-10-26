@@ -27,7 +27,10 @@ import java.time.Instant
 class NotionRepository(
     private val api: NotionApi,
     private val normalizer: NotionBlockNormalizer = NotionBlockNormalizer(),
-    private val mapper: ReaderDocumentMapper = ReaderDocumentMapper()
+    private val mapper: ReaderDocumentMapper = ReaderDocumentMapper(),
+    private val onDocumentSnapshot: ((page: NotionPage, rootBlocks: List<NotionBlock>, childBlocks: Map<String, List<NotionBlock>>) -> Unit)? = null,
+    private val onDiscoveredPages: ((List<String>) -> Unit)? = null,
+    private val onDiscoveredMetadata: ((List<NotionPage>) -> Unit)? = null
 ) : RemoteDocumentSource {
 
     /**
@@ -64,9 +67,15 @@ class NotionRepository(
             )
         }
 
-        val children = BlockChildrenSource { api.retrieveBlockChildren(it) }
+        val childMap = mutableMapOf<String, List<NotionBlock>>()
+        val children = BlockChildrenSource { blockId ->
+            val fetched = api.retrieveBlockChildren(blockId)
+            childMap[blockId] = fetched
+            fetched
+        }
+        val rootBlocks = api.retrieveBlockChildren(page.id)
         val blocks = normalizer.normalizeAll(
-            blocks = api.retrieveBlockChildren(page.id),
+            blocks = rootBlocks,
             source = children
         )
 
@@ -92,6 +101,12 @@ class NotionRepository(
             )
         }
 
+        try {
+            onDocumentSnapshot?.invoke(page, rootBlocks, childMap)
+        } catch (_: Exception) {
+            // Snapshot callback failure must not fail document loading
+        }
+
         return document
     }
 
@@ -115,8 +130,15 @@ class NotionRepository(
      * cannot be read is still a readable Note, and the only thing lost is its position in "Recently
      * updated" — which [ReaderIndexEntry] already handles by sorting unknown dates last.
      */
-    suspend fun getBrowseIndex(): List<ReaderIndexEntry> = api.searchPages()
-        .mapNotNull { page ->
+    suspend fun getBrowseIndex(): List<ReaderIndexEntry> {
+        val pages = api.searchPages()
+        try {
+            onDiscoveredPages?.invoke(pages.map { it.id })
+            onDiscoveredMetadata?.invoke(pages)
+        } catch (_: Exception) {
+            // Discovery callback failure must not fail browse indexing
+        }
+        return pages.mapNotNull { page ->
             val title = page.title().trim()
             if (title.isEmpty()) return@mapNotNull null
 
@@ -148,6 +170,8 @@ class NotionRepository(
                 status = status
             )
         }
+
+    }
 
     private suspend fun resolvePage(pageReference: String): NotionPage {
         if (pageReference.isBlank()) {

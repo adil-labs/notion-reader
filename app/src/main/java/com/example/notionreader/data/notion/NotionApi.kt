@@ -69,6 +69,44 @@ interface NotionApi {
      */
     suspend fun searchPages(): List<NotionPage>
 
+    /** `GET /v1/databases/{database_id}` — database metadata. */
+    suspend fun retrieveDatabase(databaseId: String): NotionDatabase? = throw UnsupportedOperationException("Database metadata is unavailable")
+
+    /** `GET /v1/data_sources/{data_source_id}` — data source metadata. */
+    suspend fun retrieveDataSource(dataSourceId: String): NotionDataSource? = throw UnsupportedOperationException("Data-source metadata is unavailable")
+
+    /**
+     * `GET /v1/pages/{page_id}/properties/{property_id}` — paginates reference-bearing property values
+     * such as relations that may be truncated on the main page object.
+     */
+    suspend fun retrievePropertyItems(
+        pageId: String,
+        propertyId: String,
+        pageSize: Int = 100,
+        startCursor: String? = null
+    ): NotionPropertyItemList = throw UnsupportedOperationException("Property pagination is unavailable")
+
+    /**
+     * Paginates all property items for a given property until exhaustion.
+     */
+    suspend fun retrieveAllPropertyItems(
+        pageId: String,
+        propertyId: String
+    ): List<NotionPropertyItem> = throw UnsupportedOperationException("Property pagination is unavailable")
+
+    /** `POST /v1/search` with object=data_source filter. */
+    suspend fun searchDataSources(): List<NotionDataSource> = throw UnsupportedOperationException("Data-source search is unavailable")
+
+    /** `POST /v1/data_sources/{data_source_id}/query` — query data source members. */
+    suspend fun queryDataSource(
+        dataSourceId: String,
+        pageSize: Int = 100,
+        startCursor: String? = null
+    ): NotionPageList = throw UnsupportedOperationException("Data-source query is unavailable")
+
+    /** Queries all member pages of a data source following pagination. */
+    suspend fun queryDataSourceMembers(dataSourceId: String): List<NotionPage> = throw UnsupportedOperationException("Data-source query is unavailable")
+
     fun close()
 }
 
@@ -98,8 +136,17 @@ class KtorNotionApi(
     override suspend fun retrieveBlockChildren(blockId: String): List<NotionBlock> {
         val blocks = mutableListOf<NotionBlock>()
         var cursor: String? = null
+        var loops = 0
+        val seenCursors = mutableSetOf<String>()
+        val seenIds = mutableSetOf<String>()
 
         while (true) {
+            if (++loops > MAX_PAGINATION_LOOPS) {
+                throw ReaderLoadException(
+                    ReaderErrorCategory.MALFORMED_RESPONSE,
+                    "Exceeded maximum pagination iterations ($MAX_PAGINATION_LOOPS)"
+                )
+            }
             val page: NotionBlockList = call(
                 path = "/blocks/$blockId/children",
                 parameters = buildMap {
@@ -107,6 +154,12 @@ class KtorNotionApi(
                     cursor?.let { put("start_cursor", it) }
                 }
             )
+
+            page.validateEnvelope()
+            validateCursorProgress(page.hasMore, page.nextCursor, seenCursors)
+            for (b in page.results) {
+                validateItemId(b.id, seenIds)
+            }
 
             blocks += page.results
 
@@ -118,18 +171,34 @@ class KtorNotionApi(
     override suspend fun searchMostRecentPage(): NotionPage? {
         val body = searchBody(pageSize = 1)
         val results: NotionPageList = call(path = "/search", body = body)
+        results.validateEnvelope()
         return results.results.firstOrNull()
     }
 
     override suspend fun searchPages(): List<NotionPage> {
         val pages = mutableListOf<NotionPage>()
         var cursor: String? = null
+        var loops = 0
+        val seenCursors = mutableSetOf<String>()
+        val seenIds = mutableSetOf<String>()
 
         while (true) {
+            if (++loops > MAX_PAGINATION_LOOPS) {
+                throw ReaderLoadException(
+                    ReaderErrorCategory.MALFORMED_RESPONSE,
+                    "Exceeded maximum pagination iterations ($MAX_PAGINATION_LOOPS)"
+                )
+            }
             val results: NotionPageList = call(
                 path = "/search",
                 body = searchBody(pageSize = PAGE_SIZE, startCursor = cursor)
             )
+
+            results.validateEnvelope()
+            validateCursorProgress(results.hasMore, results.nextCursor, seenCursors)
+            for (p in results.results) {
+                validateItemId(p.id, seenIds)
+            }
 
             pages += results.results
 
@@ -138,12 +207,174 @@ class KtorNotionApi(
         }
     }
 
+    override suspend fun retrieveDatabase(databaseId: String): NotionDatabase =
+        call(path = "/databases/$databaseId")
+
+    override suspend fun retrieveDataSource(dataSourceId: String): NotionDataSource =
+        call(path = "/data_sources/$dataSourceId")
+
+    override suspend fun retrievePropertyItems(
+        pageId: String,
+        propertyId: String,
+        pageSize: Int,
+        startCursor: String?
+    ): NotionPropertyItemList {
+        val list: NotionPropertyItemList = call(
+            path = "/pages/$pageId/properties/$propertyId",
+            parameters = buildMap {
+                put("page_size", pageSize.toString())
+                startCursor?.let { put("start_cursor", it) }
+            }
+        )
+        list.validateEnvelope()
+        return list
+    }
+
+    override suspend fun retrieveAllPropertyItems(pageId: String, propertyId: String): List<NotionPropertyItem> {
+        val items = mutableListOf<NotionPropertyItem>()
+        var cursor: String? = null
+        var loops = 0
+        val seenCursors = mutableSetOf<String>()
+
+        while (true) {
+            if (++loops > MAX_PAGINATION_LOOPS) {
+                throw ReaderLoadException(
+                    ReaderErrorCategory.MALFORMED_RESPONSE,
+                    "Exceeded maximum pagination iterations ($MAX_PAGINATION_LOOPS)"
+                )
+            }
+            val list = retrievePropertyItems(
+                pageId = pageId,
+                propertyId = propertyId,
+                pageSize = PAGE_SIZE,
+                startCursor = cursor
+            )
+
+            validateCursorProgress(list.hasMore, list.nextCursor, seenCursors)
+            // Each item's id is the shared property id, not a unique value identity.
+
+            items += list.results
+
+            cursor = list.nextCursor
+            if (!list.hasMore || cursor == null) return items
+        }
+    }
+
+    override suspend fun queryDataSource(
+        dataSourceId: String,
+        pageSize: Int,
+        startCursor: String?
+    ): NotionPageList {
+        val results: NotionPageList = call(
+            path = "/data_sources/$dataSourceId/query",
+            body = queryDataSourceBody(pageSize = pageSize, startCursor = startCursor)
+        )
+        results.validateEnvelope()
+        return results
+    }
+
+    override suspend fun queryDataSourceMembers(dataSourceId: String): List<NotionPage> {
+        val pages = mutableListOf<NotionPage>()
+        var cursor: String? = null
+        var loops = 0
+        val seenCursors = mutableSetOf<String>()
+        val seenIds = mutableSetOf<String>()
+
+        while (true) {
+            if (++loops > MAX_PAGINATION_LOOPS) {
+                throw ReaderLoadException(
+                    ReaderErrorCategory.MALFORMED_RESPONSE,
+                    "Exceeded maximum pagination iterations ($MAX_PAGINATION_LOOPS)"
+                )
+            }
+            val results = queryDataSource(
+                dataSourceId = dataSourceId,
+                pageSize = PAGE_SIZE,
+                startCursor = cursor
+            )
+
+            validateCursorProgress(results.hasMore, results.nextCursor, seenCursors)
+            for (p in results.results) {
+                validateItemId(p.id, seenIds)
+            }
+
+            pages += results.results
+
+            cursor = results.nextCursor
+            if (!results.hasMore || cursor == null) return pages
+        }
+    }
+
+    override suspend fun searchDataSources(): List<NotionDataSource> {
+        val dataSources = mutableListOf<NotionDataSource>()
+        var cursor: String? = null
+        var loops = 0
+        val seenCursors = mutableSetOf<String>()
+        val seenIds = mutableSetOf<String>()
+
+        while (true) {
+            if (++loops > MAX_PAGINATION_LOOPS) {
+                throw ReaderLoadException(
+                    ReaderErrorCategory.MALFORMED_RESPONSE,
+                    "Exceeded maximum pagination iterations ($MAX_PAGINATION_LOOPS)"
+                )
+            }
+            val results: NotionDataSourceList = call(
+                path = "/search",
+                body = searchDataSourceBody(pageSize = PAGE_SIZE, startCursor = cursor)
+            )
+
+            results.validateEnvelope()
+            validateCursorProgress(results.hasMore, results.nextCursor, seenCursors)
+            for (ds in results.results) {
+                validateItemId(ds.id, seenIds)
+            }
+
+            dataSources += results.results
+
+            cursor = results.nextCursor
+            if (!results.hasMore || cursor == null) return dataSources
+        }
+    }
+
+    private fun validateCursorProgress(
+        hasMore: Boolean,
+        nextCursor: String?,
+        seenCursors: MutableSet<String>
+    ) {
+        if (hasMore && nextCursor.isNullOrBlank()) {
+            throw ReaderLoadException(
+                ReaderErrorCategory.MALFORMED_RESPONSE,
+                "has_more is true but next_cursor is null or blank"
+            )
+        }
+        if (nextCursor != null && !seenCursors.add(nextCursor)) {
+            throw ReaderLoadException(
+                ReaderErrorCategory.MALFORMED_RESPONSE,
+                "Pagination cursor did not advance"
+            )
+        }
+    }
+
+    private fun validateItemId(id: String, seenIds: MutableSet<String>) {
+        if (id.isBlank() || id != id.trim() || id.contains(" ")) {
+            throw ReaderLoadException(
+                ReaderErrorCategory.MALFORMED_RESPONSE,
+                "Malformed identity in a list response"
+            )
+        }
+        if (!seenIds.add(id)) {
+            throw ReaderLoadException(
+                ReaderErrorCategory.MALFORMED_RESPONSE,
+                "Duplicate identity in a list response"
+            )
+        }
+    }
+
     /**
-     * The `POST /v1/search` body.
+     * The `POST /v1/search` body for pages.
      *
-     * Sorted by `last_edited_time` descending, which is both what makes
-     * [searchMostRecentPage] return the newest page and what Browse's default order shows. Notion only
-     * accepts a sort together with a filter, hence the pairing.
+     * Sorted by `last_edited_time` descending.
      */
     private fun searchBody(pageSize: Int, startCursor: String? = null): JsonObject = buildJsonObject {
         put("filter", buildJsonObject {
@@ -153,6 +384,20 @@ class KtorNotionApi(
         put("sort", buildJsonObject {
             put("direction", "descending")
             put("timestamp", "last_edited_time")
+        })
+        put("page_size", pageSize)
+        startCursor?.let { put("start_cursor", it) }
+    }
+
+    private fun queryDataSourceBody(pageSize: Int, startCursor: String? = null): JsonObject = buildJsonObject {
+        put("page_size", pageSize)
+        startCursor?.let { put("start_cursor", it) }
+    }
+
+    private fun searchDataSourceBody(pageSize: Int, startCursor: String? = null): JsonObject = buildJsonObject {
+        put("filter", buildJsonObject {
+            put("property", "object")
+            put("value", "data_source")
         })
         put("page_size", pageSize)
         startCursor?.let { put("start_cursor", it) }
@@ -226,6 +471,8 @@ class KtorNotionApi(
 
         /** Notion caps `page_size` at 100. */
         private const val PAGE_SIZE = 100
+
+        private const val MAX_PAGINATION_LOOPS = 500
 
         private const val MAX_ATTEMPTS = 4
 
@@ -325,3 +572,4 @@ internal inline fun <reified T> decodeNotionResponse(text: String): T = try {
         cause = e
     )
 }
+

@@ -74,16 +74,20 @@ class KtorNotionApiTest {
         assertEquals("cursor-2", mock.requests[1].url.parameters["start_cursor"])
     }
 
-    /** `has_more` without a cursor would loop forever, so it must terminate. */
+    /** An incomplete response must terminate without masquerading as a complete child list. */
     @Test
-    fun stopsWhenHasMoreArrivesWithoutACursor() = runTest {
+    fun rejectsAnIncompleteChildListWhenHasMoreArrivesWithoutACursor() = runTest {
         val mock = MockNotion(
             listOf(okChildren(block("b1", "First."), nextCursor = null, hasMore = true))
         )
 
-        val blocks = mock.api().retrieveBlockChildren(blockId)
-
-        assertEquals(listOf("b1"), blocks.map { it.id })
+        val failure = try {
+            mock.api().retrieveBlockChildren(blockId)
+            throw AssertionError("An incomplete child list was accepted")
+        } catch (failure: ReaderLoadException) {
+            failure
+        }
+        assertEquals(ReaderErrorCategory.MALFORMED_RESPONSE, failure.category)
         assertEquals(1, mock.requests.size)
     }
 
