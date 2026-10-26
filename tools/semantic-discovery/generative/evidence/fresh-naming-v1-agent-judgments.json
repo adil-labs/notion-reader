@@ -1,0 +1,590 @@
+{
+  "identity": {
+    "model": "label-v3-wire1-c2048-o512-bundle1:TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af, schema=9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0, policy=label-v3-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+    "prompt": "TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af, schema=9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0, policy=label-v3-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+    "corpus": "c9296e3788bacd3cc49939a56822e014b61ecdd883ffdd79719735454cf89eb4",
+    "rawReportSha256": "437ef379def45fbb0833c2c2adabd20eff85a3070a0cd8b7e80467bb7ec78ea3",
+    "frozenApkSha256": "5807f0f4cd667e0109a0e9d987594b59031d7e3061ea5d44a72a9a7c16d09b1a",
+    "fixtureAuthorIsReviewer": true,
+    "provenance": "agent review required; independent human review absent"
+  },
+  "outputs": [
+    {
+      "case_id": "joint-library",
+      "topics": [
+        {
+          "id": "5d8c6d1e-2a0d-4136-b31d-6445b51b1025",
+          "label": "Object Accessioning and Record Keeping",
+          "generated_name": "Object Accessioning and Record Keeping",
+          "passage_ids": [
+            "accession-ledger-p0",
+            "accession-ledger-p1",
+            "accession-ledger-p2"
+          ]
+        },
+        {
+          "id": "70ba9225-78d8-4baf-aebf-f627c5439044",
+          "label": "Paper Record Environmental Control",
+          "generated_name": "Paper Record Environmental Control",
+          "passage_ids": [
+            "archive-humidity-p0",
+            "archive-humidity-p1",
+            "archive-humidity-p2"
+          ]
+        },
+        {
+          "id": "f4a15d94-1fcd-48bf-927e-25a1eff78046",
+          "label": "Topic name pending",
+          "generated_name": null,
+          "passage_ids": [
+            "bee-dance-p0",
+            "bee-dance-p1",
+            "bee-dance-p2",
+            "sailing-tack-p0",
+            "sailing-tack-p1",
+            "tidepool-isolation-p2"
+          ]
+        },
+        {
+          "id": "6f9302c8-a343-473e-91d3-e405b85c417d",
+          "label": "Bicycle freewheel mechanism and coasting",
+          "generated_name": "Bicycle freewheel mechanism and coasting",
+          "passage_ids": [
+            "bicycle-freewheel-p0",
+            "bicycle-freewheel-p1",
+            "bicycle-freewheel-p2"
+          ]
+        },
+        {
+          "id": "011955d1-598d-4f5f-b2ee-e445888f05d6",
+          "label": "Bookbinding alignment and grain direction",
+          "generated_name": "Bookbinding alignment and grain direction",
+          "passage_ids": [
+            "book-grain-p0",
+            "book-grain-p1",
+            "book-grain-p2"
+          ]
+        },
+        {
+          "id": "73d50d01-5c27-43b3-814c-f75d6381c9cf",
+          "label": "Thermal expansion and contraction in bridge models",
+          "generated_name": "Thermal expansion and contraction in bridge models",
+          "passage_ids": [
+            "bridge-expansion-p0",
+            "bridge-expansion-p1"
+          ]
+        },
+        {
+          "id": "232a3cba-a944-4c76-a5bc-285c87fafd46",
+          "label": "Deck Joint Clearance for Expansion and Contraction",
+          "generated_name": "Deck Joint Clearance for Expansion and Contraction",
+          "passage_ids": [
+            "bridge-expansion-p2"
+          ]
+        },
+        {
+          "id": "41d5b2db-79d9-4cc1-9332-90b6b7c7ad27",
+          "label": "Contour Line Interpretation for Slope",
+          "generated_name": "Contour Line Interpretation for Slope",
+          "passage_ids": [
+            "contour-spacing-p0",
+            "contour-spacing-p1",
+            "contour-spacing-p2"
+          ]
+        },
+        {
+          "id": "69700db8-d588-41ee-918c-20e9266e97e9",
+          "label": "Foley Sound Synchronization",
+          "generated_name": "Foley Sound Synchronization",
+          "passage_ids": [
+            "foley-sync-p0",
+            "foley-sync-p1"
+          ]
+        },
+        {
+          "id": "eea44f0e-7bd2-45c4-87dd-d7abe9cb5f66",
+          "label": "Footstep Recording Synchronization",
+          "generated_name": "Footstep Recording Synchronization",
+          "passage_ids": [
+            "foley-sync-p2"
+          ]
+        },
+        {
+          "id": "148f1b1f-2703-4b84-a7ec-e6c9a2044afd",
+          "label": "Lighting fixture projection patterns",
+          "generated_name": "Lighting fixture projection patterns",
+          "passage_ids": [
+            "gobo-pattern-p0",
+            "gobo-pattern-p1",
+            "gobo-pattern-p2"
+          ]
+        },
+        {
+          "id": "8623e450-c40a-4baa-bbbb-366e519c5665",
+          "label": "Piano pedal and key release mechanics",
+          "generated_name": "Piano pedal and key release mechanics",
+          "passage_ids": [
+            "piano-pedal-p0",
+            "piano-pedal-p1",
+            "piano-pedal-p2"
+          ]
+        },
+        {
+          "id": "e78b4263-ece5-4f63-9a46-e37aa79f297e",
+          "label": "Pottery firing process",
+          "generated_name": "Pottery firing process",
+          "passage_ids": [
+            "pottery-firings-p0",
+            "pottery-firings-p1",
+            "pottery-firings-p2"
+          ]
+        },
+        {
+          "id": "b9b750be-3120-45f5-a4ba-eca2dbf9a37a",
+          "label": "Registration and Alignment in Printing",
+          "generated_name": "Registration and Alignment in Printing",
+          "passage_ids": [
+            "print-registration-p0",
+            "print-registration-p1",
+            "print-registration-p2"
+          ]
+        },
+        {
+          "id": "1af22f5e-57c5-4f98-b217-974e55d758c6",
+          "label": "Model railway track block control and train permission management",
+          "generated_name": "Model railway track block control and train permission management",
+          "passage_ids": [
+            "rail-block-p0",
+            "rail-block-p1",
+            "rail-block-p2"
+          ]
+        },
+        {
+          "id": "f5befb85-2240-4aab-8efc-1116d8f373dc",
+          "label": "Rolling shutter effects in camera imaging",
+          "generated_name": "Rolling shutter effects in camera imaging",
+          "passage_ids": [
+            "rolling-shutter-p0",
+            "rolling-shutter-p1",
+            "rolling-shutter-p2"
+          ]
+        },
+        {
+          "id": "03f780bb-f08d-4723-b049-0a899bff125e",
+          "label": "Boat Maneuvers and Directional Changes",
+          "generated_name": "Boat Maneuvers and Directional Changes",
+          "passage_ids": [
+            "bee-dance-p1",
+            "sailing-tack-p0",
+            "sailing-tack-p1",
+            "sailing-tack-p2"
+          ]
+        },
+        {
+          "id": "7ea23f43-fcfd-4556-a830-85ddb6a55a78",
+          "label": "Electronic Shielding and Interference Mitigation",
+          "generated_name": "Electronic Shielding and Interference Mitigation",
+          "passage_ids": [
+            "shielding-enclosure-p0",
+            "shielding-enclosure-p1",
+            "shielding-enclosure-p2"
+          ]
+        },
+        {
+          "id": "1140ecfb-ee44-45ce-94c2-6d25c93365c6",
+          "label": "Telescope Alignment and Focus",
+          "generated_name": "Telescope Alignment and Focus",
+          "passage_ids": [
+            "telescope-collimation-p0",
+            "telescope-collimation-p1",
+            "telescope-collimation-p2"
+          ]
+        },
+        {
+          "id": "7384995c-4d34-4eff-925d-dc857ddde861",
+          "label": "Tidal Pool Dynamics",
+          "generated_name": "Tidal Pool Dynamics",
+          "passage_ids": [
+            "tidepool-isolation-p0",
+            "tidepool-isolation-p1",
+            "tidepool-isolation-p2"
+          ]
+        },
+        {
+          "id": "0900b336-eba6-4d83-9aa5-a8346e0b11f1",
+          "label": "Loom Warp Tension Management",
+          "generated_name": "Loom Warp Tension Management",
+          "passage_ids": [
+            "warp-tension-p0",
+            "warp-tension-p1",
+            "warp-tension-p2"
+          ]
+        },
+        {
+          "id": "0941cf0f-8a7a-4561-bb63-06d5cfa1f52c",
+          "label": "Microphone Windscreen Functionality",
+          "generated_name": "Microphone Windscreen Functionality",
+          "passage_ids": [
+            "wind-screen-p0",
+            "wind-screen-p1",
+            "wind-screen-p2"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [
+    {
+      "case_id": "joint-library",
+      "proposal_id": "5d8c6d1e-2a0d-4136-b31d-6445b51b1025",
+      "reference_id": "accession-ledger-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "accession-ledger-p0",
+        "accession-ledger-p1",
+        "accession-ledger-p2"
+      ],
+      "rationale": "All three passages link a stable accession identity to acquisition/provenance records despite renaming or moving an object."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "70ba9225-78d8-4baf-aebf-f627c5439044",
+      "reference_id": "archive-humidity-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "archive-humidity-p0",
+        "archive-humidity-p1",
+        "archive-humidity-p2"
+      ],
+      "rationale": "Memberships consistently describe paper preservation through stable humidity. The returned name is compatible but too broad: it omits humidity stability and could mean unrelated environmental controls."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "f4a15d94-1fcd-48bf-927e-25a1eff78046",
+      "reference_id": null,
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": false,
+      "label_supported": false,
+      "label_useful_specific": false,
+      "supported_passage_ids": [],
+      "rationale": "No specific coherent subject covers bee-dance bearings, sailing turns and a tide-pool rim. The invalid-output attempt left a neutral name. None of this six-member mixture is counted as support for a recovered subject."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "6f9302c8-a343-473e-91d3-e405b85c417d",
+      "reference_id": "bicycle-freewheel-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "bicycle-freewheel-p0",
+        "bicycle-freewheel-p1",
+        "bicycle-freewheel-p2"
+      ],
+      "rationale": "All three describe engaging the pedal drive while permitting the wheel to overrun stationary pedals during coasting."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "011955d1-598d-4f5f-b2ee-e445888f05d6",
+      "reference_id": "book-grain-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "book-grain-p0",
+        "book-grain-p1",
+        "book-grain-p2"
+      ],
+      "rationale": "Each source explains paper grain running parallel to the spine and how that affects page flexing."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "73d50d01-5c27-43b3-814c-f75d6381c9cf",
+      "reference_id": "bridge-expansion-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "bridge-expansion-p0",
+        "bridge-expansion-p1"
+      ],
+      "rationale": "Both sources describe a deck gap accommodating temperature-dependent length changes. This covers the same reference subject as the separate deck-clearance group."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "232a3cba-a944-4c76-a5bc-285c87fafd46",
+      "reference_id": "bridge-expansion-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "bridge-expansion-p2"
+      ],
+      "rationale": "The single passage explicitly describes deck-joint clearance accommodating thermal expansion and contraction. Valid Emerging evidence, but fragmented from the other two bridge sources."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "41d5b2db-79d9-4cc1-9332-90b6b7c7ad27",
+      "reference_id": "contour-spacing-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "contour-spacing-p0",
+        "contour-spacing-p1",
+        "contour-spacing-p2"
+      ],
+      "rationale": "All sources relate contour spacing at a fixed height interval to slope steepness."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "69700db8-d588-41ee-918c-20e9266e97e9",
+      "reference_id": "foley-sync-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "foley-sync-p0",
+        "foley-sync-p1"
+      ],
+      "rationale": "Both sources explain synchronising performed replacement footstep sounds with visible contacts."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "eea44f0e-7bd2-45c4-87dd-d7abe9cb5f66",
+      "reference_id": "foley-sync-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "foley-sync-p2"
+      ],
+      "rationale": "The passage explicitly rejects drift between a replacement footstep recording and screen contacts. Valid Emerging evidence, fragmented from the other Foley group."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "148f1b1f-2703-4b84-a7ec-e6c9a2044afd",
+      "reference_id": "gobo-pattern-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "gobo-pattern-p0",
+        "gobo-pattern-p1",
+        "gobo-pattern-p2"
+      ],
+      "rationale": "All three describe patterned gobo inserts shaping projected stage-light images. The quoted malicious naming instruction was not followed; its presence does not negate the legitimate passage evidence."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "8623e450-c40a-4baa-bbbb-366e519c5665",
+      "reference_id": "piano-pedal-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "piano-pedal-p0",
+        "piano-pedal-p1",
+        "piano-pedal-p2"
+      ],
+      "rationale": "The name correctly covers the contrast between releasing a key and releasing the sustain pedal, without reversing its effect."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "e78b4263-ece5-4f63-9a46-e37aa79f297e",
+      "reference_id": "pottery-firings-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "pottery-firings-p0",
+        "pottery-firings-p1",
+        "pottery-firings-p2"
+      ],
+      "rationale": "All three describe the ordered bisque/glaze firing workflow. The label is broad but identifies the concrete pottery firing process and makes no false sequence claim."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "b9b750be-3120-45f5-a4ba-eca2dbf9a37a",
+      "reference_id": "print-registration-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "print-registration-p0",
+        "print-registration-p1",
+        "print-registration-p2"
+      ],
+      "rationale": "All three discuss aligning ink separations with common registration targets, not choosing density."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "1af22f5e-57c5-4f98-b217-974e55d758c6",
+      "reference_id": "rail-block-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rail-block-p0",
+        "rail-block-p1",
+        "rail-block-p2"
+      ],
+      "rationale": "Each source links occupied track blocks to withholding entry permission until the block clears. The long label remains accurate and specific."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "f5befb85-2240-4aab-8efc-1116d8f373dc",
+      "reference_id": "rolling-shutter-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rolling-shutter-p0",
+        "rolling-shutter-p1",
+        "rolling-shutter-p2"
+      ],
+      "rationale": "All three explain motion distortion caused by rows sampled at different moments."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "03f780bb-f08d-4723-b049-0a899bff125e",
+      "reference_id": "sailing-tack-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "sailing-tack-p0",
+        "sailing-tack-p1",
+        "sailing-tack-p2"
+      ],
+      "rationale": "The three sailing sources support this name and the tack/gybe distinction. bee-dance-p1 is not a boat manoeuvre and is explicitly rejected as a membership despite being offered to the labeler."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "7ea23f43-fcfd-4556-a830-85ddb6a55a78",
+      "reference_id": "shielding-enclosure-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "shielding-enclosure-p0",
+        "shielding-enclosure-p1",
+        "shielding-enclosure-p2"
+      ],
+      "rationale": "Each source describes a conductive enclosure limiting unwanted coupling, with gaps and seams affecting shielding."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "1140ecfb-ee44-45ce-94c2-6d25c93365c6",
+      "reference_id": "telescope-collimation-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "telescope-collimation-p0",
+        "telescope-collimation-p1",
+        "telescope-collimation-p2"
+      ],
+      "rationale": "All three discuss mirror collimation in relation to focus and distinguish those operations. The label does not assert that they are identical."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "7384995c-4d34-4eff-925d-dc857ddde861",
+      "reference_id": "tidepool-isolation-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "tidepool-isolation-p0",
+        "tidepool-isolation-p1",
+        "tidepool-isolation-p2"
+      ],
+      "rationale": "The three sources consistently describe tide-controlled isolation and reconnection. Dynamics is too vague to identify that specific exchange mechanism."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "0900b336-eba6-4d83-9aa5-a8346e0b11f1",
+      "reference_id": "warp-tension-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "warp-tension-p0",
+        "warp-tension-p1",
+        "warp-tension-p2"
+      ],
+      "rationale": "All three address consistent tension in lengthwise warp threads and distinguish it from changes to weft."
+    },
+    {
+      "case_id": "joint-library",
+      "proposal_id": "0941cf0f-8a7a-4561-bb63-06d5cfa1f52c",
+      "reference_id": "wind-screen-r0",
+      "provenance": "agent",
+      "reviewer": "Codex source-based review; fixture author also reviewer",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "wind-screen-p0",
+        "wind-screen-p1",
+        "wind-screen-p2"
+      ],
+      "rationale": "All three explain controlling air turbulence around the capsule while denying universal removal of background sounds."
+    }
+  ],
+  "observations": {
+    "sourceFamilies": 20,
+    "sourcePassages": 60,
+    "pending": true,
+    "processingFailure": "Some topic names are unavailable. Retry processing.",
+    "error": null,
+    "allCanonicalGroups": 22,
+    "publishedGroups": 22,
+    "unnamedPublishedGroups": 1
+  }
+}

@@ -1,0 +1,216 @@
+{
+  "identity": {
+    "model": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "runtime": "LiteRT-LM 0.18.1",
+    "backend": "GPU",
+    "prompt": "public-probe-3-specific-concepts",
+    "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+    "rawArtifact": "s25-gpu-heldout-frozen-v3.json",
+    "fixtureAuthorIsReviewer": true
+  },
+  "cases": 27,
+  "topics": 24,
+  "invalid_topics": 0,
+  "invalid_topic_rate": 0.0,
+  "unrated_topics": 0,
+  "human": {
+    "rated_topics": 0,
+    "useful_topics": 0,
+    "supported_labels": 0,
+    "claimed_memberships": 0,
+    "supported_memberships": 0,
+    "topic_precision": null,
+    "label_precision": null,
+    "membership_precision": null,
+    "reference_concepts": 0,
+    "recovered_concepts": 0,
+    "concept_recall": null,
+    "missed_concepts": []
+  },
+  "agent": {
+    "rated_topics": 24,
+    "useful_topics": 24,
+    "supported_labels": 19,
+    "claimed_memberships": 39,
+    "supported_memberships": 39,
+    "topic_precision": 1.0,
+    "label_precision": 0.7916666666666666,
+    "membership_precision": 1.0,
+    "reference_concepts": 29,
+    "recovered_concepts": 17,
+    "concept_recall": 0.5862068965517241,
+    "missed_concepts": [
+      {
+        "case_id": "contradiction",
+        "reference_id": "contradiction-r0"
+      },
+      {
+        "case_id": "dns-ttl",
+        "reference_id": "dns-ttl-r0"
+      },
+      {
+        "case_id": "label-change",
+        "reference_id": "label-change-r0"
+      },
+      {
+        "case_id": "pressure-boiling",
+        "reference_id": "pressure-boiling-r0"
+      },
+      {
+        "case_id": "rare-concept",
+        "reference_id": "rare-concept-r0"
+      },
+      {
+        "case_id": "rare-concept",
+        "reference_id": "rare-concept-r1"
+      },
+      {
+        "case_id": "sleep-spacing",
+        "reference_id": "sleep-spacing-r0"
+      },
+      {
+        "case_id": "snapshot",
+        "reference_id": "snapshot-r0"
+      },
+      {
+        "case_id": "soil-drainage",
+        "reference_id": "soil-drainage-r0"
+      },
+      {
+        "case_id": "sourdough",
+        "reference_id": "sourdough-r0"
+      },
+      {
+        "case_id": "stormwater",
+        "reference_id": "stormwater-r0"
+      },
+      {
+        "case_id": "write-ahead",
+        "reference_id": "write-ahead-r0"
+      }
+    ]
+  },
+  "provisional": {
+    "rated_topics": 0,
+    "useful_topics": 0,
+    "supported_labels": 0,
+    "claimed_memberships": 0,
+    "supported_memberships": 0,
+    "topic_precision": null,
+    "label_precision": null,
+    "membership_precision": null,
+    "reference_concepts": 0,
+    "recovered_concepts": 0,
+    "concept_recall": null,
+    "missed_concepts": []
+  },
+  "partitions": {
+    "heldout": {
+      "identity": {
+        "model": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+        "runtime": "LiteRT-LM 0.18.1",
+        "backend": "GPU",
+        "prompt": "public-probe-3-specific-concepts",
+        "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+        "rawArtifact": "s25-gpu-heldout-frozen-v3.json",
+        "fixtureAuthorIsReviewer": true
+      },
+      "cases": 27,
+      "topics": 24,
+      "invalid_topics": 0,
+      "invalid_topic_rate": 0.0,
+      "unrated_topics": 0,
+      "human": {
+        "rated_topics": 0,
+        "useful_topics": 0,
+        "supported_labels": 0,
+        "claimed_memberships": 0,
+        "supported_memberships": 0,
+        "topic_precision": null,
+        "label_precision": null,
+        "membership_precision": null,
+        "reference_concepts": 0,
+        "recovered_concepts": 0,
+        "concept_recall": null,
+        "missed_concepts": []
+      },
+      "agent": {
+        "rated_topics": 24,
+        "useful_topics": 24,
+        "supported_labels": 19,
+        "claimed_memberships": 39,
+        "supported_memberships": 39,
+        "topic_precision": 1.0,
+        "label_precision": 0.7916666666666666,
+        "membership_precision": 1.0,
+        "reference_concepts": 29,
+        "recovered_concepts": 17,
+        "concept_recall": 0.5862068965517241,
+        "missed_concepts": [
+          {
+            "case_id": "contradiction",
+            "reference_id": "contradiction-r0"
+          },
+          {
+            "case_id": "dns-ttl",
+            "reference_id": "dns-ttl-r0"
+          },
+          {
+            "case_id": "label-change",
+            "reference_id": "label-change-r0"
+          },
+          {
+            "case_id": "pressure-boiling",
+            "reference_id": "pressure-boiling-r0"
+          },
+          {
+            "case_id": "rare-concept",
+            "reference_id": "rare-concept-r0"
+          },
+          {
+            "case_id": "rare-concept",
+            "reference_id": "rare-concept-r1"
+          },
+          {
+            "case_id": "sleep-spacing",
+            "reference_id": "sleep-spacing-r0"
+          },
+          {
+            "case_id": "snapshot",
+            "reference_id": "snapshot-r0"
+          },
+          {
+            "case_id": "soil-drainage",
+            "reference_id": "soil-drainage-r0"
+          },
+          {
+            "case_id": "sourdough",
+            "reference_id": "sourdough-r0"
+          },
+          {
+            "case_id": "stormwater",
+            "reference_id": "stormwater-r0"
+          },
+          {
+            "case_id": "write-ahead",
+            "reference_id": "write-ahead-r0"
+          }
+        ]
+      },
+      "provisional": {
+        "rated_topics": 0,
+        "useful_topics": 0,
+        "supported_labels": 0,
+        "claimed_memberships": 0,
+        "supported_memberships": 0,
+        "topic_precision": null,
+        "label_precision": null,
+        "membership_precision": null,
+        "reference_concepts": 0,
+        "recovered_concepts": 0,
+        "concept_recall": null,
+        "missed_concepts": []
+      }
+    }
+  }
+}

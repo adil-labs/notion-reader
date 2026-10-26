@@ -1,0 +1,222 @@
+{
+  "identity": {
+    "model": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "runtime": "LiteRT-LM 0.18.1",
+    "backend": "GPU",
+    "prompt": "public-probe-2-schema",
+    "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+    "contextTokens": 1024,
+    "outputTokens": 256,
+    "rawArtifact": "s25-gpu-schema-development-c1024.json",
+    "fixtureAuthorIsReviewer": true
+  },
+  "outputs": [
+    {
+      "case_id": "same-headings",
+      "topics": [
+        {
+          "label": "Retry mechanism for failed network requests",
+          "passage_ids": [
+            "same-headings-p0"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "Decomposition of kitchen scraps by compost organisms",
+          "passage_ids": [
+            "same-headings-p1"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "different-wording",
+      "topics": [
+        {
+          "label": "Retry mechanism for unavailable servers",
+          "passage_ids": [
+            "different-wording-p0",
+            "different-wording-p1"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "overlap",
+      "topics": [
+        {
+          "label": "Idempotency for write requests",
+          "passage_ids": [
+            "overlap-p0",
+            "overlap-p2"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "Retry mechanism for temporary failures",
+          "passage_ids": [
+            "overlap-p1"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "single-note",
+      "topics": [
+        {
+          "label": "Invalidation of cached content",
+          "passage_ids": [
+            "single-note-p0"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "broad-specific",
+      "topics": [
+        {
+          "label": "Mutex function",
+          "passage_ids": [
+            "broad-specific-p0"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "Atomic compare-and-set operation",
+          "passage_ids": [
+            "broad-specific-p1"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "sparse",
+      "topics": []
+    },
+    {
+      "case_id": "injection",
+      "topics": []
+    }
+  ],
+  "reviews": [
+    {
+      "case_id": "same-headings",
+      "proposal_id": "t0",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "same-headings-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "same-headings-p0"
+      ],
+      "reason": "The passage supports retry backoff; the label omits the increasing-delay mechanism and remains too general."
+    },
+    {
+      "case_id": "same-headings",
+      "proposal_id": "t1",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": null,
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "same-headings-p1"
+      ],
+      "reason": "Compost decomposition is a valid supported broad concept, but the independently supported aeration concept in the reference is missed."
+    },
+    {
+      "case_id": "different-wording",
+      "proposal_id": "t0",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "different-wording-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "different-wording-p0",
+        "different-wording-p1"
+      ],
+      "reason": "Both doubling-delay passages are correctly grouped; the label fails to name exponential backoff and could describe other retry strategies."
+    },
+    {
+      "case_id": "overlap",
+      "proposal_id": "t0",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "overlap-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "overlap-p0",
+        "overlap-p2"
+      ],
+      "reason": "Both cited passages explicitly use the same idempotency-key mechanism, including prevention of duplicate payment."
+    },
+    {
+      "case_id": "overlap",
+      "proposal_id": "t1",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "overlap-r1",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "overlap-p1"
+      ],
+      "reason": "The temporary-failure passage supports backoff; retry mechanism alone omits the differentiating increasing-delay behavior."
+    },
+    {
+      "case_id": "single-note",
+      "proposal_id": "t0",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "single-note-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "single-note-p0"
+      ],
+      "reason": "The one passage explicitly explains cache invalidation after source revision changes; a valid Emerging concept."
+    },
+    {
+      "case_id": "broad-specific",
+      "proposal_id": "t0",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "broad-specific-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "broad-specific-p0"
+      ],
+      "reason": "Mutex is a specific supported technique and remains separate from compare-and-set. Function is an unnecessary generic suffix."
+    },
+    {
+      "case_id": "broad-specific",
+      "proposal_id": "t1",
+      "reviewer": "implementation-agent",
+      "provenance": "agent",
+      "reference_id": "broad-specific-r1",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "broad-specific-p1"
+      ],
+      "reason": "Compare-and-set is named and supported by the conditional atomic update passage."
+    }
+  ]
+}

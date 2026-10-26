@@ -1,0 +1,613 @@
+{
+  "stage": "baseline",
+  "corpusSha256": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+  "engineVersion": 4,
+  "identity": {
+    "model": "embeddinggemma-2:litert:int4:9be6e8b90982095dc05c2bd162e4b954ee4dbac7:2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
+    "dimensions": 768,
+    "tokenizer": "bundled-sentencepiece:e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03",
+    "preprocessing": 4,
+    "chunker": 2
+  },
+  "policyVersion": 16,
+  "formationDistance": 0.1,
+  "membership": 0.9,
+  "retention": 0.89,
+  "provenance": "Actual S25 CPU EmbeddingGemma vectors; shipping host tokenizer/chunker and SectionHierarchicalEngine; not semantically graded",
+  "outputs": [
+    {
+      "case_id": "same-headings",
+      "topics": [
+        {
+          "id": "0f2b9f5f-b73f-4b24-8d48-e14aa47b8700",
+          "label": "Implementation",
+          "passage_ids": [
+            "same-headings-p0"
+          ]
+        },
+        {
+          "id": "3bde6484-808c-4d67-9581-d3c5a9af84c3",
+          "label": "Implementation",
+          "passage_ids": [
+            "same-headings-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "different-wording",
+      "topics": [
+        {
+          "id": "e4127ab3-8ee6-472e-8d52-3596300682b4",
+          "label": "Retries",
+          "passage_ids": [
+            "different-wording-p0",
+            "different-wording-p1"
+          ]
+        },
+        {
+          "id": "55357190-ec4c-4661-8042-f6f35a83ecce",
+          "label": "Recovery",
+          "passage_ids": [
+            "different-wording-p0",
+            "different-wording-p1"
+          ]
+        },
+        {
+          "id": "b7912e1f-d616-4f13-a0c2-e3cb6ffa26a3",
+          "label": "Retries",
+          "passage_ids": [
+            "different-wording-p0",
+            "different-wording-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "overlap",
+      "topics": [
+        {
+          "id": "28f74a04-2415-4aba-a782-87cdc8a427f0",
+          "label": "Requests",
+          "passage_ids": [
+            "overlap-p0"
+          ]
+        },
+        {
+          "id": "ff52fe44-28a5-4887-8d6e-49d4e091c4ba",
+          "label": "Requests",
+          "passage_ids": [
+            "overlap-p1"
+          ]
+        },
+        {
+          "id": "c82b6dcb-c893-4aab-9ddf-31ccff550c70",
+          "label": "Payments",
+          "passage_ids": [
+            "overlap-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "single-note",
+      "topics": [
+        {
+          "id": "758c06a1-b513-431d-93d7-f0f7a44dded7",
+          "label": "Cache",
+          "passage_ids": [
+            "single-note-p0"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "broad-specific",
+      "topics": [
+        {
+          "id": "2f91713f-5895-4821-9377-e1dde2ea22f6",
+          "label": "Concurrency",
+          "passage_ids": [
+            "broad-specific-p0",
+            "broad-specific-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sparse",
+      "topics": [
+        {
+          "id": "143901c5-c09d-4f9a-bdbd-8242f20e7007",
+          "label": "Further notes to be added",
+          "passage_ids": [
+            "sparse-p0"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "injection",
+      "topics": [
+        {
+          "id": "a5ba0d0a-7cee-45bd-b430-525ba92b28eb",
+          "label": "Instructions",
+          "passage_ids": [
+            "injection-p0"
+          ]
+        },
+        {
+          "id": "298ebe93-a38d-4997-9d17-0e18b2cdca0d",
+          "label": "Gardening",
+          "passage_ids": [
+            "injection-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "contradiction",
+      "topics": [
+        {
+          "id": "6d5ebee2-95be-421d-a0db-9d73c5a24c3f",
+          "label": "Correction",
+          "passage_ids": [
+            "contradiction-p0",
+            "contradiction-p1"
+          ]
+        },
+        {
+          "id": "411d2c60-0ac3-49cc-8bed-ad44e7f86a5d",
+          "label": "Antibiotics",
+          "passage_ids": [
+            "contradiction-p0",
+            "contradiction-p1"
+          ]
+        },
+        {
+          "id": "aa88f3a3-0254-400c-bf9d-32c3a3706b05",
+          "label": "Correction",
+          "passage_ids": [
+            "contradiction-p0",
+            "contradiction-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "unicode",
+      "topics": [
+        {
+          "id": "997e4260-4fd6-4cc7-a221-4c59438b8761",
+          "label": "Reintentos",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ]
+        },
+        {
+          "id": "c4ef02d1-8f51-48e0-bfb8-de050c52851d",
+          "label": "Reintentos",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ]
+        },
+        {
+          "id": "217392c9-9c12-4071-9ca8-5e56bd078764",
+          "label": "पुनः प्रयास",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "duplicate-template",
+      "topics": [
+        {
+          "id": "5c2d5a16-6265-4214-8acf-158ca2248fef",
+          "label": "Replication",
+          "passage_ids": [
+            "duplicate-template-p0",
+            "duplicate-template-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "revoked",
+      "topics": [
+        {
+          "id": "6fb1e42b-17c4-4eb9-a817-896ae747a8d1",
+          "label": "Plants",
+          "passage_ids": [
+            "revoked-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "rare-concept",
+      "topics": [
+        {
+          "id": "42963d31-15cc-4366-9885-afafc24271de",
+          "label": "New note",
+          "passage_ids": [
+            "rare-concept-p0",
+            "rare-concept-p1"
+          ]
+        },
+        {
+          "id": "861fa668-2f70-4f71-a70d-a51c95cce48a",
+          "label": "New note",
+          "passage_ids": [
+            "rare-concept-p0",
+            "rare-concept-p1"
+          ]
+        },
+        {
+          "id": "d40f3ca2-8065-4055-9261-c94acc1b92bf",
+          "label": "Old note",
+          "passage_ids": [
+            "rare-concept-p0",
+            "rare-concept-p1"
+          ]
+        },
+        {
+          "id": "2c1e8d02-62e5-424c-a627-d93a156b712d",
+          "label": "Other",
+          "passage_ids": [
+            "rare-concept-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "label-change",
+      "topics": [
+        {
+          "id": "04cdda64-26c7-49ee-a2cb-b3217cfc02c3",
+          "label": "Network resilience",
+          "passage_ids": [
+            "label-change-p0",
+            "label-change-p1"
+          ]
+        },
+        {
+          "id": "6fd4ad73-522a-4d32-801b-c8d06f06bfab",
+          "label": "Network resilience",
+          "passage_ids": [
+            "label-change-p0",
+            "label-change-p1"
+          ]
+        },
+        {
+          "id": "b1b70e90-3bf7-41e0-93f4-4f12971e4335",
+          "label": "Thundering herd",
+          "passage_ids": [
+            "label-change-p0",
+            "label-change-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "no-forced-membership",
+      "topics": [
+        {
+          "id": "67b6ca80-8ec1-468d-8ba6-91cb56ae221c",
+          "label": "Memory",
+          "passage_ids": [
+            "no-forced-membership-p0"
+          ]
+        },
+        {
+          "id": "192b4668-2554-42f3-b573-27da27ff1a5e",
+          "label": "Cooking",
+          "passage_ids": [
+            "no-forced-membership-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "lease-expiry",
+      "topics": [
+        {
+          "id": "df294f46-9166-4b04-a29a-b1a444a7206e",
+          "label": "bounded lease lifetime",
+          "passage_ids": [
+            "lease-expiry-p0",
+            "lease-expiry-p1",
+            "lease-expiry-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "dns-ttl",
+      "topics": [
+        {
+          "id": "6e09613b-84a9-4a0f-a684-5548f80bbe37",
+          "label": "DNS TTL limits",
+          "passage_ids": [
+            "dns-ttl-p0",
+            "dns-ttl-p1",
+            "dns-ttl-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "soil-drainage",
+      "topics": [
+        {
+          "id": "e51c56eb-8c5d-442a-b5a4-32d4a5e64eee",
+          "label": "suffocate roots even",
+          "passage_ids": [
+            "soil-drainage-p0",
+            "soil-drainage-p1",
+            "soil-drainage-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sleep-spacing",
+      "topics": [
+        {
+          "id": "0c4d8700-aa57-4cb0-afb8-d1bdefc6cc7a",
+          "label": "days improves delayed",
+          "passage_ids": [
+            "sleep-spacing-p0",
+            "sleep-spacing-p1",
+            "sleep-spacing-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "pressure-boiling",
+      "topics": [
+        {
+          "id": "b4160e79-fe6b-4bf7-b3ce-989f8781fa93",
+          "label": "Lower air pressure",
+          "passage_ids": [
+            "pressure-boiling-p0",
+            "pressure-boiling-p1",
+            "pressure-boiling-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "checksum",
+      "topics": [
+        {
+          "id": "0d568181-50fe-4674-ac80-2c675a25992b",
+          "label": "cryptographic digest",
+          "passage_ids": [
+            "checksum-p0",
+            "checksum-p1",
+            "checksum-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "write-ahead",
+      "topics": [
+        {
+          "id": "de13c183-3783-4ace-a21e-bc5370afe0e6",
+          "label": "log durably before",
+          "passage_ids": [
+            "write-ahead-p0",
+            "write-ahead-p1",
+            "write-ahead-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "rate-limiting",
+      "topics": [
+        {
+          "id": "1176d709-9cd5-444b-9e59-bcc73452b83f",
+          "label": "Token bucket",
+          "passage_ids": [
+            "rate-limiting-p0",
+            "rate-limiting-p1",
+            "rate-limiting-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "muscle-load",
+      "topics": [
+        {
+          "id": "c84beaff-db7d-455d-8f1e-598a061033b0",
+          "label": "same easy load",
+          "passage_ids": [
+            "muscle-load-p1"
+          ]
+        },
+        {
+          "id": "a8db871e-1c1d-426e-ab30-89726348808f",
+          "label": "overload combines manageable",
+          "passage_ids": [
+            "muscle-load-p0",
+            "muscle-load-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "light-refraction",
+      "topics": [
+        {
+          "id": "6d7028db-d4e0-4b64-bf62-bbb5920a2a9d",
+          "label": "light ray changes",
+          "passage_ids": [
+            "light-refraction-p0",
+            "light-refraction-p1",
+            "light-refraction-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sourdough",
+      "topics": [
+        {
+          "id": "01945ba7-9dfe-49ac-b271-8155d711779c",
+          "label": "starter contains yeasts",
+          "passage_ids": [
+            "sourdough-p0",
+            "sourdough-p1",
+            "sourdough-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "stormwater",
+      "topics": [
+        {
+          "id": "76d226f0-aa68-49ff-b5dd-935d46387cd5",
+          "label": "Permeable paving",
+          "passage_ids": [
+            "stormwater-p0",
+            "stormwater-p1",
+            "stormwater-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "snapshot",
+      "topics": [
+        {
+          "id": "9efd155a-cff7-4f96-ba54-fdb903fedceb",
+          "label": "under snapshot isolation",
+          "passage_ids": [
+            "snapshot-p0",
+            "snapshot-p1",
+            "snapshot-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "habit-cue",
+      "topics": [
+        {
+          "id": "eb09114c-487f-456d-897a-fe39d89ffde1",
+          "label": "consistent reminder cue",
+          "passage_ids": [
+            "habit-cue-p1"
+          ]
+        },
+        {
+          "id": "20d5a82d-52dd-4a36-9872-76dd8f573d61",
+          "label": "stable cue helps",
+          "passage_ids": [
+            "habit-cue-p0",
+            "habit-cue-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "entropy-compression",
+      "topics": [
+        {
+          "id": "ec5897b5-60ba-4591-a96f-d22e757787f9",
+          "label": "while preserving exact",
+          "passage_ids": [
+            "entropy-compression-p0",
+            "entropy-compression-p1",
+            "entropy-compression-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "erosion",
+      "topics": [
+        {
+          "id": "ed1012c7-aba6-42d4-bc1c-1b7f65c430a7",
+          "label": "leave soil more",
+          "passage_ids": [
+            "erosion-p0",
+            "erosion-p1",
+            "erosion-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "quorum",
+      "topics": [
+        {
+          "id": "5d0bb86a-1c5c-4a3f-aa14-aedb44a9e1f5",
+          "label": "Read and write",
+          "passage_ids": [
+            "quorum-p0",
+            "quorum-p1",
+            "quorum-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "version-vector",
+      "topics": [
+        {
+          "id": "d1b4cd56-4ab6-4445-968a-2134121674ae",
+          "label": "Version vectors help",
+          "passage_ids": [
+            "version-vector-p0",
+            "version-vector-p1",
+            "version-vector-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "photosynthesis",
+      "topics": [
+        {
+          "id": "9567caa6-c7d9-498a-b9da-66a26b615b7f",
+          "label": "uses light energy",
+          "passage_ids": [
+            "photosynthesis-p0",
+            "photosynthesis-p1",
+            "photosynthesis-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "queue-backpressure",
+      "topics": [
+        {
+          "id": "1288cc4f-3f8f-4cd8-af4c-2d140d42ef6c",
+          "label": "grow until memory",
+          "passage_ids": [
+            "queue-backpressure-p0",
+            "queue-backpressure-p1",
+            "queue-backpressure-p2"
+          ]
+        }
+      ]
+    }
+  ],
+  "artifactSha256": {
+    "baseline-inputs": "90c99eb73a89f09b1d58eb06632a8626b478ba75b306eae7544044118a89f7e4",
+    "baseline-embedded": "84c2db3890be0742f7d0d1869f4835089a6f08e48674cbf9da6c4b35b4c5e038",
+    "baseline-output": "fe58d9a26b7f14f865432f23ae4b32bb94e1a31a5ca28bb7db31399d96a25f81"
+  }
+}

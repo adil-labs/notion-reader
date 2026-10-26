@@ -1,0 +1,1015 @@
+{
+  "identity": {
+    "model": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "runtime": "LiteRT-LM 0.18.1",
+    "backend": "GPU",
+    "prompt": "public-probe-3-specific-concepts",
+    "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+    "rawArtifact": "s25-gpu-heldout-frozen-v3.json",
+    "fixtureAuthorIsReviewer": true
+  },
+  "outputs": [
+    {
+      "case_id": "contradiction",
+      "topics": []
+    },
+    {
+      "case_id": "unicode",
+      "topics": [
+        {
+          "label": "backoff strategy",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "duplicate-template",
+      "topics": [
+        {
+          "label": "Replication lag",
+          "passage_ids": [
+            "duplicate-template-p0",
+            "duplicate-template-p1"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "revoked",
+      "topics": [
+        {
+          "label": "environmental requirement",
+          "passage_ids": [
+            "revoked-p1"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "rare-concept",
+      "topics": []
+    },
+    {
+      "case_id": "label-change",
+      "topics": []
+    },
+    {
+      "case_id": "no-forced-membership",
+      "topics": [
+        {
+          "label": "Reference Counting",
+          "passage_ids": [
+            "no-forced-membership-p0"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "Hydration",
+          "passage_ids": [
+            "no-forced-membership-p1"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "lease-expiry",
+      "topics": [
+        {
+          "label": "lease expiration",
+          "passage_ids": [
+            "lease-expiry-p0",
+            "lease-expiry-p1",
+            "lease-expiry-p2"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "dns-ttl",
+      "topics": []
+    },
+    {
+      "case_id": "soil-drainage",
+      "topics": []
+    },
+    {
+      "case_id": "sleep-spacing",
+      "topics": []
+    },
+    {
+      "case_id": "pressure-boiling",
+      "topics": []
+    },
+    {
+      "case_id": "checksum",
+      "topics": [
+        {
+          "label": "data integrity verification",
+          "passage_ids": [
+            "checksum-p0",
+            "checksum-p1",
+            "checksum-p2"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "write-ahead",
+      "topics": []
+    },
+    {
+      "case_id": "rate-limiting",
+      "topics": [
+        {
+          "label": "token bucket",
+          "passage_ids": [
+            "rate-limiting-p0",
+            "rate-limiting-p1",
+            "rate-limiting-p2"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "muscle-load",
+      "topics": [
+        {
+          "label": "Progressive overload",
+          "passage_ids": [
+            "muscle-load-p2"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "Gradual increase of challenge",
+          "passage_ids": [
+            "muscle-load-p0"
+          ],
+          "id": "t1"
+        },
+        {
+          "label": "Progressive increase in training demand",
+          "passage_ids": [
+            "muscle-load-p1"
+          ],
+          "id": "t2"
+        }
+      ]
+    },
+    {
+      "case_id": "light-refraction",
+      "topics": [
+        {
+          "label": "refraction",
+          "passage_ids": [
+            "light-refraction-p0",
+            "light-refraction-p1",
+            "light-refraction-p2"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "sourdough",
+      "topics": []
+    },
+    {
+      "case_id": "stormwater",
+      "topics": []
+    },
+    {
+      "case_id": "snapshot",
+      "topics": []
+    },
+    {
+      "case_id": "habit-cue",
+      "topics": [
+        {
+          "label": ":Association of context with action",
+          "passage_ids": [
+            "habit-cue-p0"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": ":Cueing",
+          "passage_ids": [
+            "habit-cue-p1",
+            "habit-cue-p2"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "entropy-compression",
+      "topics": [
+        {
+          "label": "lossless compression",
+          "passage_ids": [
+            "entropy-compression-p0",
+            "entropy-compression-p2"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "erosion",
+      "topics": [
+        {
+          "label": "soil binding",
+          "passage_ids": [
+            "erosion-p0"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "surface runoff reduction",
+          "passage_ids": [
+            "erosion-p1"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "quorum",
+      "topics": [
+        {
+          "label": "Quorum Intersection",
+          "passage_ids": [
+            "quorum-p0",
+            "quorum-p1"
+          ],
+          "id": "t0"
+        }
+      ]
+    },
+    {
+      "case_id": "version-vector",
+      "topics": [
+        {
+          "label": "causal history representation",
+          "passage_ids": [
+            "version-vector-p0"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "concurrency detection",
+          "passage_ids": [
+            "version-vector-p1"
+          ],
+          "id": "t1"
+        },
+        {
+          "label": "conflict resolution/distinction",
+          "passage_ids": [
+            "version-vector-p2"
+          ],
+          "id": "t2"
+        }
+      ]
+    },
+    {
+      "case_id": "photosynthesis",
+      "topics": [
+        {
+          "label": "light-dependent reactions",
+          "passage_ids": [
+            "photosynthesis-p1"
+          ],
+          "id": "t0"
+        },
+        {
+          "label": "photosynthesis",
+          "passage_ids": [
+            "photosynthesis-p0",
+            "photosynthesis-p2"
+          ],
+          "id": "t1"
+        }
+      ]
+    },
+    {
+      "case_id": "queue-backpressure",
+      "topics": [
+        {
+          "label": "backpressure",
+          "passage_ids": [
+            "queue-backpressure-p1",
+            "queue-backpressure-p2"
+          ],
+          "id": "t0"
+        }
+      ]
+    }
+  ],
+  "reviews": [
+    {
+      "case_id": "unicode",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "unicode-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "unicode-p0",
+        "unicode-p1"
+      ],
+      "reason": "Both Hindi and Spanish describe increasing waits after failed requests to reduce repeated load; backoff names that shared mechanism."
+    },
+    {
+      "case_id": "duplicate-template",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "duplicate-template-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "duplicate-template-p0",
+        "duplicate-template-p1"
+      ],
+      "reason": "Both copies explicitly define replication lag. Duplicate text does not establish independent evidence for Established publication."
+    },
+    {
+      "case_id": "revoked",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "revoked-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "revoked-p1"
+      ],
+      "reason": "Only the eligible germination passage is cited; environmental requirement loses the seed/germination subject and is too generic."
+    },
+    {
+      "case_id": "no-forced-membership",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "no-forced-membership-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "no-forced-membership-p0"
+      ],
+      "reason": "Object lifetime is explicitly governed by the strong reference count; the unrelated dough passage is excluded."
+    },
+    {
+      "case_id": "no-forced-membership",
+      "proposal_id": "t1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "no-forced-membership-r1",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "no-forced-membership-p1"
+      ],
+      "reason": "Flour hydration before kneading is supported, but Hydration alone discards the dough context needed for a useful specific label."
+    },
+    {
+      "case_id": "lease-expiry",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "lease-expiry-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "lease-expiry-p0",
+        "lease-expiry-p1",
+        "lease-expiry-p2"
+      ],
+      "reason": "All three passages explain deadline-limited ownership and expiry; no unsupported perpetual ownership is asserted."
+    },
+    {
+      "case_id": "checksum",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "checksum-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "checksum-p0",
+        "checksum-p1",
+        "checksum-p2"
+      ],
+      "reason": "Each cited passage supports digest/checksum comparison to detect changed bytes or corruption. Data integrity verification names the common task."
+    },
+    {
+      "case_id": "rate-limiting",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "rate-limiting-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rate-limiting-p0",
+        "rate-limiting-p1",
+        "rate-limiting-p2"
+      ],
+      "reason": "The three passages directly specify token availability, refill and burst capacity."
+    },
+    {
+      "case_id": "muscle-load",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "muscle-load-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "muscle-load-p2"
+      ],
+      "reason": "The cited passage explicitly names progressive overload."
+    },
+    {
+      "case_id": "muscle-load",
+      "proposal_id": "t1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "muscle-load-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "muscle-load-p0"
+      ],
+      "reason": "Increasing challenge is supported but the label omits training and fragments the same overload concept."
+    },
+    {
+      "case_id": "muscle-load",
+      "proposal_id": "t2",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "muscle-load-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "muscle-load-p1"
+      ],
+      "reason": "Increasing training demand is a supported specific paraphrase, but a duplicate fragment of the same reference concept."
+    },
+    {
+      "case_id": "light-refraction",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "light-refraction-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "light-refraction-p0",
+        "light-refraction-p1",
+        "light-refraction-p2"
+      ],
+      "reason": "Direction change at a refractive boundary, displacement and Snell law all support refraction."
+    },
+    {
+      "case_id": "habit-cue",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "habit-cue-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "habit-cue-p0"
+      ],
+      "reason": "The source directly associates recurring context with action; leading colon is unwanted formatting. This fragments one reference concept."
+    },
+    {
+      "case_id": "habit-cue",
+      "proposal_id": "t1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "habit-cue-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "habit-cue-p1",
+        "habit-cue-p2"
+      ],
+      "reason": "Cueing is grounded in reminder/context cues, but the label omits habit consistency and is too broad; leading colon is unwanted."
+    },
+    {
+      "case_id": "entropy-compression",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "entropy-compression-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "entropy-compression-p0",
+        "entropy-compression-p2"
+      ],
+      "reason": "Both cited passages support exact reconstruction by lossless compression. Relevant incompressibility evidence p1 is omitted."
+    },
+    {
+      "case_id": "erosion",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "erosion-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "erosion-p0"
+      ],
+      "reason": "Roots binding soil is directly supported, but is one mechanism of the broader reference concept."
+    },
+    {
+      "case_id": "erosion",
+      "proposal_id": "t1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "erosion-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "erosion-p1"
+      ],
+      "reason": "Ground cover slowing runoff is directly supported; output fragments the shared vegetation/erosion concept and omits p2."
+    },
+    {
+      "case_id": "quorum",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "quorum-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "quorum-p0",
+        "quorum-p1"
+      ],
+      "reason": "The two citations support intersecting read/write quorums. Omitted p2 limits consistency claims; the label itself makes no sufficiency claim."
+    },
+    {
+      "case_id": "version-vector",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "version-vector-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "version-vector-p0"
+      ],
+      "reason": "Counters representing causal history directly support this label; fragmented from the same version-vector concept."
+    },
+    {
+      "case_id": "version-vector",
+      "proposal_id": "t1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "version-vector-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "version-vector-p1"
+      ],
+      "reason": "Neither vector dominating means concurrency, directly supporting detection; fragmented from the same concept."
+    },
+    {
+      "case_id": "version-vector",
+      "proposal_id": "t2",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "version-vector-r0",
+      "topic_supported": true,
+      "label_supported": false,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "version-vector-p2"
+      ],
+      "reason": "The source distinguishes obsolete from concurrent values. It does not resolve conflicts, so resolution adds an unsupported capability."
+    },
+    {
+      "case_id": "photosynthesis",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "photosynthesis-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "photosynthesis-p1"
+      ],
+      "reason": "Chlorophyll absorbing light to drive photosynthetic reactions supports the light-dependent reaction subtopic; the label does not assert a particular biochemical pathway."
+    },
+    {
+      "case_id": "photosynthesis",
+      "proposal_id": "t1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "photosynthesis-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "photosynthesis-p0",
+        "photosynthesis-p2"
+      ],
+      "reason": "Light energy, inputs and light limitation explicitly support photosynthesis; these two outputs fragment one reference concept."
+    },
+    {
+      "case_id": "queue-backpressure",
+      "proposal_id": "t0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "queue-backpressure-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "queue-backpressure-p1",
+        "queue-backpressure-p2"
+      ],
+      "reason": "Producer slowing at full buffers supports backpressure and bounded buffering supports its resource-control context. The unbounded-queue failure passage p0 is omitted."
+    }
+  ],
+  "reference_reviews": [
+    {
+      "case_id": "contradiction",
+      "reference_id": "contradiction-r0",
+      "supported_passage_ids": [
+        "contradiction-p0",
+        "contradiction-p1"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "unicode",
+      "reference_id": "unicode-r0",
+      "supported_passage_ids": [
+        "unicode-p0",
+        "unicode-p1"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "duplicate-template",
+      "reference_id": "duplicate-template-r0",
+      "supported_passage_ids": [
+        "duplicate-template-p0",
+        "duplicate-template-p1"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "revoked",
+      "reference_id": "revoked-r0",
+      "supported_passage_ids": [
+        "revoked-p1"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "rare-concept",
+      "reference_id": "rare-concept-r0",
+      "supported_passage_ids": [
+        "rare-concept-p0",
+        "rare-concept-p1"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "rare-concept",
+      "reference_id": "rare-concept-r1",
+      "supported_passage_ids": [
+        "rare-concept-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "label-change",
+      "reference_id": "label-change-r0",
+      "supported_passage_ids": [
+        "label-change-p0",
+        "label-change-p1"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "no-forced-membership",
+      "reference_id": "no-forced-membership-r0",
+      "supported_passage_ids": [
+        "no-forced-membership-p0"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "no-forced-membership",
+      "reference_id": "no-forced-membership-r1",
+      "supported_passage_ids": [
+        "no-forced-membership-p1"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "lease-expiry",
+      "reference_id": "lease-expiry-r0",
+      "supported_passage_ids": [
+        "lease-expiry-p0",
+        "lease-expiry-p1",
+        "lease-expiry-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "dns-ttl",
+      "reference_id": "dns-ttl-r0",
+      "supported_passage_ids": [
+        "dns-ttl-p0",
+        "dns-ttl-p1",
+        "dns-ttl-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "soil-drainage",
+      "reference_id": "soil-drainage-r0",
+      "supported_passage_ids": [
+        "soil-drainage-p0",
+        "soil-drainage-p1",
+        "soil-drainage-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "sleep-spacing",
+      "reference_id": "sleep-spacing-r0",
+      "supported_passage_ids": [
+        "sleep-spacing-p0",
+        "sleep-spacing-p1",
+        "sleep-spacing-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "pressure-boiling",
+      "reference_id": "pressure-boiling-r0",
+      "supported_passage_ids": [
+        "pressure-boiling-p0",
+        "pressure-boiling-p1",
+        "pressure-boiling-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "checksum",
+      "reference_id": "checksum-r0",
+      "supported_passage_ids": [
+        "checksum-p0",
+        "checksum-p1",
+        "checksum-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "write-ahead",
+      "reference_id": "write-ahead-r0",
+      "supported_passage_ids": [
+        "write-ahead-p0",
+        "write-ahead-p1",
+        "write-ahead-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "rate-limiting",
+      "reference_id": "rate-limiting-r0",
+      "supported_passage_ids": [
+        "rate-limiting-p0",
+        "rate-limiting-p1",
+        "rate-limiting-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "muscle-load",
+      "reference_id": "muscle-load-r0",
+      "supported_passage_ids": [
+        "muscle-load-p0",
+        "muscle-load-p1",
+        "muscle-load-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "light-refraction",
+      "reference_id": "light-refraction-r0",
+      "supported_passage_ids": [
+        "light-refraction-p0",
+        "light-refraction-p1",
+        "light-refraction-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "sourdough",
+      "reference_id": "sourdough-r0",
+      "supported_passage_ids": [
+        "sourdough-p0",
+        "sourdough-p1",
+        "sourdough-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "stormwater",
+      "reference_id": "stormwater-r0",
+      "supported_passage_ids": [
+        "stormwater-p0",
+        "stormwater-p1",
+        "stormwater-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "snapshot",
+      "reference_id": "snapshot-r0",
+      "supported_passage_ids": [
+        "snapshot-p0",
+        "snapshot-p1",
+        "snapshot-p2"
+      ],
+      "recovered": false,
+      "failure_stage": "generation",
+      "reason": "Read all offered source bodies; reference is supported. Native output is an empty topics array despite explicit eligible body support."
+    },
+    {
+      "case_id": "habit-cue",
+      "reference_id": "habit-cue-r0",
+      "supported_passage_ids": [
+        "habit-cue-p0",
+        "habit-cue-p1",
+        "habit-cue-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "entropy-compression",
+      "reference_id": "entropy-compression-r0",
+      "supported_passage_ids": [
+        "entropy-compression-p0",
+        "entropy-compression-p1",
+        "entropy-compression-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "erosion",
+      "reference_id": "erosion-r0",
+      "supported_passage_ids": [
+        "erosion-p0",
+        "erosion-p1",
+        "erosion-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "quorum",
+      "reference_id": "quorum-r0",
+      "supported_passage_ids": [
+        "quorum-p0",
+        "quorum-p1",
+        "quorum-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "version-vector",
+      "reference_id": "version-vector-r0",
+      "supported_passage_ids": [
+        "version-vector-p0",
+        "version-vector-p1",
+        "version-vector-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "photosynthesis",
+      "reference_id": "photosynthesis-r0",
+      "supported_passage_ids": [
+        "photosynthesis-p0",
+        "photosynthesis-p1",
+        "photosynthesis-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    },
+    {
+      "case_id": "queue-backpressure",
+      "reference_id": "queue-backpressure-r0",
+      "supported_passage_ids": [
+        "queue-backpressure-p0",
+        "queue-backpressure-p1",
+        "queue-backpressure-p2"
+      ],
+      "recovered": true,
+      "failure_stage": null,
+      "reason": "Read all offered source bodies; reference is supported. At least one grounded concept fragment recovers this reference; this does not establish full membership coverage."
+    }
+  ],
+  "limitations": [
+    "Offered-evidence feasibility: no retrieval or final publication pipeline is tested.",
+    "Reference recovery permits grounded narrower concepts; duplicate fragments count once in recall.",
+    "All reference memberships reviewed, but generated-membership count may fall below the minimum acceptance sample."
+  ]
+}

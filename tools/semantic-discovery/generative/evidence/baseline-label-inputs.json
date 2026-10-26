@@ -1,0 +1,727 @@
+{
+  "cases": [
+    {
+      "id": "contradiction-label-0",
+      "baseline_case_id": "contradiction",
+      "baseline_topic_id": "6d5ebee2-95be-421d-a0db-9d73c5a24c3f",
+      "passages": [
+        {
+          "id": "contradiction-p0",
+          "body": "Antibiotics target bacteria and do not treat viral infections.",
+          "eligible": true
+        },
+        {
+          "id": "contradiction-p1",
+          "body": "The assertion that antibiotics cure viral infections is false. A viral infection does not respond to antibacterial treatment.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "contradiction-label-1",
+      "baseline_case_id": "contradiction",
+      "baseline_topic_id": "411d2c60-0ac3-49cc-8bed-ad44e7f86a5d",
+      "passages": [
+        {
+          "id": "contradiction-p0",
+          "body": "Antibiotics target bacteria and do not treat viral infections.",
+          "eligible": true
+        },
+        {
+          "id": "contradiction-p1",
+          "body": "The assertion that antibiotics cure viral infections is false. A viral infection does not respond to antibacterial treatment.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "contradiction-label-2",
+      "baseline_case_id": "contradiction",
+      "baseline_topic_id": "aa88f3a3-0254-400c-bf9d-32c3a3706b05",
+      "passages": [
+        {
+          "id": "contradiction-p0",
+          "body": "Antibiotics target bacteria and do not treat viral infections.",
+          "eligible": true
+        },
+        {
+          "id": "contradiction-p1",
+          "body": "The assertion that antibiotics cure viral infections is false. A viral infection does not respond to antibacterial treatment.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "unicode-label-0",
+      "baseline_case_id": "unicode",
+      "baseline_topic_id": "997e4260-4fd6-4cc7-a221-4c59438b8761",
+      "passages": [
+        {
+          "id": "unicode-p0",
+          "body": "असफल अनुरोध के बाद प्रतीक्षा समय बढ़ाने से सर्वर पर बार-बार आने वाले अनुरोधों का दबाव घटता है।",
+          "eligible": true
+        },
+        {
+          "id": "unicode-p1",
+          "body": "Aumentar la espera después de un fallo reduce las solicitudes repetidas contra un servidor que no está disponible.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "unicode-label-1",
+      "baseline_case_id": "unicode",
+      "baseline_topic_id": "c4ef02d1-8f51-48e0-bfb8-de050c52851d",
+      "passages": [
+        {
+          "id": "unicode-p0",
+          "body": "असफल अनुरोध के बाद प्रतीक्षा समय बढ़ाने से सर्वर पर बार-बार आने वाले अनुरोधों का दबाव घटता है।",
+          "eligible": true
+        },
+        {
+          "id": "unicode-p1",
+          "body": "Aumentar la espera después de un fallo reduce las solicitudes repetidas contra un servidor que no está disponible.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "unicode-label-2",
+      "baseline_case_id": "unicode",
+      "baseline_topic_id": "217392c9-9c12-4071-9ca8-5e56bd078764",
+      "passages": [
+        {
+          "id": "unicode-p0",
+          "body": "असफल अनुरोध के बाद प्रतीक्षा समय बढ़ाने से सर्वर पर बार-बार आने वाले अनुरोधों का दबाव घटता है।",
+          "eligible": true
+        },
+        {
+          "id": "unicode-p1",
+          "body": "Aumentar la espera después de un fallo reduce las solicitudes repetidas contra un servidor que no está disponible.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "duplicate-template-label-0",
+      "baseline_case_id": "duplicate-template",
+      "baseline_topic_id": "5c2d5a16-6265-4214-8acf-158ca2248fef",
+      "passages": [
+        {
+          "id": "duplicate-template-p0",
+          "body": "A replica copies changes from the primary. Replication lag is the delay before those changes appear on the replica.",
+          "eligible": true
+        },
+        {
+          "id": "duplicate-template-p1",
+          "body": "A replica copies changes from the primary. Replication lag is the delay before those changes appear on the replica.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "revoked-label-0",
+      "baseline_case_id": "revoked",
+      "baseline_topic_id": "6fb1e42b-17c4-4eb9-a817-896ae747a8d1",
+      "passages": [
+        {
+          "id": "revoked-p1",
+          "body": "Seed germination requires suitable moisture and temperature.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "rare-concept-label-0",
+      "baseline_case_id": "rare-concept",
+      "baseline_topic_id": "42963d31-15cc-4366-9885-afafc24271de",
+      "passages": [
+        {
+          "id": "rare-concept-p0",
+          "body": "A Bloom filter can return false positives but never false negatives for inserted items when implemented correctly.",
+          "eligible": true
+        },
+        {
+          "id": "rare-concept-p1",
+          "body": "Before reading storage, query a Bloom filter. A negative result skips the read; a positive result still needs exact lookup.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "rare-concept-label-1",
+      "baseline_case_id": "rare-concept",
+      "baseline_topic_id": "861fa668-2f70-4f71-a70d-a51c95cce48a",
+      "passages": [
+        {
+          "id": "rare-concept-p0",
+          "body": "A Bloom filter can return false positives but never false negatives for inserted items when implemented correctly.",
+          "eligible": true
+        },
+        {
+          "id": "rare-concept-p1",
+          "body": "Before reading storage, query a Bloom filter. A negative result skips the read; a positive result still needs exact lookup.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "rare-concept-label-2",
+      "baseline_case_id": "rare-concept",
+      "baseline_topic_id": "d40f3ca2-8065-4055-9261-c94acc1b92bf",
+      "passages": [
+        {
+          "id": "rare-concept-p0",
+          "body": "A Bloom filter can return false positives but never false negatives for inserted items when implemented correctly.",
+          "eligible": true
+        },
+        {
+          "id": "rare-concept-p1",
+          "body": "Before reading storage, query a Bloom filter. A negative result skips the read; a positive result still needs exact lookup.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "rare-concept-label-3",
+      "baseline_case_id": "rare-concept",
+      "baseline_topic_id": "2c1e8d02-62e5-424c-a627-d93a156b712d",
+      "passages": [
+        {
+          "id": "rare-concept-p2",
+          "body": "A B-tree maintains sorted keys with bounded node fan-out.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "label-change-label-0",
+      "baseline_case_id": "label-change",
+      "baseline_topic_id": "04cdda64-26c7-49ee-a2cb-b3217cfc02c3",
+      "passages": [
+        {
+          "id": "label-change-p0",
+          "body": "Use exponentially increasing waits between failed requests. Apply random jitter so many clients do not retry simultaneously.",
+          "eligible": true
+        },
+        {
+          "id": "label-change-p1",
+          "body": "Randomized retry delays spread client requests over time after an outage.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "label-change-label-1",
+      "baseline_case_id": "label-change",
+      "baseline_topic_id": "6fd4ad73-522a-4d32-801b-c8d06f06bfab",
+      "passages": [
+        {
+          "id": "label-change-p0",
+          "body": "Use exponentially increasing waits between failed requests. Apply random jitter so many clients do not retry simultaneously.",
+          "eligible": true
+        },
+        {
+          "id": "label-change-p1",
+          "body": "Randomized retry delays spread client requests over time after an outage.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "label-change-label-2",
+      "baseline_case_id": "label-change",
+      "baseline_topic_id": "b1b70e90-3bf7-41e0-93f4-4f12971e4335",
+      "passages": [
+        {
+          "id": "label-change-p0",
+          "body": "Use exponentially increasing waits between failed requests. Apply random jitter so many clients do not retry simultaneously.",
+          "eligible": true
+        },
+        {
+          "id": "label-change-p1",
+          "body": "Randomized retry delays spread client requests over time after an outage.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "no-forced-membership-label-0",
+      "baseline_case_id": "no-forced-membership",
+      "baseline_topic_id": "67b6ca80-8ec1-468d-8ba6-91cb56ae221c",
+      "passages": [
+        {
+          "id": "no-forced-membership-p0",
+          "body": "Reference counting frees an object when its strong reference count reaches zero. Cycles require additional handling.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "no-forced-membership-label-1",
+      "baseline_case_id": "no-forced-membership",
+      "baseline_topic_id": "192b4668-2554-42f3-b573-27da27ff1a5e",
+      "passages": [
+        {
+          "id": "no-forced-membership-p1",
+          "body": "A resting dough hydrates flour before kneading.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "lease-expiry-label-0",
+      "baseline_case_id": "lease-expiry",
+      "baseline_topic_id": "df294f46-9166-4b04-a29a-b1a444a7206e",
+      "passages": [
+        {
+          "id": "lease-expiry-p0",
+          "body": "A lease grants access until a deadline, after which the holder must renew it or stop using the resource.",
+          "eligible": true
+        },
+        {
+          "id": "lease-expiry-p1",
+          "body": "A worker must stop acting as owner after its lease expires even if it cannot reach the coordinator.",
+          "eligible": true
+        },
+        {
+          "id": "lease-expiry-p2",
+          "body": "A bounded lease lifetime prevents a disconnected owner from keeping ownership forever.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "dns-ttl-label-0",
+      "baseline_case_id": "dns-ttl",
+      "baseline_topic_id": "6e09613b-84a9-4a0f-a684-5548f80bbe37",
+      "passages": [
+        {
+          "id": "dns-ttl-p0",
+          "body": "A DNS TTL limits how long a resolver may reuse a cached record.",
+          "eligible": true
+        },
+        {
+          "id": "dns-ttl-p1",
+          "body": "After a DNS record changes, cached answers can persist until their TTL expires.",
+          "eligible": true
+        },
+        {
+          "id": "dns-ttl-p2",
+          "body": "Reducing the TTL before a DNS migration shortens the stale-answer window but increases queries.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "soil-drainage-label-0",
+      "baseline_case_id": "soil-drainage",
+      "baseline_topic_id": "e51c56eb-8c5d-442a-b5a4-32d4a5e64eee",
+      "passages": [
+        {
+          "id": "soil-drainage-p0",
+          "body": "Waterlogged soil leaves little oxygen around roots and can damage them.",
+          "eligible": true
+        },
+        {
+          "id": "soil-drainage-p1",
+          "body": "Drainage removes excess water and restores air spaces needed by plant roots.",
+          "eligible": true
+        },
+        {
+          "id": "soil-drainage-p2",
+          "body": "A pot with blocked drainage can suffocate roots even when the leaves appear to need water.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "sleep-spacing-label-0",
+      "baseline_case_id": "sleep-spacing",
+      "baseline_topic_id": "0c4d8700-aa57-4cb0-afb8-d1bdefc6cc7a",
+      "passages": [
+        {
+          "id": "sleep-spacing-p0",
+          "body": "Practicing retrieval on separate days improves delayed recall compared with massed repetition.",
+          "eligible": true
+        },
+        {
+          "id": "sleep-spacing-p1",
+          "body": "Spacing study sessions creates repeated opportunities to retrieve material after some forgetting.",
+          "eligible": true
+        },
+        {
+          "id": "sleep-spacing-p2",
+          "body": "Reviewing a concept at increasing intervals exercises long-term recall rather than only immediate familiarity.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "pressure-boiling-label-0",
+      "baseline_case_id": "pressure-boiling",
+      "baseline_topic_id": "b4160e79-fe6b-4bf7-b3ce-989f8781fa93",
+      "passages": [
+        {
+          "id": "pressure-boiling-p0",
+          "body": "Water boils when its vapor pressure equals ambient pressure.",
+          "eligible": true
+        },
+        {
+          "id": "pressure-boiling-p1",
+          "body": "Lower air pressure at altitude allows water to boil at a lower temperature.",
+          "eligible": true
+        },
+        {
+          "id": "pressure-boiling-p2",
+          "body": "A pressure cooker raises pressure, raising the boiling temperature of water.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "checksum-label-0",
+      "baseline_case_id": "checksum",
+      "baseline_topic_id": "0d568181-50fe-4674-ac80-2c675a25992b",
+      "passages": [
+        {
+          "id": "checksum-p0",
+          "body": "A checksum calculated before transmission can be compared with one calculated after receipt to detect changed bytes.",
+          "eligible": true
+        },
+        {
+          "id": "checksum-p1",
+          "body": "Matching an expected cryptographic digest helps detect a corrupted downloaded artifact.",
+          "eligible": true
+        },
+        {
+          "id": "checksum-p2",
+          "body": "A changed file normally produces a different cryptographic digest; verify against a trusted expected digest.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "write-ahead-label-0",
+      "baseline_case_id": "write-ahead",
+      "baseline_topic_id": "de13c183-3783-4ace-a21e-bc5370afe0e6",
+      "passages": [
+        {
+          "id": "write-ahead-p0",
+          "body": "Write the recovery log durably before flushing changed data pages.",
+          "eligible": true
+        },
+        {
+          "id": "write-ahead-p1",
+          "body": "After a crash, committed log records can redo changes not yet present in data files.",
+          "eligible": true
+        },
+        {
+          "id": "write-ahead-p2",
+          "body": "A write-ahead log preserves enough ordered information to recover interrupted database writes.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "rate-limiting-label-0",
+      "baseline_case_id": "rate-limiting",
+      "baseline_topic_id": "1176d709-9cd5-444b-9e59-bcc73452b83f",
+      "passages": [
+        {
+          "id": "rate-limiting-p0",
+          "body": "A token bucket admits a request only when a token is available.",
+          "eligible": true
+        },
+        {
+          "id": "rate-limiting-p1",
+          "body": "Tokens refill at a fixed rate and unused tokens accumulate up to a capacity, permitting bounded bursts.",
+          "eligible": true
+        },
+        {
+          "id": "rate-limiting-p2",
+          "body": "Token bucket capacity limits burst size while refill rate limits sustained request throughput.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "muscle-load-label-0",
+      "baseline_case_id": "muscle-load",
+      "baseline_topic_id": "c84beaff-db7d-455d-8f1e-598a061033b0",
+      "passages": [
+        {
+          "id": "muscle-load-p1",
+          "body": "Increase resistance or volume progressively rather than keeping the same easy load indefinitely.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "muscle-load-label-1",
+      "baseline_case_id": "muscle-load",
+      "baseline_topic_id": "a8db871e-1c1d-426e-ab30-89726348808f",
+      "passages": [
+        {
+          "id": "muscle-load-p0",
+          "body": "Training adaptations require gradually increasing the challenge as the body becomes accustomed to a workload.",
+          "eligible": true
+        },
+        {
+          "id": "muscle-load-p2",
+          "body": "Progressive overload combines manageable increases in training demand with adequate recovery.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "light-refraction-label-0",
+      "baseline_case_id": "light-refraction",
+      "baseline_topic_id": "6d7028db-d4e0-4b64-bf62-bbb5920a2a9d",
+      "passages": [
+        {
+          "id": "light-refraction-p0",
+          "body": "A light ray changes direction when entering a medium with a different refractive index at an angle.",
+          "eligible": true
+        },
+        {
+          "id": "light-refraction-p1",
+          "body": "Refraction explains why a submerged object appears displaced when viewed from air.",
+          "eligible": true
+        },
+        {
+          "id": "light-refraction-p2",
+          "body": "Snell law relates incident and refracted angles to the refractive indices of the media.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "sourdough-label-0",
+      "baseline_case_id": "sourdough",
+      "baseline_topic_id": "01945ba7-9dfe-49ac-b271-8155d711779c",
+      "passages": [
+        {
+          "id": "sourdough-p0",
+          "body": "A sourdough starter contains yeasts and bacteria that ferment flour and water.",
+          "eligible": true
+        },
+        {
+          "id": "sourdough-p1",
+          "body": "Yeast in the starter produces gas that helps dough rise while bacteria contribute acidity.",
+          "eligible": true
+        },
+        {
+          "id": "sourdough-p2",
+          "body": "Regular feeding supplies flour carbohydrates that sustain the starter culture.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "stormwater-label-0",
+      "baseline_case_id": "stormwater",
+      "baseline_topic_id": "76d226f0-aa68-49ff-b5dd-935d46387cd5",
+      "passages": [
+        {
+          "id": "stormwater-p0",
+          "body": "Permeable paving lets rainwater infiltrate instead of immediately flowing into drains.",
+          "eligible": true
+        },
+        {
+          "id": "stormwater-p1",
+          "body": "Replacing sealed surfaces with permeable materials can reduce stormwater runoff.",
+          "eligible": true
+        },
+        {
+          "id": "stormwater-p2",
+          "body": "Infiltration capacity matters: saturated ground may produce runoff even beneath permeable paving.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "snapshot-label-0",
+      "baseline_case_id": "snapshot",
+      "baseline_topic_id": "9efd155a-cff7-4f96-ba54-fdb903fedceb",
+      "passages": [
+        {
+          "id": "snapshot-p0",
+          "body": "A transaction under snapshot isolation reads a consistent snapshot of committed data.",
+          "eligible": true
+        },
+        {
+          "id": "snapshot-p1",
+          "body": "Concurrent transactions can read older versions without blocking each other under snapshot isolation.",
+          "eligible": true
+        },
+        {
+          "id": "snapshot-p2",
+          "body": "Snapshot isolation does not by itself prevent write skew when transactions update different rows based on a shared condition.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "habit-cue-label-0",
+      "baseline_case_id": "habit-cue",
+      "baseline_topic_id": "eb09114c-487f-456d-897a-fe39d89ffde1",
+      "passages": [
+        {
+          "id": "habit-cue-p1",
+          "body": "Placing a toothbrush beside medication can serve as a consistent reminder cue for the intended routine.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "habit-cue-label-1",
+      "baseline_case_id": "habit-cue",
+      "baseline_topic_id": "20d5a82d-52dd-4a36-9872-76dd8f573d61",
+      "passages": [
+        {
+          "id": "habit-cue-p0",
+          "body": "Repeating an action after a stable cue helps associate the context with the action.",
+          "eligible": true
+        },
+        {
+          "id": "habit-cue-p2",
+          "body": "A recurring contextual cue reduces the need to decide anew when to begin a habit.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "entropy-compression-label-0",
+      "baseline_case_id": "entropy-compression",
+      "baseline_topic_id": "ec5897b5-60ba-4591-a96f-d22e757787f9",
+      "passages": [
+        {
+          "id": "entropy-compression-p0",
+          "body": "Lossless compression exploits predictable redundancy while preserving exact reconstruction.",
+          "eligible": true
+        },
+        {
+          "id": "entropy-compression-p1",
+          "body": "Random-looking data with little exploitable structure is generally difficult to compress losslessly.",
+          "eligible": true
+        },
+        {
+          "id": "entropy-compression-p2",
+          "body": "A decoder reconstructs the exact original bytes from a valid losslessly compressed representation.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "erosion-label-0",
+      "baseline_case_id": "erosion",
+      "baseline_topic_id": "ed1012c7-aba6-42d4-bc1c-1b7f65c430a7",
+      "passages": [
+        {
+          "id": "erosion-p0",
+          "body": "Plant roots help bind soil and reduce its removal by flowing water.",
+          "eligible": true
+        },
+        {
+          "id": "erosion-p1",
+          "body": "Ground cover reduces raindrop impact and slows surface runoff, limiting erosion.",
+          "eligible": true
+        },
+        {
+          "id": "erosion-p2",
+          "body": "Removing vegetation can leave soil more vulnerable to erosion during heavy rain.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "quorum-label-0",
+      "baseline_case_id": "quorum",
+      "baseline_topic_id": "5d0bb86a-1c5c-4a3f-aa14-aedb44a9e1f5",
+      "passages": [
+        {
+          "id": "quorum-p0",
+          "body": "Read and write quorums that intersect can ensure a reader contacts a replica involved in the write.",
+          "eligible": true
+        },
+        {
+          "id": "quorum-p1",
+          "body": "For N replicas, choosing read and write quorum sizes whose sum exceeds N guarantees an intersection.",
+          "eligible": true
+        },
+        {
+          "id": "quorum-p2",
+          "body": "Quorum intersection alone is insufficient without rules for version selection and concurrent writes.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "version-vector-label-0",
+      "baseline_case_id": "version-vector",
+      "baseline_topic_id": "d1b4cd56-4ab6-4445-968a-2134121674ae",
+      "passages": [
+        {
+          "id": "version-vector-p0",
+          "body": "A version vector records counters from multiple replicas to represent causal history.",
+          "eligible": true
+        },
+        {
+          "id": "version-vector-p1",
+          "body": "If neither version vector dominates the other, the updates are concurrent rather than causally ordered.",
+          "eligible": true
+        },
+        {
+          "id": "version-vector-p2",
+          "body": "Version vectors help distinguish an obsolete replica value from a conflicting concurrent update.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "photosynthesis-label-0",
+      "baseline_case_id": "photosynthesis",
+      "baseline_topic_id": "9567caa6-c7d9-498a-b9da-66a26b615b7f",
+      "passages": [
+        {
+          "id": "photosynthesis-p0",
+          "body": "Photosynthesis uses light energy to build chemical energy stores from carbon dioxide and water.",
+          "eligible": true
+        },
+        {
+          "id": "photosynthesis-p1",
+          "body": "Chlorophyll absorbs light that drives photosynthetic reactions in plants.",
+          "eligible": true
+        },
+        {
+          "id": "photosynthesis-p2",
+          "body": "Light availability can limit photosynthesis even when other inputs are present.",
+          "eligible": true
+        }
+      ]
+    },
+    {
+      "id": "queue-backpressure-label-0",
+      "baseline_case_id": "queue-backpressure",
+      "baseline_topic_id": "1288cc4f-3f8f-4cd8-af4c-2d140d42ef6c",
+      "passages": [
+        {
+          "id": "queue-backpressure-p0",
+          "body": "When a consumer is slower than a producer, an unbounded queue can grow until memory is exhausted.",
+          "eligible": true
+        },
+        {
+          "id": "queue-backpressure-p1",
+          "body": "Backpressure makes producers slow down or wait when bounded buffers fill.",
+          "eligible": true
+        },
+        {
+          "id": "queue-backpressure-p2",
+          "body": "A bounded queue with explicit overflow policy prevents silently unlimited buffering.",
+          "eligible": true
+        }
+      ]
+    }
+  ]
+}

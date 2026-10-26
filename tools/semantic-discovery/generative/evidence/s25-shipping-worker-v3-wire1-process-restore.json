@@ -1,0 +1,36 @@
+{
+  "status": "completed",
+  "backend": "GPU",
+  "case": "production-worker-restore",
+  "runtime": "LiteRT-LM 0.18.1",
+  "device": "SM-S931B",
+  "api": 37,
+  "contextTokens": 2048,
+  "maxOutputTokens": 512,
+  "promptVersion": "shipping-label-policy; see nested labelIdentity",
+  "thinking": false,
+  "pid": 11791,
+  "cancelAfterMillis": 0,
+  "cpuThreads": 2,
+  "productionWorker": {
+    "scope": "actual probe-process replacement; shipping files\/controller; model unavailable; public fixture only",
+    "savedPid": 10649,
+    "restoredPid": 11791,
+    "restoredTopics": 1,
+    "nativeCalls": 0,
+    "restoredAlias": "My seed notes",
+    "restoreMillis": 209,
+    "afterRestore": {
+      "javaAllocatedBytes": 7714016,
+      "nativeAllocatedBytes": 9754128,
+      "processPssKiB": 62167,
+      "anonRssKiB": 52248,
+      "swapKiB": 25272,
+      "anonPlusSwapKiB": 77520,
+      "deviceAvailableBytes": 4460949504,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    }
+  }
+}

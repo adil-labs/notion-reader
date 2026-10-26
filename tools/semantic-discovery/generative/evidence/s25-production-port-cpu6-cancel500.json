@@ -1,0 +1,63 @@
+{
+  "status": "completed",
+  "backend": "CPU",
+  "case": "production-label",
+  "runtime": "LiteRT-LM 0.18.1",
+  "device": "SM-S931B",
+  "api": 37,
+  "contextTokens": 2048,
+  "maxOutputTokens": 512,
+  "promptVersion": "production-label-v1",
+  "thinking": false,
+  "pid": 1815,
+  "cancelAfterMillis": 500,
+  "cpuThreads": 6,
+  "productionLabelPort": {
+    "modelSha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "promptIdentity": "d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af",
+    "schemaIdentity": "9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0",
+    "backend": "CPU-6-threads",
+    "beforeLoad": {
+      "javaAllocatedBytes": 5125344,
+      "nativeAllocatedBytes": 9741568,
+      "processPssKiB": 65506,
+      "anonRssKiB": 45024,
+      "swapKiB": 25200,
+      "anonPlusSwapKiB": 70224,
+      "deviceAvailableBytes": 4921061376,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    },
+    "runs": [
+      {
+        "iteration": 0,
+        "promptTokens": 180,
+        "totalMillis": 3178,
+        "nativeCancellationException": true,
+        "cancelToNativeTerminalMillis": 537,
+        "cancelToPortCompletedMillis": 661
+      },
+      {
+        "iteration": 1,
+        "promptTokens": 180,
+        "totalMillis": 3496,
+        "nativeCancellationException": true,
+        "cancelToNativeTerminalMillis": 377,
+        "cancelToPortCompletedMillis": 608
+      }
+    ],
+    "afterClose": {
+      "javaAllocatedBytes": 5727456,
+      "nativeAllocatedBytes": 9910752,
+      "processPssKiB": 145371,
+      "anonRssKiB": 114344,
+      "swapKiB": 25096,
+      "anonPlusSwapKiB": 139440,
+      "deviceAvailableBytes": 4829044736,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    }
+  }
+}
