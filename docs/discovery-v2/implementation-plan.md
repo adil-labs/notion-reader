@@ -1,5 +1,7 @@
 # Discovery v2 — gated implementation and rollout plan
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** proposed work plan. **This commit is documentation only; no production behavior or tests were changed.** References: [requirements](requirements.md), [architecture](architecture.md), [scoring](evidence-scoring.md), [incremental](incremental-processing.md), [state](state-migration.md), [evaluation](evaluation-acceptance.md).
 
 ## Mandatory phase 0 — source-of-truth approval and baseline

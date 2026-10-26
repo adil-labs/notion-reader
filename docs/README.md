@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#116-litert-backend-selection-on-s25-and-pixel-8-pro-2026-10-25)
+[the current decision-record entry](decisions.md#133-enable-concept-based-discovery-by-user-instruction-2026-10-26)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

@@ -1,5 +1,7 @@
 # Discovery v2 — R01–R49 traceability and proof obligations
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** proposed design coverage, **not implementation coverage**. All 49 requirements appear below. “Planned proof” means tests to implement/measure, not that any test currently passes. This matrix explicitly closes specification gaps identified in the conversation: R01, R04, R05, R09, R12, R14, R16, R17, R22, R24, R32, R33, R34, R37, R41, R44, R46, R47 and R49.
 
 References: **A** [architecture](architecture.md), **S** [evidence/scoring](evidence-scoring.md), **I** [incremental](incremental-processing.md), **M** [state/migration](state-migration.md), **E** [evaluation](evaluation-acceptance.md), **P** [implementation](implementation-plan.md).

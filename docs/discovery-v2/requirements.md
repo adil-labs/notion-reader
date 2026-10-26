@@ -1,5 +1,7 @@
 # Discovery v2 — requirements baseline (R01–R49)
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** proposed specification; quality/latency acceptance not yet measured. This preserves the 49 requested requirements, with Must/Should priorities. A design reference does **not** mean a passing test. See [traceability](traceability.md) for implementation ownership and verification.
 
 ## A. Topic quality and identification

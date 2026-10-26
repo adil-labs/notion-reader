@@ -5,7 +5,27 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)).
+Discovery refinement is in progress ([current round](docs/decisions.md#132-cluster-seeded-concepts-and-retrieved-notes-2026-10-26)).
+The [current Discovery plan](docs/superpowers/plans/2026-10-26-cluster-seeded-topic-retrieval.md)
+uses grouping as seed evidence, local Gemma 4 E2B names and definitions, then embedding retrieval
+across eligible indexed Notes as the sole topic pipeline, updating the catalog in place.
+Seed members never substitute for matching Notes. Matches can overlap or remain empty;
+unmatched Notes are allowed. Full LLM concept formation was rejected after low recall.
+The naming control improved useful labels to 33/39, but its 141-second generation cost,
+source grounding and device acceptance still need work. Typed label/invalidation
+contracts, native runtime and separate model-manager components are implemented. Public S25
+generation/cancellation smoke passed. Shared scheduling, atomic label sidecars and reuse
+validation are integrated through the existing topic coordinator and controller. Saved concepts,
+query vectors and complete matches restore without inference. Source/reset cleanup covers their
+derived records, and inspected updates wait for Refresh. Older name-only metadata becomes pending.
+Topic cards, details, relationship navigation and listening-preview titles now use the same
+generated name or explicit alias; unnamed groups show neutral pending text. Original cluster
+wording remains internal evidence only. The process root now constructs the optional generator,
+model manager and label store; settings offers explicit download/cancel/delete, its own network
+policy and measured model-file bytes. Derived labels and model files have separate storage accounting.
+Bounded device-memory sampling supplements lifecycle signals. Native naming and concept-based
+matching are enabled by explicit user instruction. Fresh semantic and representative resource
+acceptance remain outstanding measurements; there is no second generated-topic list or debug-only topic engine.
 Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
 radio-selected Automatic vs custom maximums, separate model file reporting, truthful consequences and
 accessible expandable policy explanations with discoverable shared larger-limit preferences.

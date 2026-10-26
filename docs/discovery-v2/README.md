@@ -4,6 +4,8 @@
 
 ## Read in this order
 
+**Current direction (2026-10-26):** The sole pipeline uses **clusters as evidence, Gemma 4 E2B names and definitions, then embedding retrieval of matching Notes**. Start with the [approved design](cluster-seeded-topic-retrieval-design.md), [current implementation plan](../superpowers/plans/2026-10-26-cluster-seeded-topic-retrieval.md) and [execution ledger](execution-ledger.md). Product, UI and Integration Notion sources have been amended and regenerated. The runtime, matching persistence and existing catalog are wired; seed membership is never a displayed-match fallback. Historical alternatives remain investigation records. Production execution is enabled by explicit user instruction (§133); fresh semantic and representative native resource acceptance remain outstanding.
+
 1. [Requirements](requirements.md) — all 49 requested requirements, scope, acceptance intent and non-goals.
 2. [Architecture](architecture.md) — end-to-end operation, responsibilities, evidence flow, topic lifecycle and user experience.
 3. [Evidence, scoring and naming](evidence-scoring.md) — deterministic features, hard gates, generic-heading isolation, weights and abstention.

@@ -1,5 +1,7 @@
 # Discovery v2 — evidence, generic headings, scoring and publication
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** algorithm proposal; no weights, thresholds or feature functions are validated on production Notes. This document specifies proposed **observable** behavior for R01–R24 and R41 rather than claiming machine comprehension.
 
 ## A. Non-negotiable evidence model

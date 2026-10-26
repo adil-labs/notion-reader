@@ -1,5 +1,9 @@
 # Semantic Discovery Implementation Specification
 
+**Current implementation direction (2026-10-26):** existing grouping plus local LLM labels is the sole replacement pipeline. See [approved design](discovery-v2/sole-grouping-labeling-design.md) and [current plan](superpowers/plans/2026-10-26-sole-grouping-llm-labeling.md). Full generative concept formation below is superseded; no parallel catalog or production engine selector is authorized.
+
+> **2026-10-25 generative direction:** The governing contracts now authorize a gated local Gemma 4 E2B / LiteRT-LM replacement. [Generative direction](discovery-v2/generative-direction.md) and the [phased plan](superpowers/plans/2026-10-25-llm-discovery-v2.md) define that work. The engine described below remains current production until replacement acceptance; no generative runtime is implemented by the specification amendment.
+
 Hand-authored implementation companion to the seven governing specifications listed
 in [the documentation map](README.md). This file records concrete implementation
 choices and acceptance procedures; it is not an additional governing specification.

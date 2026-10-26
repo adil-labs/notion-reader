@@ -1,5 +1,7 @@
 # Discovery v2 — incremental processing, recovery and bounded costs
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** proposal. The existing single-engine app, cache and scheduler remain shipping until a separately approved migration. This document covers R25–R35 and R40.
 
 ## 1. Trigger and priority contract

@@ -1,5 +1,7 @@
 # Discovery v2 — validation, quality, performance and accessibility
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** validation proposal; no current v2 pass claims. Applies to all 49 requirements. Release requires evidence rather than inference from code, unit tests or model benchmark names.
 
 ## 1. Evaluation questions

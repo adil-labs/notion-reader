@@ -1,5 +1,7 @@
 # Discovery v2 — persisted state, migration, source safety
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** proposal. Do not edit production storage schema or reset user discoveries based on this document without governing-contract approval and migration tests.
 
 ## 1. Proposed data contract

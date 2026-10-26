@@ -1,5 +1,7 @@
 # Discovery v2 — end-to-end architecture
 
+> **Current direction:** The local Gemma 4 E2B / LiteRT-LM replacement and requirement dispositions are defined in [generative-direction.md](generative-direction.md) under the amended governing Notion contracts. Deterministic-only, literal-label-only and activity-ranking passages in this original proposal are superseded where they conflict. This file preserves the original proposal for comparison; it is not the execution authority.
+
 **Status:** proposed target architecture, not shipping behavior. **Scope:** automatic Topics in your Notes, related subject graph, topic quality and discovery ranking. Existing semantic search, manual Browse, listening and independent named-reference connections keep their owning contracts. Consult [the index](README.md).
 
 ## Problem and target outcome
