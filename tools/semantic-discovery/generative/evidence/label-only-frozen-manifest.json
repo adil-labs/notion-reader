@@ -1,0 +1,12 @@
+{
+  "status": "frozen before label-only generation; descriptive followup, not a new unseen holdout",
+  "inputsSha256": "637dbaf14d9207344a6ac059d4a4225bb98d14ca7139703b7d4a3c4c24bd0add",
+  "promptSha256": "a99d0c3e4c8056bc09b08c04cd92c46c16dc2234b49a309aebb330014122ce49",
+  "modelSha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+  "runtime": "LiteRT-LM 0.18.1",
+  "backend": "GPU",
+  "contextTokens": 2048,
+  "outputTokens": 512,
+  "groups": 39,
+  "membershipsFixed": true
+}

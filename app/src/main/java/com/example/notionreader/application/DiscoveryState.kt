@@ -56,6 +56,7 @@ enum class DiscoveryProcessingStatus { Checking, LoadingSavedDiscoveries, SetupR
     WaitingForPlayback, WaitingForResources, Processing, Ready, CacheUnavailable, RecoveryRequired }
 enum class DiscoveryIndexingAction { Pause, Resume }
 enum class DiscoveryCoverageStatus { Checking, Ready }
+enum class TopicNamingStatus { Pending, Running, Ready, Unavailable }
 
 data class DiscoveryState(
     val cacheStatus: DiscoveryCacheStatus = DiscoveryCacheStatus.Checking,
@@ -73,6 +74,7 @@ data class DiscoveryState(
     val topicSnapshot: TopicSnapshot = TopicSnapshot(), val topicsUpdated: Boolean = false,
     val publishedTopics: List<PublishedTopic> = emptyList(),
     val topicStatus: String? = null, val previewLabel: String = "Discovery recommendations",
+    val topicNaming: TopicNamingStatus? = null,
     val unavailablePreviewIds: Set<String> = emptySet(), val previewStatus: String? = null,
     val interestMatch: InterestMatchState = InterestMatchState(),
     val cachedRevision: Long = 0, val indexedRevision: Long = 0,

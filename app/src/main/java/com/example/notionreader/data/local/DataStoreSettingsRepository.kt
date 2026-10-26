@@ -75,6 +75,7 @@ class DataStoreSettingsRepository(
 
     private fun decode(prefs: Preferences): ReaderSettings {
         return ReaderSettings(
+            discoveryBackend = com.example.notionreader.domain.settings.DiscoveryBackend.fromStored(prefs[KEY_DISCOVERY_BACKEND]),
             noteCacheLimitBytes = StorageDefaults.validLimit(prefs[KEY_NOTE_LIMIT] ?: StorageDefaults.NOTE_BYTES, StorageDefaults.NOTE_BYTES),
             discoveryStorageAutomatic = prefs[KEY_DISCOVERY_AUTO] ?: true,
             discoveryCustomLimitBytes = StorageDefaults.validLimit(prefs[KEY_DISCOVERY_LIMIT] ?: StorageDefaults.CUSTOM_DISCOVERY_BYTES, StorageDefaults.CUSTOM_DISCOVERY_BYTES),
@@ -114,6 +115,7 @@ class DataStoreSettingsRepository(
     }
 
     private fun encode(settings: ReaderSettings, prefs: androidx.datastore.preferences.core.MutablePreferences) {
+        prefs[KEY_DISCOVERY_BACKEND] = settings.discoveryBackend.name
         prefs[KEY_NOTE_LIMIT] = StorageDefaults.validLimit(settings.noteCacheLimitBytes, StorageDefaults.NOTE_BYTES)
         prefs[KEY_DISCOVERY_AUTO] = settings.discoveryStorageAutomatic
         prefs[KEY_DISCOVERY_LIMIT] = StorageDefaults.validLimit(settings.discoveryCustomLimitBytes, StorageDefaults.CUSTOM_DISCOVERY_BYTES)
@@ -144,6 +146,7 @@ class DataStoreSettingsRepository(
     }
 
     private companion object {
+        val KEY_DISCOVERY_BACKEND = stringPreferencesKey("discovery_backend")
         val KEY_NOTE_LIMIT = longPreferencesKey("note_cache_limit_bytes")
         val KEY_DISCOVERY_AUTO = booleanPreferencesKey("discovery_storage_automatic")
         val KEY_DISCOVERY_LIMIT = longPreferencesKey("discovery_custom_limit_bytes")

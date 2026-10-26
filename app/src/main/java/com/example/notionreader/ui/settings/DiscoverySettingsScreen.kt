@@ -26,6 +26,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.notionreader.domain.settings.DiscoveryEffort
 import com.example.notionreader.domain.settings.ReaderSettings
+import com.example.notionreader.domain.settings.DiscoveryBackend
+import com.example.notionreader.domain.discovery.EmbeddingRuntimeState
 
 data class DiscoverySettingsUi(
     val modelDescription: String,
@@ -37,8 +39,13 @@ data class DiscoverySettingsUi(
     val downloadAllowed: Boolean = false,
     val downloadProgress: String? = null,
     val effort: DiscoveryEffort = DiscoveryEffort.BALANCED,
+    val backend: DiscoveryBackend = DiscoveryBackend.AUTOMATIC,
+    val runtime: EmbeddingRuntimeState = EmbeddingRuntimeState(),
+    val npuModel: com.example.notionreader.domain.discovery.DiscoveryModelState? = null,
     val discoveryBytes: Long? = null,
-    val modelBytes: Long? = null
+    val modelBytes: Long? = null,
+    val topicModel: com.example.notionreader.domain.discovery.DiscoveryModelState? = null,
+    val topicNamingActivationMessage: String? = null
 )
 
 @Composable
@@ -58,7 +65,15 @@ fun DiscoverySettingsScreen(
     settings: ReaderSettings? = null,
     onStorageUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit = {},
     storageMessage: String? = null,
-    extendedMaximumBytes: Long = 0L
+    extendedMaximumBytes: Long = 0L,
+    onBackendChange: (DiscoveryBackend) -> Unit = {},
+    onNpuDownload: () -> Unit = {},
+    onNpuCancel: () -> Unit = {},
+    onNpuDelete: () -> Unit = {},
+    onTopicModelDownload: () -> Unit = {},
+    onTopicModelCancel: () -> Unit = {},
+    onTopicModelDelete: () -> Unit = {},
+    onTopicModelWifiOnlyChange: (Boolean) -> Unit = {}
 ) {
     Column(
         modifier = modifier
@@ -94,7 +109,59 @@ fun DiscoverySettingsScreen(
             Button(onClick = onDownload, enabled = state.downloadAllowed) { Text("Download model") }
         }
 
+        state.topicModel?.let { model ->
+            Text("Topic naming model", Modifier.semantics { heading() })
+            Text(model.description)
+            Text("Optional local naming for existing groups. Reading, playback and search remain available without this model.")
+            state.topicNamingActivationMessage?.let { Text(it) }
+            Text("Topic model files: ${model.storageBytes?.let(::formatStorageBytes) ?: "Checking usage…"}")
+            Text("Download size: ${formatStorageBytes(model.totalBytes)}")
+            model.message?.let { Text(it) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = model.wifiOnly, onCheckedChange = onTopicModelWifiOnlyChange,
+                    modifier = Modifier.semantics { contentDescription = "Topic model download using Wi-Fi only" })
+                Spacer(Modifier.width(8.dp))
+                Text("Topic model download using Wi-Fi only")
+            }
+            when {
+                model.downloading -> {
+                    Text("Topic model download: ${formatStorageBytes(model.downloadedBytes)} of ${formatStorageBytes(model.totalBytes)}")
+                    Button(onClick = onTopicModelCancel) { Text("Cancel topic model download") }
+                }
+                model.installed -> Button(onClick = onTopicModelDelete) { Text("Delete topic naming model") }
+                else -> Button(onClick = onTopicModelDownload) { Text("Download topic naming model") }
+            }
+        }
+
         // Processing Section
+        Text("Inference backend", Modifier.semantics { heading() })
+        DiscoveryBackend.entries.forEach { backend ->
+            Row(Modifier.fillMaxWidth().selectable(
+                selected = state.backend == backend, role = Role.RadioButton,
+                onClick = { onBackendChange(backend) }
+            ).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = state.backend == backend, onClick = null)
+                Spacer(Modifier.width(8.dp))
+                Text(backend.label)
+            }
+        }
+        val currentRuntime = state.runtime.takeIf { it.requested == state.backend }
+        Text("Running backend: ${currentRuntime?.effective?.label ?: "Not running; selection applies to next inference"}")
+        currentRuntime?.reason?.let { Text(it) }
+        state.npuModel?.let { npu ->
+            Text(npu.description)
+            Text("The optional NPU download uses Wi-Fi only. Keep the base model for CPU/GPU fallback and tokenization.")
+            npu.message?.let { Text(it) }
+            when {
+                npu.downloading -> {
+                    Text("NPU model: ${npu.downloadedBytes / 1_000_000} of ${npu.totalBytes / 1_000_000} MB")
+                    Button(onClick = onNpuCancel) { Text("Cancel NPU download") }
+                }
+                npu.installed -> Button(onClick = onNpuDelete) { Text("Delete NPU model") }
+                else -> Button(onClick = onNpuDownload, enabled = state.modelInstalled) { Text("Download NPU model · 188 MB") }
+            }
+        }
+        Text("Automatic compares supported backends using public samples and chooses the faster validated option. Unavailable accelerators fall back to CPU. Selecting a backend does not download models.")
         Text("Processing", Modifier.semantics { heading() })
         Text(state.processing.coverage)
         state.processing.message?.let { Text(it) }

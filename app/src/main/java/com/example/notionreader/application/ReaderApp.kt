@@ -70,10 +70,13 @@ class ReaderApp(
     private val isNotionConfigured: Boolean = true,
     val discovery: DiscoveryController? = null,
     val discoveryModel: DiscoveryModelManager? = null,
+    val discoveryNpuModel: DiscoveryModelManager? = null,
     /** Injected so that retention and recency are assertable without waiting for a clock. */
     private val clock: () -> Long = { System.currentTimeMillis() },
     val recentNotes: RecentNotesController? = null,
-    val storageStatus: StateFlow<com.example.notionreader.domain.document.StorageStatus> = kotlinx.coroutines.flow.MutableStateFlow(com.example.notionreader.domain.document.StorageStatus())
+    val storageStatus: StateFlow<com.example.notionreader.domain.document.StorageStatus> = kotlinx.coroutines.flow.MutableStateFlow(com.example.notionreader.domain.document.StorageStatus()),
+    val discoveryTopicModel: DiscoveryModelManager? = null,
+    val topicNamingActivationMessage: String? = null
 ) {
     val notionConnectionStatus: NotionConnectionStatus
         get() {
@@ -472,6 +475,8 @@ class ReaderApp(
     suspend fun clearAllLocalData() {
         recentNotes?.clear()
         discoveryModel?.delete()
+        discoveryNpuModel?.delete()
+        discoveryTopicModel?.delete()
         discovery?.clearIndex()
         discovery?.clearInterests()
         historyCoordinator.clearHistory()

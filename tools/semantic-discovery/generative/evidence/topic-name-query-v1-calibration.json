@@ -1,0 +1,77 @@
+{
+  "scope": "seen-corpus name-only calibration against previously explicit source references; not independent new semantic acceptance",
+  "acceptance": false,
+  "corpusSha256": "c9296e3788bacd3cc49939a56822e014b61ecdd883ffdd79719735454cf89eb4",
+  "originSha256": "46a6cc22c6368ea1e05960671078cd56092a08f7be6cebde3aa689f6259632f8",
+  "queryCount": 22,
+  "skippedNames": 1,
+  "queryProcessingMillis": 1803,
+  "thresholds": [
+    {
+      "threshold": 0.85,
+      "retrievedMemberships": 56,
+      "referenceSupportedMemberships": 54,
+      "precision": 0.9642857142857143,
+      "recoveredSubjects": 18,
+      "expectedSubjects": 20,
+      "subjectRecall": 0.9,
+      "uniqueRecoveredExpectedMemberships": 51,
+      "expectedMemberships": 60
+    },
+    {
+      "threshold": 0.88,
+      "retrievedMemberships": 25,
+      "referenceSupportedMemberships": 25,
+      "precision": 1.0,
+      "recoveredSubjects": 13,
+      "expectedSubjects": 20,
+      "subjectRecall": 0.65,
+      "uniqueRecoveredExpectedMemberships": 25,
+      "expectedMemberships": 60
+    },
+    {
+      "threshold": 0.9,
+      "retrievedMemberships": 4,
+      "referenceSupportedMemberships": 4,
+      "precision": 1.0,
+      "recoveredSubjects": 4,
+      "expectedSubjects": 20,
+      "subjectRecall": 0.2,
+      "uniqueRecoveredExpectedMemberships": 4,
+      "expectedMemberships": 60
+    },
+    {
+      "threshold": 0.92,
+      "retrievedMemberships": 1,
+      "referenceSupportedMemberships": 1,
+      "precision": 1.0,
+      "recoveredSubjects": 1,
+      "expectedSubjects": 20,
+      "subjectRecall": 0.05,
+      "uniqueRecoveredExpectedMemberships": 1,
+      "expectedMemberships": 60
+    },
+    {
+      "threshold": 0.94,
+      "retrievedMemberships": 0,
+      "referenceSupportedMemberships": 0,
+      "precision": null,
+      "recoveredSubjects": 0,
+      "expectedSubjects": 20,
+      "subjectRecall": 0.0,
+      "uniqueRecoveredExpectedMemberships": 0,
+      "expectedMemberships": 60
+    },
+    {
+      "threshold": 0.96,
+      "retrievedMemberships": 0,
+      "referenceSupportedMemberships": 0,
+      "precision": null,
+      "recoveredSubjects": 0,
+      "expectedSubjects": 20,
+      "subjectRecall": 0.0,
+      "uniqueRecoveredExpectedMemberships": 0,
+      "expectedMemberships": 60
+    }
+  ]
+}

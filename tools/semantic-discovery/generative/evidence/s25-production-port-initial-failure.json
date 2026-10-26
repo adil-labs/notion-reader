@@ -1,0 +1,17 @@
+{
+  "status": "failed",
+  "backend": "GPU",
+  "case": "production-label",
+  "runtime": "LiteRT-LM 0.18.1",
+  "device": "SM-S931B",
+  "api": 37,
+  "contextTokens": 2048,
+  "maxOutputTokens": 512,
+  "promptVersion": "public-probe-3-specific-concepts",
+  "thinking": false,
+  "pid": 29033,
+  "cancelAfterMillis": 0,
+  "cpuThreads": 2,
+  "error": "java.lang.IllegalStateException",
+  "message": "Production port returned Failed(reason=BackendFailure)"
+}

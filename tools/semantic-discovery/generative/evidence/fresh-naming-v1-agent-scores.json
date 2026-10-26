@@ -1,0 +1,128 @@
+{
+  "identity": {
+    "model": "label-v3-wire1-c2048-o512-bundle1:TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af, schema=9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0, policy=label-v3-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+    "prompt": "TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af, schema=9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0, policy=label-v3-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+    "corpus": "c9296e3788bacd3cc49939a56822e014b61ecdd883ffdd79719735454cf89eb4",
+    "rawReportSha256": "437ef379def45fbb0833c2c2adabd20eff85a3070a0cd8b7e80467bb7ec78ea3",
+    "frozenApkSha256": "5807f0f4cd667e0109a0e9d987594b59031d7e3061ea5d44a72a9a7c16d09b1a",
+    "fixtureAuthorIsReviewer": true,
+    "provenance": "agent review required; independent human review absent"
+  },
+  "cases": 1,
+  "topics": 22,
+  "invalid_topics": 0,
+  "invalid_topic_rate": 0.0,
+  "unrated_topics": 0,
+  "human": {
+    "rated_topics": 0,
+    "useful_topics": 0,
+    "supported_labels": 0,
+    "claimed_memberships": 0,
+    "supported_memberships": 0,
+    "topic_precision": null,
+    "label_precision": null,
+    "membership_precision": null,
+    "reference_concepts": 0,
+    "recovered_concepts": 0,
+    "concept_recall": null,
+    "missed_concepts": []
+  },
+  "agent": {
+    "rated_topics": 22,
+    "useful_topics": 21,
+    "supported_labels": 19,
+    "claimed_memberships": 64,
+    "supported_memberships": 57,
+    "topic_precision": 0.9545454545454546,
+    "label_precision": 0.8636363636363636,
+    "membership_precision": 0.890625,
+    "reference_concepts": 20,
+    "recovered_concepts": 19,
+    "concept_recall": 0.95,
+    "missed_concepts": [
+      {
+        "case_id": "joint-library",
+        "reference_id": "bee-dance-r0"
+      }
+    ]
+  },
+  "provisional": {
+    "rated_topics": 0,
+    "useful_topics": 0,
+    "supported_labels": 0,
+    "claimed_memberships": 0,
+    "supported_memberships": 0,
+    "topic_precision": null,
+    "label_precision": null,
+    "membership_precision": null,
+    "reference_concepts": 0,
+    "recovered_concepts": 0,
+    "concept_recall": null,
+    "missed_concepts": []
+  },
+  "partitions": {
+    "heldout": {
+      "identity": {
+        "model": "label-v3-wire1-c2048-o512-bundle1:TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af, schema=9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0, policy=label-v3-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+        "prompt": "TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=d74809ece5372ac29fa5223756fc2ce709e08682bb979416971cb66b3d84a4af, schema=9b49a247217b3c328b77baabc8914714c0121d53a9dd5ecbee8aab0e5c065cd0, policy=label-v3-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+        "corpus": "c9296e3788bacd3cc49939a56822e014b61ecdd883ffdd79719735454cf89eb4",
+        "rawReportSha256": "437ef379def45fbb0833c2c2adabd20eff85a3070a0cd8b7e80467bb7ec78ea3",
+        "frozenApkSha256": "5807f0f4cd667e0109a0e9d987594b59031d7e3061ea5d44a72a9a7c16d09b1a",
+        "fixtureAuthorIsReviewer": true,
+        "provenance": "agent review required; independent human review absent"
+      },
+      "cases": 1,
+      "topics": 22,
+      "invalid_topics": 0,
+      "invalid_topic_rate": 0.0,
+      "unrated_topics": 0,
+      "human": {
+        "rated_topics": 0,
+        "useful_topics": 0,
+        "supported_labels": 0,
+        "claimed_memberships": 0,
+        "supported_memberships": 0,
+        "topic_precision": null,
+        "label_precision": null,
+        "membership_precision": null,
+        "reference_concepts": 0,
+        "recovered_concepts": 0,
+        "concept_recall": null,
+        "missed_concepts": []
+      },
+      "agent": {
+        "rated_topics": 22,
+        "useful_topics": 21,
+        "supported_labels": 19,
+        "claimed_memberships": 64,
+        "supported_memberships": 57,
+        "topic_precision": 0.9545454545454546,
+        "label_precision": 0.8636363636363636,
+        "membership_precision": 0.890625,
+        "reference_concepts": 20,
+        "recovered_concepts": 19,
+        "concept_recall": 0.95,
+        "missed_concepts": [
+          {
+            "case_id": "joint-library",
+            "reference_id": "bee-dance-r0"
+          }
+        ]
+      },
+      "provisional": {
+        "rated_topics": 0,
+        "useful_topics": 0,
+        "supported_labels": 0,
+        "claimed_memberships": 0,
+        "supported_memberships": 0,
+        "topic_precision": null,
+        "label_precision": null,
+        "membership_precision": null,
+        "reference_concepts": 0,
+        "recovered_concepts": 0,
+        "concept_recall": null,
+        "missed_concepts": []
+      }
+    }
+  }
+}

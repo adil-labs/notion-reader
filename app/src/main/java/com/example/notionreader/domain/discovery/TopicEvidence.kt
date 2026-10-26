@@ -7,7 +7,9 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
     replacements: Map<String, EmbeddedPassage> = emptyMap(), retentionThreshold: Float = TopicPolicy().retention): TopicSnapshot {
     val removed = pageIds.map(::canonicalSemanticId).toSet()
     if (removed.isEmpty()) return snapshot
-    val affected = (snapshot.topics + snapshot.provisionalTopics).any { t -> t.members.any { canonicalSemanticId(it.pageId) in removed } || canonicalSemanticId(t.anchor.passage.pageId) in removed || canonicalSemanticId(t.labelSource.pageId) in removed } ||
+    val affected = (snapshot.topics + snapshot.provisionalTopics).any { t -> t.members.any { canonicalSemanticId(it.pageId) in removed } ||
+        t.matchingMembers.any { canonicalSemanticId(it.pageId) in removed } ||
+        canonicalSemanticId(t.anchor.passage.pageId) in removed || canonicalSemanticId(t.labelSource.pageId) in removed } ||
         snapshot.connections.any { canonicalSemanticId(it.left.pageId) in removed || canonicalSemanticId(it.right.pageId) in removed } ||
         snapshot.subjectRelationships.any { canonicalSemanticId(it.evidence.pageId) in removed } ||
         permanent && snapshot.continuity.any { c -> c.pageIds.any { canonicalSemanticId(it) in removed } } ||
@@ -44,8 +46,14 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
             }
         }
     }
-    val provisional = removeEvidence(snapshot.provisionalTopics)
-    val topics = removeEvidence(snapshot.topics)
+    fun withoutStaleLabels(values: List<DiscoveredTopic>) = values.map { topic ->
+        if (topic.generatedLabel != null && topic.currentGeneratedLabel == null) topic.copy(generatedLabel = null, topicMatches = null)
+        else topic.copy(topicMatches = topic.currentTopicMatches?.let { matches ->
+            matches.copy(members = matches.members.filter { available(it.pageId) })
+        })
+    }
+    val provisional = withoutStaleLabels(removeEvidence(snapshot.provisionalTopics))
+    val topics = withoutStaleLabels(removeEvidence(snapshot.topics))
     val revisions = snapshot.acceptedRevisions.filterKeys(::available)
     return snapshot.copy(topics = topics, continuity = registry,
         provisionalTopics = provisional,

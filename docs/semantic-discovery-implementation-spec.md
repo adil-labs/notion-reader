@@ -1,5 +1,9 @@
 # Semantic Discovery Implementation Specification
 
+**Current implementation direction (2026-10-26):** existing grouping plus local LLM labels is the sole replacement pipeline. See [approved design](discovery-v2/sole-grouping-labeling-design.md) and [current plan](superpowers/plans/2026-10-26-sole-grouping-llm-labeling.md). Full generative concept formation below is superseded; no parallel catalog or production engine selector is authorized.
+
+> **2026-10-25 generative direction:** The governing contracts now authorize a gated local Gemma 4 E2B / LiteRT-LM replacement. [Generative direction](discovery-v2/generative-direction.md) and the [phased plan](superpowers/plans/2026-10-25-llm-discovery-v2.md) define that work. The engine described below remains current production until replacement acceptance; no generative runtime is implemented by the specification amendment.
+
 Hand-authored implementation companion to the seven governing specifications listed
 in [the documentation map](README.md). This file records concrete implementation
 choices and acceptance procedures; it is not an additional governing specification.
@@ -148,7 +152,7 @@ artifacts, preprocessing/chunker versions, dimensions and storage version.
 Current optional model: the published official LiteRT-community EmbeddingGemma 2
 text-only 270M INT4 bundle, 768 dimensions, revision
 `9be6e8b90982095dc05c2bd162e4b954ee4dbac7`. LiteRT-LM Android 0.18.1
-runs locally through LiteRT CPU with two threads. No local model conversion or
+runs locally with CPU (two threads) and validated accelerator selection. No local model conversion or
 export is performed. The complete 164,626,432-byte pack is one published
 `.litertlm` file, including the authoritative SentencePiece tokenizer. A small JNI
 bridge uses Google SentencePiece 0.2.1 through locked Rust bindings to read that
@@ -163,6 +167,24 @@ incompatible state. Reject inputs over 8,192 tokens without truncation.
 App ABIs are arm64-v8a and x86_64, with minimum API 26 unchanged.
 Bounded source windows remain complete and overlapping rather than using the
 whole context for every passage.
+
+Persist Automatic/CPU/GPU/NPU separately from effective runtime status. Automatic
+compares median warm timings over three public short/long probe pairs after
+normalized 768D outputs agree with CPU at cosine >=0.999. One native session is
+live at a time. Accelerator maxInputLength is 512; valid longer inputs switch to
+CPU8192 without truncating or changing chunking. Failed accelerators remain
+rejected until selection/installation changes; CPU failure and cancellation
+propagate. Release closes native resources but retains the measured selection.
+
+The optional published SM8750 NPU bundle is 187596800 bytes, SHA256
+`b5615709768db4ca4fb4f04514e7e41b0680ccb12dd5f90371193f7fd12e7c99` at the same revision.
+Its explicit separate Wi-Fi-only acquisition uses the existing atomic downloader
+and managed storage gate. Base CPU/GPU pack remains required for fallback and
+source tokenization. Official Qualcomm dispatch2.3.0 and QAIRT2.50.0 are packaged
+with only the V79 runtime needed for SM8750. Actual S25 NPU vectors are repeatable
+but disagree with CPU (~0.733 cosine); validation rejects them. This remains an
+artifact/runtime compatibility investigation, not accepted NPU support. Tensor G3
+has no matching published artifact in this inventory. See decisions §116.
 
 The user-requested governing amendment authorizes this integration; host proxy
 quality does not establish general release acceptance. Model/tokenizer/preprocessing

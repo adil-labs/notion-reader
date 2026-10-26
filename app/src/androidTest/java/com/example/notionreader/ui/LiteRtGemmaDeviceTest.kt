@@ -12,6 +12,98 @@ import org.junit.Test
 
 /** Public inputs only; exercises the shipping provider and the published, checksum-pinned bundle. */
 class LiteRtGemmaDeviceTest {
+    @Test fun backendPreferencesExecuteOrExplainFallbackAndAutomaticMeasuresThisDevice() = runBlocking<Unit> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val installed = File(context.noBackupFilesDir, "discovery-model/current")
+        val directory = if (File(installed, GemmaModelPack.bundleFile).isFile) installed
+            else File(context.cacheDir, "litert-gemma-test")
+        val npu = File(context.cacheDir, "litert-gemma-test/${GemmaModelPack.npuBundleFile}")
+        val npuAvailable = android.os.Build.VERSION.SDK_INT >= 31 && android.os.Build.SOC_MODEL == "SM8750" && npu.isFile
+        if (npuAvailable) {
+            assertEquals(GemmaModelPack.npuArtifacts.single().bytes, npu.length())
+            val hash = MessageDigest.getInstance("SHA-256")
+            npu.inputStream().use { input ->
+                val buffer = ByteArray(65536)
+                while (true) { val count = input.read(buffer); if (count < 0) break; hash.update(buffer, 0, count) }
+            }
+            assertEquals(GemmaModelPack.npuArtifacts.single().sha256, hash.digest().joinToString("") { "%02x".format(it) })
+        }
+        val provider = GemmaEmbeddingProvider(directory, npuBundle = { npu.takeIf { npuAvailable } },
+            nativeLibraryDirectory = context.applicationInfo.nativeLibraryDir)
+        val rows = mutableListOf<JsonElement>()
+        var reference: List<Float>? = null
+        try {
+            for (preference in listOf(
+                com.example.notionreader.domain.settings.DiscoveryBackend.CPU,
+                com.example.notionreader.domain.settings.DiscoveryBackend.GPU,
+                com.example.notionreader.domain.settings.DiscoveryBackend.NPU,
+                com.example.notionreader.domain.settings.DiscoveryBackend.AUTOMATIC
+            )) {
+                provider.selectBackend(preference)
+                val started = android.os.SystemClock.elapsedRealtime()
+                val vector = provider.embed("PostgreSQL transactions isolate concurrent updates using snapshots.")
+                val elapsed = android.os.SystemClock.elapsedRealtime() - started
+                val status = provider.runtimeState.value
+                assertEquals(preference, status.requested)
+                assertNotNull(status.effective)
+                if (preference != com.example.notionreader.domain.settings.DiscoveryBackend.AUTOMATIC && status.effective != preference)
+                    assertNotNull("Fallback must be explained", status.reason)
+                reference?.let { cpu -> assertTrue(cpu.indices.sumOf { cpu[it].toDouble() * vector[it] } >= .999) }
+                if (reference == null) reference = vector
+                rows += buildJsonObject {
+                    put("requested", preference.name); put("effective", status.effective!!.name)
+                    put("reason", status.reason)
+                    put("selectionAndFirstInputMillis", elapsed)
+                    val memory = android.os.Debug.MemoryInfo().also { android.os.Debug.getMemoryInfo(it) }
+                    put("sampledProcessPssKiB", memory.totalPss)
+                    put("medianPublicProbePairNanos", buildJsonObject {
+                        status.benchmarkNanos.forEach { (backend, nanos) -> put(backend.name, nanos) }
+                    })
+                }
+            }
+            val longText = " token".repeat(600)
+            val beforeLongInput = provider.runtimeState.value.effective
+            assertTrue(provider.tokenizer.inputIds(longText).size > 512)
+            provider.embed(longText)
+            assertEquals(com.example.notionreader.domain.settings.DiscoveryBackend.CPU, provider.runtimeState.value.effective)
+            if (beforeLongInput != com.example.notionreader.domain.settings.DiscoveryBackend.CPU)
+                assertTrue(provider.runtimeState.value.reason!!.contains("context"))
+            provider.release()
+            val diagnostics = mutableListOf<JsonElement>()
+            if (npuAvailable) {
+                for (backend in listOf("CPU", "NPU")) for (length in listOf(128, 512)) {
+                    val engine = com.google.ai.edge.litertlm.EmbeddingEngine(com.google.ai.edge.litertlm.EmbeddingEngineConfig(
+                        modelPath = if (backend == "CPU") File(directory, GemmaModelPack.bundleFile).absolutePath else npu.absolutePath,
+                        backend = if (backend == "CPU") com.google.ai.edge.litertlm.Backend.CPU(threadCount = 2)
+                            else com.google.ai.edge.litertlm.Backend.NPU(context.applicationInfo.nativeLibraryDir),
+                        maxInputLength = length))
+                    try {
+                        engine.initialize()
+                        fun raw() = engine.computeEmbedding(listOf(com.google.ai.edge.litertlm.InputData.Text(
+                            GemmaModelPack.instructedText("PostgreSQL transactions isolate concurrent updates using snapshots."))),
+                            com.google.ai.edge.litertlm.EmbeddingOptions(normalize = true, insertSpecialTokens = true, outputSize = 768)).embedding
+                        val first = raw(); val second = raw()
+                        val cpu = checkNotNull(reference)
+                        val agreement = first.indices.sumOf { first[it].toDouble() * cpu[it] }
+                        val repeatability = first.indices.sumOf { first[it].toDouble() * second[it] }
+                        if (backend == "CPU") assertTrue(agreement >= .999)
+                        diagnostics += buildJsonObject {
+                            put("backend", backend); put("maximumTokens", length)
+                            put("cpuCosine", agreement); put("repeatCosine", repeatability)
+                        }
+                    } finally { engine.close() }
+                }
+            }
+            val output = buildJsonObject {
+                put("device", android.os.Build.MODEL); put("soc", android.os.Build.SOC_MODEL)
+                put("runtime", "LiteRT-LM 0.18.1"); put("results", JsonArray(rows))
+                put("longInputUsesCpu", true); put("npuDiagnostics", JsonArray(diagnostics))
+            }
+            File(context.getExternalFilesDir(null), "litert-backends.json").writeText(output.toString())
+            android.util.Log.i("LiteRtBackends", output.toString())
+        } finally { provider.release() }
+    }
+
     @Test fun publishedLiteRtModelProducesNormalizedDiscriminatingRepeatableEmbeddings() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

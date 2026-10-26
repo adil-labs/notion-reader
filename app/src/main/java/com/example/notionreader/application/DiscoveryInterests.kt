@@ -57,12 +57,11 @@ internal class DiscoveryInterests(
                     }
                     return@withContext
                 }
-                runtime.foregroundQueries.incrementAndGet()
-                val matches = try { runtime.bulkGate.withLock {
+                val matches = runtime.foregroundStep {
                     val vector = if (interest.seedPageId != null) retrieval.seedVector(interest.seedPageId)
                         else runtime.inference.withLock { runtime.embedExactInput(interest.text) }
                     vector?.let { retrieval.retrieve(it, BrowseQuery.Default, 20, interest.seedPageId, recommendationThreshold) }
-                } } finally { runtime.foregroundQueries.decrementAndGet() }
+                }
                 publishMatch {
                     val outcome = if (matches == null) InterestMatchOutcome.Unavailable(
                         if (interest.seedPageId != null && canonicalSemanticId(interest.seedPageId) in it.cachedPageIds)
@@ -122,8 +121,7 @@ internal class DiscoveryInterests(
             val cutoff = clock().minusSeconds(90L * 86400)
             for (interest in interestStore.read()) {
                 val vector = if (interest.seedPageId != null) retrieval.seedVector(interest.seedPageId) else {
-                    runtime.foregroundQueries.incrementAndGet()
-                    try { runtime.inference.withLock { runtime.embedExactInput(interest.text) } } finally { runtime.foregroundQueries.decrementAndGet() }
+                    runtime.foregroundStep { runtime.inference.withLock { runtime.embedExactInput(interest.text) } }
                 }
                 if (vector != null) {
                     recommendations += retrieval.retrieve(vector, BrowseQuery.Default, 5, interest.seedPageId, recommendationThreshold)

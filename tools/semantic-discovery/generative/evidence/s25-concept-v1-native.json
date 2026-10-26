@@ -1,0 +1,72 @@
+{
+  "status": "completed",
+  "backend": "GPU",
+  "case": "production-label",
+  "runtime": "LiteRT-LM 0.18.1",
+  "device": "SM-S931B",
+  "api": 37,
+  "contextTokens": 2048,
+  "maxOutputTokens": 512,
+  "promptVersion": "shipping-concept-policy; see nested labelIdentity",
+  "thinking": false,
+  "pid": 759,
+  "cancelAfterMillis": 0,
+  "cpuThreads": 2,
+  "productionLabelPort": {
+    "modelSha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "labelIdentity": "TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=5fadd79e026e08bf13ffc38ed80822733d52700e00e1c176e9698da7092635a6, schema=201c87dfeddd257dda5de396e0ead24578ba15fe70538615bddc30c9e0e4339a, policy=concept-v1-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+    "promptIdentity": "5fadd79e026e08bf13ffc38ed80822733d52700e00e1c176e9698da7092635a6",
+    "schemaIdentity": "201c87dfeddd257dda5de396e0ead24578ba15fe70538615bddc30c9e0e4339a",
+    "backend": "GPU",
+    "beforeLoad": {
+      "javaAllocatedBytes": 5141728,
+      "nativeAllocatedBytes": 9980176,
+      "processPssKiB": 82842,
+      "anonRssKiB": 47300,
+      "swapKiB": 25192,
+      "anonPlusSwapKiB": 72492,
+      "deviceAvailableBytes": 4664086528,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    },
+    "runs": [
+      {
+        "iteration": 0,
+        "promptTokens": 220,
+        "totalMillis": 11785,
+        "nativeCancellationException": false,
+        "label": "Seed Germination Requirements",
+        "definition": "Passages relevant to this topic discuss the necessary environmental conditions, specifically moisture and temperature, required for a seed to germinate and sprout.",
+        "evidenceIds": [
+          "p0",
+          "p1"
+        ]
+      },
+      {
+        "iteration": 1,
+        "promptTokens": 220,
+        "totalMillis": 7683,
+        "nativeCancellationException": false,
+        "label": "Seed Germination Requirements",
+        "definition": "Passages relevant to this topic discuss the necessary environmental conditions, specifically moisture and temperature, required for a seed to germinate and sprout.",
+        "evidenceIds": [
+          "p0",
+          "p1"
+        ]
+      }
+    ],
+    "afterClose": {
+      "javaAllocatedBytes": 7275360,
+      "nativeAllocatedBytes": 13908992,
+      "processPssKiB": 206294,
+      "anonRssKiB": 138652,
+      "swapKiB": 24452,
+      "anonPlusSwapKiB": 163104,
+      "deviceAvailableBytes": 4602822656,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    }
+  }
+}

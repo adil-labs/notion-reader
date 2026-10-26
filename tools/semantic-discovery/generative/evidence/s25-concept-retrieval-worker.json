@@ -1,0 +1,646 @@
+{
+  "status": "completed",
+  "backend": "GPU",
+  "case": "production-worker",
+  "runtime": "LiteRT-LM 0.18.1",
+  "device": "SM-S931B",
+  "api": 37,
+  "contextTokens": 2048,
+  "maxOutputTokens": 512,
+  "promptVersion": "shipping-label-policy; see nested labelIdentity",
+  "thinking": false,
+  "pid": 19878,
+  "cancelAfterMillis": 0,
+  "cpuThreads": 2,
+  "productionWorker": {
+    "scope": "public fixture; shipping controller\/stores and actual CPU embedding\/Gemma labeling; not representative scale or process death",
+    "labelIdentity": "TopicLabelIdentity(artifact=181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c, tokenizer=e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03, template=bundled-metadata:00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f, prompt=5fadd79e026e08bf13ffc38ed80822733d52700e00e1c176e9698da7092635a6, schema=201c87dfeddd257dda5de396e0ead24578ba15fe70538615bddc30c9e0e4339a, policy=concept-v1-wire1-c2048-o512-bundle1, effectiveBackend=GPU)",
+    "sourceNotes": 3,
+    "distinctSourceBodies": 1,
+    "readerActivationGateChanged": false,
+    "queryAfterNativeStartMillis": 0,
+    "before": {
+      "javaAllocatedBytes": 5547232,
+      "nativeAllocatedBytes": 9803680,
+      "processPssKiB": 76789,
+      "anonRssKiB": 53296,
+      "swapKiB": 25184,
+      "anonPlusSwapKiB": 78480,
+      "deviceAvailableBytes": 4627759104,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    },
+    "priorExits": [
+      {
+        "timestamp": 1792999367577,
+        "reason": 10,
+        "status": 0,
+        "importance": 100,
+        "description": "[FORCE STOP] stop com.example.generativediscoveryprobe due to from pid 19822",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792999361981,
+        "reason": 16,
+        "status": 0,
+        "importance": 100,
+        "description": "stop com.example.generativediscoveryprobe due to killDueToPackageUpdate",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792999228946,
+        "reason": 16,
+        "status": 0,
+        "importance": 400,
+        "description": "stop com.example.generativediscoveryprobe due to killDueToPackageUpdate",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792995962041,
+        "reason": 10,
+        "status": 0,
+        "importance": 1000,
+        "description": "[FORCE STOP] stop com.example.generativediscoveryprobe due to pkg removed",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792995961874,
+        "reason": 16,
+        "status": 0,
+        "importance": 100,
+        "description": "stop com.example.generativediscoveryprobe due to killDueToPackageUpdate",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792994503614,
+        "reason": 10,
+        "status": 0,
+        "importance": 1000,
+        "description": "[FORCE STOP] stop com.example.generativediscoveryprobe due to pkg removed",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792994503302,
+        "reason": 16,
+        "status": 0,
+        "importance": 100,
+        "description": "stop com.example.generativediscoveryprobe due to killDueToPackageUpdate",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792994208181,
+        "reason": 10,
+        "status": 0,
+        "importance": 400,
+        "description": "[FORCE STOP] stop com.example.generativediscoveryprobe due to from pid 26847",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792994203515,
+        "reason": 16,
+        "status": 0,
+        "importance": 100,
+        "description": "stop com.example.generativediscoveryprobe due to killDueToPackageUpdate",
+        "memoryLimiter": false
+      },
+      {
+        "timestamp": 1792993486557,
+        "reason": 16,
+        "status": 0,
+        "importance": 400,
+        "description": "stop com.example.generativediscoveryprobe due to killDueToPackageUpdate",
+        "memoryLimiter": false
+      }
+    ],
+    "stage": "completed",
+    "pid": 19878,
+    "events": [
+      {
+        "event": "embeddingStart",
+        "elapsedMillis": 103150093
+      },
+      {
+        "event": "embeddingDone",
+        "elapsedMillis": 103150486
+      },
+      {
+        "event": "embeddingStart",
+        "elapsedMillis": 103150504
+      },
+      {
+        "event": "embeddingDone",
+        "elapsedMillis": 103150587
+      },
+      {
+        "event": "embeddingStart",
+        "elapsedMillis": 103150600
+      },
+      {
+        "event": "embeddingDone",
+        "elapsedMillis": 103150680
+      },
+      {
+        "event": "embeddingRelease",
+        "elapsedMillis": 103150883
+      },
+      {
+        "event": "labelEngineOpening",
+        "elapsedMillis": 103151016
+      },
+      {
+        "event": "labelEngineOpened",
+        "elapsedMillis": 103155105
+      },
+      {
+        "event": "nativeGenerationStart",
+        "elapsedMillis": 103158122
+      },
+      {
+        "event": "nativeGenerationTerminal",
+        "elapsedMillis": 103164446
+      },
+      {
+        "event": "conversationClosed",
+        "elapsedMillis": 103164464
+      },
+      {
+        "event": "labelEngineClosed",
+        "elapsedMillis": 103165013
+      },
+      {
+        "event": "embeddingStart",
+        "elapsedMillis": 103165014
+      },
+      {
+        "event": "embeddingDone",
+        "elapsedMillis": 103165660
+      },
+      {
+        "event": "embeddingStart",
+        "elapsedMillis": 103165919
+      },
+      {
+        "event": "embeddingDone",
+        "elapsedMillis": 103166039
+      },
+      {
+        "event": "embeddingStart",
+        "elapsedMillis": 103166049
+      },
+      {
+        "event": "embeddingDone",
+        "elapsedMillis": 103166153
+      }
+    ],
+    "modelLoadedIdleSamples": [
+      {
+        "javaAllocatedBytes": 6472544,
+        "nativeAllocatedBytes": 360913104,
+        "processPssKiB": 1950376,
+        "anonRssKiB": 398280,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 422708,
+        "deviceAvailableBytes": 3124736000,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103155105
+      }
+    ],
+    "samples": [
+      {
+        "javaAllocatedBytes": 5768416,
+        "nativeAllocatedBytes": 9807104,
+        "processPssKiB": 77642,
+        "anonRssKiB": 54652,
+        "swapKiB": 25180,
+        "anonPlusSwapKiB": 79832,
+        "deviceAvailableBytes": 4628561920,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103149974
+      },
+      {
+        "javaAllocatedBytes": 6771936,
+        "nativeAllocatedBytes": 284509568,
+        "processPssKiB": 401671,
+        "anonRssKiB": 277744,
+        "swapKiB": 25100,
+        "anonPlusSwapKiB": 302844,
+        "deviceAvailableBytes": 4382924800,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103150515
+      },
+      {
+        "javaAllocatedBytes": 5976928,
+        "nativeAllocatedBytes": 45994032,
+        "processPssKiB": 152022,
+        "anonRssKiB": 141788,
+        "swapKiB": 24572,
+        "anonPlusSwapKiB": 166360,
+        "deviceAvailableBytes": 4530946048,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103151045
+      },
+      {
+        "javaAllocatedBytes": 6062944,
+        "nativeAllocatedBytes": 235567664,
+        "processPssKiB": 389978,
+        "anonRssKiB": 275616,
+        "swapKiB": 24432,
+        "anonPlusSwapKiB": 300048,
+        "deviceAvailableBytes": 3857780736,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103151588
+      },
+      {
+        "javaAllocatedBytes": 6083424,
+        "nativeAllocatedBytes": 237915808,
+        "processPssKiB": 1445444,
+        "anonRssKiB": 275860,
+        "swapKiB": 24432,
+        "anonPlusSwapKiB": 300292,
+        "deviceAvailableBytes": 3469070336,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103152135
+      },
+      {
+        "javaAllocatedBytes": 6136672,
+        "nativeAllocatedBytes": 237916128,
+        "processPssKiB": 1280129,
+        "anonRssKiB": 275868,
+        "swapKiB": 24432,
+        "anonPlusSwapKiB": 300300,
+        "deviceAvailableBytes": 3565551616,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103152689
+      },
+      {
+        "javaAllocatedBytes": 6189920,
+        "nativeAllocatedBytes": 237913568,
+        "processPssKiB": 1275017,
+        "anonRssKiB": 275900,
+        "swapKiB": 24432,
+        "anonPlusSwapKiB": 300332,
+        "deviceAvailableBytes": 3561721856,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103153250
+      },
+      {
+        "javaAllocatedBytes": 6243168,
+        "nativeAllocatedBytes": 237680720,
+        "processPssKiB": 1274853,
+        "anonRssKiB": 265660,
+        "swapKiB": 24432,
+        "anonPlusSwapKiB": 290092,
+        "deviceAvailableBytes": 3560185856,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103153807
+      },
+      {
+        "javaAllocatedBytes": 6296416,
+        "nativeAllocatedBytes": 254284032,
+        "processPssKiB": 1576881,
+        "anonRssKiB": 292436,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 316864,
+        "deviceAvailableBytes": 3326382080,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103154379
+      },
+      {
+        "javaAllocatedBytes": 6349664,
+        "nativeAllocatedBytes": 323902016,
+        "processPssKiB": 1764284,
+        "anonRssKiB": 361940,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 386368,
+        "deviceAvailableBytes": 3197505536,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103154961
+      },
+      {
+        "javaAllocatedBytes": 6558560,
+        "nativeAllocatedBytes": 413531472,
+        "processPssKiB": 2023400,
+        "anonRssKiB": 465280,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 489708,
+        "deviceAvailableBytes": 3016687616,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103155557
+      },
+      {
+        "javaAllocatedBytes": 6611808,
+        "nativeAllocatedBytes": 505539008,
+        "processPssKiB": 2063960,
+        "anonRssKiB": 517924,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 542352,
+        "deviceAvailableBytes": 3003600896,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103156143
+      },
+      {
+        "javaAllocatedBytes": 6665056,
+        "nativeAllocatedBytes": 476594304,
+        "processPssKiB": 2084541,
+        "anonRssKiB": 531336,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 555764,
+        "deviceAvailableBytes": 2950086656,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103156734
+      },
+      {
+        "javaAllocatedBytes": 6718304,
+        "nativeAllocatedBytes": 514985616,
+        "processPssKiB": 2065336,
+        "anonRssKiB": 523752,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 548180,
+        "deviceAvailableBytes": 2948145152,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103157318
+      },
+      {
+        "javaAllocatedBytes": 6837088,
+        "nativeAllocatedBytes": 489580496,
+        "processPssKiB": 2100562,
+        "anonRssKiB": 515668,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 540096,
+        "deviceAvailableBytes": 2913312768,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103157902
+      },
+      {
+        "javaAllocatedBytes": 6923104,
+        "nativeAllocatedBytes": 517117600,
+        "processPssKiB": 2139698,
+        "anonRssKiB": 489856,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 514284,
+        "deviceAvailableBytes": 2963021824,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103158518
+      },
+      {
+        "javaAllocatedBytes": 7074656,
+        "nativeAllocatedBytes": 515276160,
+        "processPssKiB": 2141030,
+        "anonRssKiB": 488428,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 512856,
+        "deviceAvailableBytes": 2949849088,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103159105
+      },
+      {
+        "javaAllocatedBytes": 7455584,
+        "nativeAllocatedBytes": 515263408,
+        "processPssKiB": 2138742,
+        "anonRssKiB": 484968,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 509396,
+        "deviceAvailableBytes": 2949320704,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103159733
+      },
+      {
+        "javaAllocatedBytes": 7869280,
+        "nativeAllocatedBytes": 515472480,
+        "processPssKiB": 2139602,
+        "anonRssKiB": 482752,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 507180,
+        "deviceAvailableBytes": 2922545152,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103160334
+      },
+      {
+        "javaAllocatedBytes": 8217440,
+        "nativeAllocatedBytes": 515753152,
+        "processPssKiB": 2138710,
+        "anonRssKiB": 481896,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 506324,
+        "deviceAvailableBytes": 2916995072,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103160926
+      },
+      {
+        "javaAllocatedBytes": 8737632,
+        "nativeAllocatedBytes": 515964624,
+        "processPssKiB": 2140230,
+        "anonRssKiB": 482168,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 506596,
+        "deviceAvailableBytes": 2916892672,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103161559
+      },
+      {
+        "javaAllocatedBytes": 9118560,
+        "nativeAllocatedBytes": 516300224,
+        "processPssKiB": 2143315,
+        "anonRssKiB": 482236,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 506664,
+        "deviceAvailableBytes": 2916937728,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103162192
+      },
+      {
+        "javaAllocatedBytes": 9499488,
+        "nativeAllocatedBytes": 516298672,
+        "processPssKiB": 2144847,
+        "anonRssKiB": 482388,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 506816,
+        "deviceAvailableBytes": 2914914304,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103162790
+      },
+      {
+        "javaAllocatedBytes": 9847648,
+        "nativeAllocatedBytes": 516336032,
+        "processPssKiB": 2144535,
+        "anonRssKiB": 481896,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 506324,
+        "deviceAvailableBytes": 2914922496,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103163412
+      },
+      {
+        "javaAllocatedBytes": 10228576,
+        "nativeAllocatedBytes": 516380464,
+        "processPssKiB": 2144471,
+        "anonRssKiB": 482012,
+        "swapKiB": 24428,
+        "anonPlusSwapKiB": 506440,
+        "deviceAvailableBytes": 2914922496,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103164014
+      },
+      {
+        "javaAllocatedBytes": 3629920,
+        "nativeAllocatedBytes": 205403264,
+        "processPssKiB": 1832848,
+        "anonRssKiB": 283924,
+        "swapKiB": 24424,
+        "anonPlusSwapKiB": 308348,
+        "deviceAvailableBytes": 3117109248,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103164600
+      },
+      {
+        "javaAllocatedBytes": 3683168,
+        "nativeAllocatedBytes": 88066000,
+        "processPssKiB": 237602,
+        "anonRssKiB": 190064,
+        "swapKiB": 24416,
+        "anonPlusSwapKiB": 214480,
+        "deviceAvailableBytes": 4495183872,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103165143
+      },
+      {
+        "javaAllocatedBytes": 4219744,
+        "nativeAllocatedBytes": 290536928,
+        "processPssKiB": 464134,
+        "anonRssKiB": 315256,
+        "swapKiB": 24416,
+        "anonPlusSwapKiB": 339672,
+        "deviceAvailableBytes": 4359536640,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103165699
+      },
+      {
+        "javaAllocatedBytes": 13648736,
+        "nativeAllocatedBytes": 290940128,
+        "processPssKiB": 477588,
+        "anonRssKiB": 323980,
+        "swapKiB": 24412,
+        "anonPlusSwapKiB": 348392,
+        "deviceAvailableBytes": 4354527232,
+        "deviceTotalBytes": 11653083136,
+        "deviceThresholdBytes": 226492416,
+        "deviceLowMemory": false,
+        "elapsedMillis": 103166269
+      }
+    ],
+    "initialWorkMillis": 15731,
+    "initialEmbeddingCalls": 4,
+    "initialLabelCalls": 1,
+    "initialTopics": [
+      {
+        "id": "7d2cf6d3-74ba-4c98-b692-74192a69452d",
+        "label": "Seed Germination Requirements",
+        "definition": "Passages relevant to this topic discuss the necessary conditions for a seed to germinate, specifically mentioning moisture and temperature, and the effects of unsuitable conditions on germination success.",
+        "seedMembers": [
+          "publicseed0",
+          "publicseed1",
+          "publicseed2"
+        ],
+        "members": [
+          "publicseed2",
+          "publicseed1",
+          "publicseed0"
+        ],
+        "citations": [
+          "91c3ee393c6b4bef8b21814c3661a6d0b467864737b1f12f3a951bcdf3955fef",
+          "3c762b39d0b6c6331acc80d3ab759ba0408d11d392c79649149923e523984016",
+          "9e0e33a8ebbf8a15c8130795af8c7476a4a5f873ac28e82769dbabfa4be2bae8"
+        ]
+      }
+    ],
+    "unchangedReconcileAdditionalNativeCalls": 0,
+    "modelAvailabilityWithdrawalAndControllerRecreationRetainedNamesAndAlias": true,
+    "controllerRecreationRestoredMatchesWithoutNativeWork": true,
+    "smallFixtureQueryMillis": [
+      130,
+      112,
+      10,
+      7,
+      6,
+      5,
+      3,
+      4,
+      3,
+      3
+    ],
+    "sourceWithdrawalExcludedRemovedNote": true,
+    "sourceWithdrawalRemovedAffectedSavedNames": true,
+    "resetClearedNamesAndProgressButRetainedAliasAndCachedNotes": true,
+    "afterClose": {
+      "javaAllocatedBytes": 14414688,
+      "nativeAllocatedBytes": 16452992,
+      "processPssKiB": 199630,
+      "anonRssKiB": 143400,
+      "swapKiB": 24412,
+      "anonPlusSwapKiB": 167812,
+      "deviceAvailableBytes": 4532445184,
+      "deviceTotalBytes": 11653083136,
+      "deviceThresholdBytes": 226492416,
+      "deviceLowMemory": false
+    }
+  }
+}

@@ -45,6 +45,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.NotionReader">
 
+        <!-- Official LiteRT-LM GPU requirements; CPU-only devices remain supported. -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
 
         <activity
             android:windowSoftInputMode="adjustResize"

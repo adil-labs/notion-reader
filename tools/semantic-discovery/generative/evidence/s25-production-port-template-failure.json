@@ -1,0 +1,17 @@
+{
+  "status": "failed",
+  "backend": "GPU",
+  "case": "production-label",
+  "runtime": "LiteRT-LM 0.18.1",
+  "device": "SM-S931B",
+  "api": 37,
+  "contextTokens": 2048,
+  "maxOutputTokens": 512,
+  "promptVersion": "public-probe-3-specific-concepts",
+  "thinking": false,
+  "pid": 30620,
+  "cancelAfterMillis": 0,
+  "cpuThreads": 2,
+  "error": "java.lang.IllegalStateException",
+  "message": "Production port returned Failed(reason=BackendFailure); public-probe diagnostics: [{\"stage\":\"execution\",\"class\":\"com.google.ai.edge.litertlm.LiteRtLmJniException\",\"message\":\"Failed to call nativeConversationRenderPrefaceIntoString: INTERNAL: Failed to apply template: undefined value (in template:157)\",\"stack\":\"com.google.ai.edge.litertlm.LiteRtLmJni.nativeConversationRenderPrefaceIntoString(Native Method)\\ncom.google.ai.edge.litertlm.Conversation.renderPrefaceIntoString(Conversation.kt:735)\\ncom.example.notionreader.data.discovery.LiteRtTopicLabelEngine$conversation$1.countPromptTokens(LiteRtTopicLabelEngine.kt:34)\\ncom.example.notionreader.data.discovery.ProductionLabelProbe$run$1$runtime$2$1$conversation$1.countPromptTokens(ProductionLabelProbe.kt:42)\\ncom.example.notionreader.data.discovery.GemmaTopicLabeler.infer(GemmaTopicLabeler.kt:92)\\ncom.example.notionreader.data.discovery.GemmaTopicLabeler.access$infer(GemmaTopicLabeler.kt:18)\\ncom.example.notionreader.data.discovery.GemmaTopicLabeler$label$2.invokeSuspend(GemmaTopicLabeler.kt:70)\\ncom.example.notionreader.data.discovery.GemmaTopicLabeler$label$2.invoke(GemmaTopicLabeler.kt:8)\"}]"
+}

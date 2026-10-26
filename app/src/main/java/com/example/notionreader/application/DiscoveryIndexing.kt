@@ -232,7 +232,7 @@ internal class DiscoveryIndexing(
                         runtime.embeddingMemo.get(provider.identity, passage.input) ?: run {
                             val started = monotonicNanos()
                             val memoToken = runtime.embeddingMemo.token()
-                            val value = provider.embed(passage.input)
+                            val value = runtime.embedInput(passage.input)
                             if (runtime.generation.get() == epoch) {
                                 runtime.embeddingMemo.put(provider.identity, passage.input, value, memoToken)
                                 timeEstimator.record(monotonicNanos() - started)
@@ -303,7 +303,7 @@ internal class DiscoveryIndexing(
                 it.copy(cacheStatus = DiscoveryCacheStatus.Failed(message), message = message)
             } else it.copy(message = "Discovery index unavailable. Rebuild the index to retry.", indexFailure = "Discovery index unavailable. Rebuild the index to retry.")
         } }
-        finally { mutable.update { it.copy(indexing = false) } }
+        finally { runtime.closeLabels(); mutable.update { it.copy(indexing = false) } }
     }
 
 }

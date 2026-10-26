@@ -1,0 +1,1076 @@
+{
+  "identity": {
+    "model": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "prompt": "public-probe-5-label-only",
+    "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+    "rawArtifact": "s25-gpu-label-only-v5.json",
+    "fixtureAuthorIsReviewer": true,
+    "runtime": "LiteRT-LM 0.18.1",
+    "backend": "GPU"
+  },
+  "outputs": [
+    {
+      "case_id": "contradiction",
+      "topics": [
+        {
+          "id": "6d5ebee2-95be-421d-a0db-9d73c5a24c3f",
+          "label": "Antibiotic targets and viral infections",
+          "passage_ids": [
+            "contradiction-p0",
+            "contradiction-p1"
+          ]
+        },
+        {
+          "id": "411d2c60-0ac3-49cc-8bed-ad44e7f86a5d",
+          "label": "Antibiotic targets and viral infections",
+          "passage_ids": [
+            "contradiction-p0",
+            "contradiction-p1"
+          ]
+        },
+        {
+          "id": "aa88f3a3-0254-400c-bf9d-32c3a3706b05",
+          "label": "Antibiotic targets and viral infections",
+          "passage_ids": [
+            "contradiction-p0",
+            "contradiction-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "unicode",
+      "topics": [
+        {
+          "id": "997e4260-4fd6-4cc7-a221-4c59438b8761",
+          "label": "Reducing server load after failed requests",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ]
+        },
+        {
+          "id": "c4ef02d1-8f51-48e0-bfb8-de050c52851d",
+          "label": "Reducing server load after failed requests",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ]
+        },
+        {
+          "id": "217392c9-9c12-4071-9ca8-5e56bd078764",
+          "label": "Reducing server load after failed requests",
+          "passage_ids": [
+            "unicode-p0",
+            "unicode-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "duplicate-template",
+      "topics": [
+        {
+          "id": "5c2d5a16-6265-4214-8acf-158ca2248fef",
+          "label": "Replication Lag Definition",
+          "passage_ids": [
+            "duplicate-template-p0",
+            "duplicate-template-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "revoked",
+      "topics": [
+        {
+          "id": "6fb1e42b-17c4-4eb9-a817-896ae747a8d1",
+          "label": "Seed germination requirements",
+          "passage_ids": [
+            "revoked-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "rare-concept",
+      "topics": [
+        {
+          "id": "42963d31-15cc-4366-9885-afafc24271de",
+          "label": "Bloom filter properties and usage",
+          "passage_ids": [
+            "rare-concept-p0",
+            "rare-concept-p1"
+          ]
+        },
+        {
+          "id": "861fa668-2f70-4f71-a70d-a51c95cce48a",
+          "label": "Bloom filter properties and usage",
+          "passage_ids": [
+            "rare-concept-p0",
+            "rare-concept-p1"
+          ]
+        },
+        {
+          "id": "d40f3ca2-8065-4055-9261-c94acc1b92bf",
+          "label": "Bloom filter properties and usage",
+          "passage_ids": [
+            "rare-concept-p0",
+            "rare-concept-p1"
+          ]
+        },
+        {
+          "id": "2c1e8d02-62e5-424c-a627-d93a156b712d",
+          "label": "B-tree structure and properties",
+          "passage_ids": [
+            "rare-concept-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "label-change",
+      "topics": [
+        {
+          "id": "04cdda64-26c7-49ee-a2cb-b3217cfc02c3",
+          "label": "Retry Strategy for Failed Requests",
+          "passage_ids": [
+            "label-change-p0",
+            "label-change-p1"
+          ]
+        },
+        {
+          "id": "6fd4ad73-522a-4d32-801b-c8d06f06bfab",
+          "label": "Retry Strategy for Failed Requests",
+          "passage_ids": [
+            "label-change-p0",
+            "label-change-p1"
+          ]
+        },
+        {
+          "id": "b1b70e90-3bf7-41e0-93f4-4f12971e4335",
+          "label": "Retry Strategy for Failed Requests",
+          "passage_ids": [
+            "label-change-p0",
+            "label-change-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "no-forced-membership",
+      "topics": [
+        {
+          "id": "67b6ca80-8ec1-468d-8ba6-91cb56ae221c",
+          "label": "Reference Counting and Cycles",
+          "passage_ids": [
+            "no-forced-membership-p0"
+          ]
+        },
+        {
+          "id": "192b4668-2554-42f3-b573-27da27ff1a5e",
+          "label": "Dough Hydration",
+          "passage_ids": [
+            "no-forced-membership-p1"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "lease-expiry",
+      "topics": [
+        {
+          "id": "df294f46-9166-4b04-a29a-b1a444a7206e",
+          "label": "Lease Expiration and Ownership Transfer",
+          "passage_ids": [
+            "lease-expiry-p0",
+            "lease-expiry-p1",
+            "lease-expiry-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "dns-ttl",
+      "topics": [
+        {
+          "id": "6e09613b-84a9-4a0f-a684-5548f80bbe37",
+          "label": "DNS TTL Management",
+          "passage_ids": [
+            "dns-ttl-p0",
+            "dns-ttl-p1",
+            "dns-ttl-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "soil-drainage",
+      "topics": [
+        {
+          "id": "e51c56eb-8c5d-442a-b5a4-32d4a5e64eee",
+          "label": "Soil Drainage and Root Health",
+          "passage_ids": [
+            "soil-drainage-p0",
+            "soil-drainage-p1",
+            "soil-drainage-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sleep-spacing",
+      "topics": [
+        {
+          "id": "0c4d8700-aa57-4cb0-afb8-d1bdefc6cc7a",
+          "label": "Spaced Retrieval for Long-Term Recall",
+          "passage_ids": [
+            "sleep-spacing-p0",
+            "sleep-spacing-p1",
+            "sleep-spacing-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "pressure-boiling",
+      "topics": [
+        {
+          "id": "b4160e79-fe6b-4bf7-b3ce-989f8781fa93",
+          "label": "Water Boiling Points and Pressure Effects",
+          "passage_ids": [
+            "pressure-boiling-p0",
+            "pressure-boiling-p1",
+            "pressure-boiling-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "checksum",
+      "topics": [
+        {
+          "id": "0d568181-50fe-4674-ac80-2c675a25992b",
+          "label": "File Integrity Verification",
+          "passage_ids": [
+            "checksum-p0",
+            "checksum-p1",
+            "checksum-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "write-ahead",
+      "topics": [
+        {
+          "id": "de13c183-3783-4ace-a21e-bc5370afe0e6",
+          "label": "Write-Ahead Logging for Database Recovery",
+          "passage_ids": [
+            "write-ahead-p0",
+            "write-ahead-p1",
+            "write-ahead-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "rate-limiting",
+      "topics": [
+        {
+          "id": "1176d709-9cd5-444b-9e59-bcc73452b83f",
+          "label": "Token Bucket Rate Limiting Mechanism",
+          "passage_ids": [
+            "rate-limiting-p0",
+            "rate-limiting-p1",
+            "rate-limiting-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "muscle-load",
+      "topics": [
+        {
+          "id": "c84beaff-db7d-455d-8f1e-598a061033b0",
+          "label": "Progressive Overload in Resistance Training",
+          "passage_ids": [
+            "muscle-load-p1"
+          ]
+        },
+        {
+          "id": "a8db871e-1c1d-426e-ab30-89726348808f",
+          "label": "Progressive Overload in Training",
+          "passage_ids": [
+            "muscle-load-p0",
+            "muscle-load-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "light-refraction",
+      "topics": [
+        {
+          "id": "6d7028db-d4e0-4b64-bf62-bbb5920a2a9d",
+          "label": "Light Refraction Principles",
+          "passage_ids": [
+            "light-refraction-p0",
+            "light-refraction-p1",
+            "light-refraction-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sourdough",
+      "topics": [
+        {
+          "id": "01945ba7-9dfe-49ac-b271-8155d711779c",
+          "label": "Sourdough Starter Composition and Function",
+          "passage_ids": [
+            "sourdough-p0",
+            "sourdough-p1",
+            "sourdough-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "stormwater",
+      "topics": [
+        {
+          "id": "76d226f0-aa68-49ff-b5dd-935d46387cd5",
+          "label": "Stormwater Runoff Reduction Methods",
+          "passage_ids": [
+            "stormwater-p0",
+            "stormwater-p1",
+            "stormwater-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "snapshot",
+      "topics": [
+        {
+          "id": "9efd155a-cff7-4f96-ba54-fdb903fedceb",
+          "label": "Snapshot Isolation Behavior",
+          "passage_ids": [
+            "snapshot-p0",
+            "snapshot-p1",
+            "snapshot-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "habit-cue",
+      "topics": [
+        {
+          "id": "eb09114c-487f-456d-897a-fe39d89ffde1",
+          "label": "Medication Routine Cues",
+          "passage_ids": [
+            "habit-cue-p1"
+          ]
+        },
+        {
+          "id": "20d5a82d-52dd-4a36-9872-76dd8f573d61",
+          "label": "Habit Cueing",
+          "passage_ids": [
+            "habit-cue-p0",
+            "habit-cue-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "entropy-compression",
+      "topics": [
+        {
+          "id": "ec5897b5-60ba-4591-a96f-d22e757787f9",
+          "label": "Lossless Compression Principles",
+          "passage_ids": [
+            "entropy-compression-p0",
+            "entropy-compression-p1",
+            "entropy-compression-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "erosion",
+      "topics": [
+        {
+          "id": "ed1012c7-aba6-42d4-bc1c-1b7f65c430a7",
+          "label": "Soil Erosion Control Methods",
+          "passage_ids": [
+            "erosion-p0",
+            "erosion-p1",
+            "erosion-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "quorum",
+      "topics": [
+        {
+          "id": "5d0bb86a-1c5c-4a3f-aa14-aedb44a9e1f5",
+          "label": "Quorum Intersection and Consistency",
+          "passage_ids": [
+            "quorum-p0",
+            "quorum-p1",
+            "quorum-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "version-vector",
+      "topics": [
+        {
+          "id": "d1b4cd56-4ab6-4445-968a-2134121674ae",
+          "label": "Version Vector Concepts",
+          "passage_ids": [
+            "version-vector-p0",
+            "version-vector-p1",
+            "version-vector-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "photosynthesis",
+      "topics": [
+        {
+          "id": "9567caa6-c7d9-498a-b9da-66a26b615b7f",
+          "label": "Photosynthesis mechanisms and limitations",
+          "passage_ids": [
+            "photosynthesis-p0",
+            "photosynthesis-p1",
+            "photosynthesis-p2"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "queue-backpressure",
+      "topics": [
+        {
+          "id": "1288cc4f-3f8f-4cd8-af4c-2d140d42ef6c",
+          "label": "Queue Backpressure and Bounded Buffers",
+          "passage_ids": [
+            "queue-backpressure-p0",
+            "queue-backpressure-p1",
+            "queue-backpressure-p2"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [
+    {
+      "case_id": "contradiction",
+      "proposal_id": "6d5ebee2-95be-421d-a0db-9d73c5a24c3f",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "contradiction-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "contradiction-p0",
+        "contradiction-p1"
+      ],
+      "reason": "Antibiotic targets and viral infections identifies the precise subject without claiming a viral cure; the cited statements preserve the negative answer. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "contradiction",
+      "proposal_id": "411d2c60-0ac3-49cc-8bed-ad44e7f86a5d",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "contradiction-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "contradiction-p0",
+        "contradiction-p1"
+      ],
+      "reason": "Antibiotic targets and viral infections identifies the precise subject without claiming a viral cure; the cited statements preserve the negative answer. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "contradiction",
+      "proposal_id": "aa88f3a3-0254-400c-bf9d-32c3a3706b05",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "contradiction-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "contradiction-p0",
+        "contradiction-p1"
+      ],
+      "reason": "Antibiotic targets and viral infections identifies the precise subject without claiming a viral cure; the cited statements preserve the negative answer. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "unicode",
+      "proposal_id": "997e4260-4fd6-4cc7-a221-4c59438b8761",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "unicode-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "unicode-p0",
+        "unicode-p1"
+      ],
+      "reason": "Reducing server load after failed requests captures the shared consequence in both languages, although explicit backoff wording would be better. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "unicode",
+      "proposal_id": "c4ef02d1-8f51-48e0-bfb8-de050c52851d",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "unicode-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "unicode-p0",
+        "unicode-p1"
+      ],
+      "reason": "Reducing server load after failed requests captures the shared consequence in both languages, although explicit backoff wording would be better. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "unicode",
+      "proposal_id": "217392c9-9c12-4071-9ca8-5e56bd078764",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "unicode-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "unicode-p0",
+        "unicode-p1"
+      ],
+      "reason": "Reducing server load after failed requests captures the shared consequence in both languages, although explicit backoff wording would be better. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "duplicate-template",
+      "proposal_id": "5c2d5a16-6265-4214-8acf-158ca2248fef",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "duplicate-template-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "duplicate-template-p0",
+        "duplicate-template-p1"
+      ],
+      "reason": "Replication lag is explicitly defined in both copies. Naming does not make the duplicate sources independent. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "revoked",
+      "proposal_id": "6fb1e42b-17c4-4eb9-a817-896ae747a8d1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "revoked-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "revoked-p1"
+      ],
+      "reason": "Seed germination requirements names the eligible moisture/temperature subject without using withdrawn p0. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "rare-concept",
+      "proposal_id": "42963d31-15cc-4366-9885-afafc24271de",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "rare-concept-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rare-concept-p0",
+        "rare-concept-p1"
+      ],
+      "reason": "Bloom filter properties/usage and B-tree structure accurately name the respective fixed groups; duplicate Bloom-filter groups remain duplicated. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "rare-concept",
+      "proposal_id": "861fa668-2f70-4f71-a70d-a51c95cce48a",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "rare-concept-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rare-concept-p0",
+        "rare-concept-p1"
+      ],
+      "reason": "Bloom filter properties/usage and B-tree structure accurately name the respective fixed groups; duplicate Bloom-filter groups remain duplicated. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "rare-concept",
+      "proposal_id": "d40f3ca2-8065-4055-9261-c94acc1b92bf",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "rare-concept-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rare-concept-p0",
+        "rare-concept-p1"
+      ],
+      "reason": "Bloom filter properties/usage and B-tree structure accurately name the respective fixed groups; duplicate Bloom-filter groups remain duplicated. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "rare-concept",
+      "proposal_id": "2c1e8d02-62e5-424c-a627-d93a156b712d",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "rare-concept-r1",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rare-concept-p2"
+      ],
+      "reason": "Bloom filter properties/usage and B-tree structure accurately name the respective fixed groups; duplicate Bloom-filter groups remain duplicated. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "label-change",
+      "proposal_id": "04cdda64-26c7-49ee-a2cb-b3217cfc02c3",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "label-change-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "label-change-p0",
+        "label-change-p1"
+      ],
+      "reason": "Retry Strategy for Failed Requests is supported but omits jitter and synchronized-client prevention; it is too broad for this reference. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "label-change",
+      "proposal_id": "6fd4ad73-522a-4d32-801b-c8d06f06bfab",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "label-change-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "label-change-p0",
+        "label-change-p1"
+      ],
+      "reason": "Retry Strategy for Failed Requests is supported but omits jitter and synchronized-client prevention; it is too broad for this reference. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "label-change",
+      "proposal_id": "b1b70e90-3bf7-41e0-93f4-4f12971e4335",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "label-change-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "label-change-p0",
+        "label-change-p1"
+      ],
+      "reason": "Retry Strategy for Failed Requests is supported but omits jitter and synchronized-client prevention; it is too broad for this reference. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "no-forced-membership",
+      "proposal_id": "67b6ca80-8ec1-468d-8ba6-91cb56ae221c",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "no-forced-membership-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "no-forced-membership-p0"
+      ],
+      "reason": "Reference counting/cycles and dough hydration correctly name the separate body subjects, preserving the unrelated groups. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "no-forced-membership",
+      "proposal_id": "192b4668-2554-42f3-b573-27da27ff1a5e",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "no-forced-membership-r1",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "no-forced-membership-p1"
+      ],
+      "reason": "Reference counting/cycles and dough hydration correctly name the separate body subjects, preserving the unrelated groups. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "lease-expiry",
+      "proposal_id": "df294f46-9166-4b04-a29a-b1a444a7206e",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "lease-expiry-r0",
+      "topic_supported": true,
+      "label_supported": false,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "lease-expiry-p0",
+        "lease-expiry-p1",
+        "lease-expiry-p2"
+      ],
+      "reason": "Expiry and stopping ownership are supported; ownership transfer is not described by the offered sources. This adds an unsupported relationship. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "dns-ttl",
+      "proposal_id": "6e09613b-84a9-4a0f-a684-5548f80bbe37",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "dns-ttl-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "dns-ttl-p0",
+        "dns-ttl-p1",
+        "dns-ttl-p2"
+      ],
+      "reason": "DNS TTL management covers resolver lifetime, stale answers and migration tradeoffs. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "soil-drainage",
+      "proposal_id": "e51c56eb-8c5d-442a-b5a4-32d4a5e64eee",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "soil-drainage-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "soil-drainage-p0",
+        "soil-drainage-p1",
+        "soil-drainage-p2"
+      ],
+      "reason": "Soil drainage and root health captures oxygen deprivation and excess-water removal. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "sleep-spacing",
+      "proposal_id": "0c4d8700-aa57-4cb0-afb8-d1bdefc6cc7a",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "sleep-spacing-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "sleep-spacing-p0",
+        "sleep-spacing-p1",
+        "sleep-spacing-p2"
+      ],
+      "reason": "Spaced retrieval for long-term recall accurately paraphrases all three statements. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "pressure-boiling",
+      "proposal_id": "b4160e79-fe6b-4bf7-b3ce-989f8781fa93",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "pressure-boiling-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "pressure-boiling-p0",
+        "pressure-boiling-p1",
+        "pressure-boiling-p2"
+      ],
+      "reason": "Water boiling points and pressure effects names the altitude and pressure-cooker relationship. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "checksum",
+      "proposal_id": "0d568181-50fe-4674-ac80-2c675a25992b",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "checksum-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "checksum-p0",
+        "checksum-p1",
+        "checksum-p2"
+      ],
+      "reason": "File integrity verification covers trusted digest/checksum comparisons to detect changed bytes. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "write-ahead",
+      "proposal_id": "de13c183-3783-4ace-a21e-bc5370afe0e6",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "write-ahead-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "write-ahead-p0",
+        "write-ahead-p1",
+        "write-ahead-p2"
+      ],
+      "reason": "Write-ahead logging for database recovery explicitly names the shared mechanism and task. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "rate-limiting",
+      "proposal_id": "1176d709-9cd5-444b-9e59-bcc73452b83f",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "rate-limiting-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "rate-limiting-p0",
+        "rate-limiting-p1",
+        "rate-limiting-p2"
+      ],
+      "reason": "Token bucket rate limiting mechanism is supported by admission/refill/burst evidence. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "muscle-load",
+      "proposal_id": "c84beaff-db7d-455d-8f1e-598a061033b0",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "muscle-load-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "muscle-load-p1"
+      ],
+      "reason": "Progressive overload is supported in both fixed groups; the first explicitly addresses resistance/volume. Naming leaves the training concept fragmented. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "muscle-load",
+      "proposal_id": "a8db871e-1c1d-426e-ab30-89726348808f",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "muscle-load-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "muscle-load-p0",
+        "muscle-load-p2"
+      ],
+      "reason": "Progressive overload is supported in both fixed groups; the first explicitly addresses resistance/volume. Naming leaves the training concept fragmented. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "light-refraction",
+      "proposal_id": "6d7028db-d4e0-4b64-bf62-bbb5920a2a9d",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "light-refraction-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "light-refraction-p0",
+        "light-refraction-p1",
+        "light-refraction-p2"
+      ],
+      "reason": "Light refraction principles covers boundary direction changes, apparent displacement and Snell law. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "sourdough",
+      "proposal_id": "01945ba7-9dfe-49ac-b271-8155d711779c",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "sourdough-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "sourdough-p0",
+        "sourdough-p1",
+        "sourdough-p2"
+      ],
+      "reason": "Starter composition and function accurately covers yeasts/bacteria, gas/acidity and feeding. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "stormwater",
+      "proposal_id": "76d226f0-aa68-49ff-b5dd-935d46387cd5",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "stormwater-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "stormwater-p0",
+        "stormwater-p1",
+        "stormwater-p2"
+      ],
+      "reason": "Stormwater Runoff Reduction Methods is supported but broader than the specific permeable-surface infiltration concept; useful specificity is insufficient. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "snapshot",
+      "proposal_id": "9efd155a-cff7-4f96-ba54-fdb903fedceb",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "snapshot-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "snapshot-p0",
+        "snapshot-p1",
+        "snapshot-p2"
+      ],
+      "reason": "Snapshot isolation behavior includes consistent/nonblocking reads and the write-skew limitation without claiming serializability. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "habit-cue",
+      "proposal_id": "eb09114c-487f-456d-897a-fe39d89ffde1",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "habit-cue-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "habit-cue-p1"
+      ],
+      "reason": "Medication routine cues names the concrete reminder example; habit cueing names the recurring-context mechanism. Fixed groups remain split. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "habit-cue",
+      "proposal_id": "20d5a82d-52dd-4a36-9872-76dd8f573d61",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "habit-cue-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "habit-cue-p0",
+        "habit-cue-p2"
+      ],
+      "reason": "Medication routine cues names the concrete reminder example; habit cueing names the recurring-context mechanism. Fixed groups remain split. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "entropy-compression",
+      "proposal_id": "ec5897b5-60ba-4591-a96f-d22e757787f9",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "entropy-compression-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "entropy-compression-p0",
+        "entropy-compression-p1",
+        "entropy-compression-p2"
+      ],
+      "reason": "Lossless compression principles accurately covers redundancy and exact reconstruction, including poorly compressible data. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "erosion",
+      "proposal_id": "ed1012c7-aba6-42d4-bc1c-1b7f65c430a7",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "erosion-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "erosion-p0",
+        "erosion-p1",
+        "erosion-p2"
+      ],
+      "reason": "Soil erosion control methods is grounded in roots, cover and vegetation removal, though Vegetation limits erosion would be more specific. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "quorum",
+      "proposal_id": "5d0bb86a-1c5c-4a3f-aa14-aedb44a9e1f5",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "quorum-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "quorum-p0",
+        "quorum-p1",
+        "quorum-p2"
+      ],
+      "reason": "Quorum intersection and consistency names the relationship and caveat without stating that intersection alone suffices. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "version-vector",
+      "proposal_id": "d1b4cd56-4ab6-4445-968a-2134121674ae",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "version-vector-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": false,
+      "supported_passage_ids": [
+        "version-vector-p0",
+        "version-vector-p1",
+        "version-vector-p2"
+      ],
+      "reason": "Version Vector Concepts identifies the mechanism but Concepts is generic and loses causal ordering/concurrency specificity. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "photosynthesis",
+      "proposal_id": "9567caa6-c7d9-498a-b9da-66a26b615b7f",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "photosynthesis-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "photosynthesis-p0",
+        "photosynthesis-p1",
+        "photosynthesis-p2"
+      ],
+      "reason": "Photosynthesis mechanisms and limitations accurately covers inputs, light absorption and light limitation. Original memberships were verified unchanged."
+    },
+    {
+      "case_id": "queue-backpressure",
+      "proposal_id": "1288cc4f-3f8f-4cd8-af4c-2d140d42ef6c",
+      "reviewer": "Codex source-based review 2026-10-26",
+      "provenance": "agent",
+      "reference_id": "queue-backpressure-r0",
+      "topic_supported": true,
+      "label_supported": true,
+      "label_useful_specific": true,
+      "supported_passage_ids": [
+        "queue-backpressure-p0",
+        "queue-backpressure-p1",
+        "queue-backpressure-p2"
+      ],
+      "reason": "Queue backpressure and bounded buffers names both slowing producers and preventing unbounded queue growth. Original memberships were verified unchanged."
+    }
+  ],
+  "limitations": [
+    "Descriptive followup on already seen heldout families, not unseen adoption acceptance.",
+    "Memberships and reference recovery inherited from the shipping grouping; no formation improvement is claimed.",
+    "Agent reviewer also authored the purpose-built corpus."
+  ]
+}

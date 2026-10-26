@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#115-published-litert-migration-and-s25-end-to-end-verification-2026-10-25)
+[the current decision-record entry](decisions.md#133-enable-concept-based-discovery-by-user-instruction-2026-10-26)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
@@ -26,6 +26,7 @@ mirror directly. The two hand-authored governing specs are edited locally.
 - The Product contract owns automatic discovery, evidence, privacy, interests,
   publication status and release acceptance. UI owns presentation and navigation;
   Integration owns the cache, index and persistence boundary.
+- [Discovery v2 proposed redesign](discovery-v2/README.md) collects the 49 requested requirements, evidence and scoring design, incremental architecture, state/migration safeguards, validation plan and full traceability. **It is a non-governing proposal, not implemented behavior or release approval.** Apply any semantic amendments in the owning Notion contracts before adopting production changes.
 - [The implementation companion](semantic-discovery-implementation-spec.md)
   explains local algorithms and limits subordinate to those contracts. Historical
   baseline policy does not override replacement-engine requirements.

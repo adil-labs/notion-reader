@@ -5,7 +5,27 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#111-storage-review-and-automatic-discovery-interest-audits-2026-10-24)).
+Discovery refinement is in progress ([current round](docs/decisions.md#132-cluster-seeded-concepts-and-retrieved-notes-2026-10-26)).
+The [current Discovery plan](docs/superpowers/plans/2026-10-26-cluster-seeded-topic-retrieval.md)
+uses grouping as seed evidence, local Gemma 4 E2B names and definitions, then embedding retrieval
+across eligible indexed Notes as the sole topic pipeline, updating the catalog in place.
+Seed members never substitute for matching Notes. Matches can overlap or remain empty;
+unmatched Notes are allowed. Full LLM concept formation was rejected after low recall.
+The naming control improved useful labels to 33/39, but its 141-second generation cost,
+source grounding and device acceptance still need work. Typed label/invalidation
+contracts, native runtime and separate model-manager components are implemented. Public S25
+generation/cancellation smoke passed. Shared scheduling, atomic label sidecars and reuse
+validation are integrated through the existing topic coordinator and controller. Saved concepts,
+query vectors and complete matches restore without inference. Source/reset cleanup covers their
+derived records, and inspected updates wait for Refresh. Older name-only metadata becomes pending.
+Topic cards, details, relationship navigation and listening-preview titles now use the same
+generated name or explicit alias; unnamed groups show neutral pending text. Original cluster
+wording remains internal evidence only. The process root now constructs the optional generator,
+model manager and label store; settings offers explicit download/cancel/delete, its own network
+policy and measured model-file bytes. Derived labels and model files have separate storage accounting.
+Bounded device-memory sampling supplements lifecycle signals. Native naming and concept-based
+matching are enabled by explicit user instruction. Fresh semantic and representative resource
+acceptance remain outstanding measurements; there is no second generated-topic list or debug-only topic engine.
 Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
 radio-selected Automatic vs custom maximums, separate model file reporting, truthful consequences and
 accessible expandable policy explanations with discoverable shared larger-limit preferences.
@@ -461,7 +481,7 @@ interface is *usable* with one, which is a different thing from coordinating wit
 
 Discovery is optional and automatic. Settings → Discovery → Download model (also reached through
 Discover's Set up Discovery) installs the text-only EmbeddingGemma 2 INT4 pack (165 MB, including its bundled tokenizer). Downloads
-use the published official LiteRT-community bundle, including its authoritative SentencePiece tokenizer with pinned revisions and verified checksums; Wi-Fi-only is the default. LiteRT-LM CPU inference
+use the published official LiteRT-community bundle, including its authoritative SentencePiece tokenizer with pinned revisions and verified checksums; Wi-Fi-only is the default. LiteRT-LM inference
 runs locally. Note content and queries are not sent to an embedding service, and model binaries
 are not bundled in the APK. Bundled SentencePiece tokenization with UTF-16 source offsets and 768-dimensional sentence embeddings replace incompatible derived data while preserving explicit interests and listening state. Browse and listening work without the model.
 
@@ -472,6 +492,17 @@ The S25 also passes Settings acquisition through the production downloader.
 See [the migration evidence](tools/semantic-discovery/litert-migration-2026-10-25.json)
 and decision §115. These are scoped device checks, not representative quality,
 peak-memory, API26 runtime or human TalkBack speech acceptance.
+
+Settings offer Automatic, CPU, GPU and NPU. Automatic compares median warm CPU and
+validated accelerator execution on public inputs; it selected GPU on the connected
+S25 and Pixel 8 Pro. Accelerator contexts are capped at 512 instructed tokens;
+longer valid inputs use CPU without truncation. Preferences persist, while status
+shows the effective backend and fallback reason. Switching preserves the index,
+interests and listening state. See decision §116 for scoped timings and evidence.
+The optional additional 188 MB SM8750 NPU pack uses the published model directly
+and requires an explicit Wi-Fi-only download. Its vectors currently fail CPU-space
+validation on S25, so it is rejected and falls back to CPU. Pixel 8 Pro's Tensor G3
+has no matching published NPU artifact. Neither case is claimed as working NPU inference.
 
 Only cached Notes are indexed. Semantic search has its own metadata filters and relevance order;
 Browse keyword search and Smart Queues retain their behavior. Results show literal source passages.
@@ -513,11 +544,17 @@ of at least 2 GiB or 10% of volume capacity, whichever is greater. The Note cach
 defaults to 128 MiB, sized for about 100 Notes of up to 1 MiB encoded size each,
 and retains a separately displayed 200-Note guard. Accessible storage sliders,
 confirmed cache reductions and an optional extended maximum give explicit control.
-Per-record memory safeguards remain separate from library capacity. Exact cosine search
+Per-record memory safeguards remain separate from library capacity. Topic generations use
+streamed reads and atomic streamed writes, enforcing the 64 MiB envelope limit during encoding
+without allocating a complete JSON string and byte array. Exact cosine search
 streams per-document vectors. Clearing the index pauses rebuilding until Resume/Rebuild; deleting
 the model clears the index and automatic continuity while preserving explicit interests. Full local
 reset clears interests too. Cache eviction removes derived content but retains opaque recache
 continuity; confirmed deletion or access loss removes that continuity as well.
+
+The complete topic catalog composes visible rows lazily, with stable topic keys and
+return-focus scrolling. Its Major subjects, other established subjects and Emerging
+topics remain in saved order; catalog size does not require composing every card.
 
 ### Discovery architecture and acceptance
 
@@ -554,14 +591,14 @@ See decisions.md §76 for migration, regression proofs and remaining gates.
 
 Device backend research is recorded in [the Gemma benchmark](docs/gemma-device-backends-2026-10-18.md).
 These are historical ONNX backend results. The current default uses the published
-EmbeddingGemma 2 text-only INT4 bundle through LiteRT-LM CPU on arm64-v8a and x86_64.
-No model conversion or export is performed. QNN NPU remains a fixed-length research prototype; those results
+EmbeddingGemma 2 text-only INT4 bundle through LiteRT-LM with validated CPU/GPU selection on arm64-v8a and x86_64.
+No model conversion or export is performed. Historical QNN NPU results
 do not establish general Note or Discovery quality acceptance.
 
 The [Vulkan follow-up](docs/gemma-vulkan-2026-10-19.md) verifies Gemma GPU
 execution on S25 through ONNX Runtime WebGPU/Dawn. Pixel basic Vulkan compute
 works, but Gemma GPU readback failed in that historical ONNX investigation.
-The LiteRT migration uses CPU; those GPU measurements do not qualify LiteRT acceleration.
+Current LiteRT GPU evidence is recorded separately in decision §116.
 
 
 Discovery efficiency now retains one prepared generation across processing slices,

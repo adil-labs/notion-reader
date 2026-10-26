@@ -1,0 +1,23 @@
+{
+  "scope": "production label port public S25 probe; not catalog integration or release acceptance",
+  "files": {
+    "domain/discovery/TopicLabeling.kt": "0dfe37b3b441f177393d77a72397d3d027ab7cc1158916e2d55e77d06b8d34f8",
+    "data/discovery/GemmaTopicLabeler.kt": "47cade2453c925945258163ed7cc5c60ac9bd3462404401c8bcd9dcfc360a44e",
+    "data/discovery/TopicLabelResponse.kt": "916df84a9dac28b936722bea2c6f2dca303997eb5fd2595f7864ba23d32d806a",
+    "data/discovery/GenerativeModelPack.kt": "eb12a054c3f232cbded18955fe84e21edf8ebac2fd4d5aaef3b132eb8162d370",
+    "data/discovery/GenerativeModelManager.kt": "da3ecba9caa17a78afc00834e9d7be08be7694d5d6eadc93755bc8152aa57667",
+    "data/discovery/LiteRtTopicLabelEngine.kt": "9398b3f1eb883481c683e72c2874f5ab485ba5397fb0fc1254c21de4894dd723"
+  },
+  "apkSha256": "2588e66ef238b14c3b78b105f98348bffa623e1e633b27d567225cdfb859d09f",
+  "tokenizerSection": {
+    "offset": 32768,
+    "bytes": 4689013,
+    "sha256": "e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03"
+  },
+  "bundleMetadataSection": {
+    "offset": 16384,
+    "bytes": 12192,
+    "sha256": "00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f"
+  },
+  "inspection": "Read-only mmap of pinned generative bundle header and SHA256 of its original sections; no conversion or model extraction written."
+}

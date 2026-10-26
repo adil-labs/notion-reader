@@ -33,19 +33,33 @@ class DiscoveryController(
     private val formationWorkBudget: Int = 250_000,
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val monotonicNanos: () -> Long = System::nanoTime,
-    private val passageProgressStore: SemanticIndexStore? = null
+    private val passageProgressStore: SemanticIndexStore? = null,
+    topicLabelRuntime: TopicLabelRuntime? = null,
+    topicLabelModelAvailable: () -> Boolean = { false },
+    topicLabelStore: TopicLabelStore? = null,
+    topicLabelIdentity: () -> TopicLabelIdentity? = { null },
+    topicLabelUnavailableMessage: () -> String = { "Topic naming is unavailable. Install the topic naming model in Discovery settings." },
+    topicRetrievalStore: TopicRetrievalStore? = null,
+    topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f)
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
-    private val runtime = DiscoveryRuntime(cache, provider)
-    fun updatePowerState(power: DiscoveryPowerState) { mutable.update { it.copy(power = power) } }
+    private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
+    fun updatePowerState(power: DiscoveryPowerState) {
+        mutable.update { it.copy(power = power) }
+        if (!mayContinueWork()) runtime.interruptLabeling()
+    }
     fun updateWorkAvailability(effort: com.example.notionreader.domain.settings.DiscoveryEffort, availability: DiscoveryExecutionAvailability) {
         mutable.update { it.copy(effort = effort, executionAvailability = availability) }
+        if (!mayContinueWork()) runtime.interruptLabeling()
     }
     private fun mayContinueWork() = !mutable.value.paused && mutable.value.power?.allows(mutable.value.effort) != false && mayContinueIndexing()
     val state = mutable.asStateFlow()
+    val embeddingRuntime: kotlinx.coroutines.flow.StateFlow<EmbeddingRuntimeState> =
+        (provider as? ObservableEmbeddingRuntime)?.runtimeState ?: MutableStateFlow(EmbeddingRuntimeState())
     val hasPendingWork: Boolean get() = indexing.reconciliationPending || topics?.needsMoreWork == true ||
         state.value.indexedCount < state.value.cachedPageIds.size || state.value.cachedRevision != cache.revision.value
     fun requestAutomaticContinuation() { wake.value++ }
+    suspend fun releaseTopicLabelModel() { runtime.closeLabels(); requestAutomaticContinuation() }
     private val wake = MutableStateFlow(0L)
     val revision = wake.asStateFlow()
     private val retrieval = DiscoveryRetrieval(cache, index, provider, topicStore, runtime.validity, workDispatcher, ::recordTiming)
@@ -63,11 +77,25 @@ class DiscoveryController(
                     discoveryTopicPublicationStatus(topic)?.let { status -> PublishedTopic(topic, status) }
                 }
             it.copy(topicSnapshot = view.snapshot, publishedTopics = published,
-                topicsUpdated = view.updated, topicStatus = view.status, topicFailure = view.failure)
+                topicsUpdated = view.updated, topicStatus = view.status, topicFailure = view.failure,
+                topicNaming = view.naming, workPending = hasPendingWork)
         } },
         invalidationAcknowledgementLimit = invalidationAcknowledgementLimit,
         formationWorkBudget = formationWorkBudget,
-        shouldYield = { runtime.foregroundQueries.get() > 0 }, operationTimings = ::recordTiming) }
+        shouldYield = { runtime.foregroundQueries.get() > 0 }, operationTimings = ::recordTiming,
+        labels = topicLabelStore?.let { labelStore -> TopicLabelCoordinator(labelStore, topicLabelIdentity,
+            topicLabelModelAvailable, { request -> runtime.labelTopic(request, ::mayContinueWork) }, ::mayContinueWork,
+            waitForQueries = {
+                while (runtime.foregroundQueries.get() > 0) delay(10)
+                currentCoroutineContext().ensureActive()
+            }, unavailableMessage = topicLabelUnavailableMessage) },
+        retrievals = topicRetrievalStore?.let { matches -> TopicRetrievalCoordinator(index, matches,
+            { provider.identity }, topicRetrievalPolicy, embed = { text ->
+                runtime.bulkStep { runtime.inference.withLock { runtime.embedExactInput(text) } }
+            }, mayWork = ::mayContinueWork, waitForQueries = {
+                while (runtime.foregroundQueries.get() > 0) delay(10)
+                currentCoroutineContext().ensureActive()
+            }, bulkGate = runtime.bulkGate) }) }
 
     private val interests = DiscoveryInterests(cache, interestStore, provider, mutable, runtime, retrieval,
         workDispatcher, modelAvailable, recommendationThreshold, clock)
@@ -121,7 +149,11 @@ class DiscoveryController(
     suspend fun saveInterest(id: String?, text: String, seedPageId: String? = null) = interests.saveInterest(id, text, seedPageId)
     suspend fun removeInterest(id: String) = interests.removeInterest(id)
     suspend fun clearInterests() = interests.clearInterests()
-    suspend fun pause() = runtime.commits.withLock { index.setPaused(true); mutable.update { it.copy(paused = true) }; wake.value++ }
+    suspend fun pause() {
+        runtime.commits.withLock { index.setPaused(true); mutable.update { it.copy(paused = true) }; wake.value++ }
+        runtime.interruptLabeling()
+        runtime.closeLabels()
+    }
     suspend fun resume() = runtime.commits.withLock { indexing.reconciliationPending = true; index.setPaused(false); mutable.update { it.copy(paused = false) }; wake.value++ }
     suspend fun clearIndex(preserveTopicContinuity: Boolean = false) = runtime.commits.withLock {
         connectionProjection.clear()
@@ -140,5 +172,5 @@ class DiscoveryController(
         previews.preparePreview(matches, label)
     fun removePreview(pageId: String) = previews.removePreview(pageId)
     fun movePreview(pageId: String, delta: Int) = previews.movePreview(pageId, delta)
-    fun releaseModel() { connectionProjection.clear(); topics?.releaseMemory(); runtime.embeddingMemo.clear(); provider.release(); index.releaseMemory(); passageProgressStore?.releaseMemory() }
+    suspend fun releaseModel() { runtime.releaseEngines(); connectionProjection.clear(); topics?.releaseMemory(); runtime.embeddingMemo.clear(); index.releaseMemory(); passageProgressStore?.releaseMemory() }
 }

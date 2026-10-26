@@ -1,0 +1,20 @@
+{
+  "provenance": "agent",
+  "reviewer": "implementation-agent",
+  "fixtureAuthorIsReviewer": true,
+  "scope": "development fixture only; not held-out acceptance",
+  "case_id": "different-wording",
+  "rawArtifacts": ["s25-cpu-different-wording.json", "s25-gpu-different-wording.json"],
+  "review": {
+    "topic_supported": true,
+    "label_supported": true,
+    "label_specificity": "weaker than desired",
+    "referenceConcept": "Exponential retry backoff",
+    "supported_passage_ids": ["different-wording-p0", "different-wording-p1"],
+    "missed_reference_concepts": [],
+    "reason": "Both passages describe doubling the wait after connection failure. Grouping them as one retry strategy for unavailable servers is supported and useful, but the label omits exponential growth, which would distinguish this specific strategy from other retries. CPU and GPU returned the same visible output in two fresh conversations each.",
+    "strict_output_format_valid": false,
+    "format_reason": "The response contains Markdown fences despite the request for only JSON. It must fail strict production parsing; this review does not authorize fence-stripping as a production workaround."
+  },
+  "limits": "One development case cannot establish topic quality, recall, backend-wide equivalence or resource acceptance. No human review is claimed."
+}

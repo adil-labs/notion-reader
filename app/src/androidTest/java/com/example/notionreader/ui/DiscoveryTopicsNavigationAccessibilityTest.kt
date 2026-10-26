@@ -30,13 +30,17 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     private val directory = File.createTempFile("topic-navigation", "test").apply { delete(); mkdirs() }
     @After fun cleanup() { directory.deleteRecursively() }
 
-    private class FixedProvider : EmbeddingProvider {
-        override val identity = EmbeddingIdentity("topic-navigation", 2)
+    private class FixedProvider(catalogSize: Int = 0) : EmbeddingProvider {
+        override val identity = EmbeddingIdentity("topic-navigation", maxOf(2, catalogSize + 2))
         override val tokenizer = object : SemanticTokenizer {
             override fun tokens(text: String) = Regex("\\S+").findAll(text)
                 .map { SemanticToken(1, it.range.first, it.range.last + 1) }.toList()
         }
-        override suspend fun embed(text: String) = listOf(1f, 0f)
+        fun vectorFor(text: String): List<Float> {
+            val coordinate = Regex("Evidence (\\d+)").find(text)?.groupValues?.get(1)?.toInt()?.plus(1) ?: 0
+            return List(identity.dimensions) { if (it == coordinate) 1f else 0f }
+        }
+        override suspend fun embed(text: String) = vectorFor(text)
     }
     private class MemoryTopics(var snapshot: TopicSnapshot) : TopicStore {
         override suspend fun read() = snapshot
@@ -48,10 +52,12 @@ class DiscoveryTopicsNavigationAccessibilityTest {
 
     private fun fixture(emptyInitial: Boolean = false, fallbackLabel: Boolean = false,
         namedReference: Boolean = false, mixedConnections: Boolean = false, emerging: Boolean = false,
-        independentReference: Boolean = false, hierarchy: Boolean = false, fullCatalog: Boolean = false): Fixture = runBlocking {
-        val provider = FixedProvider()
+        independentReference: Boolean = false, hierarchy: Boolean = false, fullCatalog: Boolean = false,
+        topicCatalogSize: Int = 0): Fixture = runBlocking {
+        val provider = FixedProvider(topicCatalogSize)
         val notes = listOf("a" to "Alpha", "b" to "Beta", "c" to "Gamma") +
-            if (fullCatalog) (3..7).map { "n$it" to "Forest $it" } else emptyList()
+            (if (fullCatalog) (3..7).map { "n$it" to "Forest $it" } else emptyList()) +
+            (0 until topicCatalogSize).map { "catalog$it" to "Evidence $it" }
         val documents = notes.map { (id, title) ->
             ReaderDocument.fromChunkTexts(id, title, listOf(if (hierarchy && id == "a")
                 "River ecosystems is a part of Forest ecology. Rivers sustain wildlife across woodland habitats."
@@ -68,16 +74,21 @@ class DiscoveryTopicsNavigationAccessibilityTest {
                 text, "Forest ecology", order)
             val metadata = SemanticMetadata(document.title)
             index.write(SemanticRecord(document.pageId, semanticRevision(document), provider.identity,
-                metadata, listOf(EmbeddedPassage(passage, listOf(1f, 0f)))))
+                metadata, listOf(EmbeddedPassage(passage,
+                    if (emerging && order > 0) listOf(0f, 1f) else provider.vectorFor(text)))))
             TopicMembership(document.pageId, metadata, passage, .9f, passage, semanticRevision(document))
         }
         val topic = DiscoveredTopic("forest", if (fallbackLabel) "Notes related to Alpha" else "Forest ecology", members.first().passage,
-            EmbeddedPassage(members.first().passage, listOf(1f, 0f)), if (emerging) members.take(1) else members, 1)
+            EmbeddedPassage(members.first().passage, provider.vectorFor(members.first().passage.excerpt)), if (emerging) members.take(1) else members, 1)
         val child = if (hierarchy) DiscoveredTopic("river", "River ecosystems", members[1].passage,
             EmbeddedPassage(members[1].passage, listOf(1f, 0f)), listOf(members[1]), 2) else null
-        val topics = listOfNotNull(topic, child)
+        val topics = listOfNotNull(topic, child) + members.takeLast(topicCatalogSize).mapIndexed { n, member ->
+            DiscoveredTopic("catalog-topic-$n", "Forest ecology", member.passage,
+                EmbeddedPassage(member.passage, provider.vectorFor(member.passage.excerpt)), listOf(member), (n + 3).toLong())
+        }
         val relationships = if (hierarchy) buildSubjectRelationships(topics, documents.map { index.read(it.pageId)!! }) else emptyList()
         val snapshot = TopicSnapshot(topics = if (emptyInitial) emptyList() else topics, identity = provider.identity,
+            acceptedRevisions = documents.associate { it.pageId to semanticRevision(it) },
             subjectRelationships = relationships,
             generation = 1, complete = !emptyInitial, connections = if (emptyInitial) emptyList() else
                 if (fullCatalog) members.flatMapIndexed { i, left -> members.drop(i + 1).map { right ->
@@ -89,8 +100,38 @@ class DiscoveryTopicsNavigationAccessibilityTest {
                 t.copy(members = t.members.map { it.copy(anchor = t.anchor.passage) })
             })))
         } else MemoryTopics(snapshot)
+        // Saved label fixtures use the same validation and sidecar path as production.
+        // Their explicit fake model output is independent of the stored cluster wording.
+        val labelIdentity = TopicLabelIdentity("fixture", "tokens", "template", "prompt", "schema", "policy", "fixture")
+        val labels = com.example.notionreader.data.local.FileTopicLabelStore(directory.resolve("labels"))
+        val matches = com.example.notionreader.data.local.FileTopicRetrievalStore(directory.resolve("matches"))
+        if (!fallbackLabel) for (group in store.read()!!.topics) {
+            val request = requireNotNull(topicLabelRequest(group, labelIdentity, 0))
+            val text = if (group.id == "river") "River ecosystems" else "Forest ecology"
+            val label = validateTopicLabel(request, text, request.evidence.map { it.passageId }, request.groupFingerprint, 0,
+                if (group.id == "river") "Ecological relationships within rivers."
+                else if (group.id.startsWith("catalog-topic-")) "Passages describing ${group.members.first().passage.excerpt}."
+                else "Ecological relationships within forests.")
+            check(labels.write((label as TopicLabelValidation.Accepted).label) { true } == TopicLabelWriteResult.Written)
+        }
+        if (!fallbackLabel && !emptyInitial) {
+            val named = store.read()!!.let { saved -> saved.copy(topics = saved.topics.map {
+                it.copy(generatedLabel = labels.read(it.id))
+            }) }
+            val result = TopicRetrievalCoordinator(index, matches, { provider.identity }, TopicRetrievalPolicy(.85f),
+                { provider.embed(it) }, { true }, {}, kotlinx.coroutines.sync.Mutex()).process(named, snapshot.acceptedRevisions) { true }
+            check(!result.pending && result.failure == null)
+        }
+        val generator = object : TopicLabelRuntime {
+            override suspend fun label(request: TopicLabelRequest) = TopicLabelRun.Completed(TopicLabelCandidate(
+                "Forest ecology", request.evidence.map { it.passageId },
+                if (request.topicId.startsWith("catalog-topic-")) "Passages describing ${request.evidence.first().body}."
+                else "Ecological relationships within forests."))
+            override suspend fun close() {}
+        }
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(directory.resolve("interests")),
-            provider, topicStore = store)
+            provider, topicStore = store, topicLabelStore = labels, topicLabelIdentity = { labelIdentity },
+            topicLabelRuntime = generator, topicLabelModelAvailable = { !fallbackLabel }, topicRetrievalStore = matches)
         val entries = documents.map { ReaderIndexEntry(it.pageId, it.title) }
         controller.reconcile(entries, false)
         val speech = object : SpeechEngine {
@@ -112,9 +153,25 @@ class DiscoveryTopicsNavigationAccessibilityTest {
                 onRetryBrowseIndex = {}, onContinueSession = {}, onReplayCompleted = {}, onCreateSavedQueue = {})
         }
     }
-    private fun openTopic() {
-        compose.onNodeWithText("Forest ecology").performScrollTo().assertIsReachable()
+    private fun openTopic(name: String = "Forest ecology") {
+        compose.onNodeWithText(name).performScrollTo().assertIsReachable()
             .performSemanticsAction(SemanticsActions.OnClick)
+    }
+
+    @Test fun theFullTopicCatalogOnlyComposesViewportRowsAndRestoresAnOffscreenTopic() {
+        val (app, _, _) = fixture(topicCatalogSize = 72)
+        assertEquals(73, app.discovery!!.state.value.publishedTopics.size)
+        show(app)
+        compose.onNodeWithText("See all topics").performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        org.junit.Assert.assertTrue("The complete catalog must not compose every topic at once",
+            compose.onAllNodesWithText("1 matching Note").fetchSemanticsNodes().size < 20)
+        compose.onNodeWithContentDescription("Topic catalog").performScrollToIndex(75)
+        compose.onNode(hasText("Evidence 71") and hasClickAction()).assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.navigator.state.value.current == ReaderDestination.DiscoveryTopic }
+        compose.runOnIdle { app.back() }
+        compose.onNode(hasText("Evidence 71") and hasClickAction()).assertIsFocused()
     }
 
     @Test fun catalogPaginationRetainsEveryConnectionBeyondPreviewLimits() {
@@ -177,11 +234,17 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         compose.onNodeWithText("Open relationship source Note").assertIsFocused()
     }
 
-    @Test fun fallbackCandidatesRemainStoredWithoutBecomingTopicCards() {
+    @Test fun unnamedGroupsRemainInspectableWithoutShowingTheirClusterName() {
         val (app, _, _) = fixture(fallbackLabel = true)
         show(app)
         compose.onNodeWithText("Notes related to Alpha").assertDoesNotExist()
-        compose.onNodeWithText("See all topics").assertDoesNotExist()
+        compose.onNodeWithText("Topic name pending").performScrollTo().assertIsReachable()
+        compose.onNodeWithText("See all topics").performScrollTo().assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Topic name pending").performScrollTo().assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithText("Topic name pending").assertIsReadable()
+        assertEquals(ReaderDestination.DiscoveryTopic, app.navigator.state.value.current)
         assertEquals("forest", app.discovery!!.state.value.topicSnapshot.topics.single().id)
     }
 
@@ -190,7 +253,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val before = app.session.queueState.value
         show(app)
         compose.onNodeWithText("Emerging topics").performScrollTo().assertIsReadable()
-        compose.onNodeWithText("1 available Note").assertIsReachable()
+        compose.onNodeWithText("1 matching Note").assertIsReachable()
         openTopic()
         compose.onNodeWithText("Emerging topic").assertIsReadable()
         compose.onNodeWithText("Follow topic").performSemanticsAction(SemanticsActions.OnClick)
@@ -269,7 +332,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
             val state = app.discovery!!.state.value
             !state.topicsUpdated && state.publishedTopics.any { it.topic.members.size == 3 }
         }
-        compose.onNodeWithText("3 available Notes").performScrollTo().assertExists()
+        compose.onNodeWithText("3 matching Notes").performScrollTo().assertExists()
     }
 
     @Test fun followingSavesAnIndependentDefinitionAndOpensItsExistingInterest() {
@@ -320,7 +383,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     @Test fun sourceEvictionWithdrawsInspectedEvidenceWithoutDeletingTheFollow() {
         val (app, cache, entries) = fixture()
         runBlocking { app.discovery!!.followTopic("forest", "Saved forests", "forest water") }
-        show(app); openTopic()
+        show(app); openTopic("Saved forests")
         compose.onNodeWithText("Why these Notes?").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onAllNodesWithText("Forest water evidence for Beta")[0].assertIsReadable()
         compose.runOnIdle { runBlocking { cache.remove("b"); app.discovery!!.reconcile(entries, false) } }
@@ -335,13 +398,14 @@ class DiscoveryTopicsNavigationAccessibilityTest {
         val (app, _, _) = fixture()
         val before = app.session.state.value
         show(app); openTopic()
-        compose.onNodeWithText("Open label source Note").assertDoesNotExist()
+        compose.onNodeWithText("Open group evidence Note").assertDoesNotExist()
         compose.onNodeWithText("Why these Notes?").performScrollTo()
             .assertIsReachable().performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithText("Open label source Note").performScrollTo()
+        compose.onNodeWithText("Naming evidence").performScrollTo().assertIsReadable()
+        compose.onNodeWithText("Open group evidence Note").performScrollTo()
             .assertIsReachable().performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { app.back() }
-        compose.onNodeWithText("Open label source Note").assertIsFocused()
+        compose.onNodeWithText("Open group evidence Note").assertIsFocused()
         assertEquals(before, app.session.state.value)
     }
 
@@ -470,7 +534,7 @@ class DiscoveryTopicsNavigationAccessibilityTest {
     @Test fun completedBackgroundTopicsRequireExplicitRefreshToChangeTheInspectedCount() {
         val (app, cache, entries) = fixture()
         show(app)
-        compose.onNodeWithText("3 available Notes").performScrollTo().assertExists()
+        compose.onNodeWithText("3 matching Notes").performScrollTo().assertExists()
         compose.runOnIdle { runBlocking {
             val document = ReaderDocument.fromChunkTexts("d", "Delta", listOf("Forest ecology water evidence"))
             cache.put(CachedDocument(document, null, Instant.EPOCH))
@@ -478,13 +542,13 @@ class DiscoveryTopicsNavigationAccessibilityTest {
             app.discovery!!.reconcile(entries + ReaderIndexEntry("d", "Delta"), true)
         } }
         compose.waitUntil(5_000) { app.discovery!!.state.value.topicsUpdated }
-        compose.onNodeWithText("3 available Notes").assertExists()
+        compose.onNodeWithText("3 matching Notes").assertExists()
         compose.onNodeWithText("Refresh").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(5_000) {
             val state = app.discovery!!.state.value
             !state.topicsUpdated && state.publishedTopics.any { it.topic.members.size == 4 }
         }
-        compose.onNodeWithText("4 available Notes").performScrollTo().assertExists()
+        compose.onNodeWithText("4 matching Notes").performScrollTo().assertExists()
     }
 
 }

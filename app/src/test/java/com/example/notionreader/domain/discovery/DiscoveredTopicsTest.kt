@@ -73,8 +73,8 @@ class DiscoveredTopicsTest {
         assertEquals(setOf("both-0", "both-1"), snapshot.topics.flatMap { it.members }.filter { it.pageId == "both" }.map { it.passage.id }.toSet())
         assertTrue(snapshot.topics.all { it.members.map { m -> m.pageId }.distinct().size == 3 })
     }
-    @Test fun repeatedPassagesCannotMakeAnEstablishedTopic() {
-        assertTrue(build(null, record("one", 0, 0, 0)).topics.all { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Emerging })
+    @Test fun seedPassagesCannotClaimEstablishedMatchesBeforeRetrieval() {
+        assertTrue(build(null, record("one", 0, 0, 0)).topics.all { discoveryTopicPublicationStatus(it) == TopicPublicationStatus.Pending })
     }
     @Test fun unrelatedAdditionsAndReorderPreserveIdentityAndLabel() {
         val first = build(null, record("a", 0), record("b", 0), record("c", 0))

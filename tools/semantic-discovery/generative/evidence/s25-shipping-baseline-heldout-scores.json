@@ -1,0 +1,114 @@
+{
+  "identity": {
+    "model": "embeddinggemma-2:litert:int4:9be6e8b90982095dc05c2bd162e4b954ee4dbac7:2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
+    "prompt": "shipping-extractive-naming-engine4-policy16",
+    "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+    "rawArtifact": "s25-baseline-output.json.gz",
+    "fixtureAuthorIsReviewer": true
+  },
+  "cases": 27,
+  "topics": 39,
+  "invalid_topics": 0,
+  "invalid_topic_rate": 0.0,
+  "unrated_topics": 0,
+  "human": {
+    "rated_topics": 0,
+    "useful_topics": 0,
+    "supported_labels": 0,
+    "claimed_memberships": 0,
+    "supported_memberships": 0,
+    "topic_precision": null,
+    "label_precision": null,
+    "membership_precision": null,
+    "reference_concepts": 0,
+    "recovered_concepts": 0,
+    "concept_recall": null,
+    "missed_concepts": []
+  },
+  "agent": {
+    "rated_topics": 39,
+    "useful_topics": 39,
+    "supported_labels": 8,
+    "claimed_memberships": 90,
+    "supported_memberships": 90,
+    "topic_precision": 1.0,
+    "label_precision": 0.20512820512820512,
+    "membership_precision": 1.0,
+    "reference_concepts": 29,
+    "recovered_concepts": 29,
+    "concept_recall": 1.0,
+    "missed_concepts": []
+  },
+  "provisional": {
+    "rated_topics": 0,
+    "useful_topics": 0,
+    "supported_labels": 0,
+    "claimed_memberships": 0,
+    "supported_memberships": 0,
+    "topic_precision": null,
+    "label_precision": null,
+    "membership_precision": null,
+    "reference_concepts": 0,
+    "recovered_concepts": 0,
+    "concept_recall": null,
+    "missed_concepts": []
+  },
+  "partitions": {
+    "heldout": {
+      "identity": {
+        "model": "embeddinggemma-2:litert:int4:9be6e8b90982095dc05c2bd162e4b954ee4dbac7:2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
+        "prompt": "shipping-extractive-naming-engine4-policy16",
+        "corpus": "371dc286889dd96c70f9a502de69fb5d571660056c2b42a1a34b4f8d8399ecaa",
+        "rawArtifact": "s25-baseline-output.json.gz",
+        "fixtureAuthorIsReviewer": true
+      },
+      "cases": 27,
+      "topics": 39,
+      "invalid_topics": 0,
+      "invalid_topic_rate": 0.0,
+      "unrated_topics": 0,
+      "human": {
+        "rated_topics": 0,
+        "useful_topics": 0,
+        "supported_labels": 0,
+        "claimed_memberships": 0,
+        "supported_memberships": 0,
+        "topic_precision": null,
+        "label_precision": null,
+        "membership_precision": null,
+        "reference_concepts": 0,
+        "recovered_concepts": 0,
+        "concept_recall": null,
+        "missed_concepts": []
+      },
+      "agent": {
+        "rated_topics": 39,
+        "useful_topics": 39,
+        "supported_labels": 8,
+        "claimed_memberships": 90,
+        "supported_memberships": 90,
+        "topic_precision": 1.0,
+        "label_precision": 0.20512820512820512,
+        "membership_precision": 1.0,
+        "reference_concepts": 29,
+        "recovered_concepts": 29,
+        "concept_recall": 1.0,
+        "missed_concepts": []
+      },
+      "provisional": {
+        "rated_topics": 0,
+        "useful_topics": 0,
+        "supported_labels": 0,
+        "claimed_memberships": 0,
+        "supported_memberships": 0,
+        "topic_precision": null,
+        "label_precision": null,
+        "membership_precision": null,
+        "reference_concepts": 0,
+        "recovered_concepts": 0,
+        "concept_recall": null,
+        "missed_concepts": []
+      }
+    }
+  }
+}
