@@ -70,7 +70,9 @@ class ReaderHost(
      * spec requires to be recorded was untestable.
      */
     private val log: (String) -> Unit = {},
-    private val networkState: NetworkState = UnmeteredNetworkState
+    private val networkState: NetworkState = UnmeteredNetworkState,
+    val structuralScheduler: com.example.notionreader.application.StructuralWorkScheduler? = null,
+    val structuralKnowledge: com.example.notionreader.domain.structure.StructuralKnowledgeRepository? = null
 ) {
 
     private val _speechMessage = MutableStateFlow<String?>(null)
@@ -415,3 +417,4 @@ class ReaderHost(
             combine(app.session.state, app.session.queueState) { _, _ -> Unit }.collect { onChange() }
         }
 }
+

@@ -25,6 +25,7 @@ import com.example.notionreader.data.notion.KtorNotionApi
 import com.example.notionreader.data.notion.BuildConfigTokenProvider
 import com.example.notionreader.data.notion.NotionRepository
 import com.example.notionreader.data.notion.NotionTokenProvider
+import com.example.notionreader.data.structure.structuralMetadata
 import com.example.notionreader.domain.ReaderDocument
 import java.io.File
 import com.example.notionreader.domain.ReaderIndexEntry
@@ -97,7 +98,47 @@ class ReaderApplication : Application() {
     @Volatile private var scheduledDiscovery = false
     @Volatile private var activeEffort = com.example.notionreader.domain.settings.DiscoveryEffort.CHARGING_ONLY
     private val scheduledWindowLock = Mutex()
+    private val structuralDiscoveryLock = Mutex()
+    private val structuralResourceRevision = MutableStateFlow(0L)
+    @Volatile private var structuralDiscoveryPending = true
     private lateinit var verifyDiscoveryModel: suspend () -> Unit
+
+    private suspend fun structuralTicket(): com.example.notionreader.domain.structure.StructuralIndex? = try {
+        structuralCoordinator.refreshLifecycle()
+        structuralStore.readIndex()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+    catch (_: Exception) { null } // Fail closed for structure without preventing reading or Discovery.
+
+    private suspend fun hasStructuralWork(): Boolean = try { structuralCoordinator.hasPendingWork() }
+    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+    catch (_: Exception) { false }
+
+    private suspend fun runStructuralWindow() {
+        try { structuralScheduler.runWindow(maxPages = 20, timeBudgetMillis = 120_000) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Structural failures cannot terminate the existing reader/Discovery loop. */ }
+    }
+
+    private suspend fun discoverStructuralResources() = structuralDiscoveryLock.withLock {
+        if (!structuralDiscoveryPending || !structuralScheduler.isEligible()) return@withLock
+        val ticket = structuralTicket() ?: return@withLock
+        val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+        if (token.isBlank()) { structuralDiscoveryPending = false; return@withLock }
+        if (tokenIdentity(token) != ticket.sourceIdentity) return@withLock
+        val client = KtorNotionApi(token)
+        try {
+            val result = kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                com.example.notionreader.data.structure.NotionStructuralDiscovery(client).collect(ticket.sourceIdentity,
+                    { structuralCoordinator.recordContainerIfCurrent(it, ticket.sourceIdentity, ticket.sourceEpoch) },
+                    { structuralCoordinator.requestMetadataIfChanged(it, ticket.sourceIdentity, ticket.sourceEpoch, signal = false) })
+            }
+            val current = structuralStore.readIndex()
+            if (result?.complete == true && current.sourceIdentity == ticket.sourceIdentity && current.sourceEpoch == ticket.sourceEpoch)
+                structuralDiscoveryPending = false
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Pending native-resource reconciliation retries in the existing worker. */ }
+        finally { client.close() }
+    }
 
     internal suspend fun runScheduledDiscovery(): com.example.notionreader.application.DiscoveryWindowResult =
         scheduledWindowLock.withLock {
@@ -105,7 +146,19 @@ class ReaderApplication : Application() {
             verifyDiscoveryModel()
             hasDiscoveryMemory(force = true)
             scheduledDiscovery = true
-            try { discoveryCoordinator.runWindow(120_000) }
+            try {
+                structuralDiscoveryPending = true
+                discoverStructuralResources()
+                if (hasStructuralWork()) {
+                    runStructuralWindow()
+                }
+                val discoveryResult = discoveryCoordinator.runWindow(120_000)
+                if ((hasStructuralWork() || structuralDiscoveryPending) && structuralScheduler.isEligible()) {
+                    com.example.notionreader.application.DiscoveryWindowResult.PENDING
+                } else {
+                    discoveryResult
+                }
+            }
             finally { scheduledDiscovery = false }
         }
 
@@ -129,6 +182,7 @@ class ReaderApplication : Application() {
         })
     }
 
+    @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
@@ -136,6 +190,8 @@ class ReaderApplication : Application() {
             level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             discoveryMemory.invalidate()
             discoveryResourcesAvailable.value = false
+            pageSnapshots.clear()
+            discoveryScope.launch { structuralStore.releaseMemory() }
             discoveryScope.launch { processDiscovery?.releaseModel() }
         }
     }
@@ -154,11 +210,12 @@ class ReaderApplication : Application() {
     val tokenProvider: NotionTokenProvider by lazy {
         BuildConfigTokenProvider()
     }
+    internal var notionApiFactory: (String) -> com.example.notionreader.data.notion.NotionApi = { KtorNotionApi(it) }
 
     val documentCache: DocumentCache by lazy {
         migrateLegacyCacheDir()
         FileDocumentCache(File(noBackupFilesDir, "document-cache"),
-            byteLimit = { storagePreferences?.noteCacheLimitBytes ?: Long.MAX_VALUE },
+            byteLimit = { ((storagePreferences?.noteCacheLimitBytes ?: Long.MAX_VALUE) - directoryBytes(File(noBackupFilesDir, "structural-knowledge"))).coerceAtLeast(0) },
             protectedPageIds = { protectedCacheIds() }, writeGate = storageWrites)
     }
 
@@ -179,7 +236,7 @@ class ReaderApplication : Application() {
         val availability = com.example.notionreader.platform.AndroidStorageAvailability(noBackupFilesDir)
         com.example.notionreader.application.StorageBudgetCoordinator(
             { storagePreferences ?: com.example.notionreader.domain.settings.ReaderSettings() }, { availability.snapshot()?.let { com.example.notionreader.domain.document.StorageSnapshot(it.first, it.second) } },
-            { (derivedNames + listOf("document-cache", "discovery-model")).sumOf { directoryBytes(File(noBackupFilesDir, it)) } },
+            { (derivedNames + listOf("document-cache", "discovery-model", "structural-knowledge")).sumOf { directoryBytes(File(noBackupFilesDir, it)) } },
             { derivedNames.sumOf { directoryBytes(File(noBackupFilesDir, it)) } },
             { directoryBytes(File(noBackupFilesDir, "discovery-model")) })
     }
@@ -191,6 +248,73 @@ class ReaderApplication : Application() {
     val cacheTelemetry: com.example.notionreader.domain.document.CacheTelemetry by lazy {
         com.example.notionreader.domain.document.CacheTelemetry()
     }
+
+    private val structuralStore: com.example.notionreader.data.structure.FileStructuralKnowledgeStore by lazy {
+        com.example.notionreader.data.structure.FileStructuralKnowledgeStore(
+            directory = File(noBackupFilesDir, "structural-knowledge"),
+            writeGate = com.example.notionreader.application.StructuralNoteWriteGate(storageWrites,
+                { storagePreferences?.noteCacheLimitBytes ?: Long.MAX_VALUE },
+                { directoryBytes(File(noBackupFilesDir, "document-cache")) + directoryBytes(File(noBackupFilesDir, "structural-knowledge")) }),
+            byteLimit = { minOf(16L * 1024 * 1024, ((storagePreferences?.noteCacheLimitBytes ?: Long.MAX_VALUE) - directoryBytes(File(noBackupFilesDir, "document-cache"))).coerceAtLeast(0)) }
+        )
+    }
+
+    private suspend fun tokenSha256(): String {
+        val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+        return tokenIdentity(token)
+    }
+
+    private fun tokenIdentity(token: String): String {
+        val input = token.ifBlank { "unconfigured-source" }
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        return digest.digest(input.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    private val pageSnapshots = com.example.notionreader.data.structure.StructuralSnapshotHandoff()
+
+    val structuralCoordinator: com.example.notionreader.application.StructuralKnowledgeCoordinator by lazy {
+        com.example.notionreader.application.StructuralKnowledgeCoordinator.observing(
+            store = structuralStore,
+            queries = structuralStore,
+            cache = documentCache,
+            sourceIdentity = { tokenSha256() },
+            collect = { pageId, sourceIdentity ->
+                val ticket = structuralStore.readIndex()
+                val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
+                val client = com.example.notionreader.data.notion.KtorNotionApi(token)
+                val collector = com.example.notionreader.data.structure.NotionStructuralCollector(client)
+                val canonicalId = com.example.notionreader.domain.structure.normalizeNotionId(pageId) ?: pageId
+                val snapshot = pageSnapshots.take(canonicalId, sourceIdentity, ticket.sourceEpoch)
+                val collected = try {
+                    collector.collectPageStructure(
+                        pageId = canonicalId,
+                        sourceIdentity = sourceIdentity,
+                        cachedPage = snapshot?.page,
+                        cachedBlocks = snapshot?.roots,
+                        cachedChildren = snapshot?.children
+                    )
+                } finally {
+                    client.close()
+                }
+                com.example.notionreader.domain.structure.StructuralObservation(collected.pageRecord,
+                    collected.containers.map { container -> com.example.notionreader.domain.structure.StructuralContainer(
+                        container.id, com.example.notionreader.domain.structure.StructuralContainerKind.valueOf(container.kind.name),
+                        container.title, container.parent, container.sourceIdentity, container.sourceRevision,
+                        container.createdAt, container.lastEditedAt, container.accessibilityState) }, collected.targetPages)
+            }
+        )
+    }
+
+    val structuralKnowledge: com.example.notionreader.domain.structure.StructuralKnowledgeRepository by lazy {
+        structuralCoordinator
+    }
+
+    @Volatile private var processStructuralScheduler: com.example.notionreader.application.StructuralWorkScheduler? = null
+    val structuralScheduler: com.example.notionreader.application.StructuralWorkScheduler
+        get() = processStructuralScheduler ?: run {
+            host
+            processStructuralScheduler!!
+        }
 
     val host: ReaderHost by lazy { buildHost() }
 
@@ -300,13 +424,19 @@ class ReaderApplication : Application() {
                     com.example.notionreader.data.discovery.GenerativeModelPack.pendingAcceptanceMessage
                 else "Topic naming is unavailable. Install the topic naming model in Discovery settings."
             },
-            invalidationAcknowledgementLimit = { recentNotes.processedInvalidationGeneration },
+            invalidationAcknowledgementLimit = { minOf(recentNotes.processedInvalidationGeneration, structuralCoordinator.processedInvalidationGeneration) },
             mayContinueIndexing = { discoveryCoordinator.windowOpen && (discoveryForeground.value || scheduledDiscovery) &&
                 hasDiscoveryMemory() && discoveryPower.value.allows(activeEffort) &&
                 discoveryPower.value.allows(discoveryApp.settings.value.discoveryEffort) &&
                 discoveryModel.state.value.installed && !discoveryApp.session.state.value.isPlaying }
         )
         processDiscovery = discovery
+        discoveryScope.launch {
+            documentCache.invalidations.collect {
+                pageSnapshots.clear()
+                structuralTicket()
+            }
+        }
 
         val app = ReaderApp(
             session = ReaderSession(
@@ -377,6 +507,7 @@ class ReaderApplication : Application() {
             val eligible = (discoveryForeground.value || scheduledDiscovery) && discoveryResourcesAvailable.value &&
                 discoveryPower.value.allows(activeEffort) && discoveryModel.state.value.installed && !app.session.state.value.isPlaying
             app.recentNotes?.refresh()
+            structuralTicket()
             discovery.reconcile(app.browse.state.value.entries, eligible)
             com.example.notionreader.application.discoveryWindowResult(discoveryModel.state.value.installed,
                 discovery.state.value, eligible, discovery.hasPendingWork)
@@ -395,25 +526,51 @@ class ReaderApplication : Application() {
                 app.browse.state.map { it.entries }.distinctUntilChanged(),
                 discoveryForeground,
                 app.session.state.map { it.isPlaying }.distinctUntilChanged(),
-                combine(discovery.revision, app.settings) { revision, settings -> revision to settings.discoveryEffort }
+                combine(discovery.revision, app.settings, structuralCoordinator.workRevision, structuralResourceRevision) { revision, settings, structuralRevision, resourceRevision -> Triple(revision, settings, structuralRevision to resourceRevision) }
             ) { _, entries, foreground, playing, _ -> Triple(entries, foreground, playing) }
             val constraints = combine(discoveryResourcesAvailable, discoveryPower) { resources, power -> resources to power }
             combine(inputs, discoveryModel.state.map { it.installed }.distinctUntilChanged(), constraints) { input, installed, limits ->
-                Triple(input.first, input.second && !input.third && installed && limits.first && limits.second.eligible, installed) to limits.second
-            }.conflate().collect { (work, power) ->
+                val (entries, foreground, playing) = input
+                val (memoryOk, power) = limits
+                val structuralEligible = foreground && !playing && memoryOk && power.eligible
+                val discoveryEligible = foreground && !playing && installed && memoryOk && power.eligible
+                Triple(Triple(entries, discoveryEligible, installed), structuralEligible, power)
+            }.conflate().collectLatest { (work, structuralEligible, power) ->
                 val (entries, eligible, installed) = work
-                discoveryCoordinator.runWindow(120_000)
-                if (!installed || discovery.state.value.paused) discoveryScheduler.cancel()
-                else discoveryScheduler.request(settingsRepository.readCurrentSettings().discoveryEffort, discovery.hasPendingWork)
+                structuralTicket()
+                if (structuralEligible) discoverStructuralResources()
+                if (structuralEligible && hasStructuralWork()) {
+                    // Coalesce a burst of durable Browse requests before starting HTTP.
+                    kotlinx.coroutines.delay(250)
+                    runStructuralWindow()
+                }
+                if (installed) {
+                    discoveryCoordinator.runWindow(120_000)
+                }
+                val structuralPending = hasStructuralWork() || structuralDiscoveryPending
+                val hasAnyPending = discovery.hasPendingWork || structuralPending
+                if (!structuralPending && (!installed || discovery.state.value.paused)) discoveryScheduler.cancel()
+                else discoveryScheduler.request(settingsRepository.readCurrentSettings().discoveryEffort, hasAnyPending)
                 if (!installed) discovery.releaseModel()
             }
         }
+
+        val scheduler = com.example.notionreader.application.StructuralWorkScheduler(
+            coordinator = structuralCoordinator,
+            settings = { settingsRepository.settings.value },
+            isPlaying = { app.session.state.value.isPlaying },
+            isUnmetered = { AndroidNetworkState(this).isUnmetered },
+            hasResources = { hasDiscoveryMemory() && discoveryPower.value.allows(settingsRepository.settings.value.discoveryEffort) }
+        )
+        processStructuralScheduler = scheduler
 
         return ReaderHost(
             app = app,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             log = { message -> Log.i(TAG, message) },
-            networkState = AndroidNetworkState(this)
+            networkState = AndroidNetworkState(this),
+            structuralScheduler = scheduler,
+            structuralKnowledge = structuralKnowledge
         ).also { built ->
             host = built
             built.start()
@@ -438,10 +595,23 @@ class ReaderApplication : Application() {
      * bug that only appears on the failure path, and this is called once per Note in a multi-Note queue rather
      * than once per screen.
      */
-    private fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt, forceRefresh, purpose ->
+    internal fun notionLoader(settingsRepo: SettingsRepository): LoadReaderDocument = DefaultLoadReaderDocument { reference, knownRemoteLastEditedAt, forceRefresh, purpose ->
         loadCoordinator.load(reference, purpose, forceRefresh) {
             val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
-            val remoteSource = NotionRepository(KtorNotionApi(token))
+            val structuralTicket = structuralTicket()
+            val remoteSource = NotionRepository(
+                api = notionApiFactory(token),
+                onDocumentSnapshot = { page, rootBlocks, childBlocks ->
+                    discoveryScope.launch {
+                        val canonicalId = com.example.notionreader.domain.structure.normalizeNotionId(page.id) ?: page.id
+                        if (structuralTicket != null && structuralTicket.sourceIdentity == tokenIdentity(token)) {
+                            pageSnapshots.offer(page, rootBlocks, childBlocks, structuralTicket.sourceIdentity, structuralTicket.sourceEpoch)
+                            if (!structuralCoordinator.requestIfCurrent(canonicalId, structuralTicket.sourceIdentity, structuralTicket.sourceEpoch, "reader-fetch"))
+                                pageSnapshots.clear()
+                        }
+                    }
+                }
+            )
             val cachedRepository = CachedDocumentRepository(
                 remote = remoteSource,
                 cache = documentCache,
@@ -460,7 +630,20 @@ class ReaderApplication : Application() {
     /** Also used by the Browse index, which is the same request with a different projection. */
     suspend fun readBrowseIndex(): List<ReaderIndexEntry> {
         val token = tokenProvider.getToken() ?: BuildConfig.NOTION_TOKEN
-        val repository = NotionRepository(KtorNotionApi(token))
+        val structuralTicket = structuralTicket()
+        val repository = NotionRepository(
+            api = notionApiFactory(token),
+            onDiscoveredMetadata = { pages ->
+                discoveryScope.launch {
+                    structuralDiscoveryPending = true
+                    if (structuralTicket != null && structuralTicket.sourceIdentity == tokenIdentity(token)) for (page in pages)
+                        page.structuralMetadata(structuralTicket.sourceIdentity)?.let {
+                            structuralCoordinator.requestMetadataIfChanged(it, structuralTicket.sourceIdentity, structuralTicket.sourceEpoch)
+                        }
+                    structuralResourceRevision.value++
+                }
+            }
+        )
         return try {
             repository.getBrowseIndex()
         } finally {
@@ -496,3 +679,5 @@ class ReaderApplication : Application() {
         super.onTerminate()
     }
 }
+
+
