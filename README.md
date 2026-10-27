@@ -231,7 +231,7 @@ Only the root may name `data`, `platform` and `application` together for wiring.
   ordering) and `ResumePolicy`. Pure, and JVM-testable with no dispatcher.
 - `domain/discovery/` — keyword Browse, semantic model/index/interest ports, source-aware
   token-bounded chunking, vector validation and deterministic Note-level ranking.
-- `domain/structure/` — `StructuralDocument`, `StructuralBlock`, `StructuralContainer`, `StructuralParent`, `StructuralEdge`, `StructuralAnchor`, `StructuralIndex` and the `StructuralKnowledgeRepository` port. Provider-independent factual hierarchy, explicit relations, section breadcrumbs and non-spoken structural anchors.
+- `domain/structure/` — `StructuralPage`, `StructuralBlock`, `StructuralContainer`, `StructuralParent`, `ExplicitRelationship`, `StructuralNavigationAnchor`, `StructuralIndex` and the `StructuralKnowledgeRepository` port. Provider-independent factual hierarchy, explicit relations, section breadcrumbs and non-spoken structural anchors.
 - `player/` — `ReaderState` (the immutable reading position and navigation), `ReaderEngine`, and the
   `SpeechEngine` port. Depends only on `domain`.
 - `application/` — the use cases and application state: `ReaderSession` (the owner of playback),
@@ -242,7 +242,7 @@ Only the root may name `data`, `platform` and `application` together for wiring.
 - `data/notion/` — `NotionApi` (HTTP, retry, error mapping), `NotionModels` (JSON), `NotionRepository`, `NotionTokenProvider` port.
 - `data/content/` — `NotionBlockNormalizer` (Notion block types → `NormalizedBlock`),
   `ReaderDocumentMapper`, `TextChunker`.
-- `data/structure/` — `FileStructuralKnowledgeStore` (concurrency-safe atomic per-page/container JSON storage in `noBackupFilesDir`, eligibility epochs, durable pending page work), `NotionStructuralExtractor` (normalized tree → structural facts), `NotionStructuralDiscovery`.
+- `data/structure/` — `FileStructuralKnowledgeStore` (concurrency-safe atomic per-page/container JSON storage in `noBackupFilesDir`, eligibility epochs, durable pending page work), `StructuralExtractor` (normalized tree → structural facts), `NotionStructuralDiscovery`.
 - `data/document/` — `CachedDocumentRepository` (stale-while-revalidate caching and offline playback orchestration), `DocumentCache` port.
 - `data/local/` — `SessionCodec` (the versioned wire form), `DataStoreSessionStore`, `FileDocumentCache` (concurrency-safe atomic cache in `noBackupFilesDir` with LRU pruning), and `ReaderDocumentCodec`.
 - `platform/` — `AndroidSpeechEngine` and Player/media adapters; the root `PlaybackService` wires Media3 to the process-owned session.
@@ -609,3 +609,10 @@ saves progress at orderly yields and phase handoffs, and uses authored areas/top
 only for conservative numerical exclusion of nonmatching evidence. Exact-input
 embedding reuse is bounded and cleared on reset/source withdrawal/resource release.
 See [the architecture review](docs/discovery-architecture-review-2026-10-19.md).
+
+Native structural persistence, explicit references and query coverage are documented
+in the [Phase 1 audit](docs/knowledge-system/phase1-structural-audit.md) and
+[review follow-up](docs/knowledge-system/phase1-review-followup.md). Partial work
+retries durably; intrinsic limits remain explicit and blocked until changed revision
+or manual refresh. Bounded native discovery does not establish exhaustive workspace
+coverage or representative Android memory/performance acceptance.

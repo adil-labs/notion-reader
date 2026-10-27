@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[Discovery activation (§133)](#133-enable-concept-based-discovery-by-user-instruction-2026-10-26)
+[structural corrective review (§135)](#135-structural-admission-recovery-and-review-corrections-2026-10-27)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11470,26 +11470,66 @@ The user explicitly instructed enabling immediately without waiting for the rema
 Full JVM suite and debug assembly passed. Installed the resulting debug APK over the existing S25 installation with adb install -r and launched MainActivity. The process remained present and the immediate AndroidRuntime error buffer showed no crash. This launch check does not establish sustained runtime stability. Fresh semantic/resource/scale acceptance remains open as recorded in §132.
 
 
-## 134. Native structural knowledge (Phase 1) (2026-10-26)
+## 134. Native structural knowledge initial landing (2026-10-26)
 
-Implemented the Phase 1 native structural knowledge pipeline subordinate to the governing contracts. It captures typed, versioned structural facts from Notion without altering reader playback, user state, topic catalogs, or existing UI flows.
+The initial Phase 1 implementation landed through main `9677cb7`, with domain
+`StructuralPage`, `StructuralBlock`, `StructuralContainer`, `ExplicitRelationship`
+and `StructuralNavigationAnchor`; `StructuralExtractor`, collector, atomic store,
+query port and process-root integration. The original verification paragraph used
+nonexistent type/test names and overstated the evidence. It is superseded by §135
+and the tracked Phase 1 follow-up report. Initial landing did not complete the
+primary audit: review subsequently reproduced source admission, target-state,
+retry and resource traversal defects. Generated Notion contracts were unchanged.
 
-Key components and architectural invariants:
-- `domain/structure`: Domain records (`StructuralDocument`, `StructuralBlock`, `StructuralContainer`, `StructuralParent`, `StructuralEdge`, `StructuralAnchor`, `StructuralIndex`) and query repository port (`StructuralKnowledgeRepository`). Supports explicit parent types (page, block, database, data source, workspace), canonical Notion UUID normalization, child-page/block containment, explicit relations/mentions/links, speech chunk mappings, and non-spoken structural anchors.
-- `data/notion`: Extended `NotionModels.kt` and `NotionApi.kt` additively for parent metadata, reference properties, data sources, and paginated property items. Retained source compatibility for existing fakes. Pagination caps at 500 requests and rejects malformed/repeating cursors.
-- `data/structure`: `NotionStructuralExtractor` normalizes block trees into structural records (depth limit 10, max 5,000 blocks); `FileStructuralKnowledgeStore` provides atomic, per-page/container JSON persistence in `noBackupFilesDir` under schema version 1. Enforces strict source-identity and epoch eligibility: credentials switches or whole-cache invalidation increment the epoch and reject orphaned payloads; ambiguous 404s map to `MISSING_OR_INACCESSIBLE`, never confirmed deletion without explicit trash observation.
-- `application` & `ReaderApplication`: `StructuralKnowledgeCoordinator` orchestrates background extraction, metadata updates, and cache synchronization; `StructuralWorkScheduler` schedules bounded work windows adhering to user effort settings and battery/metered constraints; `ReaderApplication` isolates structural storage so unexpected store failures fail closed without aborting reader document loading or Discovery.
+## 135. Structural admission, recovery and review corrections (2026-10-27)
 
-Failing-first evidence:
+Review of main `9677cb7` reproduced an observation invalidating its own source
+ticket when a related target was withdrawn. Admission now checks the original
+ticket and renews only its own target-withdrawal epoch under the same store mutex.
+An external clear or credential change still rejects stale work. The source
+commits once without a second network collection. Related cache invalidations
+preserve explicit trash versus ambiguous 404 states and do not publish phantom
+cache deletions for never-known targets; unrelated Notes remain intact.
 
-| Guard absent | Intended tests that failed |
-| --- | --- |
-| Storage epoch & credential eligibility | `FileStructuralKnowledgeStoreTest`: `anInvalidEpochCannotAdmitPersistedRecords`, `credentialsSwitchClearsEligibilityBeforePayloads`, `wholeCacheClearAdvancesEpochAndRejectsPriorSnapshots` (3 tests); `epochMismatchRejectsPayloadSnapshot` (1 test) |
-| Reader isolation gate | `StructuralPipelineIntegrationTest`: `incompatibleStructuralStateCannotPreventReadingOrBrowse` failed with `AssertionError: Derived structure must not block the shipping reader` |
+Partial traversal now has an end-to-end persistence/restart/retry regression.
+Intrinsic size/depth limits have a durable `LIMIT_EXCEEDED` source revision block,
+retaining previous valid content and preventing repeated oversized downloads.
+Referencing the same blocked target cannot requeue it; changed revision/manual
+refresh can. Optional related header storage cannot block a valid source or
+misattribute a target limit to its source.
 
-Verification:
-- Full JVM suite: 1,353 tests passing cleanly across parallel forks.
-- Debug assembly (`:app:assembleDebug`) and Android-test compilation (`:app:compileDebugAndroidTestKotlin`) pass with 0 warnings.
-- Failing-first store proof (`tools/proof-structural-store.ps1`): 3 expected assertion failures on eligibility guard removal, 1 expected assertion failure on epoch guard removal, 32 passed on restoration.
-- Failing-first isolation proof (`tools/proof-structural-isolation.ps1`): 1 expected assertion failure on guard removal, 1 passed with exit code 0 on restoration.
-- Instrumented integration test (`StructuralPipelineIntegrationTest`): 1/1 passed via `tools/run-accessibility-tests.ps1` on connected emulator (API 35/16).
+Scheduled eligibility monitoring cancels in-flight collection on playback/resource
+policy change. Source 401 handling clears structural authorization independently
+of pending page work, while stale-source failures cannot clear a new source.
+Native data-source rotation survives process recreation by stable source ID;
+opaque cursors remain ephemeral. Admitted continuation slots are retained until
+completion; the 201-source regression catches eviction starvation above capacity.
+Cursors for sources missing from a later search release their slots without
+removing persisted facts. Denied member queries likewise release only their
+ephemeral slot so inaccessible resources cannot monopolize admission. Search/query
+limits mean incomplete inventory, never
+absence-based deletion.
+
+Failing-first evidence and fresh verification are recorded in the
+[Phase 1 follow-up report](knowledge-system/phase1-review-followup.md). A tests-only
+Antigravity assignment produced useful coverage but one fake never reached its
+claimed cancellation callback; primary review corrected that vacuous test. All
+new calls used the required 40-minute timeout. Workflow rules and these lessons
+are tracked in `docs/antigravity-cli-workflow.md`.
+
+Fresh verification: 1,378 JVM tests with zero failures/errors/skips; debug
+assembly and Android-test Kotlin compilation pass. Store proof observes exactly
+three eligibility and one epoch assertion failures, then 32 restored passes.
+Observation proof has two intended single-test failures and two restored passes.
+Reader isolation wrapper proof fails its intended assertion with the guard
+removed and passes 1/1 restored. Player accessibility wrapper passes 18/18.
+The API36/Android16 emulator configuration probe passes all five checks after
+notification permission preparation and repairing its obsolete Paragraph-only
+parser to accept the current Part label. Earlier failed probe runs are retained
+as harness evidence, not counted as application regressions. No human speech or
+representative-device acceptance follows from these results.
+
+Still open: representative Android allocation/whole-process memory, scale and
+battery/latency measurements; full resource inventory beyond bounded windows;
+remaining Discovery semantic acceptance from §132; human TalkBack speech and
+hands-free acceptance. These are not established by this structural implementation.

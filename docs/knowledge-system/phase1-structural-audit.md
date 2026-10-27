@@ -42,37 +42,29 @@ risks in source identity, metadata/edge equality, stale indexes after moves,
 ambiguous 404 handling, URL classification and crash consistency. Corrections
 require concrete regression evidence before acceptance.
 
-## After implementation
+## After implementation and follow-up review
 
-Phase 1 native structural knowledge is implemented and verified. All 1,353 JVM tests pass, debug assembly and Android test compilation succeed, targeted instrumented accessibility/pipeline tests pass on device, and failing-first regression proofs verify that the storage eligibility and reader isolation guards detect regressions.
+The initial landing at `9677cb7` required corrective review. This matrix describes
+actual capabilities; final command results are recorded in the
+[follow-up report](phase1-review-followup.md). API/resource limits below are part
+of the scope of each claim. Existing Discovery acceptance gates remain separate.
 
-| Capability | After | Code & persistence | Applicable tests | Verification evidence |
-| --- | --- | --- | --- | --- |
-| Page discovery | Implemented and verified | `data/notion/NotionApi.kt`, `NotionRepository.kt`, `data/structure/NotionStructuralDiscovery.kt` | `data/notion/NotionPropertyPaginationTest.kt`, `NotionStructuralApiTest.kt` | 100-page paginated traversal, cursor validation, retry on failure |
-| Database/data-source discovery and metadata | Implemented and verified | `data/structure/NotionStructuralDiscovery.kt`, `data/structure/FileStructuralKnowledgeStore.kt` | `data/structure/NotionStructuralDiscoveryTest.kt`, `FileStructuralKnowledgeStoreTest.kt` | Data source and database containers recorded with parent hierarchy |
-| Page metadata, parent and revision | Implemented and verified | `data/notion/NotionModels.kt`, `domain/structure/StructuralDocument.kt`, `StructuralParent.kt` | `data/notion/NotionModelsTest.kt`, `domain/structure/StructuralHierarchyTest.kt` | Typed page/block/database/data-source/workspace parents; edit & creation timestamps |
-| Nested blocks, pagination and reading order | Implemented and verified | `data/structure/NotionStructuralExtractor.kt`, `NotionBlockNormalizer.kt` | `data/structure/NotionStructuralExtractorTest.kt`, `data/content/ReaderFixtureContractTest.kt` | Bounded recursion (depth 10, max 5,000 blocks); sibling order preserved; reader playback projection unchanged |
-| Persistent page/block hierarchy | Implemented and verified | `data/structure/FileStructuralKnowledgeStore.kt`, `domain/structure/StructuralDocument.kt` | `data/structure/FileStructuralKnowledgeStoreTest.kt`, `domain/structure/StructuralQueryTest.kt` | Atomic JSON files in `noBackupFilesDir`; ancestor and subtree queries; index rebuilt from eligible records |
-| Headings, sections and navigation anchors | Implemented and verified | `domain/structure/StructuralDocument.kt`, `StructuralBlock.kt`, `StructuralAnchor.kt`, `data/structure/NotionStructuralExtractor.kt` | `data/structure/NotionStructuralExtractorTest.kt`, `domain/structure/StructuralHierarchyTest.kt` | Explicit heading block IDs, section breadcrumb paths, speech chunk mapping and non-spoken structural anchors |
-| Explicit relations, mentions, links and synced references | Implemented and verified | `domain/structure/StructuralEdge.kt`, `data/structure/NotionStructuralExtractor.kt`, `data/notion/NotionModels.kt` | `data/structure/NotionStructuralExtractorTest.kt`, `data/notion/NotionPropertyPaginationTest.kt` | Dual-direction relation edges, page/user/date mentions, URL link targets, duplicate synced block provenance |
-| Document caching, refresh and invalidation | Implemented and verified | `data/structure/FileStructuralKnowledgeStore.kt`, `application/StructuralKnowledgeCoordinator.kt`, `application/StructuralWorkScheduler.kt`, `ReaderApplication.kt` | `application/StructuralKnowledgeCoordinatorTest.kt`, `application/StructuralWorkSchedulerTest.kt`, `data/structure/FileStructuralKnowledgeStoreTest.kt` | Epoch-guarded atomic persistence; credential switch & whole-cache invalidation advance epoch; partial work queues retry |
-| Offline reading, saved playback position and semantic identity | Implemented and verified | Reader domain unchanged; `ReaderApplication.kt` isolation gate; `domain/structure/StructuralKnowledgeRepository.kt` | `ui/StructuralPipelineIntegrationTest.kt`, `tools/proof-structural-isolation.ps1`, `tools/proof-structural-store.ps1` | Failing-first proof: structural store failure cannot abort reader or Discovery; player commands and saved positions preserved |
-| Exhaustive workspace enumeration or proof of deletion from search absence/404 | Unsupported by Notion API; handled safely | `data/structure/FileStructuralKnowledgeStore.kt`, `data/structure/NotionStructuralDiscovery.kt` | `data/structure/FileStructuralKnowledgeStoreTest.kt`, `data/notion/NotionStructuralApiTest.kt` | Ambiguous 404 maps to `MISSING_OR_INACCESSIBLE`, never confirmed deletion; search absence never deletes; incomplete traversal preserves existing snapshots |
+| Capability | After | Actual implementation | Tests / evidence |
+| --- | --- | --- | --- |
+| Page discovery | Implemented and verified within API limits | `data/notion/NotionApi.kt`, `NotionRepository.kt`: cursor-paginated search; metadata callbacks include blank titles without changing Browse presentation | `KtorNotionApiTest`, `NotionRepositorySnapshotTest`, `NotionStructuralApiTest` |
+| Database/data-source metadata and member discovery | Implemented and verified within bounded windows | `NotionStructuralDiscovery`, `StructuralDiscoveryContinuation`, `StructuralContainer`; native source-ID rotation persists, opaque cursors stay in process memory | `NotionStructuralDiscoveryTest`, `StructuralContainerStoreTest`; search cannot establish exhaustive workspace coverage |
+| Page metadata, parent and revision | Implemented and verified | `NotionModels.kt`, `StructuralMetadata.kt`, `domain/structure/StructuralModels.kt`: typed parents, source identity, creation/edit times, source revision and access state | `NotionStructuralApiTest`, `StructuralModelsTest`, `StructuralQueryIntegrationTest` |
+| Nested blocks, pagination and order | Implemented and verified within traversal limits | `StructuralExtractor`: native tree and explicit block containment; default depth10/5,000 blocks; reader projection retains its own policy | `StructuralCollectionBoundariesTest`, `StructuralExtractorTest`, `KtorNotionApiTest`, existing `ReaderFixtureContractTest` |
+| Persistent hierarchy and offline queries | Implemented and verified | `FileStructuralKnowledgeStore`: atomic page/container files, eligibility authority and disposable indexes; direct children and ancestors through containers | `FileStructuralKnowledgeStoreTest`, `StructuralContainerStoreTest`, `StructuralQueryIntegrationTest` |
+| Sections and stable anchors | Implemented and verified | `StructuralSection`, `StructuralNavigationAnchor`: heading IDs, hierarchy paths, ordered block IDs, optional actual reader chunk IDs | `StructuralExtractorTest`, `StructuralQueryIntegrationTest`, existing `ReaderIdentityStabilityTest` |
+| Explicit relationships | Implemented and verified for decoded native fields | Typed forward relations/mentions/links, child-page/database and synced references; locally known incoming indexes; provenance and unresolved states | `StructuralExtractorTest`, `StructuralCollectionBoundariesTest`, `NotionUrlClassifierTest`, `NotionPropertyPaginationTest`; no inferred reciprocal semantic edges |
+| Incremental update and withdrawal | Implemented and verified | `StructuralKnowledgeCoordinator`, atomic `applyObservation`: one collection can withdraw targets and commit its source; external lifecycle events still win; metadata revision/fact comparisons avoid unchanged fetches | `StructuralKnowledgeCoordinatorTest`, `StructuralObservationAdmissionTest`, `StructuralRecoveryIntegrationTest`, store/observation guard proofs |
+| Partial and oversized work | Implemented and verified | Durable partial retries preserve prior content; supported-limit failures report `LIMIT_EXCEEDED` and stop automatic retries until revision change/manual refresh | `StructuralRecoveryIntegrationTest`, `StructuralExtractorTest`, `FileStructuralKnowledgeStoreTest` |
+| Existing reader, playback and Discovery | Verified for executed regression scope; broader performance/human acceptance remains open | Process-owned existing background pipeline; no model invocation, new UI destination, player command or semantic ID migration | Full JVM suite, targeted Android wrapper tests and probes recorded in follow-up report; `StructuralPipelineIntegrationTest` checks reader/Browse isolation, not all Discovery or TalkBack speech behavior |
+| Exhaustive inventory / deletion from search absence or404 | Unsupported or limited by Notion API | Search absence never deletes; explicit trash differs from missing-or-unshared; limits remain incomplete; unsupported blocks retain their native type | [Search limits](https://developers.notion.com/reference/search-optimizations-and-limitations), [status codes](https://developers.notion.com/reference/status-codes); collector and recovery tests |
 
-### Verification summary
-
-1. **Unit tests (`:app:testDebugUnitTest`)**: 1,353 tests passed, 0 failures, 0 errors.
-2. **Build and assembly**: `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` succeed cleanly with 0 warnings.
-3. **Failing-first regression proof 1 (`tools/proof-structural-store.ps1`)**:
-   - `eligibility-removed`: 3 tests failed with expected `AssertionError`.
-   - `epoch-removed`: 1 test failed with expected `AssertionError`.
-   - `restored`: 32 tests passed (0 failures).
-4. **Failing-first regression proof 2 (`tools/proof-structural-isolation.ps1`)**:
-   - `guard-removed`: 1 test failed with expected `AssertionError: Derived structure must not block the shipping reader`.
-   - `restored`: 1 test passed wrapper exit code 0.
-5. **Instrumented pipeline integration test (`tools/run-accessibility-tests.ps1 -Class com.example.notionreader.ui.StructuralPipelineIntegrationTest`)**:
-   - 1 test passed on connected device (emulator-5554, API 35/16).
-
-See [official API constraints](phase1-api-evidence.md),
-[implementation plan](../superpowers/plans/2026-10-26-structural-knowledge.md) and
-[Antigravity workflow lessons](../antigravity-cli-workflow.md).
+Paths in this table are relative to `app/src/main/java/com/example/notionreader`
+for production and `app/src/test/java/com/example/notionreader` for JVM tests.
+Instrumented tests are under `app/src/androidTest/java/com/example/notionreader`.
+The [API evidence](phase1-api-evidence.md) supplies official sources for each native
+capability; resource limits do not imply an exhaustive workspace inventory.

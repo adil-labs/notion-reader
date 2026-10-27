@@ -107,3 +107,16 @@ Keep accepted capability matrices, design decisions and reproducible verificatio
 in tracked documentation or tooling. Raw streams and temporary prompts alone are
 not repository infrastructure. Do not include private Note content in a delegated
 prompt, logs or external evaluation input.
+
+
+## Review lessons from the Phase 1 follow-up
+
+A tests-only delegation still needs qualitative review. One cancellation fake returned
+an empty page and never reached the callback whose cancellation the test claimed to
+observe. Supply a real result, prove the callback runs, and check the asserted boundary.
+A successful delegated run and a green test are separate evidence.
+
+Check the actual Git branch, HEAD, remote and worktree again before integration in a
+shared workspace. Compare reports with real symbols, test names and fresh XML counts;
+never promote a plausible generated verification paragraph into evidence. Keep initial
+landing history distinct from corrective review and final verification.

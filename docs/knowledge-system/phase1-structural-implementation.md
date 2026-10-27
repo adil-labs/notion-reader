@@ -91,12 +91,39 @@ the container a page. A child-page reference can return an explicitly UNFETCHED
 metadata placeholder until its own metadata is collected. Queries do not expose
 file names or JSON codecs to UI code.
 
+## Observation admission and bounded recovery
+
+A collected observation is admitted under one store mutex against the original
+source identity and epoch. Withdrawing related targets can advance that epoch;
+only that same admitted observation renews its ticket while holding the mutex.
+External cache clear/source change still wins. The source snapshot is written
+before optional related headers, so a target quota failure cannot block its source.
+Related headers that exceed their intrinsic limit block that target revision.
+An unchanged referenced header cannot clear that block. Changed source revision
+or explicit manual refresh can request another attempt.
+
+Partial first observations persist with durable retry work. Partial updates retain
+an earlier valid snapshot. Oversized/depth-limited observations report
+`LIMIT_EXCEEDED`, retain earlier valid content and do not retry automatically at
+the same source revision. Ordinary transient failures remain recoverable work.
+Known unavailable cached targets withdraw individually; never-fetched ambiguous
+404 targets do not manufacture document-cache deletion events. Explicit trash,
+permission denial and ambiguous not-found remain distinct structural states.
+
+Native data-source rotation persists only its stable identity. Opaque pagination
+cursors are process-local and reset after source change/recreation. Up to 200
+continuations are admitted; their cursors are retained until completion rather
+than evicted before revisiting a source. Additional sources receive opportunities
+as slots become available. Inventory remains explicitly incomplete above a window
+limit, on denied queries or cancellation. No search absence proves deletion.
+Scheduled work monitors eligibility during requests and cancels promptly when
+playback/resource/cache policy disallows it. Source-scoped 401 observations clear
+structural authorization even when no page work is pending.
+
 ## Integration and verification status
 
-Phase 1 structural knowledge is implemented, integrated with the process composition root and verified.
-All 1,353 JVM tests pass; debug APK assembly and Android test Kotlin compilation succeed. Targeted instrumented
-pipeline testing (`StructuralPipelineIntegrationTest`) passes via the repository accessibility wrapper.
-Failing-first regression proofs (`tools/proof-structural-store.ps1` and `tools/proof-structural-isolation.ps1`)
-verify that the storage eligibility/epoch guards and the reader isolation boundaries detect regressions.
-The completed before/after matrix and capability evidence are recorded in the [audit](phase1-structural-audit.md)
-and in `docs/decisions.md` §134.
+See the [follow-up report](phase1-review-followup.md) for fresh commands, actual
+test names, failing-first proofs and remaining acceptance limits. The original
+landing is recorded in decisions §134; corrective review and current evidence
+are §135. Neither JVM tests nor emulator probes establish representative Android
+scale, whole-process memory, S25 performance or human TalkBack speech acceptance.

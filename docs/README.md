@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#133-enable-concept-based-discovery-by-user-instruction-2026-10-26)
+[the current decision-record entry](decisions.md#135-structural-admission-recovery-and-review-corrections-2026-10-27)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
