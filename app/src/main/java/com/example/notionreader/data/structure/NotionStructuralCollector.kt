@@ -616,7 +616,7 @@ class NotionStructuralCollector(
             pageRecord = fullyResolvedRecord,
             containerMetadata = containers.firstOrNull(),
             resolvedTargetTitles = resolvedTitles,
-            containers = containers.distinctBy { it.id },
+            containers = containers.sortedBy { if (it.accessibilityState == PageAccessibilityState.ACCESSIBLE) 1 else 0 }.distinctBy { it.id },
             targetPages = targetPages
         )
     }

@@ -414,7 +414,7 @@ class StructuralExtractorTest {
 
         val childBlock = record.blocks.first { it.id == "11111111-0000-0000-0000-000000000002" }
         assertEquals(ChildCompleteness.DEPTH_LIMIT_REACHED, childBlock.childCompleteness)
-        assertEquals(SyncCompleteness.PARTIAL_TRAVERSAL_INCOMPLETE, record.page.syncStatus)
+        assertEquals(SyncCompleteness.LIMIT_EXCEEDED, record.page.syncStatus)
     }
 
     @Test

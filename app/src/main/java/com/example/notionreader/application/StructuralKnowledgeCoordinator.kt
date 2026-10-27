@@ -35,7 +35,7 @@ class StructuralKnowledgeCoordinator(
     @Volatile var processedInvalidationGeneration: Long = 0L
         private set
 
-    private suspend fun refreshLocked(): StructuralIndex {
+    private suspend fun refreshLocked(observedWithdrawals: Map<String, PageAccessibilityState> = emptyMap()): StructuralIndex {
         val identity = sourceIdentity()
         require(identity.isNotBlank())
         var current = store.readIndex()
@@ -43,11 +43,16 @@ class StructuralKnowledgeCoordinator(
             check(current.sourceEpoch < Long.MAX_VALUE)
             store.initSource(identity, current.sourceEpoch + 1)
         }
+        var resetObserved = false
         for (event in cache.invalidations.value.sortedBy { it.generation }) {
             if (event.generation <= processedInvalidationGeneration) continue
             current = store.readIndex()
-            if (event.pageId == null) store.clearSource(identity, current.sourceEpoch)
-            else store.removePage(event.pageId, identity, current.sourceEpoch, when (event.reason) {
+            val pageId = event.pageId?.let(::normalizeNotionId)
+            if (event.pageId == null) {
+                store.clearSource(identity, current.sourceEpoch)
+                resetObserved = true
+            } else if (pageId != null && (!resetObserved || pageId !in observedWithdrawals)) store.removePage(pageId, identity, current.sourceEpoch,
+                observedWithdrawals[pageId] ?: when (event.reason) {
                 CacheRemovalReason.PERMISSION_DENIED -> PageAccessibilityState.RESTRICTED_PERMISSION
                 // The reader's DELETED category also includes Notion's ambiguous object_not_found.
                 CacheRemovalReason.DELETED -> PageAccessibilityState.NOT_FOUND_OR_UNSHARED
@@ -83,6 +88,7 @@ class StructuralKnowledgeCoordinator(
     suspend fun requestMetadataIfChanged(page: StructuralPage, identity: String, epoch: Long, signal: Boolean = true): Boolean = stateMutex.withLock {
         val current = refreshLocked()
         if (current.sourceIdentity != identity || current.sourceEpoch != epoch || page.sourceIdentity != identity) return@withLock false
+        if (store.blockedSourceRevision(page.id)?.let { it == page.sourceRevision } == true) return@withLock false
         val existing = store.readPage(page.id)?.page
         if (existing != null && existing.syncStatus == SyncCompleteness.COMPLETE && page.sourceRevision.isNotBlank() &&
             existing.sourceRevision == page.sourceRevision && existing.title == page.title && existing.parent == page.parent &&
@@ -141,26 +147,26 @@ class StructuralKnowledgeCoordinator(
                                 val afterRemoval = refreshLocked()
                                 store.removePage(item.pageId, afterRemoval.sourceIdentity, afterRemoval.sourceEpoch, record.page.accessibilityState)
                             } else {
-                                val cacheGeneration = cache.revision.value
                                 val unavailablePages = observation.targetPages.filter { it.accessibilityState != PageAccessibilityState.ACCESSIBLE }
                                     .associate { it.id to it.accessibilityState }
-                                val newUnavailablePages = unavailablePages.filter { (id, access) -> queries.getPage(id)?.accessibilityState != access }
-                                val unavailableContainers = observation.containers.filter { it.accessibilityState != PageAccessibilityState.ACCESSIBLE }.map { it.id }.toSet()
-                                store.invalidateTargets(unavailablePages, unavailableContainers, ticket.sourceIdentity, ticket.sourceEpoch)
-                                for ((id, access) in newUnavailablePages) cache.remove(id,
-                                    if (access == PageAccessibilityState.RESTRICTED_PERMISSION) CacheRemovalReason.PERMISSION_DENIED else CacheRemovalReason.DELETED)
-                                val afterTargets = refreshLocked()
-                                if (afterTargets.sourceIdentity == ticket.sourceIdentity && newUnavailablePages.isNotEmpty())
-                                    store.invalidateTargets(newUnavailablePages, emptySet(), ticket.sourceIdentity, afterTargets.sourceEpoch)
-                                if (afterTargets.sourceEpoch != ticket.sourceEpoch || afterTargets.sourceIdentity != ticket.sourceIdentity) return@commit
-                                for (container in observation.containers.filter { it.accessibilityState == PageAccessibilityState.ACCESSIBLE })
-                                    store.writeContainer(container, ticket.sourceIdentity, ticket.sourceEpoch)
-                                for (target in observation.targetPages.filter { it.accessibilityState == PageAccessibilityState.ACCESSIBLE && it.id != item.pageId }) {
-                                    if (store.readPage(target.id) == null) store.writePage(StructuralPageRecord(target,
-                                        emptyList(), emptyList(), emptyList(), sourceIdentity = ticket.sourceIdentity), ticket.sourceIdentity, ticket.sourceEpoch)
+                                val cachedIds = cache.snapshot().map { normalizeNotionId(it.document.pageId) }.toSet()
+                                val newlyKnownUnavailable = unavailablePages.filter { (id, _) ->
+                                    id in cachedIds || queries.getPage(id)?.accessibilityState == PageAccessibilityState.ACCESSIBLE
                                 }
-                                store.writePage(record, ticket.sourceIdentity, ticket.sourceEpoch)
-                                if (cache.revision.value != cacheGeneration) refreshLocked()
+                                try {
+                                    store.applyObservation(observation, ticket.sourceIdentity, ticket.sourceEpoch)
+                                } catch (limit: StructuralPageLimitExceeded) {
+                                    val admitted = store.readIndex()
+                                    store.blockPageWork(item.pageId, limit.sourceRevision, ticket.sourceIdentity, admitted.sourceEpoch)
+                                } finally {
+                                    // Cleanup is disk-only and must finish even when collection is cancelled.
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                        if (sourceIdentity() == ticket.sourceIdentity) for ((id, access) in newlyKnownUnavailable) cache.remove(id,
+                                            if (access == PageAccessibilityState.RESTRICTED_PERMISSION) CacheRemovalReason.PERMISSION_DENIED else CacheRemovalReason.DELETED)
+                                        // External lifecycle events still win over this observation.
+                                        refreshLocked(unavailablePages)
+                                    }
+                                }
                             }
                         }
                     } catch (cancelled: CancellationException) {

@@ -118,7 +118,8 @@ class StructuralExtractor(
             lastEditedAt = page.lastEditedTime?.let { runCatching { Instant.parse(it) }.getOrNull() },
             accessibilityState = if (page.isTrashed) PageAccessibilityState.CONFIRMED_TRASHED else PageAccessibilityState.ACCESSIBLE,
             sourceRevision = revision,
-            syncStatus = if (isTreeIncomplete) SyncCompleteness.PARTIAL_TRAVERSAL_INCOMPLETE else SyncCompleteness.COMPLETE
+            syncStatus = if (examinedBlocks > maxBlocks || flattenedStructuralBlocks.any { it.childCompleteness == ChildCompleteness.DEPTH_LIMIT_REACHED })
+                SyncCompleteness.LIMIT_EXCEEDED else if (isTreeIncomplete) SyncCompleteness.PARTIAL_TRAVERSAL_INCOMPLETE else SyncCompleteness.COMPLETE
         )
 
         val allEdges = parentEdges + propertyEdges + blockEdges

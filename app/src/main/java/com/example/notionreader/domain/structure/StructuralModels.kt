@@ -66,6 +66,7 @@ enum class PageAccessibilityState {
 }
 
 enum class SyncCompleteness {
+    LIMIT_EXCEEDED,
     COMPLETE,
     PARTIAL_TRAVERSAL_INCOMPLETE,
     FAILED_RECOVERABLE,

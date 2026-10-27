@@ -50,6 +50,7 @@ class FileStructuralKnowledgeStore(
         val value = json.decodeFromString(SourceState.serializer(), stateFile.readText())
         check(value.schemaVersion == CURRENT_SCHEMA_VERSION && value.epoch >= 0 && value.minimumEpoch in 0..value.epoch &&
             value.removals.size <= MAX_IDENTITIES && value.containerRemovals.size <= MAX_IDENTITIES && value.pending.size <= MAX_PENDING &&
+            value.blocked.size <= MAX_PENDING && value.blocked.all { canonical(it.key) == it.key && it.value.length <= 256 } &&
             value.removals.all { canonical(it.key) == it.key && runCatching { PageAccessibilityState.valueOf(it.value) }.isSuccess } &&
             value.containerRemovals.all { canonical(it) == it } && (value.lastResourceSourceId == null || canonical(value.lastResourceSourceId) == value.lastResourceSourceId) && value.pending.all { canonical(it.pageId) == it.pageId && it.sourceIdentity == value.identity }) {
             "Unsupported structural source state"
@@ -100,19 +101,21 @@ class FileStructuralKnowledgeStore(
         canonical(containerId)?.let { readContainer(it, state()) }
     }
 
-    override suspend fun writeContainer(container: StructuralContainer, sourceIdentity: String, sourceEpoch: Long): Unit = locked {
-        val id = canonical(container.id) ?: return@locked
+    override suspend fun writeContainer(container: StructuralContainer, sourceIdentity: String, sourceEpoch: Long): Unit = locked { writeContainerLocked(container, sourceIdentity, sourceEpoch) }
+
+    private suspend fun writeContainerLocked(container: StructuralContainer, sourceIdentity: String, sourceEpoch: Long): Unit {
+        val id = canonical(container.id) ?: return
         val active = state()
-        if (active.identity != sourceIdentity || active.epoch != sourceEpoch || container.sourceIdentity != sourceIdentity) return@locked
+        if (active.identity != sourceIdentity || active.epoch != sourceEpoch || container.sourceIdentity != sourceIdentity) return
         if (container.accessibilityState != PageAccessibilityState.ACCESSIBLE) {
             if (id !in active.containerRemovals) {
                 check(active.epoch < Long.MAX_VALUE && active.containerRemovals.size < MAX_IDENTITIES)
                 saveState(active.copy(epoch = active.epoch + 1, containerRemovals = active.containerRemovals + id))
             }
             containerFile(id).delete()
-            return@locked
+            return
         }
-        if (readContainer(id, active) == container) return@locked
+        if (readContainer(id, active) == container) return
         val file = containerFile(id)
         if (!file.exists() && pagesDir.listFiles { it.name.startsWith("container-") && it.extension == "json" }.orEmpty().size >= maxPages)
             throw StorageRefused(StorageFailure.CATEGORY_LIMIT)
@@ -145,26 +148,32 @@ class FileStructuralKnowledgeStore(
         canonical(pageId)?.let { readCurrent(it, state()) }
     }
 
-    override suspend fun writePage(record: StructuralPageRecord, sourceIdentity: String, sourceEpoch: Long): Unit = locked {
-        val id = canonical(record.page.id) ?: return@locked
+    override suspend fun writePage(record: StructuralPageRecord, sourceIdentity: String, sourceEpoch: Long): Unit = locked { writePageLocked(record, sourceIdentity, sourceEpoch) }
+
+    private suspend fun writePageLocked(record: StructuralPageRecord, sourceIdentity: String, sourceEpoch: Long): Unit {
+        val id = canonical(record.page.id) ?: return
         val active = state()
-        if (active.identity != sourceIdentity || active.epoch != sourceEpoch || sourceIdentity.isEmpty()) return@locked
+        if (active.identity != sourceIdentity || active.epoch != sourceEpoch || sourceIdentity.isEmpty()) return
         require(record.schemaVersion == CURRENT_SCHEMA_VERSION && record.sourceIdentity == sourceIdentity &&
             record.page.sourceIdentity == sourceIdentity && record.outgoingRelationships.all {
                 canonical(it.provenance.sourcePageId) == id && it.provenance.sourceIdentity == sourceIdentity
             }) { "Structural source mismatch" }
-        require(record.blocks.size <= MAX_BLOCKS && record.outgoingRelationships.size <= MAX_EDGES &&
-            record.blocks.all { canonical(it.id) != null && canonical(it.pageId) == id } &&
+        if (record.blocks.size > MAX_BLOCKS || record.outgoingRelationships.size > MAX_EDGES) throw StructuralPageLimitExceeded(record.page.sourceRevision)
+        require(record.blocks.all { canonical(it.id) != null && canonical(it.pageId) == id } &&
             record.blocks.map { canonical(it.id) }.distinct().size == record.blocks.size) { "Invalid structural block identity" }
         val previous = readCurrent(id, active)
         if (record.page.syncStatus != SyncCompleteness.COMPLETE && previous != null) {
+            if (record.page.syncStatus == SyncCompleteness.LIMIT_EXCEEDED) {
+                blockPageWorkLocked(id, record.page.sourceRevision, sourceIdentity, sourceEpoch)
+                return
+            }
             enqueue(active, PendingStructuralWork(id, Instant.now().toEpochMilli(), "partial", sourceIdentity))
-            return@locked
+            return
         }
-        if (record.page.accessibilityState != PageAccessibilityState.ACCESSIBLE) return@locked
+        if (record.page.accessibilityState != PageAccessibilityState.ACCESSIBLE) return
         val dto = record.toDto().copy(eligibilityEpoch = active.epoch)
         val bytes = json.encodeToString(StructuralPageRecordDto.serializer(), dto).toByteArray()
-        if (bytes.size > MAX_PAGE_BYTES) throw StorageRefused(StorageFailure.CATEGORY_LIMIT)
+        if (bytes.size > MAX_PAGE_BYTES) throw StructuralPageLimitExceeded(record.page.sourceRevision)
         val existingCount = pagesDir.listFiles { file -> file.isFile && canonical(file.nameWithoutExtension) != null }?.size ?: 0
         if (!pageFile(id).exists() && existingCount >= maxPages) throw StorageRefused(StorageFailure.CATEGORY_LIMIT)
         val priorDto = previous?.toDto()?.copy(eligibilityEpoch = active.epoch)
@@ -174,7 +183,10 @@ class FileStructuralKnowledgeStore(
         })
         val unchanged = priorDto != null && factual(priorDto) == factual(dto)
         val pending = active.pending.filterNot { it.pageId == id }
-        val next = active.copy(removals = active.removals - id, pending = if (record.page.syncStatus == SyncCompleteness.COMPLETE) pending
+        val limited = record.page.syncStatus == SyncCompleteness.LIMIT_EXCEEDED
+        val next = active.copy(removals = active.removals - id,
+            blocked = if (limited) active.blocked + (id to record.page.sourceRevision.take(256)) else active.blocked - id,
+            pending = if (record.page.syncStatus == SyncCompleteness.COMPLETE || limited) pending
             else pending + PendingWorkItemDto(id, System.currentTimeMillis(), "partial", sourceIdentity))
         val stateBytes = json.encodeToString(SourceState.serializer(), next).toByteArray()
         val peak = (if (unchanged) 0 else bytes.size).toLong() + stateBytes.size
@@ -197,7 +209,7 @@ class FileStructuralKnowledgeStore(
         check(active.epoch < Long.MAX_VALUE)
         val epoch = maxOf(sourceEpoch, active.epoch + 1)
         // This bounded content-free safety write must work even when download admission is refused.
-        saveState(active.copy(epoch = epoch, removals = active.removals + (id to reason.name),
+        saveState(active.copy(epoch = epoch, removals = active.removals + (id to reason.name), blocked = active.blocked - id,
             pending = active.pending.filterNot { it.pageId == id }))
         pageFile(id).delete()
     }
@@ -207,24 +219,62 @@ class FileStructuralKnowledgeStore(
         if (active.identity != sourceIdentity || sourceEpoch < active.epoch) return@locked
         check(active.epoch < Long.MAX_VALUE)
         val epoch = maxOf(sourceEpoch, active.epoch + 1)
-        saveState(active.copy(epoch = epoch, minimumEpoch = epoch, removals = emptyMap(), containerRemovals = emptyList(), pending = emptyList(), lastResourceSourceId = null))
+        saveState(active.copy(epoch = epoch, minimumEpoch = epoch, removals = emptyMap(), containerRemovals = emptyList(), pending = emptyList(), blocked = emptyMap(), lastResourceSourceId = null))
         pagesDir.listFiles()?.forEach { it.delete() }
     }
 
-    override suspend fun invalidateTargets(pages: Map<String, PageAccessibilityState>, containers: Set<String>, sourceIdentity: String, sourceEpoch: Long): Unit = locked {
+    override suspend fun invalidateTargets(pages: Map<String, PageAccessibilityState>, containers: Set<String>, sourceIdentity: String, sourceEpoch: Long): Unit = locked { invalidateTargetsLocked(pages, containers, sourceIdentity, sourceEpoch) }
+
+    private suspend fun invalidateTargetsLocked(pages: Map<String, PageAccessibilityState>, containers: Set<String>, sourceIdentity: String, sourceEpoch: Long): Unit {
         val active = state()
-        if (active.identity != sourceIdentity || active.epoch != sourceEpoch) return@locked
+        if (active.identity != sourceIdentity || active.epoch != sourceEpoch) return
         val pageStates = pages.filter { canonical(it.key) == it.key && it.value != PageAccessibilityState.ACCESSIBLE }
         val containerIds = containers.filter { canonical(it) == it }.toSet()
-        if (pageStates.isEmpty() && containerIds.isEmpty()) return@locked
+        if (pageStates.isEmpty() && containerIds.isEmpty()) return
         val removals = active.removals + pageStates.mapValues { it.value.name }
         val containerRemovals = (active.containerRemovals + containerIds).distinct()
-        if (removals == active.removals && containerRemovals.toSet() == active.containerRemovals.toSet()) return@locked
+        if (removals == active.removals && containerRemovals.toSet() == active.containerRemovals.toSet()) return
         check(removals.size <= MAX_IDENTITIES && containerRemovals.size <= MAX_IDENTITIES && active.epoch < Long.MAX_VALUE)
-        saveState(active.copy(epoch = active.epoch + 1, removals = removals, containerRemovals = containerRemovals,
+        saveState(active.copy(epoch = active.epoch + 1, removals = removals, containerRemovals = containerRemovals, blocked = active.blocked - pageStates.keys,
             pending = active.pending.filterNot { it.pageId in pageStates }))
         pageStates.keys.forEach { pageFile(it).delete() }
         containerIds.forEach { containerFile(it).delete() }
+    }
+
+    /** Only this locked admission may renew its own ticket after withdrawing related targets. */
+    override suspend fun applyObservation(observation: StructuralObservation, sourceIdentity: String, sourceEpoch: Long): Boolean = locked {
+        val active = state()
+        if (active.identity != sourceIdentity || active.epoch != sourceEpoch) return@locked false
+        val record = observation.record
+        val id = canonical(record.page.id) ?: return@locked false
+        require(record.sourceIdentity == sourceIdentity && record.page.sourceIdentity == sourceIdentity &&
+            observation.targetPages.all { it.sourceIdentity == sourceIdentity } && observation.containers.all { it.sourceIdentity == sourceIdentity })
+        val unavailablePages = observation.targetPages.filter { it.accessibilityState != PageAccessibilityState.ACCESSIBLE }
+            .associate { it.id to it.accessibilityState }
+        val unavailableContainers = observation.containers.filter { it.accessibilityState != PageAccessibilityState.ACCESSIBLE }.map { it.id }.toSet()
+        invalidateTargetsLocked(unavailablePages, unavailableContainers, sourceIdentity, sourceEpoch)
+        if (record.page.accessibilityState != PageAccessibilityState.ACCESSIBLE || id in unavailablePages) return@locked false
+        // The same mutex excludes an external epoch mutation between initial admission and renewal.
+        val admittedEpoch = state().epoch
+        // The source owns this work item. Optional related metadata must not make its
+        // valid snapshot fail or turn a target's intrinsic limit into a source limit.
+        writePageLocked(record, sourceIdentity, admittedEpoch)
+        for (container in observation.containers.filter { it.accessibilityState == PageAccessibilityState.ACCESSIBLE && it.id !in unavailableContainers }) {
+            try { writeContainerLocked(container, sourceIdentity, admittedEpoch) }
+            catch (_: StorageRefused) { /* Bounded related metadata remains unresolved. */ }
+        }
+        for (page in observation.targetPages.filter { it.accessibilityState == PageAccessibilityState.ACCESSIBLE && it.id != id && it.id !in unavailablePages }) {
+            if (state().blocked[page.id] == page.sourceRevision) continue
+            if (readCurrent(page.id, state()) == null) {
+                try { writePageLocked(StructuralPageRecord(page, emptyList(), emptyList(), emptyList(),
+                    sourceIdentity = sourceIdentity), sourceIdentity, admittedEpoch) }
+                catch (limit: StructuralPageLimitExceeded) {
+                    blockPageWorkLocked(page.id, limit.sourceRevision, sourceIdentity, admittedEpoch)
+                }
+                catch (_: StorageRefused) { /* Preserve the admitted source when related metadata exceeds quota. */ }
+            }
+        }
+        true
     }
 
     override suspend fun readIndex(): StructuralIndex = locked { index(state()) }
@@ -314,7 +364,7 @@ class FileStructuralKnowledgeStore(
         if (work.sourceIdentity != active.identity || active.identity.isEmpty()) return
         val pending = active.pending.filterNot { it.pageId == id } + PendingWorkItemDto(id, work.requestedAtEpochMilli, work.reason.take(128), active.identity)
         if (pending.size > MAX_PENDING) throw StorageRefused(StorageFailure.CATEGORY_LIMIT)
-        val next = active.copy(pending = pending)
+        val next = active.copy(pending = pending, blocked = active.blocked - id)
         val size = json.encodeToString(SourceState.serializer(), next).toByteArray().size.toLong()
         if (actualBytes() + size > byteLimit()) throw StorageRefused(StorageFailure.CATEGORY_LIMIT)
         writeGate.write(StorageCategory.NOTES, size) { saveState(next) }
@@ -325,6 +375,17 @@ class FileStructuralKnowledgeStore(
         val active = state()
         val next = active.copy(pending = active.pending.filterNot { it.pageId == id })
         if (next != active) saveState(next)
+    }
+    override suspend fun blockPageWork(pageId: String, sourceRevision: String, sourceIdentity: String, sourceEpoch: Long): Unit =
+        locked { blockPageWorkLocked(pageId, sourceRevision, sourceIdentity, sourceEpoch) }
+    override suspend fun blockedSourceRevision(pageId: String): String? = locked { canonical(pageId)?.let { state().blocked[it] } }
+
+    private fun blockPageWorkLocked(pageId: String, sourceRevision: String, sourceIdentity: String, sourceEpoch: Long) {
+        val id = canonical(pageId) ?: return
+        val active = state()
+        if (active.identity != sourceIdentity || active.epoch != sourceEpoch) return
+        check(active.blocked.size < MAX_PENDING || id in active.blocked)
+        saveState(active.copy(blocked = active.blocked + (id to sourceRevision.take(256)), pending = active.pending.filterNot { it.pageId == id }))
     }
     override suspend fun getPage(pageId: String): StructuralPage? = locked {
         val id = canonical(pageId) ?: return@locked null
@@ -415,7 +476,8 @@ class FileStructuralKnowledgeStore(
         val id = canonical(pageId) ?: return@locked SyncCompleteness.UNKNOWN
         val active = state()
         val pending = active.pending.firstOrNull { it.pageId == id }
-        if (pending != null) when (pending.reason) {
+        if (id in active.blocked) SyncCompleteness.LIMIT_EXCEEDED
+        else if (pending != null) when (pending.reason) {
             "recoverable" -> SyncCompleteness.FAILED_RECOVERABLE
             "partial" -> SyncCompleteness.PARTIAL_TRAVERSAL_INCOMPLETE
             else -> if (readCurrent(id, active) != null) SyncCompleteness.STALE else SyncCompleteness.UNKNOWN
@@ -453,8 +515,7 @@ private data class SourceState(
     val minimumEpoch: Long = 0,
     val removals: Map<String, String> = emptyMap(),
     val containerRemovals: List<String> = emptyList(),
-    val pending: List<PendingWorkItemDto> = emptyList()
-    ,val lastResourceSourceId: String? = null
+    val pending: List<PendingWorkItemDto> = emptyList(),
+    val lastResourceSourceId: String? = null,
+    val blocked: Map<String, String> = emptyMap()
 )
-
-

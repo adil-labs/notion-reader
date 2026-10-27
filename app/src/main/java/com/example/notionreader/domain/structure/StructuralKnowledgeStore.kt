@@ -8,6 +8,7 @@ interface StructuralKnowledgeStore {
     suspend fun initSource(sourceIdentity: String, sourceEpoch: Long)
     suspend fun readPage(pageId: String): StructuralPageRecord?
     suspend fun writePage(record: StructuralPageRecord, sourceIdentity: String, sourceEpoch: Long)
+    suspend fun applyObservation(observation: StructuralObservation, sourceIdentity: String, sourceEpoch: Long): Boolean
     suspend fun removePage(pageId: String, sourceIdentity: String, sourceEpoch: Long, reason: PageAccessibilityState)
     suspend fun clearSource(sourceIdentity: String, sourceEpoch: Long)
     suspend fun writeContainer(container: StructuralContainer, sourceIdentity: String, sourceEpoch: Long)
@@ -19,8 +20,12 @@ interface StructuralKnowledgeStore {
     suspend fun recordResourcePosition(sourceId: String, sourceIdentity: String, sourceEpoch: Long)
     suspend fun recordPendingWork(work: PendingStructuralWork)
     suspend fun completePendingWork(pageId: String)
+    suspend fun blockPageWork(pageId: String, sourceRevision: String, sourceIdentity: String, sourceEpoch: Long)
+    suspend fun blockedSourceRevision(pageId: String): String?
     suspend fun releaseMemory() {}
 }
+
+class StructuralPageLimitExceeded(val sourceRevision: String) : RuntimeException("Structural page exceeds its supported limit")
 
 data class StructuralPageRecord(
     val page: StructuralPage,

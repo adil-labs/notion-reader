@@ -40,7 +40,7 @@ class StructuralKnowledgeCoordinatorTest {
         assertEquals(listOf(other), restored.readPendingWork().map { it.pageId })
     }
 
-    @Test fun oneObservationPurgesAllWithdrawnTargetsBeforeRetryingItsPage() = runTest {
+    @Test fun oneObservationWithdrawsTargetsAndCommitsItsSourceWithoutCollectingAgain() = runTest {
         val store = FileStructuralKnowledgeStore(temporary.newFolder())
         store.initSource("source", 1)
         val cache = FileDocumentCache(temporary.newFolder())
@@ -50,7 +50,9 @@ class StructuralKnowledgeCoordinatorTest {
         store.writePage(record(other, "source"), "source", 1)
         store.writePage(record(second, "source"), "source", 1)
         store.writeContainer(container, "source", 1)
+        var collections = 0
         val worker = StructuralKnowledgeCoordinator.observing(store, store, cache, { "source" }) { pageId, source ->
+            collections++
             StructuralObservation(record(pageId, source), listOf(container.copy(accessibilityState = PageAccessibilityState.RESTRICTED_PERMISSION)),
                 listOf(other, second).map { StructuralPage(it, "", StructuralParent.Unknown("unavailable", null), sourceIdentity = source,
                     accessibilityState = PageAccessibilityState.CONFIRMED_TRASHED, syncStatus = SyncCompleteness.UNKNOWN) })
@@ -60,10 +62,9 @@ class StructuralKnowledgeCoordinatorTest {
         assertEquals(PageAccessibilityState.CONFIRMED_TRASHED, worker.getPage(second)!!.accessibilityState)
         assertNull(worker.getContainer(containerId))
         assertNull(store.readPage(other)); assertNull(store.readPage(second))
-        assertTrue(store.readPendingWork().any { it.pageId == id })
-        worker.runWindow()
         assertNotNull(worker.getPage(id))
         assertTrue(store.readPendingWork().isEmpty())
+        assertEquals(1, collections)
     }
 
     @Test fun aCallbackQueuedBeforeClearCannotRequestWorkInTheNewEpoch() = runTest {
