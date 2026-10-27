@@ -103,6 +103,8 @@ class NotionRepository(
 
         try {
             onDocumentSnapshot?.invoke(page, rootBlocks, childMap)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             // Snapshot callback failure must not fail document loading
         }
@@ -135,6 +137,8 @@ class NotionRepository(
         try {
             onDiscoveredPages?.invoke(pages.map { it.id })
             onDiscoveredMetadata?.invoke(pages)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             // Discovery callback failure must not fail browse indexing
         }

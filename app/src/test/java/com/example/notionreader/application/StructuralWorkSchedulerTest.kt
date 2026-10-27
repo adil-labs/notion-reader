@@ -8,11 +8,15 @@ import com.example.notionreader.domain.structure.PageAccessibilityState
 import com.example.notionreader.domain.structure.StructuralPage
 import com.example.notionreader.domain.structure.StructuralPageRecord
 import com.example.notionreader.domain.structure.StructuralParent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.util.concurrent.atomic.AtomicBoolean
 
 class StructuralWorkSchedulerTest {
     @get:Rule val temporary = TemporaryFolder()
@@ -166,5 +170,121 @@ class StructuralWorkSchedulerTest {
         assertTrue(executed)
         assertFalse(coordinator2.hasPendingWork())
         assertEquals("Page $page1", coordinator2.getPage(page1)!!.title)
+    }
+
+    @Test
+    fun playbackBeginsWhileHttpSuspendedCancelsInFlightWorkLeavingPendingAndNoCommittedPage() = runTest {
+        val store = FileStructuralKnowledgeStore(temporary.newFolder())
+        val cache = FileDocumentCache(temporary.newFolder())
+
+        val collectEntered = CompletableDeferred<Unit>()
+        val releaseCollect = CompletableDeferred<Unit>()
+
+        val coordinator = StructuralKnowledgeCoordinator(
+            store = store,
+            queries = store,
+            cache = cache,
+            sourceIdentity = { "test-source-sha" },
+            collectPage = { id, source ->
+                collectEntered.complete(Unit)
+                releaseCollect.await()
+                record(id, source)
+            }
+        )
+
+        coordinator.request(page1, "offline-pending")
+        assertTrue(coordinator.hasPendingWork())
+
+        val playing = AtomicBoolean(false)
+        val scheduler = StructuralWorkScheduler(
+            coordinator = coordinator,
+            settings = { ReaderSettings() },
+            isPlaying = { playing.get() },
+            isUnmetered = { true },
+            hasResources = { true }
+        )
+
+        val windowJob = async {
+            scheduler.runWindow(maxPages = 1)
+        }
+
+        collectEntered.await()
+        playing.set(true)
+
+        val executed = windowJob.await()
+        assertFalse("runWindow must return false when cancelled due to playback ineligibility", executed)
+
+        assertTrue("Work must remain durably pending", coordinator.hasPendingWork())
+        val pending = store.readPendingWork()
+        assertEquals(1, pending.size)
+        assertEquals(page1, pending.single().pageId)
+
+        assertNull("Page record must not be committed to store", coordinator.getPage(page1))
+        assertNull(store.readPage(page1))
+    }
+
+    @Test
+    fun cancellationThrownByChildWhileEligiblePropagates() = runTest {
+        val store = FileStructuralKnowledgeStore(temporary.newFolder())
+        val cache = FileDocumentCache(temporary.newFolder())
+
+        val coordinator = StructuralKnowledgeCoordinator(
+            store = store,
+            queries = store,
+            cache = cache,
+            sourceIdentity = { "test-source-sha" },
+            collectPage = { _, _ ->
+                throw CancellationException("child cancellation")
+            }
+        )
+
+        coordinator.request(page1)
+
+        val scheduler = StructuralWorkScheduler(
+            coordinator = coordinator,
+            settings = { ReaderSettings() },
+            isPlaying = { false },
+            isUnmetered = { true },
+            hasResources = { true }
+        )
+
+        assertTrue(scheduler.isEligible())
+
+        var thrown: Throwable? = null
+        try {
+            scheduler.runWindow(maxPages = 1)
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertNotNull("Cancellation thrown while eligible must propagate", thrown)
+        assertTrue("Exception must be CancellationException", thrown is CancellationException)
+        assertEquals("child cancellation", thrown?.message)
+    }
+
+    @Test
+    fun cacheNotesForOfflineFalseProhibitsWork() = runTest {
+        val coordinator = createCoordinator()
+        coordinator.request(page1)
+
+        var offlineAllowed = false
+        val scheduler = StructuralWorkScheduler(
+            coordinator = coordinator,
+            settings = { ReaderSettings(cacheNotesForOffline = offlineAllowed) },
+            isPlaying = { false },
+            isUnmetered = { true },
+            hasResources = { true }
+        )
+
+        assertFalse("isEligible must be false when cacheNotesForOffline is false", scheduler.isEligible())
+        val ran = scheduler.runWindow(maxPages = 1)
+        assertFalse("runWindow must not execute when cacheNotesForOffline is false", ran)
+        assertTrue("Pending work must remain untouched", coordinator.hasPendingWork())
+
+        offlineAllowed = true
+        assertTrue("isEligible must be true when cacheNotesForOffline is true", scheduler.isEligible())
+        val ranNow = scheduler.runWindow(maxPages = 1)
+        assertTrue("runWindow must execute when eligible", ranNow)
+        assertFalse("Pending work must be completed", coordinator.hasPendingWork())
     }
 }

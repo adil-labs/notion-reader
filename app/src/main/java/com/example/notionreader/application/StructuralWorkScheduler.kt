@@ -27,16 +27,18 @@ class StructuralWorkScheduler(
     suspend fun <T : Any> whileEligible(block: suspend () -> T): T? = withContext(Dispatchers.IO) {
         if (!isEligible()) return@withContext null
         coroutineScope {
+            val eligibilityLost = java.util.concurrent.atomic.AtomicBoolean(false)
             val work = async { block() }
             val monitor = launch {
                 while (work.isActive) {
                     delay(100)
-                    if (!isEligible()) { work.cancel(); break }
+                    if (!isEligible()) { eligibilityLost.set(true); work.cancel(); break }
                 }
             }
             try { work.await() }
             catch (cancelled: CancellationException) {
                 currentCoroutineContext().ensureActive()
+                if (!eligibilityLost.get()) throw cancelled
                 null
             } finally { monitor.cancel() }
         }

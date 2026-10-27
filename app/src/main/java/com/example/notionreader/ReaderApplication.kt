@@ -100,6 +100,7 @@ class ReaderApplication : Application() {
     private val scheduledWindowLock = Mutex()
     private val structuralDiscoveryLock = Mutex()
     private val structuralResourceRevision = MutableStateFlow(0L)
+    private val structuralContinuation = com.example.notionreader.data.structure.StructuralDiscoveryContinuation()
     @Volatile private var structuralDiscoveryPending = true
     private lateinit var verifyDiscoveryModel: suspend () -> Unit
 
@@ -119,6 +120,16 @@ class ReaderApplication : Application() {
         catch (_: Exception) { /* Structural failures cannot terminate the existing reader/Discovery loop. */ }
     }
 
+    private suspend fun observeStructuralAuthorizationFailure(failure: com.example.notionreader.domain.ReaderLoadException,
+        ticket: com.example.notionreader.domain.structure.StructuralIndex?) {
+        if (ticket == null || failure.category != com.example.notionreader.domain.ReaderErrorCategory.AUTHORIZATION_REQUIRED) return
+        try {
+            structuralCoordinator.invalidateAuthorizationIfCurrent(ticket.sourceIdentity, ticket.sourceEpoch)
+            pageSnapshots.clear()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Preserve the original reader/API error when structure is unavailable. */ }
+    }
+
     private suspend fun discoverStructuralResources() = structuralDiscoveryLock.withLock {
         if (!structuralDiscoveryPending || !structuralScheduler.isEligible()) return@withLock
         val ticket = structuralTicket() ?: return@withLock
@@ -127,15 +138,24 @@ class ReaderApplication : Application() {
         if (tokenIdentity(token) != ticket.sourceIdentity) return@withLock
         val client = KtorNotionApi(token)
         try {
-            val result = kotlinx.coroutines.withTimeoutOrNull(60_000) {
-                com.example.notionreader.data.structure.NotionStructuralDiscovery(client).collect(ticket.sourceIdentity,
+            val result = structuralScheduler.whileEligible { kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                com.example.notionreader.data.structure.NotionStructuralDiscovery(client, structuralContinuation).collect(ticket.sourceIdentity,
                     { structuralCoordinator.recordContainerIfCurrent(it, ticket.sourceIdentity, ticket.sourceEpoch) },
-                    { structuralCoordinator.requestMetadataIfChanged(it, ticket.sourceIdentity, ticket.sourceEpoch, signal = false) })
+                    { structuralCoordinator.requestMetadataIfChanged(it, ticket.sourceIdentity, ticket.sourceEpoch, signal = false) },
+                    sourceEpoch = ticket.sourceEpoch, startAfterSourceId = structuralCoordinator.resourcePosition(),
+                    onSourceAttempt = { structuralCoordinator.recordResourcePosition(it, ticket.sourceIdentity, ticket.sourceEpoch) })
+            } ?: com.example.notionreader.data.structure.NotionStructuralDiscovery.Result(false, 0, 0)
             }
             val current = structuralStore.readIndex()
             if (result?.complete == true && current.sourceIdentity == ticket.sourceIdentity && current.sourceEpoch == ticket.sourceEpoch)
                 structuralDiscoveryPending = false
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: com.example.notionreader.domain.ReaderLoadException) {
+            if (failure.category == com.example.notionreader.domain.ReaderErrorCategory.AUTHORIZATION_REQUIRED) {
+                observeStructuralAuthorizationFailure(failure, ticket)
+                structuralContinuation.clear()
+            }
+        }
         catch (_: Exception) { /* Pending native-resource reconciliation retries in the existing worker. */ }
         finally { client.close() }
     }
@@ -191,6 +211,7 @@ class ReaderApplication : Application() {
             discoveryMemory.invalidate()
             discoveryResourcesAvailable.value = false
             pageSnapshots.clear()
+            discoveryScope.launch { structuralDiscoveryLock.withLock { structuralContinuation.clear() } }
             discoveryScope.launch { structuralStore.releaseMemory() }
             discoveryScope.launch { processDiscovery?.releaseModel() }
         }
@@ -621,6 +642,9 @@ class ReaderApplication : Application() {
             )
             try {
                 cachedRepository.getDocument(reference, knownRemoteLastEditedAt, forceRefresh, purpose)
+            } catch (failure: com.example.notionreader.domain.ReaderLoadException) {
+                observeStructuralAuthorizationFailure(failure, structuralTicket)
+                throw failure
             } finally {
                 remoteSource.close()
             }
@@ -646,6 +670,9 @@ class ReaderApplication : Application() {
         )
         return try {
             repository.getBrowseIndex()
+        } catch (failure: com.example.notionreader.domain.ReaderLoadException) {
+            observeStructuralAuthorizationFailure(failure, structuralTicket)
+            throw failure
         } finally {
             repository.close()
         }

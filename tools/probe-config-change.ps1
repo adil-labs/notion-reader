@@ -145,7 +145,7 @@ try {
     $before = Show-Screen 'Player, before the configuration change'
     $queueBefore = Get-FirstMatch $before 'Note \d+ of \d+'
     $sectionBefore = Get-FirstMatch $before 'Section \d+ of \d+'
-    $paragraphBefore = Get-FirstMatch $before 'Paragraph \d+ of \d+'
+    $paragraphBefore = Get-FirstMatch $before '(?:Paragraph|Part) \d+ of \d+'
 
     Write-Host ''
     Write-Host "  queue=$queueBefore section=$sectionBefore paragraph=$paragraphBefore"
@@ -159,12 +159,12 @@ try {
 
     $after = Show-Screen 'After the configuration change'
     $queueAfter = Get-FirstMatch $after 'Note \d+ of \d+'
-    $paragraphAfter = Get-FirstMatch $after 'Paragraph \d+ of \d+'
+    $paragraphAfter = Get-FirstMatch $after '(?:Paragraph|Part) \d+ of \d+'
 
     # Read a number out of "Paragraph 12 of 263", for the comparison only.
     function Get-IndexOf([string]$Line) {
         if (-not $Line) { return -1 }
-        $match = [regex]::Match($Line, 'Paragraph (\d+) of')
+        $match = [regex]::Match($Line, '(?:Paragraph|Part) (\d+) of')
         if ($match.Success) { return [int]$match.Groups[1].Value }
         return -1
     }
