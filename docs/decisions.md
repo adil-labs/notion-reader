@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[existing concept evidence (§154)](#154-existing-concept-evidence-pages-2026-11-02)
+[catalog concept reuse (§155)](#155-current-catalog-concept-reuse-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12064,3 +12064,26 @@ coordinator scheduling; keep unresolved work incomplete, persist coverage and
 publish only independently supported current evidence. Canonical continuity, UI,
 real comparative quality, device and human gates remain open; the existing topic
 publisher stays active.
+
+
+## 155. Current catalog concept reuse (2026-11-02)
+
+Added a catalog-to-support boundary that reads the current generated label on an
+existing topic and reuses its stored retrieval query embedding only when the
+concept work key, text, embedding identity and retrieval policy match. All topic
+member source revisions must remain current, and a source-ticket change during
+lookup rejects the result. Missing labels or query vectors stay unavailable rather
+than being treated as an exhausted concept scan. An integration test carries a
+real catalog topic and saved vector through a fake support decision into pending
+proposal selection. This neither creates another catalog nor schedules a worker;
+real semantic quality remains unmeasured.
+
+Two initial tests failed against the unavailable stub. Removing the member source
+revision guard made the withdrawal test fail; the guard was restored. Full JVM
+suite: 1,495 tests, no failures/errors/skips. App debug assembly, Android-test
+Kotlin compilation and the standalone runtime-probe build passed.
+
+Still open: bounded resumable iteration over every catalog concept and candidate
+page, incomplete/uncertain work management, durable coverage acknowledgment,
+coordinator integration, continuity and publication, and real quality, device
+and human acceptance. The existing production publisher remains active.

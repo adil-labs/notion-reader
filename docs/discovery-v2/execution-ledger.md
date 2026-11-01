@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added source-validated canonical topic and retrieval-vector reuse for
+existing-concept checks. Iteration and scheduling remain open. Failing-first and
+withdrawal proof, 1,495 JVM tests and builds are recorded in §155.
+
 2026-11-02: Existing-concept candidate pages now feed independent support checks
 before proposal suppression. Scheduling and real verifier evaluation remain open.
 Failing-first and support-guard proof, 1,491 JVM tests and builds are in §154.
