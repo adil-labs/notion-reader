@@ -1,6 +1,8 @@
 package com.example.notionreader.domain.discovery
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -32,6 +34,22 @@ class IncrementalDiscoveryProposalsTest {
             passage("one", "b", "s2", listOf(0f, 1f)))
         assertEquals(setOf("a", "b"), run(note).proposals.map { it.evidence.single().passageId }.toSet())
         assertEquals("b", run(note, explained = setOf("a")).proposals.single().evidence.single().passageId)
+    }
+
+    @Test fun unrelatedPassagesInTheSameSectionCanSeedSeparateProposals() {
+        val note = record("one", passage("one", "a", "shared", listOf(1f, 0f)),
+            passage("one", "b", "shared", listOf(0f, 1f),
+                "Galaxies contain stars and gas held together by the force of gravity."))
+        val proposals = run(note).proposals
+        assertEquals(setOf("a", "b"), proposals.map { it.evidence.single().passageId }.toSet())
+    }
+
+    @Test fun similarVectorsDoNotEraseADistinctChangedPassage() {
+        val note = record("one", passage("one", "a", "shared", listOf(1f, 0f)),
+            passage("one", "b", "shared", listOf(.99f, .1f),
+                "Galaxies contain stars and gas held together by the force of gravity."))
+        val proposals = run(note).proposals
+        assertEquals(setOf("a", "b"), proposals.map { it.evidence.first().passageId }.toSet())
     }
 
     @Test fun oldUnmatchedSemanticAndExplicitlyRelatedEvidenceRemainEligible() {
@@ -79,5 +97,50 @@ class IncrementalDiscoveryProposalsTest {
             emptySet(), structureComplete = false, scanComplete = false)
         assertTrue(result.proposals.isEmpty())
         assertNull(result.nextAnchorOffset)
+    }
+
+    @Test fun sourceWindowsRetainEarlierNeighborsAndDoNotClaimMissingCoverage() {
+        val note = record("new", passage("new", "a", "s", listOf(1f, 0f)))
+        val old = record("old", passage("old", "b", "s2", listOf(.9f, .1f)))
+        val later = record("later", passage("later", "c", "s3", listOf(1f, 0f)))
+        val sources = listOf(note, old, later).associate { it.pageId to it.revision }
+        val first = proposeDiscoveryWindow(note, setOf("a"), emptySet(), sequenceOf(old), sources,
+            emptySet(), true, false)
+        assertTrue(ProposalIncompleteReason.SOURCE_SCAN in first.proposals.single().incomplete)
+        assertNotNull(first.checkpoint)
+        val restored = Json.decodeFromString<ProposalScanCheckpoint>(Json.encodeToString(first.checkpoint!!))
+        val next = proposeDiscoveryWindow(note, setOf("a"), emptySet(), sequenceOf(later), sources,
+            emptySet(), true, true, previous = restored)
+        assertEquals(setOf("a", "b", "c"), next.proposals.single().evidence.map { it.passageId }.toSet())
+        assertFalse(ProposalIncompleteReason.SOURCE_SCAN in next.proposals.single().incomplete)
+        val missing = proposeDiscoveryWindow(note, setOf("a"), emptySet(), emptySequence(), sources,
+            emptySet(), true, true, previous = first.checkpoint)
+        assertTrue(ProposalIncompleteReason.SOURCE_SCAN in missing.proposals.single().incomplete)
+    }
+
+    @Test fun aSourceChangeInvalidatesAResumedWindow() {
+        val note = record("new", passage("new", "a", "s", listOf(1f, 0f)))
+        val old = record("old", passage("old", "b", "s2", listOf(1f, 0f)))
+        val sources = mapOf("new" to "r1", "old" to "r1")
+        val first = proposeDiscoveryWindow(note, setOf("a"), emptySet(), sequenceOf(old), sources,
+            emptySet(), true, true)
+        assertNotNull(first.checkpoint)
+        val resumed = proposeDiscoveryWindow(note, setOf("a"), emptySet(), emptySequence(), sources + ("old" to "r2"),
+            emptySet(), true, true, previous = first.checkpoint)
+        assertTrue(resumed.stale)
+        assertTrue(resumed.proposals.isEmpty())
+    }
+
+    @Test fun aCheckpointCannotIntroduceEvidenceFromAnUnscannedSource() {
+        val note = record("new", passage("new", "a", "s", listOf(1f, 0f)))
+        val sources = mapOf("new" to "r1", "old" to "r1")
+        val first = proposeDiscoveryWindow(note, setOf("a"), emptySet(), emptySequence(), sources,
+            emptySet(), true, false)
+        val forged = first.checkpoint!!.copy(candidates = mapOf("a" to listOf(
+            ProposalScoredEvidence(ProposalEvidenceRef("old", "r1", "fabricated"), 1f, ProposalReason.SEMANTIC_NEIGHBOR))))
+        val resumed = proposeDiscoveryWindow(note, setOf("a"), emptySet(), emptySequence(), sources,
+            emptySet(), true, true, previous = forged)
+        assertTrue(resumed.stale)
+        assertTrue(resumed.proposals.isEmpty())
     }
 }

@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#138-bounded-incremental-proposal-windows-2026-11-02)
+[the current decision-record entry](decisions.md#139-proposal-window-continuation-and-anchor-recall-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

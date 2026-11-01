@@ -1,5 +1,11 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Proposal windows now retain compact scored references across
+serializable checkpoints and require observed source coverage. Removed a
+section/similarity anchor collapse that could discard distinct subjects. Tests
+and limitations are recorded in decisions §139. No production connection,
+durable store, semantic acceptance or device claim is made.
+
 2026-11-02: Added an unconnected bounded source-window proposal building block
 with explicit incomplete states and cancellation; the old pipeline is unchanged.
 Seven failing-first tests and full 1,390-test JVM/build verification are recorded

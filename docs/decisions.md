@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[bounded proposal windows (§138)](#138-bounded-incremental-proposal-windows-2026-11-02)
+[proposal continuation (§139)](#139-proposal-window-continuation-and-anchor-recall-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11611,3 +11611,32 @@ No quality, recall, efficiency or release claim follows from these unit tests.
 Those gaps, semantic verification, runtime integration, comparative evaluation,
 lifecycle/UI integration and all device/human gates remain open; the existing
 production pipeline remains active.
+
+## 139. Proposal window continuation and anchor recall (2026-11-02)
+
+The initial section-based anchor rule could drop unrelated passages in the same
+section. A similarity-based collapse also dropped distinct passages with close
+vectors. Both cases failed first; changed unexplained passages now remain
+separate anchors, while same-section context is only included when its vector
+passes the provisional neighbor threshold. Similarity does not establish topic
+identity or support. This can increase duplicate proposals; measured semantic
+deduplication is still needed.
+
+Added a serializable bounded candidate checkpoint holding scored source
+references and scanned revisions, with a context identity covering source
+revisions, selected anchors and policy inputs. Continuation retains earlier
+neighbors, refuses incompatible source snapshots and unscanned-source references,
+and requires actual scanned coverage as well as the caller's completion signal.
+Tests failed first for missing continuation and forged unscanned evidence, then
+passed; a serialization round trip exercises resumed state. This is not yet a
+durable store: saved references must be rehydrated and checked against current
+passages before publication, and evidence dropped by the bounded cap still needs
+a reconciliation mechanism. No production path consumes the component.
+
+Fresh JVM suite passed 1,395 tests with zero failures/errors/skips. Debug assembly
+and Android-test Kotlin compilation passed before the final test-only
+serialization assertion; the full JVM suite passed again afterward. No semantic
+quality, Android device or inference performance measurement is claimed.
+Matching existing concepts, persisted recovery, model generation/abstention,
+support verification, source lifecycle integration, comparative evaluation,
+UI and acceptance gates remain open. The existing pipeline remains active.
