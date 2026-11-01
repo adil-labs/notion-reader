@@ -40,7 +40,8 @@ class DiscoveryController(
     topicLabelIdentity: () -> TopicLabelIdentity? = { null },
     topicLabelUnavailableMessage: () -> String = { "Topic naming is unavailable. Install the topic naming model in Discovery settings." },
     topicRetrievalStore: TopicRetrievalStore? = null,
-    topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f)
+    topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
+    private val proposalProgressStore: ProposalProgressStore? = null
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
     private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
@@ -95,13 +96,13 @@ class DiscoveryController(
             }, mayWork = ::mayContinueWork, waitForQueries = {
                 while (runtime.foregroundQueries.get() > 0) delay(10)
                 currentCoroutineContext().ensureActive()
-            }, bulkGate = runtime.bulkGate) }) }
+            }, bulkGate = runtime.bulkGate) }, proposalProgress = proposalProgressStore) }
 
     private val interests = DiscoveryInterests(cache, interestStore, provider, mutable, runtime, retrieval,
         workDispatcher, modelAvailable, recommendationThreshold, clock)
     private val indexing = DiscoveryIndexing(cache, index, passageProgressStore, interestStore, provider,
         mutable, runtime, topics, workDispatcher, modelAvailable, ::mayContinueWork, ::pause,
-        { wake.value++ }, monotonicNanos)
+        { wake.value++ }, monotonicNanos, proposalProgressStore)
     private val previews = DiscoveryPreviews(mutable, retrieval)
     private val search = DiscoverySearch(runtime, retrieval, mutable, workDispatcher, modelAvailable,
         recommendationThreshold, ::recordTiming)
@@ -160,6 +161,7 @@ class DiscoveryController(
         runtime.embeddingMemo.clear()
         runtime.generation.incrementAndGet(); search.reset(); index.clear()
         passageProgressStore?.clear()
+        proposalProgressStore?.clear()
         interests.resetRequests()
         if (preserveTopicContinuity) topics?.invalidate(emptyMap()) else topics?.clear()
         mutable.update { it.copy(relatedPageId = null, results = emptyList(), related = emptyList(), recommendations = emptyList(), older = emptyList(),

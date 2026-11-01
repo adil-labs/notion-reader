@@ -252,7 +252,7 @@ class ReaderApplication : Application() {
     @Volatile private var protectedCacheIds: () -> Set<String> = { emptySet() }
     private fun directoryBytes(directory: File): Long = if (!directory.exists()) 0L else
         directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-checkpoint", "discovery-topic-labels", "discovery-topic-matches")
+    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-checkpoint", "discovery-topic-labels", "discovery-topic-matches", "discovery-proposal-progress")
     private val storageBudget by lazy {
         val availability = com.example.notionreader.platform.AndroidStorageAvailability(noBackupFilesDir)
         com.example.notionreader.application.StorageBudgetCoordinator(
@@ -369,11 +369,13 @@ class ReaderApplication : Application() {
         val topicCheckpointDirectory = File(noBackupFilesDir, "discovery-topic-checkpoint")
         val labelDirectory = File(noBackupFilesDir, "discovery-topic-labels")
         val matchDirectory = File(noBackupFilesDir, "discovery-topic-matches")
+        val proposalProgressDirectory = File(noBackupFilesDir, "discovery-proposal-progress")
         fun storageBytes(directory: File): Long = directoryBytes(directory)
         fun otherDiscoveryBytes(excluded: File): Long = derivedNames.asSequence()
             .map { File(noBackupFilesDir, it) }.filter { it != excluded }.sumOf(::storageBytes)
         val topicLabels = com.example.notionreader.data.local.FileTopicLabelStore(labelDirectory, writeGate = storageWrites)
         val topicMatches = com.example.notionreader.data.local.FileTopicRetrievalStore(matchDirectory, writeGate = storageWrites)
+        val proposalProgress = com.example.notionreader.data.local.FileProposalProgressStore(proposalProgressDirectory, writeGate = storageWrites)
         val semanticIndex = com.example.notionreader.data.local.FileSemanticIndexStore(semanticDirectory,
             writeGate = storageWrites,
             otherBytes = { otherDiscoveryBytes(semanticDirectory) })
@@ -438,6 +440,7 @@ class ReaderApplication : Application() {
             topicStore = topicStore, topicCheckpointStore = topicCheckpointStore, passageProgressStore = passageProgressStore,
             topicLabelRuntime = topicLabeler, topicLabelStore = topicLabels,
             topicRetrievalStore = topicMatches,
+            proposalProgressStore = proposalProgress,
             topicLabelIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.identity(labelBackend.provenance) },
             topicLabelModelAvailable = { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery && topicModel.state.value.installed },
             topicLabelUnavailableMessage = {

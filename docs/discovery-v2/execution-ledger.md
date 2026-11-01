@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Wired proposal checkpoint cleanup, reset and storage accounting into
+the process lifecycle; the replacement is still not active. Removal/recache,
+restore race, failed cleanup/restart and accounting guard proofs and 1,424 passing
+JVM tests plus builds are recorded in decisions §143.
+
 2026-11-02: User clarified that activation can wait until the replacement is
 ready. Added an unconnected atomic proposal progress store and source eligibility
 checks, with failing-first and withdrawal guard proofs. JVM suite 1,417/1,417,

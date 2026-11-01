@@ -35,7 +35,8 @@ internal class TopicCoordinator(
     private val shouldYield: () -> Boolean = { false },
     private val operationTimings: (Map<String, Long>) -> Unit = {},
     private val labels: TopicLabelCoordinator? = null,
-    private val retrievals: TopicRetrievalCoordinator? = null
+    private val retrievals: TopicRetrievalCoordinator? = null,
+    private val proposalProgress: ProposalProgressStore? = null
 ) {
     private class WorkPaused : RuntimeException()
     private val writes = Mutex()
@@ -108,6 +109,13 @@ internal class TopicCoordinator(
         }
         store.pinInspection(view.snapshot)
         val events = cache.invalidations.value
+        proposalProgress?.let { progress ->
+            val withdrawn = events.mapNotNull { it.pageId?.let(::canonicalSemanticId) }.toSet()
+            val eligible = if (events.any { it.pageId == null }) emptyMap() else sources.filterKeys { it !in withdrawn }
+            progress.reconcile(eligible)
+            // The source snapshot is no longer authoritative; retry before acknowledging any event.
+            if (cache.revision.value != cacheRevision) return@withLock
+        }
         val evidence = (latest.topics + latest.provisionalTopics + view.snapshot.topics + view.snapshot.provisionalTopics)
             .asSequence().flatMap { it.members.asSequence() } +
             (latest.connections.asSequence() + view.snapshot.connections.asSequence()).flatMap { sequenceOf(it.left, it.right) }

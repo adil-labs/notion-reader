@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[proposal progress persistence (§142)](#142-proposal-progress-persistence-2026-11-02)
+[proposal progress lifecycle (§143)](#143-proposal-progress-lifecycle-integration-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11731,3 +11731,30 @@ persist abstentions; establish independently evaluated support decisions;
 preserve canonical identities and UI behavior; evaluate actual model responses,
 compare quality and cost, and complete representative-device/human acceptance.
 Do not report the replacement active until its production path actually works.
+
+## 143. Proposal progress lifecycle integration (2026-11-02)
+
+The process composition root now owns the proposal checkpoint store, includes
+its directory in Discovery storage accounting, and clears it with the index.
+Cache reconciliation withdraws pending progress before topic invalidations can
+be acknowledged. Pending invalidation events are applied even if a source was
+recached at the same revision. Topic restoration rechecks the same boundary,
+because an invalidation can arrive after the first reconciliation and before
+the topic catalog captures its events. A cleanup failure leaves the cache journal
+unacknowledged for retry; a recreation test exercises recovery using the durable
+journal. These changes do not schedule proposal generation or publish topics.
+
+Four lifecycle tests failed before wiring. Removing both withdrawal calls made
+the four withdrawal/failure tests fail; removing only the topic-restoration call
+made only the injected restoration-race test fail. Removing byte accounting made
+only its accounting test fail. Removing both calls also made the process
+recreation test fail at the expected pending-journal assertion. Guards restored:
+the full JVM suite passed 1,424 tests with zero failures/errors/skips; debug
+assembly, Android-test Kotlin compilation and standalone runtime-probe assembly
+passed. No device, native generation or quality measurement is claimed.
+
+The no-resurrection proof here depends on the existing durable cache invalidation
+journal and retry before acknowledgement, not on a new proposal-store tombstone.
+Pending proposal creation, abstention persistence, independently validated support,
+catalog continuity, user-facing integration and comparative/device/human
+acceptance remain open. The existing cluster-based production pipeline is active.

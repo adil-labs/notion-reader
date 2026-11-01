@@ -27,7 +27,8 @@ internal class DiscoveryIndexing(
     private val mayContinueWork: () -> Boolean,
     private val pause: suspend () -> Unit,
     private val wake: () -> Unit,
-    private val monotonicNanos: () -> Long
+    private val monotonicNanos: () -> Long,
+    private val proposalProgressStore: ProposalProgressStore?
 ) {
     private class BulkWorkDeferred : RuntimeException()
     private val timeEstimator = DiscoveryTimeEstimator()
@@ -70,6 +71,21 @@ internal class DiscoveryIndexing(
                         cachedRevision = sourceGeneration,
                         cacheStatus = DiscoveryCacheStatus.Ready, paused = paused, modelAvailable = available
                     ) else current.copy(paused = paused, modelAvailable = available)
+                }
+            }
+            // Process pending removal events before TopicCoordinator can acknowledge them.
+            // A removed and recached page may have the same content revision, so the
+            // current snapshot alone is insufficient to withdraw old pending evidence.
+            proposalProgressStore?.let { progress ->
+                reconciliationPending = true
+                val events = cache.invalidations.value
+                val withdrawn = events.mapNotNull { it.pageId?.let(::canonicalSemanticId) }.toSet()
+                val eligible = if (events.any { it.pageId == null }) emptyMap() else
+                    sources.filterKeys { it !in withdrawn }.mapValues { semanticRevision(it.value.document) }
+                runtime.commits.withLock {
+                    if (runtime.generation.get() != epoch || cache.revision.value != sourceGeneration) return
+                    progress.reconcile(eligible)
+                    if (runtime.generation.get() != epoch || cache.revision.value != sourceGeneration) return
                 }
             }
             if (!initialInventory) topics?.invalidate(sources.mapValues { semanticRevision(it.value.document) })
@@ -287,7 +303,8 @@ internal class DiscoveryIndexing(
                 topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration)
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size),
-                bytes = index.bytes() + (passageProgressStore?.bytes() ?: 0L) + (topics?.bytes() ?: 0L)) }
+                bytes = index.bytes() + (passageProgressStore?.bytes() ?: 0L) +
+                    (proposalProgressStore?.bytes() ?: 0L) + (topics?.bytes() ?: 0L)) }
             if (mayIndex && !index.isPaused() && modelAvailable() && mayContinueWork() &&
                 cache.revision.value == sourceGeneration && indexed == ids.size && topics?.needsMoreWork != true) {
                 reconciliationPending = false
