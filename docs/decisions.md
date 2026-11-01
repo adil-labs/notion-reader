@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[passage support boundary (§145)](#145-independent-passage-support-boundary-2026-11-02)
+[passage candidate paging (§146)](#146-bounded-passage-candidate-paging-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11821,3 +11821,31 @@ existing coordinator, establish safe canonical publication/identity continuity,
 evaluate the method independently against reviewed positives and hard negatives,
 compare with cosine-only matching, and complete UI, lifecycle and device/human
 acceptance. The existing production pipeline remains active.
+
+## 146. Bounded passage candidate paging (2026-11-02)
+
+The shipping retrieval helper returns only one passage per Note. That is
+insufficient for independent verification: the highest cosine candidate may be
+unsupported while another passage in the same mixed Note is supported. Added a
+separate, source- and query-bound candidate pager which retains at most one page
+plus a lookahead, exposes later passages in deterministic score/order/ID order,
+and rejects stale or fabricated cursors, invalid vectors, foreign passages and
+duplicate body IDs. It yields candidates only; it does not change the active
+matching policy or establish semantic support. Passage IDs are checked within
+the already-loaded Note; the Note itself remains subject to index record limits.
+
+Four pager tests failed against the empty stub. In an integration test, a
+deliberate first-passage-only mutation removed the continuation and failed the
+specific assertion that a second candidate must remain available; after restore,
+the fake verifier returned unsupported for the first passage and supported for
+the second. The test does not measure actual verifier quality. The full JVM suite
+passed 1,448 tests with zero failures/errors/skips; debug assembly, Android-test
+Kotlin compilation and standalone probe assembly passed. The connected Pixel 8
+Pro's application generative-model directory was empty, so no actual Gemma
+proposal or support evaluation was performed.
+
+Still open: use this pager in bounded coordinator work, persist and invalidate
+support decisions, connect proposal generation and canonical publication, and
+measure support precision/recall, missed subjects, cost, device behavior and
+human accessibility. The new pager does not yet activate the replacement; the
+existing production pipeline remains active.

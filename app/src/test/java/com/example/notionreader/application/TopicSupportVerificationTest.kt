@@ -53,4 +53,28 @@ class TopicSupportVerificationTest {
         assertEquals(SupportVerificationResult.Stale, verifyRetrievedPassage(concept, candidate, index, embedding,
             verifier, 4, emptyMap(), { true }, ::failIfCalled))
     }
+
+    @Test fun anotherPassageCanSupportANoteWhenItsBestSimilarityCandidateDoesNot() = runBlocking {
+        val original = record(); val first = original.passages.single()
+        val secondText = "Water enables viable seeds to absorb moisture and begin the germination process."
+        val second = first.copy(passage = first.passage.copy(id = "one:other", sourceBlockId = "other:b",
+            readerChunkId = "other:c", excerpt = secondText, input = secondText, end = secondText.length, order = 1),
+            vector = listOf(.9f, .4358899f))
+        val mixed = original.copy(passages = listOf(first, second))
+        val index = FileSemanticIndexStore(files.newFolder()); index.write(mixed)
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(concept.topicId, semanticHash(concept.workKey),
+            "${concept.name}\n${concept.definition}", embedding, TopicRetrievalPolicy(.8f)), listOf(1f, 0f))
+        val firstPage = topicCandidatePage(query, mixed, "r1", 1) as TopicCandidatePage.Ready
+        assertNotNull("The second candidate must remain available after the first window", firstPage.next)
+        val secondPage = topicCandidatePage(query, mixed, "r1", 1, firstPage.next!!) as TopicCandidatePage.Ready
+        suspend fun decide(request: TopicSupportRequest) = TopicSupportRun.Completed(
+            if (request.evidence.passageId == "one:other") SupportDecision.SUPPORTED else SupportDecision.UNSUPPORTED)
+        val results = (firstPage.candidates + secondPage.candidates).map { ref ->
+            verifyRetrievedPassage(concept, ref, index, embedding, verifier, 4, sources, { true }, ::decide)
+                as SupportVerificationResult.Completed
+        }
+        assertEquals(listOf(SupportDecision.UNSUPPORTED, SupportDecision.SUPPORTED), results.map { it.assessment.decision })
+        assertEquals("one", results.single { it.assessment.decision == SupportDecision.SUPPORTED }.assessment.evidence.pageId)
+        assertNull(secondPage.next)
+    }
 }

@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added bounded, resumable passage-candidate paging so verification can
+consider more than the top passage in a mixed Note. A first-passage-only negative
+control and 1,448 JVM tests plus app/probe builds are recorded in decisions §146.
+No real support-quality or native-inference result is claimed.
+
 2026-11-02: Added a source-bound support-decision boundary, rehydration and local
 shared-runtime verifier interface, without connecting it to publication. Failing-
 first and mutation proofs, 1,443 JVM tests and app/probe builds are in decisions
