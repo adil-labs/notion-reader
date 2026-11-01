@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added atomic source-bound passage delta handoff and conservative
+recovery. Integration into indexing and durable coverage acknowledgment remain
+open. Failing-first and guard proof, 1,479 JVM tests and builds are in §151.
+
 2026-11-02: Added per-Note passage delta comparison with exact-identity preference
 and offset rebinding. Durable indexing handoff and scheduling remain open.
 Failing-first checks, 1,472 JVM tests and builds are recorded in §150.

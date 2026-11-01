@@ -35,6 +35,31 @@ class FileProposalProgressStoreTest {
         assertEquals(0L, store.bytes())
     }
 
+    @Test fun passageDeltaSurvivesRestartOnlyForTheCurrentSourceAndModel() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val delta = PassageDeltaRecord("new", "r1", EmbeddingIdentity("model", 2), semanticHash("fingerprint"),
+            PassageDelta(setOf("new-body"), setOf("old-body"), mapOf("old" to "current")))
+        assertEquals(ProposalProgressWriteResult.Written, store.writeDelta(delta) { true })
+        val reopened = FileProposalProgressStore(dir)
+        assertEquals(delta, reopened.readDelta("new", "r1", delta.embedding))
+        assertNull(reopened.readDelta("new", "r2", delta.embedding))
+        assertNull(reopened.readDelta("new", "r1", delta.embedding.copy(model = "other")))
+        store.reconcile(sources - "new")
+        assertNull(reopened.readDelta("new", "r1", delta.embedding))
+        assertEquals(0L, store.bytes())
+    }
+
+    @Test fun staleAndInvalidDeltaCannotBePersisted() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val delta = PassageDeltaRecord("new", "r1", EmbeddingIdentity("model", 2), semanticHash("fingerprint"),
+            PassageDelta(setOf("new-body"), emptySet(), emptyMap()))
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeDelta(delta.copy(delta = delta.delta.copy(changed = setOf("")))) { true })
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.writeDelta(delta) { ++checks == 1 })
+        assertNull(store.readDelta("new", "r1", delta.embedding))
+        assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
+    }
+
     @Test fun supportDecisionSurvivesRestartOnlyForCurrentSourceAndExactKey() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
         assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(support) { true })

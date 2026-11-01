@@ -1,7 +1,11 @@
 package com.example.notionreader.domain.discovery
 
 /** Source references only; rebound maps old IDs to current IDs for identical evidence. */
+@kotlinx.serialization.Serializable
 data class PassageDelta(val changed: Set<String>, val removed: Set<String>, val rebound: Map<String, String>)
+
+@kotlinx.serialization.Serializable
+data class PassageDeltaRecord(val pageId: String, val revision: String, val embedding: EmbeddingIdentity, val fingerprint: String, val delta: PassageDelta)
 
 /** Compare content and provenance, not offsets or vector similarity. Never join duplicate occurrences. */
 fun passageDelta(previous: SemanticRecord?, current: SemanticRecord): PassageDelta {
@@ -31,4 +35,14 @@ fun passageDelta(previous: SemanticRecord?, current: SemanticRecord): PassageDel
     }
     val removed = remaining.values.flatMap { queue -> queue.map { it.id } }.toSet()
     return PassageDelta(changed, removed, rebound)
+}
+
+/** Hash the proposed current passages without storing their bodies in the handoff. */
+fun passageDeltaFingerprint(record: SemanticRecord): String {
+    val fields = listOf("passage-delta-v1", canonicalSemanticId(record.pageId), record.revision, record.identity.toString()) +
+        record.passages.map { it.passage }.sortedBy { it.id }.flatMap {
+            listOf(it.id, canonicalSemanticId(it.pageId), it.sectionId, it.sectionTitle.orEmpty(), it.sourceBlockId,
+                it.readerChunkId, it.start.toString(), it.end.toString(), it.excerpt, it.input, it.order.toString())
+        }
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
 }

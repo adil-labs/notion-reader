@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[passage deltas (§150)](#150-passage-delta-calculation-2026-11-02)
+[durable passage handoff (§151)](#151-durable-passage-delta-handoff-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11956,3 +11956,32 @@ recover it across process death and source withdrawal, and feed it into matching
 and proposal scheduling. Real model and comparative quality, coordinator and UI
 integration, device and human acceptance all remain open; production remains on
 the existing path.
+
+
+## 151. Durable passage delta handoff (2026-11-02)
+
+The existing proposal progress store can atomically retain a per-Note delta with
+source revision, embedding identity and an exact fingerprint of current passage
+content and provenance, without copying bodies. Reads require matching revision
+and embedding; a changed fingerprint cannot reuse the handoff. Existing source
+reconciliation, reset and storage accounting include these records. The helper
+saves before a caller retires an old index record, reuses the saved work after
+restart, and reports stale or refused writes rather than claiming readiness.
+
+A prior revision is optimized only when a caller can establish it was fully
+covered. If coverage is unknown or older work is pending, current passages are
+reconsidered conservatively. The helper does not itself retire an index record,
+prove coverage, schedule work or publish topics. It is not yet wired into the
+indexing loop; the future integration must hold the source-generation ticket
+through the save and destructive replacement and handle a changed or withdrawn
+source. No production Discovery behavior was activated.
+
+Two store tests and two handoff tests failed against stubs before implementation.
+Removing the previous-coverage guard failed the named regression test; restoring
+it passed. The full JVM suite passed 1,479 tests with no failures, errors or skips;
+app debug assembly, Android-test Kotlin compilation and runtime-probe assembly
+passed. No model-quality, device or human acceptance is claimed.
+
+Still open: connect the handoff to the process indexing loop and a durable coverage
+acknowledgment, consume changed anchors, match and verify existing concepts, and
+complete canonical continuity, publication, UI, comparison and release gates.
