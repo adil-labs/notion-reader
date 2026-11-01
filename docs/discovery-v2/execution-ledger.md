@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added per-Note passage delta comparison with exact-identity preference
+and offset rebinding. Durable indexing handoff and scheduling remain open.
+Failing-first checks, 1,472 JVM tests and builds are recorded in §150.
+
 2026-11-02: Added source-bound pending concept persistence and exact-input reuse;
 withdrawal removes derived text. This is not canonical publication or evidence of
 semantic support. Failing-first tests, 1,467 JVM tests and builds are in §149.

@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[pending concepts (§149)](#149-evidence-bound-pending-concepts-2026-11-02)
+[passage deltas (§150)](#150-passage-delta-calculation-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11932,3 +11932,27 @@ and support scheduling, changed-passage deltas, matching and continuity, canonic
 publication, UI and real-device quality/accessibility acceptance remain necessary
 before the evidence-first replacement can be enabled. Model acquisition remains an
 explicit user action; no model was downloaded in this round.
+
+
+## 150. Passage delta calculation (2026-11-02)
+
+Added a pure, bounded-to-one-Note comparison of prior and current indexed passages.
+It reports changed current IDs, removed old IDs, and a one-to-one rebinding for
+identical body, model input and source context even when offsets and IDs shift.
+Exact identities are reserved before rebinding duplicate bodies; unmatched or
+incompatible prior indexes conservatively make current passages new. It carries no
+passage bodies in its result. Matching text or rebinding a reference does not
+establish semantic support, and callers must independently validate current source
+revision before using it. The calculation is not yet connected to indexing or
+persisted across an interrupted index replacement; it does not change production.
+
+Four initial tests failed against an empty implementation. A fifth failed when
+duplicate matches were assigned without reserving exact IDs, then passed after
+that guard was added. Full JVM suite: 1,472 tests, no failures/errors/skips; app
+debug assembly, Android-test Kotlin compilation and runtime-probe assembly passed.
+
+Still open: make the old-to-new delta durable before destructive index replacement,
+recover it across process death and source withdrawal, and feed it into matching
+and proposal scheduling. Real model and comparative quality, coordinator and UI
+integration, device and human acceptance all remain open; production remains on
+the existing path.
