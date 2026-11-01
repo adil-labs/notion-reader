@@ -4,7 +4,7 @@
 
 ## Read in this order
 
-**Current direction (2026-11-02):** The repository-owned Product, UI and Integration contracts authorize an evidence-first incremental replacement, without mandatory global cluster formation for ordinary updates. Direct implementation is authorized; activation still requires the stated evidence gates. The currently enabled implementation remains **cluster seeds → Gemma name and definition → embedding retrieval** (§133) until replacement acceptance. See the [initial audit](evidence-first-audit.md), [previous cluster-seeded design](cluster-seeded-topic-retrieval-design.md), and [execution ledger](execution-ledger.md). No replacement acceptance or implementation is claimed yet.
+**Current direction (2026-11-02):** The repository-owned Product, UI and Integration contracts authorize an evidence-first incremental replacement, without mandatory global cluster formation for ordinary updates. Direct implementation is authorized; activation still requires the stated evidence gates. The currently enabled implementation remains **cluster seeds → Gemma name and definition → embedding retrieval** (§133) until replacement acceptance. A source-bound proposal response contract exists but is not wired to production (§137). See the [initial audit](evidence-first-audit.md), [previous cluster-seeded design](cluster-seeded-topic-retrieval-design.md), and [execution ledger](execution-ledger.md). No replacement acceptance is claimed.
 
 1. [Requirements](requirements.md) — all 49 requested requirements, scope, acceptance intent and non-goals.
 2. [Architecture](architecture.md) — end-to-end operation, responsibilities, evidence flow, topic lifecycle and user experience.

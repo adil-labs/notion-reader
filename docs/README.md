@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#136-evidence-first-direction-and-repository-owned-specifications-2026-11-02)
+[the current decision-record entry](decisions.md#137-source-bound-proposal-response-foundation-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

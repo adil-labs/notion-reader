@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[repository-owned specifications (§136)](#136-evidence-first-direction-and-repository-owned-specifications-2026-11-02)
+[proposal response foundation (§137)](#137-source-bound-proposal-response-foundation-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11558,3 +11558,29 @@ Still open: implement the replacement in the existing coordinator, validate
 source withdrawal and continuity, gather comparable quality/cost measurements,
 and complete applicable representative-device and human acceptance gates. No
 production code or tests changed in this documentation round.
+
+## 137. Source-bound proposal response foundation (2026-11-02)
+
+Added a domain contract distinct from canonical topic identity for a candidate
+concept or successful bounded-reason abstention. It accepts a nonempty subset of
+offered citations, rejects invented/duplicate IDs and invalid text, checks every
+offered source against current revisions and epoch, and builds a length-framed
+work key over the complete offered evidence and generator identity. A changed
+live epoch is a commit guard rather than a durable key component. This validation
+only establishes structure and source freshness, not semantic support. It is not
+wired to the native runtime or production coordinator and changes no published
+Discovery behavior.
+
+Failing-first proof: with the placeholder returning Invalid, the subset,
+abstention and stale-source tests failed (3/5). After implementation, all five
+passed. Removing the citation and field checks made precisely
+`inventedDuplicateAndEmptyCitationsCannotPublish` and
+`malformedAndGenericConceptFieldsCannotPublish` fail; the guards were restored.
+Fresh full JVM suite: 1,383 tests, zero failures/errors/skips. Debug assembly and
+Android-test Kotlin compilation passed; the latter emitted existing Compose test
+API deprecation warnings. No UI or device behavior changed or was measured.
+
+Still open: actual bounded proposal construction, runtime/schema and persistence
+integration, support verification, baseline and comparative evaluation, lifecycle
+and UI integration, and the semantic/device/human acceptance gates. The shipping
+cluster-seeded pipeline remains active.

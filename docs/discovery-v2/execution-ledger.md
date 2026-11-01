@@ -1,5 +1,11 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added the source-bound proposal response and successful abstention
+domain contract; it is not connected to production. Failing-first and guard
+removal proofs, full 1,383-test JVM pass, assembly and androidTest compilation
+are recorded in decisions §137. Semantic support, native responses, proposal
+construction, comparison and activation remain open.
+
 2026-11-02: User requested evidence-first incremental Discovery and authorized
 direct implementation instead of a separate prototype. The governing Product,
 UI and Integration files now carry the new direction locally; the user directed
