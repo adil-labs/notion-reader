@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#153-pending-deltas-feed-bounded-proposals-2026-11-02)
+[the current decision-record entry](decisions.md#154-existing-concept-evidence-pages-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

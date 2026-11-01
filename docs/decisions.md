@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[pending proposal bridge (§153)](#153-pending-deltas-feed-bounded-proposals-2026-11-02)
+[existing concept evidence (§154)](#154-existing-concept-evidence-pages-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12038,3 +12038,29 @@ Still open: schedule bounded proposal and support work in the existing coordinat
 match existing concepts first, acknowledge only fully resolved work durably,
 preserve canonical continuity, publish and expose accessible evidence, and satisfy
 quality/device/human acceptance gates. The current publisher remains in production.
+
+
+## 154. Existing concept evidence pages (2026-11-02)
+
+Added a bounded operation that pages the existing concept-query retrieval results
+for one current Note and independently verifies each candidate through the shared
+support boundary. Only `SUPPORTED` decisions can be passed as explained passage
+IDs; `UNSUPPORTED` does not suppress an anchor, `UNCERTAIN` stays explicit, and
+an unfinished page has a continuation cursor. Query/concept identity, current
+source and indexed passage fingerprint are checked. Existing exact-input support
+records are reused after revalidation. Failure or deferral produces no partial
+success result, although already persisted verified work can be reused. No new
+worker or catalog is created. A fake-verifier integration test demonstrates that
+only the supported candidate is removed from the subsequent proposal anchors.
+
+Three initial tests failed against the deferred stub. Mutating the unsupported
+branch to mark it supported made the proposal-anchor regression fail; the guard
+was restored. Full JVM suite: 1,491 tests, zero failures/errors/skips; debug app,
+Android-test compilation and standalone runtime-probe builds passed. The fake
+verifier proves data flow, not the real verifier's precision or usefulness.
+
+Still open: iterate all current concepts and their pages under durable bounded
+coordinator scheduling; keep unresolved work incomplete, persist coverage and
+publish only independently supported current evidence. Canonical continuity, UI,
+real comparative quality, device and human gates remain open; the existing topic
+publisher stays active.

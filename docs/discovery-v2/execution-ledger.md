@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Existing-concept candidate pages now feed independent support checks
+before proposal suppression. Scheduling and real verifier evaluation remain open.
+Failing-first and support-guard proof, 1,491 JVM tests and builds are in §154.
+
 2026-11-02: Connected saved deltas to a bounded proposal operation with current
 evidence validation; the coordinator does not schedule it yet. Failing-first and
 fingerprint proof, 1,487 JVM tests and builds are recorded in §153.
