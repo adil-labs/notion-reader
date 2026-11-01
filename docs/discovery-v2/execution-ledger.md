@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Indexing captures pending passage deltas before retirement and
+queues previously indexed Notes. Publication remains on the current pipeline.
+Failing-first and policy proofs, 1,483 JVM tests and builds are in §152.
+
 2026-11-02: Added atomic source-bound passage delta handoff and conservative
 recovery. Integration into indexing and durable coverage acknowledgment remain
 open. Failing-first and guard proof, 1,479 JVM tests and builds are in §151.

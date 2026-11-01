@@ -1,5 +1,7 @@
 package com.example.notionreader.application
 
+import com.example.notionreader.data.local.FileProposalProgressStore
+
 import com.example.notionreader.data.local.FileDocumentCache
 import com.example.notionreader.data.local.FileSemanticIndexStore
 import com.example.notionreader.data.local.FileDiscoveryInterestStore
@@ -574,6 +576,87 @@ class DiscoveryControllerTest {
             assertNull("Stale source evidence must be withdrawn while work is deferred", index.read("p"))
             DiscoveryController(cache, index, interests, provider, passageProgressStore = progress).reconcile(emptyList(), true)
             assertEquals("Only the changed passage requires inference after process recreation", originalCalls + 1, provider.calls)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun indexingCapturesPendingDeltaBeforeRetiringTheOldRecord() = runBlocking {
+        val dir = Files.createTempDirectory("delta-index-handoff").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
+            val progress = FileSemanticIndexStore(dir.resolve("progress")); val proposals = FileProposalProgressStore(dir.resolve("proposals"))
+            val interests = FileDiscoveryInterestStore(dir.resolve("interests")); val provider = Provider()
+            fun note(text: String) = CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf(text)), null, Instant.EPOCH)
+            cache.put(note("Original river habitat evidence.")); index.setPaused(false)
+            DiscoveryController(cache, index, interests, provider, passageProgressStore = progress,
+                proposalProgressStore = proposals).reconcile(emptyList(), true)
+            val updated = note("Updated river habitat evidence."); cache.put(updated)
+            DiscoveryController(cache, index, interests, provider, passageProgressStore = progress,
+                proposalProgressStore = proposals).reconcile(emptyList(), false)
+            assertNull(index.read("p"))
+            val saved = FileProposalProgressStore(dir.resolve("proposals")).readDelta("p", semanticRevision(updated.document), provider.identity)
+            assertNotNull(saved); assertEquals(1, saved!!.delta.changed.size)
+            assertEquals(1, saved.delta.removed.size)
+            DiscoveryController(cache, index, interests, provider, passageProgressStore = progress,
+                proposalProgressStore = FileProposalProgressStore(dir.resolve("proposals"))).reconcile(emptyList(), true)
+            assertEquals(saved, proposals.readDelta("p", semanticRevision(updated.document), provider.identity))
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun anExistingIndexWithoutDeltaIsQueuedConservatively() = runBlocking {
+        val dir = Files.createTempDirectory("delta-existing-index").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
+            val proposals = FileProposalProgressStore(dir.resolve("proposals")); val provider = Provider()
+            val interests = FileDiscoveryInterestStore(dir.resolve("interests"))
+            val note = CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf("Existing forest habitat evidence.")), null, Instant.EPOCH)
+            cache.put(note); index.setPaused(false)
+            DiscoveryController(cache, index, interests, provider).reconcile(emptyList(), true)
+            DiscoveryController(cache, index, interests, provider, proposalProgressStore = proposals).reconcile(emptyList(), true)
+            val delta = proposals.readDelta("p", semanticRevision(note.document), provider.identity)
+            assertNotNull(delta); assertEquals(index.read("p")!!.passages.map { it.passage.id }.toSet(), delta!!.delta.changed)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun refusedDeltaHandoffStopsBeforeTheOldIndexIsRetired() = runBlocking {
+        val dir = Files.createTempDirectory("delta-index-refused").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
+            val proposals = FileProposalProgressStore(dir.resolve("proposals")); val interests = FileDiscoveryInterestStore(dir.resolve("interests"))
+            val provider = Provider()
+            fun note(text: String) = CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf(text)), null, Instant.EPOCH)
+            cache.put(note("Original river habitat evidence.")); index.setPaused(false)
+            DiscoveryController(cache, index, interests, provider).reconcile(emptyList(), true)
+            val old = index.read("p")!!; cache.put(note("Updated river habitat evidence."))
+            val refused = object : ProposalProgressStore by proposals {
+                override suspend fun writeDelta(record: PassageDeltaRecord, stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
+            }
+            val controller = DiscoveryController(cache, index, interests, provider, proposalProgressStore = refused)
+            controller.reconcile(emptyList(), true)
+            assertEquals(old, index.read("p"))
+            assertNotNull(controller.state.value.indexFailure)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun powerDeferralDuringDeltaWriteCannotRetireTheOldRecord() = runBlocking {
+        val dir = Files.createTempDirectory("delta-power-deferral").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
+            val proposals = FileProposalProgressStore(dir.resolve("proposals")); val interests = FileDiscoveryInterestStore(dir.resolve("interests"))
+            val provider = Provider(); var allowed = true
+            fun note(text: String) = CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf(text)), null, Instant.EPOCH)
+            cache.put(note("Original river habitat evidence.")); index.setPaused(false)
+            DiscoveryController(cache, index, interests, provider).reconcile(emptyList(), true)
+            val old = index.read("p")!!; cache.put(note("Updated river habitat evidence."))
+            val deferred = object : ProposalProgressStore by proposals {
+                override suspend fun writeDelta(record: PassageDeltaRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult {
+                    allowed = false
+                    return proposals.writeDelta(record, stillCurrent)
+                }
+            }
+            DiscoveryController(cache, index, interests, provider, proposalProgressStore = deferred,
+                mayContinueIndexing = { allowed }).reconcile(emptyList(), true)
+            assertEquals(old, index.read("p"))
+            assertNull(proposals.readDelta("p", semanticRevision(note("Updated river habitat evidence.").document), provider.identity))
         } finally { dir.deleteRecursively() }
     }
 

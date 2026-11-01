@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[durable passage handoff (§151)](#151-durable-passage-delta-handoff-2026-11-02)
+[indexing handoff (§152)](#152-indexing-captures-passage-deltas-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11985,3 +11985,32 @@ passed. No model-quality, device or human acceptance is claimed.
 Still open: connect the handoff to the process indexing loop and a durable coverage
 acknowledgment, consume changed anchors, match and verify existing concepts, and
 complete canonical continuity, publication, UI, comparison and release gates.
+
+
+## 152. Indexing captures passage deltas (2026-11-02)
+
+Discovery indexing now writes a source-ticketed passage handoff before retiring
+an old index record when the model and work policy permit. Existing indexed Notes
+without a handoff are conservatively queued, including after an interrupted or
+previous installation. A resumed edit reuses its saved fingerprint-bound delta.
+When work is deferred or the model unavailable, existing stale-index withdrawal
+still proceeds; a later pass treats the available current passages as unprocessed.
+The handoff uses the existing bulk gate and rechecks source generation, power
+policy and foreground-query activity at commit. Refused storage leaves the old
+index unretired and reports incomplete indexing. No topic is published by this
+change, and previous coverage is not yet acknowledged, so affected current
+passages are deliberately reconsidered rather than assumed processed.
+
+The edited-Note and pre-existing-index tests failed before integration. Disabling
+the handoff made the storage-refusal test fail; disabling the write-time work-policy
+guard made its power-deferral test fail. Both guards were restored. JVM suite:
+1,483 tests, zero failures/errors/skips; app debug assembly and Android-test
+Kotlin compilation passed. The standalone probe initially failed because its
+source copy omitted the new handoff; adding that production file to the copy
+list restored its debug build. No Android energy, performance, model quality or
+TalkBack observation is implied by these checks.
+
+Still open: durable coverage acknowledgment and consumption of changed anchors,
+existing-concept matching and independent support, catalog continuity and
+publication, accessible presentation, real comparative and device/human gates.
+The existing topic pipeline remains the production publisher.

@@ -153,6 +153,23 @@ internal class DiscoveryIndexing(
                 val old = runtime.bulkStep { index.read(id) }
                 val meta = cachedMetadata.getValue(id)
                 if (old?.revision == revision && old.identity == provider.identity) {
+                    if (proposalProgressStore != null && modelAvailable() && mayContinueWork()) {
+                        val handoff = runtime.bulkStep { runtime.commits.withLock {
+                            capturePassageDelta(old, index, proposalProgressStore) {
+                                runtime.generation.get() == epoch && cache.revision.value == sourceGeneration &&
+                                    mayContinueWork() && runtime.foregroundQueries.get() == 0
+                            }
+                        } }
+                        when (handoff) {
+                            is PassageDeltaHandoff.Ready -> Unit
+                            PassageDeltaHandoff.Stale -> return
+                            is PassageDeltaHandoff.StorageFailure -> {
+                                val failure = "Discovery could not save pending passage changes. Coverage is incomplete; indexing will retry."
+                                mutable.update { it.copy(message = failure, indexFailure = failure) }
+                                return
+                            }
+                        }
+                    }
                     // A process may die between full-record commit and checkpoint retirement.
                     passageProgressStore?.remove(id)
                     indexed++
@@ -165,6 +182,28 @@ internal class DiscoveryIndexing(
                         }
                     }
                     continue
+                }
+                // Save the complete current passage identity before any old index record is
+                // retired. Vectors are irrelevant to the delta and remain owned by the index.
+                if (proposalProgressStore != null && modelAvailable() && mayContinueWork()) {
+                    val passages = SemanticChunker(provider.tokenizer).chunk(source.document)
+                    val draft = SemanticRecord(id, revision, provider.identity, meta,
+                        passages.map { EmbeddedPassage(it, emptyList()) })
+                    val handoff = runtime.bulkStep { runtime.commits.withLock {
+                        capturePassageDelta(draft, index, proposalProgressStore) {
+                            runtime.generation.get() == epoch && cache.revision.value == sourceGeneration &&
+                                mayContinueWork() && runtime.foregroundQueries.get() == 0
+                        }
+                    } }
+                    when (handoff) {
+                        is PassageDeltaHandoff.Ready -> Unit
+                        PassageDeltaHandoff.Stale -> return
+                        is PassageDeltaHandoff.StorageFailure -> {
+                            val failure = "Discovery could not save pending passage changes. Coverage is incomplete; indexing will retry."
+                            mutable.update { it.copy(message = failure, indexFailure = failure) }
+                            return
+                        }
+                    }
                 }
                 // Withdraw stale evidence only after compatible vectors have been rebound to
                 // current source passages. This durable handoff also covers policy deferral.
