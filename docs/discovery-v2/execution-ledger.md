@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: User authorized production activation before outstanding measurement.
+The repository contracts record this; the incomplete replacement has not yet
+been switched on. Added source-bound evidence rehydration and generation checks;
+1,412 JVM tests and app builds passed. See decisions §141 for open work.
+
 2026-11-02: Added strict proposal/abstention wire handling and reused the
 existing serialized Gemma runtime and cancellation gate. The production
 coordinator does not invoke it. Failing-first and shared-gate tests, 1,404 JVM

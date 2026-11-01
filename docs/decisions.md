@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[proposal generation runtime (§140)](#140-shared-runtime-proposal-generation-contract-2026-11-02)
+[proposal evidence and activation instruction (§141)](#141-proposal-evidence-rehydration-and-activation-instruction-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11673,3 +11673,30 @@ Still open: feed structural context and proposal windows into this path, persist
 and rehydrate pending evidence and abstentions, independently verify support,
 integrate lifecycle and canonical catalog continuity, evaluate actual model
 responses and comparative cost/quality, and satisfy device and human gates.
+
+## 141. Proposal evidence rehydration and activation instruction (2026-11-02)
+
+The user requested enabling the replacement in the production path before the
+outstanding measurements. Product, UI and Integration contracts now record that
+authorization locally; enabling does not constitute quality or release
+acceptance. The replacement is not yet complete enough to publish: independent
+support decisions, persisted progress, canonical continuity and coordinator
+wiring remain missing. The old pipeline has not been switched off or replaced.
+
+Added a bounded application boundary that reconstructs proposal evidence from
+current indexed passages, checks model/revision/source validity before and after
+reads, rejects fabricated, duplicate and heading-only references, and carries
+incomplete status into generation. Its generation wrapper rechecks the validity
+ticket after inference, validates selected IDs and distinguishes successful
+abstention from unavailable, failed, cancelled and stale outcomes. It does not
+establish semantic support or publish a topic. Four of five evidence tests failed
+against an unavailable-only stub; three generation tests failed against a stub.
+Restored implementations pass the full JVM suite: 1,412 tests, zero failures,
+errors or skips. Debug assembly, Android-test Kotlin compilation and standalone
+runtime-probe assembly passed. No device or model-quality result was collected.
+
+Still open: complete durable proposal and abstention storage, semantic support
+verification, source invalidation, canonical continuity and production
+coordinator/UI wiring, then honor the activation request. Continue the requested
+comparative, representative-device and human acceptance measurements separately;
+they are not implied by activation.

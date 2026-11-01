@@ -1,9 +1,10 @@
 # Evidence-first incremental Discovery: initial audit
 
 Status: **in progress, 2026-11-02**. The user subsequently authorized direct
-implementation instead of a separate prototype. This investigation is not a
+implementation instead of a separate prototype and later authorized production
+activation before outstanding measurements. This investigation is not a
 governing specification, a completed baseline, or evidence of acceptance. The
-existing production pipeline remains enabled until the replacement is ready.
+existing production pipeline remains enabled while replacement wiring is incomplete.
 
 ## Contract boundary
 
@@ -66,5 +67,6 @@ public evaluation corpus and its provenance, define independently reviewable
 topic and support judgments, and run both algorithms over the same inputs.
 Measure native work only from actual executions. Retain explicit missed topics,
 abstentions, errors and incomplete scans in the denominator. Collect comparative
-evidence and meet applicable acceptance gates before activation. Physical-device
-and human TalkBack observations remain separate from host tests and agent judgments.
+evidence and report applicable acceptance gates independently from activation.
+Physical-device and human TalkBack observations remain separate from host tests
+and agent judgments.
