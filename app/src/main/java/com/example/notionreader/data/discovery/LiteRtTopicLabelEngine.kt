@@ -39,13 +39,16 @@ internal class LiteRtTopicLabelEngine(file: File, cacheDirectory: File, backend:
                 return tokens.size / 3
             }
             override fun start(prompt: String, chunk: (String) -> Unit, done: (Throwable?) -> Unit) {
+                start(prompt, GenerativeModelPack.schema, chunk, done)
+            }
+            override fun start(prompt: String, schema: String, chunk: (String) -> Unit, done: (Throwable?) -> Unit) {
                 conversation.sendMessageAsync(prompt, object : MessageCallback {
                     override fun onMessage(message: Message) = chunk(message.toString())
                     override fun onDone() = done(null)
                     override fun onError(throwable: Throwable) = done(throwable)
                 }, maxOutputToken = GenerativeModelPack.outputTokens,
                     thinkingConfig = ThinkingConfig(enableThinking = false),
-                    responseFormat = ResponseFormat.json(GenerativeModelPack.schema))
+                    responseFormat = ResponseFormat.json(schema))
             }
             @Synchronized override fun cancel() { if (!closed) conversation.cancelProcess() }
             @Synchronized override fun close() { if (!closed) { closed = true; conversation.close() } }

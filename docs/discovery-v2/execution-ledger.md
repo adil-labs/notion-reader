@@ -1,5 +1,11 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added strict proposal/abstention wire handling and reused the
+existing serialized Gemma runtime and cancellation gate. The production
+coordinator does not invoke it. Failing-first and shared-gate tests, 1,404 JVM
+tests, app builds and standalone probe assembly are recorded in decisions §140.
+No actual proposal inference or semantic acceptance is claimed.
+
 2026-11-02: Proposal windows now retain compact scored references across
 serializable checkpoints and require observed source coverage. Removed a
 section/similarity anchor collapse that could discard distinct subjects. Tests

@@ -8,6 +8,39 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GemmaTopicLabelerTest {
+    @Test fun proposalUsesCompactReferencesAndPreservesSelectedCanonicalEvidence() = runTest {
+        val engine = Engine().apply { output = """{"result":"concept","name":"Seed germination","definition":"How moisture helps seeds germinate.","listening_description":"Listen to seed germination.","passage_ids":["p1"]}""" }
+        val first = semanticHash("first passage"); val second = semanticHash("second passage")
+        val input = DiscoveryProposalRequest("proposal", 1, listOf(request.evidence.single().copy(passageId = first),
+            request.evidence.single().copy(passageId = second, pageId = "other")), discoveryProposalIdentity(identity))
+        val runtime = GemmaTopicLabeler(identity, { true }, { engine }, { true }, StandardTestDispatcher(testScheduler))
+        val result = runtime.propose(input) as DiscoveryProposalRun.Completed
+        assertEquals(listOf(second), (result.response as DiscoveryProposalResponse.Concept).evidenceIds)
+        assertFalse(engine.lastPrompt.contains(first)); assertFalse(engine.lastPrompt.contains(second))
+        assertEquals(DiscoveryProposalSchema, engine.lastSchema)
+        runtime.close()
+    }
+
+    @Test fun cancellingAProposalWaitsForNativeTerminationBeforeClosing() = runTest {
+        val engine = Engine().apply { automatic = false }
+        val input = DiscoveryProposalRequest("proposal", 1, request.evidence, discoveryProposalIdentity(identity))
+        val runtime = GemmaTopicLabeler(identity, { true }, { engine }, { true }, StandardTestDispatcher(testScheduler))
+        val operation = launch { runtime.propose(input) }; runCurrent()
+        operation.cancel(); runCurrent()
+        assertTrue(engine.cancels > 0)
+        assertFalse(operation.isCompleted); assertEquals(0, engine.sessionCloses)
+        engine.terminal!!(CancellationException("Native terminal")); advanceUntilIdle()
+        assertTrue(operation.isCompleted); assertEquals(1, engine.sessionCloses); assertEquals(1, engine.closes)
+    }
+
+    @Test fun nativeAbstentionIsSuccessAndDoesNotReleaseTheEngine() = runTest {
+        val engine = Engine().apply { output = """{"result":"abstain","reason":"MIXED_EVIDENCE"}""" }
+        val input = DiscoveryProposalRequest("proposal", 1, request.evidence, discoveryProposalIdentity(identity))
+        val runtime = GemmaTopicLabeler(identity, { true }, { engine }, { true }, StandardTestDispatcher(testScheduler))
+        assertEquals(DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE)), runtime.propose(input))
+        assertEquals(0, engine.closes)
+        runtime.close()
+    }
     @Test fun wireReferencesAreCompactAndResultsRetainTheCanonicalSourceIds() = runTest {
         val canonical = semanticHash("a long canonical passage identity")
         val input = request.copy(evidence = request.evidence.map { it.copy(passageId = canonical) })
@@ -35,7 +68,7 @@ class GemmaTopicLabelerTest {
     private val request = TopicLabelRequest("topic", "f", 1,
         listOf(TopicLabelEvidence("p", "page", "r", "Seed germination requires moisture.")), identity)
     private class Engine : NativeTopicLabelEngine {
-        var lastPrompt = ""
+        var lastPrompt = ""; var lastSchema = ""
         var opened = 0; var closes = 0; var sessionCloses = 0; var cancels = 0; var started = false
         var tokens = 20; var automatic = true; var failStart = false; var failCancel = false
         var output = """{"topics":[{"label":"Seed germination","definition":"How moisture supports seed germination.","passage_ids":["p0"]}]}"""
@@ -51,6 +84,10 @@ class GemmaTopicLabelerTest {
                     terminal = { failure -> running = false; done(failure) }
                     chunk(output)
                     if (automatic) terminal!!(null)
+                }
+                override fun start(prompt: String, schema: String, chunk: (String) -> Unit, done: (Throwable?) -> Unit) {
+                    lastSchema = schema
+                    start(prompt, chunk, done)
                 }
                 override fun cancel() { cancels++; if (failCancel) error("Cancel driver failed") }
                 override fun close() { check(!running) { "Destructive close while native work is running" }; sessionCloses++ }

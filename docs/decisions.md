@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[proposal continuation (§139)](#139-proposal-window-continuation-and-anchor-recall-2026-11-02)
+[proposal generation runtime (§140)](#140-shared-runtime-proposal-generation-contract-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11640,3 +11640,36 @@ quality, Android device or inference performance measurement is claimed.
 Matching existing concepts, persisted recovery, model generation/abstention,
 support verification, source lifecycle integration, comparative evaluation,
 UI and acceptance gates remain open. The existing pipeline remains active.
+
+## 140. Shared-runtime proposal generation contract (2026-11-02)
+
+Added a versioned proposal prompt, schema, strict parser and successful
+abstention result. The parser accepts a selected subset of offered opaque IDs,
+rejects extra, duplicate, invalid or malformed fields and bounds output. Note
+text is encoded as JSON data; this is not evidence that a model resists prompt
+injection or that its assertions are supported. The canonical IDs are restored
+after native output and the domain source/structure validator is applied.
+
+Extended the existing Gemma labeler and `DiscoveryRuntime` to use the same engine,
+mutexes, foreground priority and terminal-before-close cancellation for proposal
+generation. The LiteRT session selects the requested response schema. Labeling
+retains its previous schema. The proposal method is available but not invoked by
+the production coordinator; the existing pipeline remains active. The standalone
+runtime probe now copies the new shipping source and builds successfully.
+
+The initial parser stub failed three of four tests; the duplicate-field guard was
+separately removed and exactly the malformed-output test failed, then restored.
+Two proposal runtime tests failed against unavailable-only behavior, then passed.
+The shared-gate foreground interruption test failed before wiring and passed
+afterward; fake-native tests also check cancellation waits for termination and
+source change cancels pending work. A fresh full JVM run passed 1,404 tests with
+zero failures/errors/skips; debug assembly and Android-test Kotlin compilation
+passed. After restoring the duplicate guard, the full JVM result came from the
+Gradle cache for the same source. The standalone ARM64 probe assembled; the
+connected Pixel 8 Pro had no staged probe files, so no native proposal generation
+or quality/resource result is claimed.
+
+Still open: feed structural context and proposal windows into this path, persist
+and rehydrate pending evidence and abstentions, independently verify support,
+integrate lifecycle and canonical catalog continuity, evaluate actual model
+responses and comparative cost/quality, and satisfy device and human gates.

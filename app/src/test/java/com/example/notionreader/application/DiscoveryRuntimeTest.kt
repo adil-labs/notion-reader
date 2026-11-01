@@ -39,7 +39,7 @@ class DiscoveryRuntimeTest {
         val nativeStopped = CompletableDeferred<Unit>()
         val cancellationSeen = CompletableDeferred<Unit>()
         var delayed = false
-        val labeler = object : TopicLabelRuntime {
+        val labeler: TopicLabelRuntime = object : TopicLabelRuntime, DiscoveryProposalRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun {
                 check(!embeddingLive) { "Embedding engine not released" }
                 labelLive = true; nativeRunning = true; entered.complete(Unit)
@@ -51,8 +51,39 @@ class DiscoveryRuntimeTest {
                 } finally { nativeRunning = false }
                 return TopicLabelRun.Completed(TopicLabelCandidate("Seed germination", listOf("p"), "How moisture supports seed germination."))
             }
+            override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun {
+                label(TopicLabelRequest("topic", "fingerprint", request.sourceEpoch, request.evidence, request.identity))
+                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
+            }
             override suspend fun close() { check(!nativeRunning) { "Close before native terminal" }; labelLive = false }
         }
+    }
+    @Test fun foregroundSearchInterruptsProposalAndWaitsForNativeTermination() = runTest {
+        val models = Models().apply { delayed = true }
+        val runtime = DiscoveryRuntime(FileDocumentCache(files.newFolder()), models.provider, models.labeler)
+        val proposal = DiscoveryProposalRequest("proposal", 0, request.evidence, identity)
+        val work = async { runtime.proposeTopic(proposal) { true } }; runCurrent()
+        assertTrue("Proposal must start native work", models.entered.isCompleted)
+        val search = async { runtime.foregroundStep { runtime.inference.withLock { runtime.embedExactInput("query") } } }
+        runCurrent()
+        assertTrue(models.cancellationSeen.isCompleted)
+        assertEquals(0, models.embeddingCalls)
+        models.nativeStopped.complete(Unit); models.finish.complete(Unit); advanceUntilIdle()
+        assertEquals(DiscoveryProposalRun.Cancelled, work.await())
+        search.await(); assertEquals(1, models.embeddingCalls)
+    }
+    @Test fun aSourceChangeDuringProposalCancelsThePendingResult() = runTest {
+        val cache = FileDocumentCache(files.newFolder())
+        val models = Models().apply { delayed = true }
+        val runtime = DiscoveryRuntime(cache, models.provider, models.labeler)
+        val proposal = DiscoveryProposalRequest("proposal", 0, request.evidence, identity)
+        val work = async { runtime.proposeTopic(proposal) { true } }; runCurrent()
+        assertTrue(models.entered.isCompleted)
+        cache.put(CachedDocument(ReaderDocument.fromChunkTexts("changed", "Changed", listOf("New body")), null, Instant.EPOCH))
+        advanceTimeBy(60); runCurrent()
+        assertTrue(models.cancellationSeen.isCompleted)
+        models.nativeStopped.complete(Unit); models.finish.complete(Unit); advanceUntilIdle()
+        assertEquals(DiscoveryProposalRun.Cancelled, work.await())
     }
     @Test fun roleSwitchesReleaseThePreviousEngineBeforeOpeningTheOther() = runTest {
         val models = Models()

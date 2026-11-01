@@ -10,6 +10,10 @@ import kotlinx.serialization.json.*
 internal interface NativeTopicLabelSession : AutoCloseable {
     fun countPromptTokens(prompt: String): Int
     fun start(prompt: String, chunk: (String) -> Unit, done: (Throwable?) -> Unit)
+    fun start(prompt: String, schema: String, chunk: (String) -> Unit, done: (Throwable?) -> Unit) {
+        require(schema == GenerativeModelPack.schema)
+        start(prompt, chunk, done)
+    }
     fun cancel()
 }
 internal interface NativeTopicLabelEngine : AutoCloseable { fun conversation(): NativeTopicLabelSession }
@@ -18,7 +22,29 @@ internal interface NativeTopicLabelEngine : AutoCloseable { fun conversation(): 
 class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIdentity,
     private val available: () -> Boolean, private val open: () -> NativeTopicLabelEngine,
     private val mayRun: () -> Boolean, private val dispatcher: CoroutineDispatcher,
-    private val diagnostic: (String, Throwable) -> Unit = { _, _ -> }) : TopicLabelRuntime {
+    private val diagnostic: (String, Throwable) -> Unit = { _, _ -> }) : TopicLabelRuntime, DiscoveryProposalRuntime {
+    override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun = withContext(dispatcher) {
+        operations.withLock {
+            if (!available()) { release(); return@withLock DiscoveryProposalRun.Unavailable }
+            if (!mayRun()) { release(); return@withLock DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.ResourcePressure) }
+            if (request.identity != discoveryProposalIdentity(identity) || request.evidence.isEmpty() || request.evidence.size > 16)
+                return@withLock DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.InvalidModel)
+            try {
+                currentCoroutineContext().ensureActive()
+                val runtime = engine ?: open().also { engine = it }
+                currentCoroutineContext().ensureActive()
+                val result = inferProposal(runtime, request)
+                if (result is DiscoveryProposalRun.Failed || result == DiscoveryProposalRun.Cancelled) release()
+                result
+            } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) { release() }; throw cancelled
+            } catch (failure: Exception) {
+                diagnostic("proposal-execution", failure); release(); DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.BackendFailure)
+            } catch (failure: LinkageError) {
+                diagnostic("proposal-execution", failure); release(); DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.BackendFailure)
+            }
+        }
+    }
     companion object {
         fun create(manager: GenerativeModelManager, cacheDirectory: java.io.File,
             mayRun: () -> Boolean, backend: TopicLabelBackend = TopicLabelBackend.GPU): GemmaTopicLabeler =
@@ -83,25 +109,63 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
         }
     }
 
+    private sealed interface NativeResult {
+        data class Completed(val raw: String) : NativeResult
+        data class Failed(val reason: TopicLabelRuntimeFailure) : NativeResult
+        data object Cancelled : NativeResult
+    }
+
     private suspend fun infer(runtime: NativeTopicLabelEngine, request: TopicLabelRequest): TopicLabelRun {
+        val bindings = request.evidence.mapIndexed { index, evidence -> "p$index" to evidence.passageId }.toMap()
+        val offered = request.copy(evidence = request.evidence.mapIndexed { index, evidence -> evidence.copy(passageId = "p$index") })
+        return when (val result = generate(runtime, topicLabelPrompt(offered), GenerativeModelPack.schema)) {
+            NativeResult.Cancelled -> TopicLabelRun.Cancelled
+            is NativeResult.Failed -> TopicLabelRun.Failed(result.reason)
+            is NativeResult.Completed -> {
+                val parsed = parseTopicLabelResponse(result.raw, offered) ?: return TopicLabelRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+                val canonicalIds = parsed.evidenceIds.map { requireNotNull(bindings[it]) }
+                val checked = validateTopicLabel(request, parsed.text, canonicalIds, request.groupFingerprint, request.sourceEpoch, parsed.definition)
+                if (checked is TopicLabelValidation.Accepted) TopicLabelRun.Completed(TopicLabelCandidate(parsed.text, canonicalIds, parsed.definition))
+                else TopicLabelRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+            }
+        }
+    }
+
+    private suspend fun inferProposal(runtime: NativeTopicLabelEngine, request: DiscoveryProposalRequest): DiscoveryProposalRun {
+        val bindings = request.evidence.mapIndexed { index, evidence -> "p$index" to evidence.passageId }.toMap()
+        val offered = request.copy(evidence = request.evidence.mapIndexed { index, evidence -> evidence.copy(passageId = "p$index") })
+        return when (val result = generate(runtime, discoveryProposalPrompt(offered), DiscoveryProposalSchema)) {
+            NativeResult.Cancelled -> DiscoveryProposalRun.Cancelled
+            is NativeResult.Failed -> DiscoveryProposalRun.Failed(result.reason)
+            is NativeResult.Completed -> {
+                val parsed = parseDiscoveryProposalResponse(result.raw, offered)
+                    ?: return DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+                val canonical = when (parsed) {
+                    is DiscoveryProposalResponse.Concept -> parsed.copy(evidenceIds = parsed.evidenceIds.map { requireNotNull(bindings[it]) })
+                    is DiscoveryProposalResponse.Abstained -> parsed
+                }
+                val revisions = request.evidence.associate { canonicalSemanticId(it.pageId) to it.revision }
+                if (validateDiscoveryProposal(request, canonical, request.sourceEpoch, revisions) is DiscoveryProposalValidation.Accepted)
+                    DiscoveryProposalRun.Completed(canonical) else DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+            }
+        }
+    }
+
+    private suspend fun generate(runtime: NativeTopicLabelEngine, prompt: String, schema: String): NativeResult {
         val session = runtime.conversation()
         val flight = Flight(session)
         var submitted = false
         try {
-            // Canonical passage hashes stay in the source/cache contract, not the token stream.
-            val bindings = request.evidence.mapIndexed { index, evidence -> "p$index" to evidence.passageId }.toMap()
-            val offered = request.copy(evidence = request.evidence.mapIndexed { index, evidence -> evidence.copy(passageId = "p$index") })
-            val prompt = topicLabelPrompt(offered)
             val tokens = session.countPromptTokens(prompt)
             if (tokens <= 0 || tokens > GenerativeModelPack.contextTokens - GenerativeModelPack.outputTokens)
-                return TopicLabelRun.Failed(TopicLabelRuntimeFailure.InputLimit)
+                return NativeResult.Failed(TopicLabelRuntimeFailure.InputLimit)
             currentCoroutineContext().ensureActive()
-            if (!mayRun()) return TopicLabelRun.Failed(TopicLabelRuntimeFailure.ResourcePressure)
+            if (!mayRun()) return NativeResult.Failed(TopicLabelRuntimeFailure.ResourcePressure)
             active = flight
             val output = StringBuilder()
             var outputBytes = 0
             val oversized = AtomicBoolean(false)
-            session.start(prompt, { chunk ->
+            session.start(prompt, schema, { chunk ->
                 synchronized(output) {
                     if (!oversized.get()) {
                         val bytes = chunk.toByteArray(Charsets.UTF_8).size
@@ -114,20 +178,14 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
             submitted = true
             flight.started()
             val failure = flight.terminal.await()
-            if (oversized.get()) return TopicLabelRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
-            if (flight.cancellationFailed) return TopicLabelRun.Failed(TopicLabelRuntimeFailure.BackendFailure)
-            if (failure is CancellationException || flight.cancellationRequested()) return TopicLabelRun.Cancelled
+            if (oversized.get()) return NativeResult.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+            if (flight.cancellationFailed) return NativeResult.Failed(TopicLabelRuntimeFailure.BackendFailure)
+            if (failure is CancellationException || flight.cancellationRequested()) return NativeResult.Cancelled
             if (failure != null) {
                 diagnostic("native-terminal", failure)
-                return TopicLabelRun.Failed(TopicLabelRuntimeFailure.BackendFailure)
+                return NativeResult.Failed(TopicLabelRuntimeFailure.BackendFailure)
             }
-            val raw = synchronized(output) { output.toString() }
-            val parsed = parseTopicLabelResponse(raw, offered)
-                ?: return TopicLabelRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
-            val canonicalIds = parsed.evidenceIds.map { requireNotNull(bindings[it]) }
-            val checked = validateTopicLabel(request, parsed.text, canonicalIds, request.groupFingerprint, request.sourceEpoch, parsed.definition)
-            return if (checked is TopicLabelValidation.Accepted) TopicLabelRun.Completed(TopicLabelCandidate(parsed.text, canonicalIds, parsed.definition))
-                else TopicLabelRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+            return NativeResult.Completed(synchronized(output) { output.toString() })
         } catch (cancelled: CancellationException) {
             if (submitted) withContext(NonCancellable) {
                 // Never close the conversation or release the shared gate on coroutine cancellation alone.

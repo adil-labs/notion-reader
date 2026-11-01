@@ -24,17 +24,27 @@ internal class DiscoveryRuntime(cache: DocumentCache, private val provider: Embe
     /** Nonblocking signal; the label job retains native ownership through its cleanup. */
     fun interruptLabeling() { activeLabel.get()?.cancel() }
 
+    suspend fun proposeTopic(request: DiscoveryProposalRequest, mayWork: () -> Boolean): DiscoveryProposalRun {
+        val generator = labeler as? DiscoveryProposalRuntime ?: return DiscoveryProposalRun.Unavailable
+        return generate(mayWork, DiscoveryProposalRun.Unavailable, DiscoveryProposalRun.Cancelled) { generator.propose(request) }
+    }
+
     suspend fun labelTopic(request: TopicLabelRequest, mayWork: () -> Boolean): TopicLabelRun {
         val generator = labeler ?: return TopicLabelRun.Unavailable
-        if (!labelModelAvailable()) return TopicLabelRun.Unavailable
+        return generate(mayWork, TopicLabelRun.Unavailable, TopicLabelRun.Cancelled) { generator.label(request) }
+    }
+
+    private suspend fun <T> generate(mayWork: () -> Boolean, unavailable: T, cancelled: T,
+        action: suspend () -> T): T {
+        if (!labelModelAvailable()) return unavailable
         val token = validity.capture()
         return bulkStep {
             inference.withLock {
-                if (!mayWork() || !validity.isCurrent(token)) return@withLock TopicLabelRun.Cancelled
-                if (!labelModelAvailable()) return@withLock TopicLabelRun.Unavailable
+                if (!mayWork() || !validity.isCurrent(token)) return@withLock cancelled
+                if (!labelModelAvailable()) return@withLock unavailable
                 provider.release()
                 val result = coroutineScope {
-                    val task = async(start = CoroutineStart.LAZY) { generator.label(request) }
+                    val task = async(start = CoroutineStart.LAZY) { action() }
                     activeLabel.set(task)
                     val watcher = launch {
                         while (!task.isCompleted) {
@@ -48,9 +58,9 @@ internal class DiscoveryRuntime(cache: DocumentCache, private val provider: Embe
                         if (foregroundQueries.get() > 0 || !mayWork() || !validity.isCurrent(token) || !labelModelAvailable()) task.cancel()
                         else task.start()
                         try { task.await() }
-                        catch (cancelled: CancellationException) {
+                        catch (_: CancellationException) {
                             currentCoroutineContext().ensureActive()
-                            TopicLabelRun.Cancelled
+                            cancelled
                         }
                     } finally {
                         withContext(NonCancellable) {
@@ -61,8 +71,8 @@ internal class DiscoveryRuntime(cache: DocumentCache, private val provider: Embe
                         }
                     }
                 }
-                if (!validity.isCurrent(token) || !mayWork()) TopicLabelRun.Cancelled
-                else if (!labelModelAvailable()) TopicLabelRun.Unavailable else result
+                if (!validity.isCurrent(token) || !mayWork()) cancelled
+                else if (!labelModelAvailable()) unavailable else result
             }
         }
     }

@@ -16,6 +16,18 @@ sealed interface DiscoveryProposalResponse {
     data class Abstained(val reason: DiscoveryAbstentionReason) : DiscoveryProposalResponse
 }
 
+sealed interface DiscoveryProposalRun {
+    data class Completed(val response: DiscoveryProposalResponse) : DiscoveryProposalRun
+    data object Cancelled : DiscoveryProposalRun
+    data object Unavailable : DiscoveryProposalRun
+    data class Failed(val reason: TopicLabelRuntimeFailure) : DiscoveryProposalRun
+}
+
+/** Shares native ownership and cleanup with the existing topic label runtime. */
+interface DiscoveryProposalRuntime {
+    suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun
+}
+
 sealed interface DiscoveryProposalValidation {
     data class Accepted(val response: DiscoveryProposalResponse, val workKey: String) : DiscoveryProposalValidation
     data object Stale : DiscoveryProposalValidation

@@ -25,4 +25,5 @@ object GenerativeModelPack {
     fun identity(backend: String) = TopicLabelIdentity(artifact.sha256, tokenizerSha256,
         "bundled-metadata:$metadataSha256", semanticHash(TopicLabelInstruction), semanticHash(schema),
         "concept-v1-wire1-c$contextTokens-o$outputTokens-bundle${TopicLabelEvidencePolicy.version}", backend)
+    fun proposalIdentity(backend: String): TopicLabelIdentity = discoveryProposalIdentity(identity(backend))
 }

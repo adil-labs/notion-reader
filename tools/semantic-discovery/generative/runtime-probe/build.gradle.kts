@@ -39,7 +39,7 @@ abstract class PrepareProductionLabelSources : DefaultTask() {
                     "FileConnectionCatalog", "FileTopicLabelStore", "FileTopicRetrievalStore").forEach { include("com/example/notionreader/data/local/$it.kt") }
                 include("com/example/notionreader/data/document/DocumentCache.kt")
                 include("com/example/notionreader/data/document/CachedDocument.kt")
-                listOf("GemmaTopicLabeler", "TopicLabelResponse", "GenerativeModelPack", "GenerativeModelManager",
+                listOf("GemmaTopicLabeler", "TopicLabelResponse", "DiscoveryProposalWire", "GenerativeModelPack", "GenerativeModelManager",
                     "LiteRtTopicLabelEngine", "LocalDiscoveryModelManager", "ModelArtifact", "GemmaTokenizer",
                     "GemmaModelPack", "GemmaEmbeddingProvider", "LiteRtBackendRuntime")
                     .forEach { include("com/example/notionreader/data/discovery/$it.kt") }
