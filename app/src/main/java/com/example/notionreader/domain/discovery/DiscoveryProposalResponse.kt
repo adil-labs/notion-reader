@@ -8,6 +8,7 @@ data class DiscoveryProposalRequest(
     val identity: TopicLabelIdentity
 )
 
+@kotlinx.serialization.Serializable
 enum class DiscoveryAbstentionReason { NO_USEFUL_TOPIC, INSUFFICIENT_EVIDENCE, MIXED_EVIDENCE }
 
 sealed interface DiscoveryProposalResponse {
@@ -34,6 +35,17 @@ sealed interface DiscoveryProposalValidation {
     data object Invalid : DiscoveryProposalValidation
 }
 
+/** Stable only for the exact evidence and generator identity; epoch remains a live commit guard. */
+fun discoveryProposalWorkKey(request: DiscoveryProposalRequest): String {
+    val identity = request.identity
+    val fields = listOf("discovery-proposal-response-v1", request.proposalKey, identity.artifact,
+        identity.tokenizer, identity.template, identity.prompt, identity.schema, identity.policy,
+        identity.effectiveBackend) + request.evidence.sortedBy { it.passageId }.flatMap {
+        listOf(it.passageId, canonicalSemanticId(it.pageId), it.revision, it.body)
+    }
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+}
+
 fun validateDiscoveryProposal(request: DiscoveryProposalRequest, response: DiscoveryProposalResponse,
     currentEpoch: Long, currentRevisions: Map<String, String>): DiscoveryProposalValidation {
     if (request.sourceEpoch != currentEpoch) return DiscoveryProposalValidation.Stale
@@ -51,13 +63,7 @@ fun validateDiscoveryProposal(request: DiscoveryProposalRequest, response: Disco
             !validProposalText(response.definition, 512) || !validProposalText(response.listeningDescription, 512))
             return DiscoveryProposalValidation.Invalid
     }
-    val identity = request.identity
-    val fields = listOf("discovery-proposal-response-v1", request.proposalKey, identity.artifact,
-        identity.tokenizer, identity.template, identity.prompt, identity.schema, identity.policy,
-        identity.effectiveBackend) + offered.sortedBy { it.passageId }.flatMap {
-        listOf(it.passageId, canonicalSemanticId(it.pageId), it.revision, it.body)
-    }
-    return DiscoveryProposalValidation.Accepted(response, semanticHash(fields.joinToString("") { "${it.length}:$it" }))
+    return DiscoveryProposalValidation.Accepted(response, discoveryProposalWorkKey(request))
 }
 
 /** Structural checks are not a semantic-support verdict. */

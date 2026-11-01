@@ -19,11 +19,13 @@ internal sealed interface ProposalGenerationResult {
     data object Unavailable : ProposalGenerationResult
     data object Cancelled : ProposalGenerationResult
     data class Failed(val reason: TopicLabelRuntimeFailure) : ProposalGenerationResult
+    data class StorageFailure(val reason: ProposalProgressWriteResult) : ProposalGenerationResult
 }
 
 internal suspend fun generateProposal(proposal: IncrementalProposal, index: SemanticIndexStore,
     identity: EmbeddingIdentity, generator: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
-    current: () -> Boolean, generate: suspend (DiscoveryProposalRequest) -> DiscoveryProposalRun): ProposalGenerationResult {
+    current: () -> Boolean, store: ProposalProgressStore? = null,
+    generate: suspend (DiscoveryProposalRequest) -> DiscoveryProposalRun): ProposalGenerationResult {
     val prepared = when (val result = prepareProposalEvidence(proposal, index, identity, generator, epoch, sources, current)) {
         is ProposalEvidenceResult.Ready -> result
         ProposalEvidenceResult.Stale -> return ProposalGenerationResult.Stale
@@ -32,6 +34,13 @@ internal suspend fun generateProposal(proposal: IncrementalProposal, index: Sema
     }
     currentCoroutineContext().ensureActive()
     if (!current()) return ProposalGenerationResult.Stale
+    val workKey = discoveryProposalWorkKey(prepared.request)
+    val expectedRefs = prepared.request.evidence.map { ProposalEvidenceRef(canonicalSemanticId(it.pageId), it.revision, it.passageId) }
+    val saved = store?.readAbstention(workKey, sources)
+    currentCoroutineContext().ensureActive()
+    if (!current()) return ProposalGenerationResult.Stale
+    if (saved != null && saved.evidence.size == expectedRefs.size && saved.evidence.toSet() == expectedRefs.toSet())
+        return ProposalGenerationResult.Completed(DiscoveryProposalResponse.Abstained(saved.reason), workKey, prepared.incomplete)
     val result = generate(prepared.request)
     currentCoroutineContext().ensureActive()
     if (!current()) return ProposalGenerationResult.Stale
@@ -41,8 +50,15 @@ internal suspend fun generateProposal(proposal: IncrementalProposal, index: Sema
         is DiscoveryProposalRun.Failed -> ProposalGenerationResult.Failed(result.reason)
         is DiscoveryProposalRun.Completed -> when (val validated = validateDiscoveryProposal(prepared.request,
             result.response, epoch, sources)) {
-            is DiscoveryProposalValidation.Accepted -> ProposalGenerationResult.Completed(validated.response,
-                validated.workKey, prepared.incomplete)
+            is DiscoveryProposalValidation.Accepted -> {
+                val abstention = validated.response as? DiscoveryProposalResponse.Abstained
+                if (abstention != null && store != null) {
+                    val written = store.writeAbstention(ProposalAbstentionRecord(validated.workKey, expectedRefs, abstention.reason), current)
+                    if (!current() || written == ProposalProgressWriteResult.Stale) return ProposalGenerationResult.Stale
+                    if (written != ProposalProgressWriteResult.Written) return ProposalGenerationResult.StorageFailure(written)
+                }
+                ProposalGenerationResult.Completed(validated.response, validated.workKey, prepared.incomplete)
+            }
             DiscoveryProposalValidation.Stale -> ProposalGenerationResult.Stale
             DiscoveryProposalValidation.Invalid -> ProposalGenerationResult.Invalid
         }

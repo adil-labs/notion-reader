@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[proposal progress lifecycle (§143)](#143-proposal-progress-lifecycle-integration-2026-11-02)
+[source-bound abstention reuse (§144)](#144-source-bound-abstention-persistence-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11758,3 +11758,30 @@ journal and retry before acknowledgement, not on a new proposal-store tombstone.
 Pending proposal creation, abstention persistence, independently validated support,
 catalog continuity, user-facing integration and comparative/device/human
 acceptance remain open. The existing cluster-based production pipeline is active.
+
+## 144. Source-bound abstention persistence (2026-11-02)
+
+Extended the existing proposal progress store to persist successful abstentions
+as a bounded reason and compact source references. The key is derived from the
+exact rehydrated offered bodies, proposal identity and complete generator
+identity; no source body is duplicated on disk. Reuse first rehydrates the
+current evidence and confirms matching references, then checks the current
+source ticket. Changed evidence, model policy or source revision prevents reuse.
+The existing invalidation journal and reconciliation path withdraw abstentions,
+including on same-revision recache. Storage refusal is returned explicitly; it
+does not masquerade as a completed durable decision. Incomplete proposal state is
+preserved alongside the returned decision and is not a complete discovery.
+
+Both new store tests failed against unavailable-only stubs, and the two cache
+integration tests failed before reuse/persistence wiring. Disabling abstention
+withdrawal made the same-revision recache regression fail; the guard was restored.
+The full JVM suite passed 1,429 tests with zero failures/errors/skips; debug
+assembly, Android-test Kotlin compilation and standalone runtime-probe assembly
+passed. No actual Gemma response, semantic quality, device or human result was
+measured. The production coordinator does not yet call the new proposal flow.
+
+Still open: schedule incremental work in the existing coordinator; persist and
+publish accepted concepts with continuity; implement independently evaluated
+support decisions, bounded reconciliation and UI changes; complete lifecycle,
+comparative quality/cost, representative-device and human acceptance work. The
+existing production pipeline remains active.

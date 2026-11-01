@@ -15,6 +15,31 @@ class FileProposalProgressStoreTest {
     private val record = ProposalProgressRecord("new", "r1", 0, EmbeddingIdentity("model", 2),
         ProposalScanCheckpoint(semanticHash("context"), mapOf("older" to "r2"), mapOf("anchor" to listOf(
             ProposalScoredEvidence(ProposalEvidenceRef("older", "r2", "passage"), .9f, ProposalReason.SEMANTIC_NEIGHBOR))), emptySet()))
+    private val abstention = ProposalAbstentionRecord(semanticHash("exact-evidence-and-policy"),
+        listOf(ProposalEvidenceRef("new", "r1", "anchor"), ProposalEvidenceRef("older", "r2", "passage")),
+        DiscoveryAbstentionReason.MIXED_EVIDENCE)
+
+    @Test fun abstentionSurvivesRestartOnlyForCurrentSourcesAndTheExactKey() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        assertEquals(ProposalProgressWriteResult.Written, store.writeAbstention(abstention) { true })
+        val restored = FileProposalProgressStore(dir)
+        assertEquals(abstention, restored.readAbstention(abstention.workKey, sources))
+        assertNull(restored.readAbstention(semanticHash("changed-evidence"), sources))
+        assertNull(restored.readAbstention(abstention.workKey, sources + ("older" to "r3")))
+        store.reconcile(sources - "older")
+        assertNull(restored.readAbstention(abstention.workKey, sources))
+        assertEquals(0L, store.bytes())
+    }
+
+    @Test fun abstentionWritesRejectStaleTicketsAndInvalidReferences() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeAbstention(abstention.copy(evidence = emptyList())) { true })
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeAbstention(abstention.copy(evidence = listOf(abstention.evidence.first(), abstention.evidence.first()))) { true })
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.writeAbstention(abstention) { ++checks == 1 })
+        assertNull(store.readAbstention(abstention.workKey, sources))
+        assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
+    }
 
     @Test fun sourceReferencesAndProgressSurviveReopeningWithoutSourceBodies() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)

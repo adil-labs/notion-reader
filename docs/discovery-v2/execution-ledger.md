@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added exact-evidence/model-keyed abstention persistence and reuse,
+with source withdrawal and explicit storage failures. The coordinator does not
+yet schedule the proposal flow. Failing-first and withdrawal proof, 1,429 JVM
+tests and app/probe builds are recorded in decisions §144.
+
 2026-11-02: Wired proposal checkpoint cleanup, reset and storage accounting into
 the process lifecycle; the replacement is still not active. Removal/recache,
 restore race, failed cleanup/restart and accounting guard proofs and 1,424 passing

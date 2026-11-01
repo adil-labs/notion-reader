@@ -1,6 +1,7 @@
 package com.example.notionreader.application
 
 import com.example.notionreader.data.local.FileSemanticIndexStore
+import com.example.notionreader.data.local.FileProposalProgressStore
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -89,5 +90,40 @@ class DiscoveryProposalEvidenceTest {
                 "Listen to seed germination conditions.", listOf("fabricated")))
         }
         assertEquals(ProposalGenerationResult.Invalid, result)
+    }
+
+    @Test fun unchangedAbstentionSurvivesRestartButChangedEvidenceOrPolicyRunsAgain() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(identity: TopicLabelIdentity = generator): ProposalGenerationResult =
+            generateProposal(proposal, index, embedding, identity, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
+            }
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        assertEquals(1, calls)
+        assertTrue(run(generator.copy(policy = "new")) is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+        val changed = record("two")
+        index.write(changed.copy(passages = changed.passages.map { embedded ->
+            embedded.copy(passage = embedded.passage.copy(excerpt = "A different passage with sufficient content to explain seed germination clearly."))
+        }))
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        assertEquals(3, calls)
+    }
+
+    @Test fun refusedAbstentionPersistenceIsNotReportedAsCompleted() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        val real = FileProposalProgressStore(root.resolve("proposals"))
+        val refused = object : ProposalProgressStore by real {
+            override suspend fun writeAbstention(record: ProposalAbstentionRecord, stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
+        }
+        val result = generateProposal(proposal, index, embedding, generator, 5, sources, { true }, refused) {
+            DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
+        }
+        assertEquals(ProposalGenerationResult.StorageFailure(ProposalProgressWriteResult.StorageRefused), result)
     }
 }

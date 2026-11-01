@@ -16,12 +16,14 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable private data class StoredProposalProgress(val version: Int = 1, val progress: ProposalProgressRecord)
+@Serializable private data class StoredProposalAbstention(val version: Int = 1, val decision: ProposalAbstentionRecord)
 
 class FileProposalProgressStore(private val directory: File,
     private val writeGate: StorageWriteGate = StorageWriteGate.Unrestricted) : ProposalProgressStore {
     private val lock = Mutex()
     private val json = Json { encodeDefaults = true }
     private val recordName = Regex("proposal-progress-[0-9a-f]{64}\\.json")
+    private val abstentionName = Regex("proposal-abstention-[0-9a-f]{64}\\.json")
     private val maxBytes = 8L * 1024 * 1024
     init {
         if (!directory.mkdirs() && !directory.isDirectory) throw IOException("Proposal progress directory unavailable")
@@ -34,12 +36,18 @@ class FileProposalProgressStore(private val directory: File,
         val key = listOf("proposal-progress-v1", id, offset.toString()).joinToString("") { "${it.length}:$it" }
         return File(directory, "proposal-progress-${semanticHash(key)}.json")
     }
+    private fun abstentionTarget(workKey: String) = File(directory, "proposal-abstention-$workKey.json")
     private fun ownedFiles(): List<File> = if (!directory.exists()) emptyList() else
         (directory.listFiles() ?: throw IOException("Proposal progress directory unavailable")).filter {
-            it.isFile && (recordName.matches(it.name) || it.name.startsWith("proposal-progress-") && it.extension == "tmp")
+            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) ||
+                (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-")) && it.extension == "tmp")
         }
     private fun validId(id: String) = id.length in 1..512 && id == canonicalSemanticId(id)
     private fun validRevision(value: String) = value.length in 1..1024
+    private fun valid(record: ProposalAbstentionRecord): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
+        record.evidence.size in 1..16 && record.evidence.map { it.passageId }.toSet().size == record.evidence.size &&
+        record.evidence.all { validId(it.pageId) && validRevision(it.revision) && it.passageId.length in 1..512 } &&
+        record.evidence.groupBy { it.pageId }.values.all { refs -> refs.map { it.revision }.toSet().size == 1 }
     private fun valid(record: ProposalProgressRecord): Boolean {
         val cp = record.checkpoint
         if (!validId(record.pageId) || !validRevision(record.revision) || record.anchorOffset < 0 ||
@@ -64,10 +72,18 @@ class FileProposalProgressStore(private val directory: File,
     }
     private fun eligible(record: ProposalProgressRecord, sources: Map<String, String>): Boolean =
         sources[record.pageId] == record.revision && record.checkpoint.scannedRevisions.all { (id, rev) -> sources[id] == rev }
+    private fun eligible(record: ProposalAbstentionRecord, sources: Map<String, String>): Boolean =
+        record.evidence.all { sources[it.pageId] == it.revision }
     private fun readFile(file: File): ProposalProgressRecord? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredProposalProgress>(file.readText(Charsets.UTF_8))
             stored.progress.takeIf { stored.version == 1 && valid(it) && target(it.pageId, it.anchorOffset).name == file.name }
+        }
+    } catch (_: Exception) { null }
+    private fun readAbstentionFile(file: File): ProposalAbstentionRecord? = try {
+        if (!file.isFile || file.length() !in 1..maxBytes) null else {
+            val stored = json.decodeFromString<StoredProposalAbstention>(file.readText(Charsets.UTF_8))
+            stored.decision.takeIf { stored.version == 1 && valid(it) && abstentionTarget(it.workKey).name == file.name }
         }
     } catch (_: Exception) { null }
 
@@ -76,39 +92,57 @@ class FileProposalProgressStore(private val directory: File,
             if (anchorOffset < 0) null else readFile(target(pageId, anchorOffset))?.takeIf { eligible(it, sources) }
         } }
 
+    override suspend fun readAbstention(workKey: String, sources: Map<String, String>): ProposalAbstentionRecord? =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!Regex("[0-9a-f]{64}").matches(workKey)) null
+            else readAbstentionFile(abstentionTarget(workKey))?.takeIf { eligible(it, sources) }
+        } }
+
+    override suspend fun writeAbstention(record: ProposalAbstentionRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
+            if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+            val payload = json.encodeToString(StoredProposalAbstention(decision = record)).toByteArray(Charsets.UTF_8)
+            writeAtomic(abstentionTarget(record.workKey), payload, stillCurrent)
+        } }
+
     override suspend fun write(record: ProposalProgressRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
         withContext(Dispatchers.IO) { lock.withLock {
             if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
             if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
             val payload = json.encodeToString(StoredProposalProgress(progress = record)).toByteArray(Charsets.UTF_8)
-            if (payload.size > maxBytes) return@withLock ProposalProgressWriteResult.RecordMemoryLimit
-            val destination = target(record.pageId, record.anchorOffset)
-            val staged = File(directory, "${destination.name}.${UUID.randomUUID()}.tmp")
-            var cleanupFailed = false
-            val result = try {
-                writeGate.write(StorageCategory.DISCOVERY, payload.size.toLong() + 4096) {
-                    if (!directory.mkdirs() && !directory.isDirectory) throw IOException("Proposal progress directory unavailable")
-                    FileOutputStream(staged).use { it.write(payload); it.fd.sync() }
-                    currentCoroutineContext().ensureActive()
-                    if (!stillCurrent()) return@write ProposalProgressWriteResult.Stale
-                    try { Files.move(staged.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING) }
-                    catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                        Files.move(staged.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                    }
-                    ProposalProgressWriteResult.Written
-                }
-            } catch (_: StorageRefused) { ProposalProgressWriteResult.StorageRefused }
-            catch (_: IOException) { ProposalProgressWriteResult.IoFailure }
-            catch (_: SecurityException) { ProposalProgressWriteResult.IoFailure }
-            finally { if (staged.exists() && !staged.delete()) cleanupFailed = true }
-            if (cleanupFailed) ProposalProgressWriteResult.IoFailure else result
+            writeAtomic(target(record.pageId, record.anchorOffset), payload, stillCurrent)
         } }
+
+    private suspend fun writeAtomic(destination: File, payload: ByteArray, stillCurrent: () -> Boolean): ProposalProgressWriteResult {
+        if (payload.size > maxBytes) return ProposalProgressWriteResult.RecordMemoryLimit
+        val staged = File(directory, "${destination.name}.${UUID.randomUUID()}.tmp")
+        var cleanupFailed = false
+        val result = try {
+            writeGate.write(StorageCategory.DISCOVERY, payload.size.toLong() + 4096) {
+                if (!directory.mkdirs() && !directory.isDirectory) throw IOException("Proposal progress directory unavailable")
+                FileOutputStream(staged).use { it.write(payload); it.fd.sync() }
+                currentCoroutineContext().ensureActive()
+                if (!stillCurrent()) return@write ProposalProgressWriteResult.Stale
+                try { Files.move(staged.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING) }
+                catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                    Files.move(staged.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                ProposalProgressWriteResult.Written
+            }
+        } catch (_: StorageRefused) { ProposalProgressWriteResult.StorageRefused }
+        catch (_: IOException) { ProposalProgressWriteResult.IoFailure }
+        catch (_: SecurityException) { ProposalProgressWriteResult.IoFailure }
+        finally { if (staged.exists() && !staged.delete()) cleanupFailed = true }
+        return if (cleanupFailed) ProposalProgressWriteResult.IoFailure else result
+    }
 
     override suspend fun reconcile(sources: Map<String, String>) = withContext(Dispatchers.IO) { lock.withLock {
         for (file in ownedFiles()) {
             currentCoroutineContext().ensureActive()
-            val record = readFile(file)
-            if (record == null || !eligible(record, sources))
+            val eligible = if (abstentionName.matches(file.name)) readAbstentionFile(file)?.let { eligible(it, sources) } == true
+                else readFile(file)?.let { eligible(it, sources) } == true
+            if (!eligible)
                 if (!file.delete()) throw IOException("Proposal progress withdrawal failed")
         }
     } }
