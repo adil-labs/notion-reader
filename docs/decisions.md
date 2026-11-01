@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[proposal response foundation (§137)](#137-source-bound-proposal-response-foundation-2026-11-02)
+[bounded proposal windows (§138)](#138-bounded-incremental-proposal-windows-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11584,3 +11584,30 @@ Still open: actual bounded proposal construction, runtime/schema and persistence
 integration, support verification, baseline and comparative evaluation, lifecycle
 and UI integration, and the semantic/device/human acceptance gates. The shipping
 cluster-seeded pipeline remains active.
+
+## 138. Bounded incremental proposal windows (2026-11-02)
+
+Added an unconnected domain building block that selects changed unexplained body
+evidence by section, admits current older semantic neighbors and explicit page
+references, and produces versioned source-reference proposal keys. The caller
+provides the already-matched passage IDs, structural completeness and a streamed
+source window. Anchor count, source records and retained evidence are bounded;
+incomplete structural inventory, unscanned sources, stale records, evidence
+truncation and pending anchor windows are explicit. An unchanged/explained Note
+does not scan older records. Cancellation propagates. These are proposal
+neighborhoods, not supported memberships or publishable topics.
+
+All six initial tests failed against an empty implementation and passed after
+implementation. An additional no-work test failed when the empty anchor set
+still consumed the corpus, and passed after the early return. Fresh full JVM suite
+passed 1,390 tests with zero failures/errors/skips; debug assembly and Android-test
+Kotlin compilation passed. No device or native inference was exercised.
+
+The .85 similarity threshold is provisional and unmeasured for this task. The
+current building block does not yet merge or persist source-window continuations,
+recover neighbors excluded by its evidence cap, split multiple subjects within a
+single section, derive actual deltas, query structure, or match current concepts.
+No quality, recall, efficiency or release claim follows from these unit tests.
+Those gaps, semantic verification, runtime integration, comparative evaluation,
+lifecycle/UI integration and all device/human gates remain open; the existing
+production pipeline remains active.

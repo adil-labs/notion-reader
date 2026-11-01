@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added an unconnected bounded source-window proposal building block
+with explicit incomplete states and cancellation; the old pipeline is unchanged.
+Seven failing-first tests and full 1,390-test JVM/build verification are recorded
+in decisions §138, along with important missing continuation and quality work.
+
 2026-11-02: Added the source-bound proposal response and successful abstention
 domain contract; it is not connected to production. Failing-first and guard
 removal proofs, full 1,383-test JVM pass, assembly and androidTest compilation
