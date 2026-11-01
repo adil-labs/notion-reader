@@ -114,6 +114,23 @@ class DiscoveryProposalEvidenceTest {
         assertEquals(3, calls)
     }
 
+    @Test fun generatedConceptIsReusedOnlyForExactCurrentEvidenceAndPolicy() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(identity: TopicLabelIdentity = generator): ProposalGenerationResult =
+            generateProposal(proposal, index, embedding, identity, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                    "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+            }
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        assertEquals(1, calls)
+        assertTrue(run(generator.copy(policy = "changed")) is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+    }
+
     @Test fun refusedAbstentionPersistenceIsNotReportedAsCompleted() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
         index.write(record("one")); index.write(record("two"))

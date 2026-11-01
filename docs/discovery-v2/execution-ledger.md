@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added source-bound pending concept persistence and exact-input reuse;
+withdrawal removes derived text. This is not canonical publication or evidence of
+semantic support. Failing-first tests, 1,467 JVM tests and builds are in §149.
+
 2026-11-02: Added a bounded, resumable proposal step for the existing coordinator,
 including fair retry of unreadable sources, source-addition scan reuse and policy
 deferral. It is not scheduled or published yet. Failing-first and stale-write

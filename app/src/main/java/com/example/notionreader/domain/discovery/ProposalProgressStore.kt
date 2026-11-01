@@ -12,6 +12,10 @@ data class ProposalProgressRecord(val pageId: String, val revision: String, val 
 data class ProposalAbstentionRecord(val workKey: String, val evidence: List<ProposalEvidenceRef>,
     val reason: DiscoveryAbstentionReason)
 
+@Serializable
+data class ProposalConceptRecord(val workKey: String, val evidence: List<ProposalEvidenceRef>,
+    val name: String, val definition: String, val listeningDescription: String, val evidenceIds: List<String>)
+
 enum class ProposalProgressWriteResult { Written, Stale, Invalid, StorageRefused, IoFailure, RecordMemoryLimit }
 
 interface ProposalProgressStore {
@@ -19,6 +23,8 @@ interface ProposalProgressStore {
     suspend fun write(record: ProposalProgressRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readAbstention(workKey: String, sources: Map<String, String>): ProposalAbstentionRecord?
     suspend fun writeAbstention(record: ProposalAbstentionRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
+    suspend fun readConcept(workKey: String, sources: Map<String, String>): ProposalConceptRecord?
+    suspend fun writeConcept(record: ProposalConceptRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment?
     suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun reconcile(sources: Map<String, String>)

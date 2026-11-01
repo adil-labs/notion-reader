@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 
 @Serializable private data class StoredProposalProgress(val version: Int = 1, val progress: ProposalProgressRecord)
 @Serializable private data class StoredProposalAbstention(val version: Int = 1, val decision: ProposalAbstentionRecord)
+@Serializable private data class StoredProposalConcept(val version: Int = 1, val concept: ProposalConceptRecord)
 @Serializable private data class StoredTopicSupport(val version: Int = 1, val assessment: TopicSupportAssessment)
 
 class FileProposalProgressStore(private val directory: File,
@@ -25,6 +26,7 @@ class FileProposalProgressStore(private val directory: File,
     private val json = Json { encodeDefaults = true }
     private val recordName = Regex("proposal-progress-[0-9a-f]{64}\\.json")
     private val abstentionName = Regex("proposal-abstention-[0-9a-f]{64}\\.json")
+    private val conceptName = Regex("proposal-concept-[0-9a-f]{64}\\.json")
     private val supportName = Regex("proposal-support-[0-9a-f]{64}\\.json")
     private val maxBytes = 8L * 1024 * 1024
     init {
@@ -39,12 +41,13 @@ class FileProposalProgressStore(private val directory: File,
         return File(directory, "proposal-progress-${semanticHash(key)}.json")
     }
     private fun abstentionTarget(workKey: String) = File(directory, "proposal-abstention-$workKey.json")
+    private fun conceptTarget(workKey: String) = File(directory, "proposal-concept-$workKey.json")
     private fun supportTarget(workKey: String) = File(directory, "proposal-support-$workKey.json")
     private fun ownedFiles(): List<File> = if (!directory.exists()) emptyList() else
         (directory.listFiles() ?: throw IOException("Proposal progress directory unavailable")).filter {
-            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || supportName.matches(it.name) ||
+            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || conceptName.matches(it.name) || supportName.matches(it.name) ||
                 (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-") ||
-                    it.name.startsWith("proposal-support-")) && it.extension == "tmp")
+                    it.name.startsWith("proposal-support-") || it.name.startsWith("proposal-concept-")) && it.extension == "tmp")
         }
     private fun validId(id: String) = id.length in 1..512 && id == canonicalSemanticId(id)
     private fun validRevision(value: String) = value.length in 1..1024
@@ -52,6 +55,12 @@ class FileProposalProgressStore(private val directory: File,
         record.evidence.size in 1..16 && record.evidence.map { it.passageId }.toSet().size == record.evidence.size &&
         record.evidence.all { validId(it.pageId) && validRevision(it.revision) && it.passageId.length in 1..512 } &&
         record.evidence.groupBy { it.pageId }.values.all { refs -> refs.map { it.revision }.toSet().size == 1 }
+    private fun valid(record: ProposalConceptRecord): Boolean =
+        valid(ProposalAbstentionRecord(record.workKey, record.evidence, DiscoveryAbstentionReason.NO_USEFUL_TOPIC)) &&
+        record.name.isNotBlank() && record.name.length <= 96 && record.definition.isNotBlank() && record.definition.length <= 512 &&
+        record.listeningDescription.isNotBlank() && record.listeningDescription.length <= 512 &&
+        record.evidenceIds.isNotEmpty() && record.evidenceIds.size == record.evidenceIds.toSet().size &&
+        record.evidenceIds.all { id -> record.evidence.any { it.passageId == id } }
     private fun valid(record: TopicSupportAssessment): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
         record.topicId.length in 1..512 && record.conceptWorkKey.length in 1..512 &&
         validId(record.evidence.pageId) && validRevision(record.evidence.revision) && record.evidence.passageId.length in 1..512 &&
@@ -99,6 +108,12 @@ class FileProposalProgressStore(private val directory: File,
             stored.decision.takeIf { stored.version == 1 && valid(it) && abstentionTarget(it.workKey).name == file.name }
         }
     } catch (_: Exception) { null }
+    private fun readConceptFile(file: File): ProposalConceptRecord? = try {
+        if (!file.isFile || file.length() !in 1..maxBytes) null else {
+            val stored = json.decodeFromString<StoredProposalConcept>(file.readText(Charsets.UTF_8))
+            stored.concept.takeIf { stored.version == 1 && valid(it) && conceptTarget(it.workKey).name == file.name }
+        }
+    } catch (_: Exception) { null }
     private fun readSupportFile(file: File): TopicSupportAssessment? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredTopicSupport>(file.readText(Charsets.UTF_8))
@@ -114,7 +129,20 @@ class FileProposalProgressStore(private val directory: File,
     override suspend fun readAbstention(workKey: String, sources: Map<String, String>): ProposalAbstentionRecord? =
         withContext(Dispatchers.IO) { lock.withLock {
             if (!Regex("[0-9a-f]{64}").matches(workKey)) null
-            else readAbstentionFile(abstentionTarget(workKey))?.takeIf { eligible(it, sources) }
+            else if (conceptTarget(workKey).exists()) null else readAbstentionFile(abstentionTarget(workKey))?.takeIf { eligible(it, sources) }
+        } }
+
+    override suspend fun readConcept(workKey: String, sources: Map<String, String>): ProposalConceptRecord? =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!Regex("[0-9a-f]{64}").matches(workKey) || abstentionTarget(workKey).exists()) null
+            else readConceptFile(conceptTarget(workKey))?.takeIf { record -> record.evidence.all { sources[it.pageId] == it.revision } }
+        } }
+
+    override suspend fun writeConcept(record: ProposalConceptRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!valid(record) || abstentionTarget(record.workKey).exists()) return@withLock ProposalProgressWriteResult.Invalid
+            if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+            writeAtomic(conceptTarget(record.workKey), json.encodeToString(StoredProposalConcept(concept = record)).toByteArray(Charsets.UTF_8), stillCurrent)
         } }
 
     override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
@@ -133,7 +161,7 @@ class FileProposalProgressStore(private val directory: File,
 
     override suspend fun writeAbstention(record: ProposalAbstentionRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
         withContext(Dispatchers.IO) { lock.withLock {
-            if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
+            if (!valid(record) || conceptTarget(record.workKey).exists()) return@withLock ProposalProgressWriteResult.Invalid
             if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
             val payload = json.encodeToString(StoredProposalAbstention(decision = record)).toByteArray(Charsets.UTF_8)
             writeAtomic(abstentionTarget(record.workKey), payload, stillCurrent)
@@ -175,6 +203,7 @@ class FileProposalProgressStore(private val directory: File,
             currentCoroutineContext().ensureActive()
             val eligible = when {
                 abstentionName.matches(file.name) -> readAbstentionFile(file)?.let { eligible(it, sources) } == true
+                conceptName.matches(file.name) -> readConceptFile(file)?.evidence?.all { sources[it.pageId] == it.revision } == true
                 supportName.matches(file.name) -> readSupportFile(file)?.let { eligible(it, sources) } == true
                 else -> readFile(file)?.let { eligible(it, sources) } == true
             }

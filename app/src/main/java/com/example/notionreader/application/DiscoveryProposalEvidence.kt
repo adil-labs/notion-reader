@@ -36,6 +36,15 @@ internal suspend fun generateProposal(proposal: IncrementalProposal, index: Sema
     if (!current()) return ProposalGenerationResult.Stale
     val workKey = discoveryProposalWorkKey(prepared.request)
     val expectedRefs = prepared.request.evidence.map { ProposalEvidenceRef(canonicalSemanticId(it.pageId), it.revision, it.passageId) }
+    val concept = store?.readConcept(workKey, sources)
+    if (concept != null && concept.evidence.size == expectedRefs.size && concept.evidence.toSet() == expectedRefs.toSet()) {
+        val response = DiscoveryProposalResponse.Concept(concept.name, concept.definition, concept.listeningDescription, concept.evidenceIds)
+        val validation = validateDiscoveryProposal(prepared.request, response, epoch, sources)
+        currentCoroutineContext().ensureActive()
+        if (!current()) return ProposalGenerationResult.Stale
+        if (validation is DiscoveryProposalValidation.Accepted && validation.workKey == workKey)
+            return ProposalGenerationResult.Completed(response, workKey, prepared.incomplete)
+    }
     val saved = store?.readAbstention(workKey, sources)
     currentCoroutineContext().ensureActive()
     if (!current()) return ProposalGenerationResult.Stale
@@ -54,6 +63,13 @@ internal suspend fun generateProposal(proposal: IncrementalProposal, index: Sema
                 val abstention = validated.response as? DiscoveryProposalResponse.Abstained
                 if (abstention != null && store != null) {
                     val written = store.writeAbstention(ProposalAbstentionRecord(validated.workKey, expectedRefs, abstention.reason), current)
+                    if (!current() || written == ProposalProgressWriteResult.Stale) return ProposalGenerationResult.Stale
+                    if (written != ProposalProgressWriteResult.Written) return ProposalGenerationResult.StorageFailure(written)
+                }
+                val conceptResponse = validated.response as? DiscoveryProposalResponse.Concept
+                if (conceptResponse != null && store != null) {
+                    val written = store.writeConcept(ProposalConceptRecord(validated.workKey, expectedRefs, conceptResponse.name,
+                        conceptResponse.definition, conceptResponse.listeningDescription, conceptResponse.evidenceIds), current)
                     if (!current() || written == ProposalProgressWriteResult.Stale) return ProposalGenerationResult.Stale
                     if (written != ProposalProgressWriteResult.Written) return ProposalGenerationResult.StorageFailure(written)
                 }

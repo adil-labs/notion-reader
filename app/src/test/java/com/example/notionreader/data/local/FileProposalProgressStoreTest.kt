@@ -22,6 +22,19 @@ class FileProposalProgressStoreTest {
         TopicLabelIdentity("model", "tokenizer", "template", "prompt", "schema", "policy", "CPU"),
         semanticHash("support-work"), SupportDecision.SUPPORTED)
 
+    @Test fun pendingConceptSurvivesRestartAndWithdrawalRemovesAllDerivedText() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val concept = ProposalConceptRecord(abstention.workKey, abstention.evidence, "Seed germination",
+            "Conditions for seeds to germinate.", "Listen to germination conditions.", listOf("anchor"))
+        assertEquals(ProposalProgressWriteResult.Written, store.writeConcept(concept) { true })
+        assertEquals(concept, FileProposalProgressStore(dir).readConcept(concept.workKey, sources))
+        assertNull(store.readConcept(concept.workKey, sources - "older"))
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeAbstention(abstention) { true })
+        store.reconcile(sources - "older")
+        assertNull(store.readConcept(concept.workKey, sources))
+        assertEquals(0L, store.bytes())
+    }
+
     @Test fun supportDecisionSurvivesRestartOnlyForCurrentSourceAndExactKey() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
         assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(support) { true })

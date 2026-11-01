@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[incremental proposal step (§148)](#148-resumable-incremental-proposal-step-2026-11-02)
+[pending concepts (§149)](#149-evidence-bound-pending-concepts-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11908,3 +11908,27 @@ context, invoke this step from the sole production coordinator, persist accepted
 concepts and support coverage, reconcile capped/missing neighbors, preserve
 canonical identities and user state, update accessible presentation, and perform
 real quality/device/human evaluation. The replacement is not active.
+
+
+## 149. Evidence-bound pending concepts (2026-11-02)
+
+Successful generated concepts can now be retained in the existing proposal progress
+store and reused after restart only after the offered source evidence is rehydrated,
+the exact input and model work key match, and the response passes validation again.
+The record contains source references and generated text, not copied passage bodies.
+Withdrawal of any offered source removes the derived record, including when that
+source was not selected in the response. A conflicting abstention and concept for
+one work key fail closed. Persistence failure or a stale write is surfaced to the
+caller. These records are pending work, not another catalog or a support verdict.
+
+Both new targeted tests failed against the initial persistence/reuse stubs and
+passed with the implementation. The complete JVM suite passed 1,467 tests with no
+failures, errors or skips; debug assembly, Android-test Kotlin compilation and the
+standalone runtime-probe assembly also passed. The actual model and support quality
+have not been measured; these tests use generated-response doubles.
+
+**Still open:** The existing cluster-first production path remains active. Proposal
+and support scheduling, changed-passage deltas, matching and continuity, canonical
+publication, UI and real-device quality/accessibility acceptance remain necessary
+before the evidence-first replacement can be enabled. Model acquisition remains an
+explicit user action; no model was downloaded in this round.
