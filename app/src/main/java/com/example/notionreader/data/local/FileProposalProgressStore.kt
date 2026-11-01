@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 
 @Serializable private data class StoredProposalProgress(val version: Int = 1, val progress: ProposalProgressRecord)
 @Serializable private data class StoredProposalAbstention(val version: Int = 1, val decision: ProposalAbstentionRecord)
+@Serializable private data class StoredTopicSupport(val version: Int = 1, val assessment: TopicSupportAssessment)
 
 class FileProposalProgressStore(private val directory: File,
     private val writeGate: StorageWriteGate = StorageWriteGate.Unrestricted) : ProposalProgressStore {
@@ -24,6 +25,7 @@ class FileProposalProgressStore(private val directory: File,
     private val json = Json { encodeDefaults = true }
     private val recordName = Regex("proposal-progress-[0-9a-f]{64}\\.json")
     private val abstentionName = Regex("proposal-abstention-[0-9a-f]{64}\\.json")
+    private val supportName = Regex("proposal-support-[0-9a-f]{64}\\.json")
     private val maxBytes = 8L * 1024 * 1024
     init {
         if (!directory.mkdirs() && !directory.isDirectory) throw IOException("Proposal progress directory unavailable")
@@ -37,10 +39,12 @@ class FileProposalProgressStore(private val directory: File,
         return File(directory, "proposal-progress-${semanticHash(key)}.json")
     }
     private fun abstentionTarget(workKey: String) = File(directory, "proposal-abstention-$workKey.json")
+    private fun supportTarget(workKey: String) = File(directory, "proposal-support-$workKey.json")
     private fun ownedFiles(): List<File> = if (!directory.exists()) emptyList() else
         (directory.listFiles() ?: throw IOException("Proposal progress directory unavailable")).filter {
-            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) ||
-                (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-")) && it.extension == "tmp")
+            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || supportName.matches(it.name) ||
+                (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-") ||
+                    it.name.startsWith("proposal-support-")) && it.extension == "tmp")
         }
     private fun validId(id: String) = id.length in 1..512 && id == canonicalSemanticId(id)
     private fun validRevision(value: String) = value.length in 1..1024
@@ -48,6 +52,11 @@ class FileProposalProgressStore(private val directory: File,
         record.evidence.size in 1..16 && record.evidence.map { it.passageId }.toSet().size == record.evidence.size &&
         record.evidence.all { validId(it.pageId) && validRevision(it.revision) && it.passageId.length in 1..512 } &&
         record.evidence.groupBy { it.pageId }.values.all { refs -> refs.map { it.revision }.toSet().size == 1 }
+    private fun valid(record: TopicSupportAssessment): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
+        record.topicId.length in 1..512 && record.conceptWorkKey.length in 1..512 &&
+        validId(record.evidence.pageId) && validRevision(record.evidence.revision) && record.evidence.passageId.length in 1..512 &&
+        listOf(record.verifier.artifact, record.verifier.tokenizer, record.verifier.template, record.verifier.prompt,
+            record.verifier.schema, record.verifier.policy, record.verifier.effectiveBackend).all { it.length in 1..1024 }
     private fun valid(record: ProposalProgressRecord): Boolean {
         val cp = record.checkpoint
         if (!validId(record.pageId) || !validRevision(record.revision) || record.anchorOffset < 0 ||
@@ -74,6 +83,8 @@ class FileProposalProgressStore(private val directory: File,
         sources[record.pageId] == record.revision && record.checkpoint.scannedRevisions.all { (id, rev) -> sources[id] == rev }
     private fun eligible(record: ProposalAbstentionRecord, sources: Map<String, String>): Boolean =
         record.evidence.all { sources[it.pageId] == it.revision }
+    private fun eligible(record: TopicSupportAssessment, sources: Map<String, String>): Boolean =
+        sources[record.evidence.pageId] == record.evidence.revision
     private fun readFile(file: File): ProposalProgressRecord? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredProposalProgress>(file.readText(Charsets.UTF_8))
@@ -86,6 +97,12 @@ class FileProposalProgressStore(private val directory: File,
             stored.decision.takeIf { stored.version == 1 && valid(it) && abstentionTarget(it.workKey).name == file.name }
         }
     } catch (_: Exception) { null }
+    private fun readSupportFile(file: File): TopicSupportAssessment? = try {
+        if (!file.isFile || file.length() !in 1..maxBytes) null else {
+            val stored = json.decodeFromString<StoredTopicSupport>(file.readText(Charsets.UTF_8))
+            stored.assessment.takeIf { stored.version == 1 && valid(it) && supportTarget(it.workKey).name == file.name }
+        }
+    } catch (_: Exception) { null }
 
     override suspend fun read(pageId: String, anchorOffset: Int, sources: Map<String, String>): ProposalProgressRecord? =
         withContext(Dispatchers.IO) { lock.withLock {
@@ -96,6 +113,20 @@ class FileProposalProgressStore(private val directory: File,
         withContext(Dispatchers.IO) { lock.withLock {
             if (!Regex("[0-9a-f]{64}").matches(workKey)) null
             else readAbstentionFile(abstentionTarget(workKey))?.takeIf { eligible(it, sources) }
+        } }
+
+    override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!Regex("[0-9a-f]{64}").matches(workKey)) null
+            else readSupportFile(supportTarget(workKey))?.takeIf { eligible(it, sources) }
+        } }
+
+    override suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
+            if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+            val payload = json.encodeToString(StoredTopicSupport(assessment = record)).toByteArray(Charsets.UTF_8)
+            writeAtomic(supportTarget(record.workKey), payload, stillCurrent)
         } }
 
     override suspend fun writeAbstention(record: ProposalAbstentionRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
@@ -140,8 +171,11 @@ class FileProposalProgressStore(private val directory: File,
     override suspend fun reconcile(sources: Map<String, String>) = withContext(Dispatchers.IO) { lock.withLock {
         for (file in ownedFiles()) {
             currentCoroutineContext().ensureActive()
-            val eligible = if (abstentionName.matches(file.name)) readAbstentionFile(file)?.let { eligible(it, sources) } == true
-                else readFile(file)?.let { eligible(it, sources) } == true
+            val eligible = when {
+                abstentionName.matches(file.name) -> readAbstentionFile(file)?.let { eligible(it, sources) } == true
+                supportName.matches(file.name) -> readSupportFile(file)?.let { eligible(it, sources) } == true
+                else -> readFile(file)?.let { eligible(it, sources) } == true
+            }
             if (!eligible)
                 if (!file.delete()) throw IOException("Proposal progress withdrawal failed")
         }

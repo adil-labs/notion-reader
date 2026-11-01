@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added exact-input support assessment persistence and current-source
+reuse checks using the existing proposal store. Failing-first and forged/withdrawn
+record guard proofs, 1,454 JVM tests and app/probe builds are in decisions §147.
+The production coordinator does not yet schedule these decisions.
+
 2026-11-02: Added bounded, resumable passage-candidate paging so verification can
 consider more than the top passage in a mixed Note. A first-passage-only negative
 control and 1,448 JVM tests plus app/probe builds are recorded in decisions §146.

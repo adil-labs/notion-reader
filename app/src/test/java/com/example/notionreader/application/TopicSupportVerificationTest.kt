@@ -1,6 +1,7 @@
 package com.example.notionreader.application
 
 import com.example.notionreader.data.local.FileSemanticIndexStore
+import com.example.notionreader.data.local.FileProposalProgressStore
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -49,9 +50,9 @@ class TopicSupportVerificationTest {
         val index = FileSemanticIndexStore(files.newFolder()); index.write(record())
         suspend fun failIfCalled(request: TopicSupportRequest): TopicSupportRun = error("Verifier must not run")
         assertEquals(SupportVerificationResult.Invalid, verifyRetrievedPassage(concept, candidate.copy(passageId = "fake"),
-            index, embedding, verifier, 4, sources, { true }, ::failIfCalled))
+            index, embedding, verifier, 4, sources, { true }, verify = ::failIfCalled))
         assertEquals(SupportVerificationResult.Stale, verifyRetrievedPassage(concept, candidate, index, embedding,
-            verifier, 4, emptyMap(), { true }, ::failIfCalled))
+            verifier, 4, emptyMap(), { true }, verify = ::failIfCalled))
     }
 
     @Test fun anotherPassageCanSupportANoteWhenItsBestSimilarityCandidateDoesNot() = runBlocking {
@@ -70,11 +71,57 @@ class TopicSupportVerificationTest {
         suspend fun decide(request: TopicSupportRequest) = TopicSupportRun.Completed(
             if (request.evidence.passageId == "one:other") SupportDecision.SUPPORTED else SupportDecision.UNSUPPORTED)
         val results = (firstPage.candidates + secondPage.candidates).map { ref ->
-            verifyRetrievedPassage(concept, ref, index, embedding, verifier, 4, sources, { true }, ::decide)
+            verifyRetrievedPassage(concept, ref, index, embedding, verifier, 4, sources, { true }, verify = ::decide)
                 as SupportVerificationResult.Completed
         }
         assertEquals(listOf(SupportDecision.UNSUPPORTED, SupportDecision.SUPPORTED), results.map { it.assessment.decision })
         assertEquals("one", results.single { it.assessment.decision == SupportDecision.SUPPORTED }.assessment.evidence.pageId)
         assertNull(secondPage.next)
+    }
+
+    @Test fun compatibleSupportSurvivesRestartButChangedInputsRequireVerification() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); index.write(record())
+        var calls = 0
+        suspend fun run(target: SupportConcept = concept, model: TopicLabelIdentity = verifier): SupportVerificationResult =
+            verifyRetrievedPassage(target, candidate, index, embedding, model, 4, sources, { true },
+                FileProposalProgressStore(root.resolve("work"))) { calls++; TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        assertTrue(run() is SupportVerificationResult.Completed)
+        assertTrue(run() is SupportVerificationResult.Completed)
+        assertEquals(1, calls)
+        assertTrue(run(concept.copy(definition = "How temperature affects germination.")) is SupportVerificationResult.Completed)
+        assertTrue(run(model = verifier.copy(policy = "support-v2")) is SupportVerificationResult.Completed)
+        assertEquals(3, calls)
+        val changed = record()
+        val newBody = "Seeds need suitable moisture and temperature to begin the process of germination."
+        index.write(changed.copy(passages = changed.passages.map { it.copy(passage = it.passage.copy(
+            excerpt = newBody, input = newBody, end = newBody.length)) }))
+        assertTrue(run() is SupportVerificationResult.Completed); assertEquals(4, calls)
+    }
+
+    @Test fun refusedSupportPersistenceIsNotReportedAsCompleted() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); index.write(record())
+        val store = FileProposalProgressStore(root.resolve("work"))
+        val refused = object : ProposalProgressStore by store {
+            override suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
+        }
+        val result = verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, sources, { true }, refused) {
+            TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+        }
+        assertEquals(SupportVerificationResult.StorageFailure(ProposalProgressWriteResult.StorageRefused), result)
+    }
+
+    @Test fun aMismatchedSavedAssessmentCannotBeReused() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); index.write(record())
+        val store = FileProposalProgressStore(root.resolve("work"))
+        val request = TopicSupportRequest(concept.topicId, concept.workKey, concept.name, concept.definition,
+            TopicLabelEvidence("one:p", "one", "r1", record().passages.single().passage.excerpt), verifier, 4)
+        val forged = TopicSupportAssessment("other-topic", concept.workKey, ProposalEvidenceRef("one", "r1", "one:p"),
+            verifier, topicSupportWorkKey(request), SupportDecision.SUPPORTED)
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(forged) { true })
+        var called = false
+        val result = verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, sources, { true }, store) {
+            called = true; TopicSupportRun.Completed(SupportDecision.UNSUPPORTED)
+        } as SupportVerificationResult.Completed
+        assertTrue(called); assertEquals(SupportDecision.UNSUPPORTED, result.assessment.decision)
     }
 }

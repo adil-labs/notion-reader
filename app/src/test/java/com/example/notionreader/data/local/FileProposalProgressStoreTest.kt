@@ -18,6 +18,29 @@ class FileProposalProgressStoreTest {
     private val abstention = ProposalAbstentionRecord(semanticHash("exact-evidence-and-policy"),
         listOf(ProposalEvidenceRef("new", "r1", "anchor"), ProposalEvidenceRef("older", "r2", "passage")),
         DiscoveryAbstentionReason.MIXED_EVIDENCE)
+    private val support = TopicSupportAssessment("topic", "concept", ProposalEvidenceRef("older", "r2", "passage"),
+        TopicLabelIdentity("model", "tokenizer", "template", "prompt", "schema", "policy", "CPU"),
+        semanticHash("support-work"), SupportDecision.SUPPORTED)
+
+    @Test fun supportDecisionSurvivesRestartOnlyForCurrentSourceAndExactKey() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(support) { true })
+        val restored = FileProposalProgressStore(dir)
+        assertEquals(support, restored.readSupport(support.workKey, sources))
+        assertNull(restored.readSupport(semanticHash("different"), sources))
+        assertNull(restored.readSupport(support.workKey, sources + ("older" to "r3")))
+        store.reconcile(sources - "older")
+        assertNull(restored.readSupport(support.workKey, sources)); assertEquals(0L, store.bytes())
+    }
+
+    @Test fun invalidOrStaleSupportWritesCannotCreateAReusableDecision() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeSupport(support.copy(evidence = support.evidence.copy(passageId = ""))) { true })
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.writeSupport(support) { ++checks == 1 })
+        assertNull(store.readSupport(support.workKey, sources))
+        assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
+    }
 
     @Test fun abstentionSurvivesRestartOnlyForCurrentSourcesAndTheExactKey() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)

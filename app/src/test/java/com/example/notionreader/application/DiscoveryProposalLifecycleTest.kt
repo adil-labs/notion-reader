@@ -173,4 +173,21 @@ class DiscoveryProposalLifecycleTest {
         assertNull(store.readAbstention(record.workKey, sources))
         assertEquals(0L, store.bytes())
     }
+
+    @Test fun cacheInvalidationWithdrawsSupportBeforeSameRevisionRecache() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
+        val one = document("one"); val two = document("two")
+        cache.put(CachedDocument(one, null, Instant.EPOCH)); cache.put(CachedDocument(two, null, Instant.EPOCH))
+        val sources = mapOf("one" to semanticRevision(one), "two" to semanticRevision(two))
+        val store = FileProposalProgressStore(root.resolve("proposals"))
+        val assessment = TopicSupportAssessment("topic", "concept", ProposalEvidenceRef("two", sources.getValue("two"), "p2"),
+            TopicLabelIdentity("a", "t", "template", "prompt", "schema", "policy", "CPU"), semanticHash("support"), SupportDecision.SUPPORTED)
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(assessment) { true })
+        val controller = DiscoveryController(cache, FileSemanticIndexStore(root.resolve("index")),
+            FileDiscoveryInterestStore(root.resolve("interests")), provider, modelAvailable = { false },
+            topicStore = FileTopicStore(root.resolve("topics")), proposalProgressStore = store)
+        cache.remove("two"); cache.put(CachedDocument(two, null, Instant.EPOCH))
+        controller.reconcile(emptyList(), false)
+        assertNull(store.readSupport(assessment.workKey, sources)); assertEquals(0L, store.bytes())
+    }
 }

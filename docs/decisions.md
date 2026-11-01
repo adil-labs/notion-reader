@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[passage candidate paging (§146)](#146-bounded-passage-candidate-paging-2026-11-02)
+[support decision persistence (§147)](#147-source-bound-support-decision-persistence-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11849,3 +11849,29 @@ support decisions, connect proposal generation and canonical publication, and
 measure support precision/recall, missed subjects, cost, device behavior and
 human accessibility. The new pager does not yet activate the replacement; the
 existing production pipeline remains active.
+
+## 147. Source-bound support decision persistence (2026-11-02)
+
+The existing proposal-progress store now holds compact support assessments under
+an exact concept/body/verifier work key. No source body is written to the
+sidecar. Verification first rehydrates the current indexed passage, recomputes
+the key and compares every reconstructed assessment field before reuse. Changed
+text, concept meaning, verifier policy or source revision requires fresh work.
+Supported, unsupported and uncertain outcomes remain distinct. A refused or
+stale write is explicit and cannot be presented as a completed durable decision.
+The existing source-invalidation and reset lifecycle removes these records; the
+coordinator must run that lifecycle before attempting reuse.
+
+Both initial store tests and two initial reuse/refusal tests failed against
+stubs. A first changed-body fixture violated the actual index format and was
+corrected to update input and offsets; that failed setup is not counted as proof.
+Removing the saved-assessment equality check made the forged-record test fail;
+removing support-file withdrawal made the same-revision recache test fail.
+Guards restored: full JVM suite passed 1,454 tests with zero failures/errors/skips;
+debug assembly, Android-test Kotlin compilation and standalone probe assembly
+passed. No real inference, semantic accuracy, device or human result is claimed.
+
+Still open: prune incompatible or deleted concept/verifier records deliberately,
+schedule proposal and support work in the existing coordinator, preserve canonical
+continuity and accessible publication, compare real quality/cost, and complete
+device/human acceptance. The replacement is not active.

@@ -12,11 +12,12 @@ internal sealed interface SupportVerificationResult {
     data object Unavailable : SupportVerificationResult
     data object Cancelled : SupportVerificationResult
     data class Failed(val reason: TopicLabelRuntimeFailure) : SupportVerificationResult
+    data class StorageFailure(val reason: ProposalProgressWriteResult) : SupportVerificationResult
 }
 
 internal suspend fun verifyRetrievedPassage(concept: SupportConcept, candidate: TopicMatchReference,
     index: SemanticIndexStore, embedding: EmbeddingIdentity, verifier: TopicLabelIdentity, epoch: Long,
-    sources: Map<String, String>, current: () -> Boolean,
+    sources: Map<String, String>, current: () -> Boolean, store: ProposalProgressStore? = null,
     verify: suspend (TopicSupportRequest) -> TopicSupportRun): SupportVerificationResult {
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
@@ -38,6 +39,14 @@ internal suspend fun verifyRetrievedPassage(concept: SupportConcept, candidate: 
         return SupportVerificationResult.Invalid
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
+    val saved = store?.readSupport(topicSupportWorkKey(request), sources)
+    currentCoroutineContext().ensureActive()
+    if (!current()) return SupportVerificationResult.Stale
+    if (saved != null) {
+        val checked = validateTopicSupport(request, saved.decision, epoch, concept.workKey, sources)
+        if (checked is TopicSupportValidation.Accepted && checked.assessment == saved)
+            return SupportVerificationResult.Completed(saved)
+    }
     val result = verify(request)
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
@@ -46,7 +55,14 @@ internal suspend fun verifyRetrievedPassage(concept: SupportConcept, candidate: 
         TopicSupportRun.Unavailable -> SupportVerificationResult.Unavailable
         is TopicSupportRun.Failed -> SupportVerificationResult.Failed(result.reason)
         is TopicSupportRun.Completed -> when (val checked = validateTopicSupport(request, result.decision, epoch, concept.workKey, sources)) {
-            is TopicSupportValidation.Accepted -> SupportVerificationResult.Completed(checked.assessment)
+            is TopicSupportValidation.Accepted -> {
+                if (store != null) {
+                    val written = store.writeSupport(checked.assessment, current)
+                    if (!current() || written == ProposalProgressWriteResult.Stale) return SupportVerificationResult.Stale
+                    if (written != ProposalProgressWriteResult.Written) return SupportVerificationResult.StorageFailure(written)
+                }
+                SupportVerificationResult.Completed(checked.assessment)
+            }
             TopicSupportValidation.Stale -> SupportVerificationResult.Stale
             TopicSupportValidation.Invalid -> SupportVerificationResult.Invalid
         }
