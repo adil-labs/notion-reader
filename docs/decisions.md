@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[proposal evidence and activation instruction (§141)](#141-proposal-evidence-rehydration-and-activation-instruction-2026-11-02)
+[proposal progress persistence (§142)](#142-proposal-progress-persistence-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11700,3 +11700,34 @@ verification, source invalidation, canonical continuity and production
 coordinator/UI wiring, then honor the activation request. Continue the requested
 comparative, representative-device and human acceptance measurements separately;
 they are not implied by activation.
+
+## 142. Proposal progress persistence (2026-11-02)
+
+The user clarified that activation can wait until the replacement is ready. The
+existing production path remains active while integration is incomplete.
+
+Added an atomic, bounded-file checkpoint store keyed by canonical source and
+anchor offset. Records contain embedding identity, source revisions, scored
+passage references and continuation metadata, not passage bodies. Reads reject
+withdrawn or revised sources; reconciliation deletes stale and corrupt owned
+records; reset leaves unrelated files alone. A stale post-staging ticket or
+storage refusal cannot replace the prior file. This storage component is not yet
+wired into the process coordinator or lifecycle callbacks, and checkpoint source
+references must still be rehydrated before generation. If physical withdrawal
+deletion fails, that failure must remain visible and be resolved before the
+coordinator treats withdrawal as complete; this round does not prove a durable
+tombstone across failed deletion and later recaching.
+
+All five initial store tests failed against a stub after ensuring setup writes
+were asserted. Removing both read and reconciliation eligibility guards caused
+exactly the withdrawal and stale/refusal tests to fail. Removing reconciliation
+eligibility alone also caused those same two tests to fail after the reads had
+correctly rejected stale data. Guards restored: full JVM suite passed 1,417 tests
+with zero failures/errors/skips; debug assembly and Android-test compilation
+passed. No device or semantic quality result is claimed.
+
+Still open: wire this store and source withdrawal into the existing coordinator;
+persist abstentions; establish independently evaluated support decisions;
+preserve canonical identities and UI behavior; evaluate actual model responses,
+compare quality and cost, and complete representative-device/human acceptance.
+Do not report the replacement active until its production path actually works.

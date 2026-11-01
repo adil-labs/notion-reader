@@ -1,5 +1,11 @@
 # Generative Discovery execution ledger
 
+2026-11-02: User clarified that activation can wait until the replacement is
+ready. Added an unconnected atomic proposal progress store and source eligibility
+checks, with failing-first and withdrawal guard proofs. JVM suite 1,417/1,417,
+debug assembly and Android-test compilation passed. See decisions §142 for
+remaining wiring and the failed-withdrawal/tombstone limitation.
+
 2026-11-02: User authorized production activation before outstanding measurement.
 The repository contracts record this; the incomplete replacement has not yet
 been switched on. Added source-bound evidence rehydration and generation checks;
