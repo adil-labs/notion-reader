@@ -39,7 +39,7 @@ class DiscoveryRuntimeTest {
         val nativeStopped = CompletableDeferred<Unit>()
         val cancellationSeen = CompletableDeferred<Unit>()
         var delayed = false
-        val labeler: TopicLabelRuntime = object : TopicLabelRuntime, DiscoveryProposalRuntime {
+        val labeler: TopicLabelRuntime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun {
                 check(!embeddingLive) { "Embedding engine not released" }
                 labelLive = true; nativeRunning = true; entered.complete(Unit)
@@ -55,8 +55,26 @@ class DiscoveryRuntimeTest {
                 label(TopicLabelRequest("topic", "fingerprint", request.sourceEpoch, request.evidence, request.identity))
                 return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
             }
+            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun {
+                label(TopicLabelRequest("topic", "fingerprint", request.sourceEpoch, listOf(request.evidence), request.verifier))
+                return TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+            }
             override suspend fun close() { check(!nativeRunning) { "Close before native terminal" }; labelLive = false }
         }
+    }
+    @Test fun foregroundSearchInterruptsSupportVerificationBeforeReusingNativeResources() = runTest {
+        val models = Models().apply { delayed = true }
+        val runtime = DiscoveryRuntime(FileDocumentCache(files.newFolder()), models.provider, models.labeler)
+        val support = TopicSupportRequest("topic", "concept", "Seed germination", "Conditions for germination.",
+            request.evidence.single(), identity, 0)
+        val work = async { runtime.verifyTopicSupport(support) { true } }; runCurrent()
+        assertTrue("Support verification must start native work", models.entered.isCompleted)
+        val search = async { runtime.foregroundStep { runtime.inference.withLock { runtime.embedExactInput("query") } } }
+        runCurrent()
+        assertTrue(models.cancellationSeen.isCompleted); assertEquals(0, models.embeddingCalls)
+        models.nativeStopped.complete(Unit); models.finish.complete(Unit); advanceUntilIdle()
+        assertEquals(TopicSupportRun.Cancelled, work.await())
+        search.await(); assertEquals(1, models.embeddingCalls)
     }
     @Test fun foregroundSearchInterruptsProposalAndWaitsForNativeTermination() = runTest {
         val models = Models().apply { delayed = true }

@@ -29,6 +29,11 @@ internal class DiscoveryRuntime(cache: DocumentCache, private val provider: Embe
         return generate(mayWork, DiscoveryProposalRun.Unavailable, DiscoveryProposalRun.Cancelled) { generator.propose(request) }
     }
 
+    suspend fun verifyTopicSupport(request: TopicSupportRequest, mayWork: () -> Boolean): TopicSupportRun {
+        val verifier = labeler as? TopicSupportRuntime ?: return TopicSupportRun.Unavailable
+        return generate(mayWork, TopicSupportRun.Unavailable, TopicSupportRun.Cancelled) { verifier.verifySupport(request) }
+    }
+
     suspend fun labelTopic(request: TopicLabelRequest, mayWork: () -> Boolean): TopicLabelRun {
         val generator = labeler ?: return TopicLabelRun.Unavailable
         return generate(mayWork, TopicLabelRun.Unavailable, TopicLabelRun.Cancelled) { generator.label(request) }

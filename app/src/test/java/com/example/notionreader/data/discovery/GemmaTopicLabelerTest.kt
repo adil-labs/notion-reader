@@ -8,6 +8,24 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GemmaTopicLabelerTest {
+    @Test fun supportVerificationUsesItsOwnSchemaAndKeepsUncertaintyDistinct() = runTest {
+        val engine = Engine().apply { output = """{"decision":"UNCERTAIN"}""" }
+        val input = TopicSupportRequest("topic", "concept", "Seed germination", "Conditions for seed germination.",
+            request.evidence.single(), topicSupportIdentity(identity), 1)
+        val runtime = GemmaTopicLabeler(identity, { true }, { engine }, { true }, StandardTestDispatcher(testScheduler))
+        assertEquals(TopicSupportRun.Completed(SupportDecision.UNCERTAIN), runtime.verifySupport(input))
+        assertEquals(TopicSupportSchema, engine.lastSchema)
+        assertTrue(engine.lastPrompt.contains("Seed germination"))
+        runtime.close()
+    }
+
+    @Test fun malformedSupportOutputCannotBecomeAValidDecision() = runTest {
+        val engine = Engine().apply { output = """{"decision":"SUPPORTED","extra":true}""" }
+        val input = TopicSupportRequest("topic", "concept", "Seed germination", "Conditions for seed germination.",
+            request.evidence.single(), topicSupportIdentity(identity), 1)
+        val runtime = GemmaTopicLabeler(identity, { true }, { engine }, { true }, StandardTestDispatcher(testScheduler))
+        assertEquals(TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidOutput), runtime.verifySupport(input))
+    }
     @Test fun proposalUsesCompactReferencesAndPreservesSelectedCanonicalEvidence() = runTest {
         val engine = Engine().apply { output = """{"result":"concept","name":"Seed germination","definition":"How moisture helps seeds germinate.","listening_description":"Listen to seed germination.","passage_ids":["p1"]}""" }
         val first = semanticHash("first passage"); val second = semanticHash("second passage")

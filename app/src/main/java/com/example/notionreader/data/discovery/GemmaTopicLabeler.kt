@@ -22,7 +22,36 @@ internal interface NativeTopicLabelEngine : AutoCloseable { fun conversation(): 
 class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIdentity,
     private val available: () -> Boolean, private val open: () -> NativeTopicLabelEngine,
     private val mayRun: () -> Boolean, private val dispatcher: CoroutineDispatcher,
-    private val diagnostic: (String, Throwable) -> Unit = { _, _ -> }) : TopicLabelRuntime, DiscoveryProposalRuntime {
+    private val diagnostic: (String, Throwable) -> Unit = { _, _ -> }) : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
+    override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun = withContext(dispatcher) {
+        operations.withLock {
+            if (!available()) { release(); return@withLock TopicSupportRun.Unavailable }
+            if (!mayRun()) { release(); return@withLock TopicSupportRun.Failed(TopicLabelRuntimeFailure.ResourcePressure) }
+            val sources = mapOf(canonicalSemanticId(request.evidence.pageId) to request.evidence.revision)
+            if (request.verifier != topicSupportIdentity(identity)) return@withLock TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidModel)
+            if (validateTopicSupport(request, SupportDecision.UNCERTAIN, request.sourceEpoch, request.conceptWorkKey, sources)
+                !is TopicSupportValidation.Accepted) return@withLock TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+            try {
+                currentCoroutineContext().ensureActive()
+                val runtime = engine ?: open().also { engine = it }
+                currentCoroutineContext().ensureActive()
+                val result = when (val output = generate(runtime, topicSupportPrompt(request), TopicSupportSchema)) {
+                    NativeResult.Cancelled -> TopicSupportRun.Cancelled
+                    is NativeResult.Failed -> TopicSupportRun.Failed(output.reason)
+                    is NativeResult.Completed -> parseTopicSupportResponse(output.raw)?.let { TopicSupportRun.Completed(it) }
+                        ?: TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
+                }
+                if (result is TopicSupportRun.Failed || result == TopicSupportRun.Cancelled) release()
+                result
+            } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) { release() }; throw cancelled
+            } catch (failure: Exception) {
+                diagnostic("support-execution", failure); release(); TopicSupportRun.Failed(TopicLabelRuntimeFailure.BackendFailure)
+            } catch (failure: LinkageError) {
+                diagnostic("support-execution", failure); release(); TopicSupportRun.Failed(TopicLabelRuntimeFailure.BackendFailure)
+            }
+        }
+    }
     override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun = withContext(dispatcher) {
         operations.withLock {
             if (!available()) { release(); return@withLock DiscoveryProposalRun.Unavailable }

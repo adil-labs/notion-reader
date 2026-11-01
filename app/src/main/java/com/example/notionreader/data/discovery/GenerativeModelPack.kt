@@ -26,4 +26,5 @@ object GenerativeModelPack {
         "bundled-metadata:$metadataSha256", semanticHash(TopicLabelInstruction), semanticHash(schema),
         "concept-v1-wire1-c$contextTokens-o$outputTokens-bundle${TopicLabelEvidencePolicy.version}", backend)
     fun proposalIdentity(backend: String): TopicLabelIdentity = discoveryProposalIdentity(identity(backend))
+    fun supportIdentity(backend: String): TopicLabelIdentity = topicSupportIdentity(identity(backend))
 }

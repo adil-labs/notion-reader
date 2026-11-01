@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[source-bound abstention reuse (§144)](#144-source-bound-abstention-persistence-2026-11-02)
+[passage support boundary (§145)](#145-independent-passage-support-boundary-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11785,3 +11785,39 @@ publish accepted concepts with continuity; implement independently evaluated
 support decisions, bounded reconciliation and UI changes; complete lifecycle,
 comparative quality/cost, representative-device and human acceptance work. The
 existing production pipeline remains active.
+
+## 145. Independent passage support boundary (2026-11-02)
+
+Added versioned supported/unsupported/uncertain passage assessments bound to
+the exact concept, source revision, passage body and verifier identity. A pure
+coverage aggregator includes only current supported references, leaves missing,
+duplicate or uncertain assessments incomplete, and permits a complete empty
+result without inventing seed membership. An application boundary rehydrates a
+retrieved passage from the current index and rejects stale, fabricated or
+unavailable evidence before invoking the verifier; a late result is discarded
+when the source ticket changes. Similarity remains candidate retrieval only.
+
+Added a strict local support prompt and schema to the existing Gemma runtime,
+with a distinct model/prompt/schema/policy identity and the same serialized
+inference gate, foreground priority and cancellation cleanup. This is a
+candidate verification method, not proven semantic entailment. The model's
+accuracy on negation, contradiction, near subjects, broad/narrow concepts and
+mixed text remains unmeasured; no support decision from this path is published
+by the current coordinator. The standalone probe includes the new source but no
+actual support-model execution was performed.
+
+Four of five initial support-domain tests failed against stubs; two fake-native
+tests and the shared-gate test failed before their implementation. Three of four
+rehydration tests failed against the unavailable-only stub. Changing duplicate
+decision handling to accept the first conflicting judgment caused precisely the
+conflicting-assessment test to fail; replacing verifier unavailability with a
+fabricated supported result caused precisely its unavailable test to fail.
+Guards restored: full JVM suite passed 1,443 tests with zero failures/errors/skips;
+debug assembly, Android-test Kotlin compilation and standalone probe assembly
+passed. No device, real inference, precision/recall or latency result is claimed.
+
+Still open: persist support decisions, schedule bounded verification from the
+existing coordinator, establish safe canonical publication/identity continuity,
+evaluate the method independently against reviewed positives and hard negatives,
+compare with cosine-only matching, and complete UI, lifecycle and device/human
+acceptance. The existing production pipeline remains active.

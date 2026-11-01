@@ -33,13 +33,13 @@ abstract class PrepareProductionLabelSources : DefaultTask() {
             from(sourceDirectory) {
                 include("com/example/notionreader/domain/**")
                 include("com/example/notionreader/application/Discovery*.kt")
-                listOf("TopicCoordinator", "TopicLabelCoordinator", "TopicRetrievalCoordinator", "ExactEmbeddingMemo", "ConnectionCatalogProjection")
+                listOf("TopicCoordinator", "TopicLabelCoordinator", "TopicRetrievalCoordinator", "TopicSupportVerification", "ExactEmbeddingMemo", "ConnectionCatalogProjection")
                     .forEach { include("com/example/notionreader/application/$it.kt") }
                 listOf("FileDocumentCache", "ReaderDocumentCodec", "FileSemanticIndexStore", "FileTopicStore", "StoredTopicGraph",
                     "FileConnectionCatalog", "FileTopicLabelStore", "FileTopicRetrievalStore").forEach { include("com/example/notionreader/data/local/$it.kt") }
                 include("com/example/notionreader/data/document/DocumentCache.kt")
                 include("com/example/notionreader/data/document/CachedDocument.kt")
-                listOf("GemmaTopicLabeler", "TopicLabelResponse", "DiscoveryProposalWire", "GenerativeModelPack", "GenerativeModelManager",
+                listOf("GemmaTopicLabeler", "TopicLabelResponse", "DiscoveryProposalWire", "TopicSupportWire", "GenerativeModelPack", "GenerativeModelManager",
                     "LiteRtTopicLabelEngine", "LocalDiscoveryModelManager", "ModelArtifact", "GemmaTokenizer",
                     "GemmaModelPack", "GemmaEmbeddingProvider", "LiteRtBackendRuntime")
                     .forEach { include("com/example/notionreader/data/discovery/$it.kt") }

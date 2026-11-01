@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added a source-bound support-decision boundary, rehydration and local
+shared-runtime verifier interface, without connecting it to publication. Failing-
+first and mutation proofs, 1,443 JVM tests and app/probe builds are in decisions
+§145. Actual semantic reliability and native execution remain unmeasured.
+
 2026-11-02: Added exact-evidence/model-keyed abstention persistence and reuse,
 with source withdrawal and explicit storage failures. The coordinator does not
 yet schedule the proposal flow. Failing-first and withdrawal proof, 1,429 JVM
