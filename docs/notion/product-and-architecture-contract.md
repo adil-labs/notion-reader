@@ -1,16 +1,8 @@
-<!--
-  GENERATED FILE - do not edit by hand.
-  Exported from Notion by tools/export-notion-doc.ps1.
-  Source page: Notion Reader — Product & Architecture Contract
-  Page id:     3dec9345-e10a-81ab-aa68-cf0b2ee17e45
-  Notion URL:  https://app.notion.com/p/Notion-Reader-Product-Architecture-Contract-3dec9345e10a81abaa68cf0b2ee17e45
-  Notion last edited: 10/26/2026 06:06:00
-  Notion is authoritative. Re-run the exporter after editing there.
--->
+<!-- Repository-owned governing specification. Originally imported from Notion; edit here. -->
 
 # Notion Reader — Product & Architecture Contract
 
-> Governing document, mirrored from Notion. See the header above for provenance.
+> Governing document maintained in this repository.
 
 # Summary
 
@@ -981,4 +973,18 @@ Extend the existing process-owned coordinator and serialized native gate; do not
 Migrate old fixed-group records in place as seed evidence. Do not portray old seed members as newly verified retrieval matches. Preserve genuine IDs, follows, aliases, explicit interests, cached Notes, compatible source vectors, queues and listening state; old incompatible concept/retrieval metadata becomes pending. Optional model acquisition remains explicit and checksum verified. Removal stops new generation while retaining only compatible source-valid saved concepts/results. Source withdrawal invalidates affected concept evidence and retrieved matches immediately; reset clears derived state under the existing reset contract.
 
 The user authorizes implementation of this design. Keep the generative 256 MiB and embedding 128 MiB added-memory gates, whole-device pressure/Android17 checks, representative scale/active-time/search/playback/cancellation/privacy/accessibility requirements and independent human general-release/TalkBack gates. The seen-corpus name-only 0.85 threshold diagnostic is calibration, not a production acceptance decision. Freeze the implemented name-plus-definition policy and evaluate new families before activation. This amendment does not claim acceptance or enable production inference.
+
+# Evidence-first incremental Discovery
+
+User-authorized direction, 2026-11-02. This amendment supersedes the previous requirement that ordinary topic discovery begin with global section-aware clustering and that generated concepts cite every offered passage. Implement an incremental, evidence-first replacement in the existing process-owned Discovery coordinator and canonical catalog. The current pipeline remains in place until the replacement meets its applicable quality and device gates; the old formation engine may remain only as an offline evaluation oracle after replacement. No second production worker, classifier, catalog or cloud inference over private Notes is permitted.
+
+For a new or changed eligible cached Note, reuse compatible unchanged passage embeddings, consider existing concepts first, and propose bounded neighborhoods from unexplained current body evidence, section and structural context, explicit references and relevant older evidence, including previously unmatched Notes. Structural inventory may be incomplete; record that state and do not infer absence from partial coverage. Ordinary updates must not require global clustering or a complete structural inventory. Preserve incomplete or unresolved work, cancellation, deterministic bounded processing and lower-priority resumable reconciliation.
+
+A proposal is not a canonical topic. A local Gemma response either proposes a specific name, short definition, short listening description and a nonempty selected subset of offered current passage references, or successfully abstains with a bounded reason. Reject invented, duplicate, stale or incompatible references and malformed responses. Version prompt, schema, model and validation identities. Treat Note text as untrusted; selected citations and model assertions do not themselves prove factual support. Distinguish abstention from invalid output, failure, cancellation and unavailability, and reuse decisions only for compatible exact evidence and policy identity.
+
+Embedding similarity retrieves candidates; it does not establish membership. Independently evaluate and version support decisions as supported, unsupported or uncertain against the current concept and current passage. Aggregate memberships only from validated current support, retain incomplete coverage honestly, and do not force unmatched Notes or seed members into topics. One supporting Note may form an Emerging topic; two or more form an Established topic. A valid concept with no current matches remains inspectable with an honest empty state. No generic heading alone establishes a topic.
+
+Preserve canonical identity only through genuine evidence continuity, along with compatible aliases, follows, interests, embeddings, queues and listening sessions. Source withdrawal, deletion, permission loss or reset must invalidate affected persisted and pending proposals, citations, memberships, previews, inspected evidence and late callbacks; a failed replacement write must not resurrect withdrawn content. Keep compact source references, source-generation commit guards, atomic persistence, durable bounded recovery, model and policy compatibility checks, the existing shared serialized inference gate, foreground search and playback priority, privacy, memory, battery and pressure policies.
+
+Present topic name, short listening description, supporting Note count, validated Emerging or Established status and accessible why-this-topic evidence. Distinguish processing, incomplete, unavailable, recovery and no-match states; preserve inspected ordering and focus until Refresh while withdrawing unavailable evidence immediately. Direct implementation is authorized, but does not constitute acceptance or activation. Compare the replacement with the existing pipeline on identical frozen public, consented or purpose-built sources, retaining missed topics, false memberships, abstentions and failures. Keep existing numerical semantic, representative device, resource, cancellation, playback, privacy and accessibility gates; independent human quality and TalkBack observations remain distinct from agent review and automated tests.
 

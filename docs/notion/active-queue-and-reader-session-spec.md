@@ -1,16 +1,8 @@
-<!--
-  GENERATED FILE - do not edit by hand.
-  Exported from Notion by tools/export-notion-doc.ps1.
-  Source page: Notion Reader — Active Queue & Reader Session Spec
-  Page id:     3dec9345-e10a-814c-a8f3-c8b3539ac8e1
-  Notion URL:  https://app.notion.com/p/Notion-Reader-Active-Queue-Reader-Session-Spec-3dec9345e10a814ca8f3c8b3539ac8e1
-  Notion last edited: 10/15/2026 21:16:00
-  Notion is authoritative. Re-run the exporter after editing there.
--->
+<!-- Repository-owned governing specification. Originally imported from Notion; edit here. -->
 
 # Notion Reader — Active Queue & Reader Session Spec
 
-> Governing document, mirrored from Notion. See the header above for provenance.
+> Governing document maintained in this repository.
 
 > Governing implementation specification. Settles listening-session persistence, resume behavior, and listening history for Notion Reader.
 

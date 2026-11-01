@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[structural corrective review (§135)](#135-structural-admission-recovery-and-review-corrections-2026-10-27)
+[repository-owned specifications (§136)](#136-evidence-first-direction-and-repository-owned-specifications-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11533,3 +11533,28 @@ Still open: representative Android allocation/whole-process memory, scale and
 battery/latency measurements; full resource inventory beyond bounded windows;
 remaining Discovery semantic acceptance from §132; human TalkBack speech and
 hands-free acceptance. These are not established by this structural implementation.
+
+## 136. Evidence-first direction and repository-owned specifications (2026-11-02)
+
+The user requested an evidence-first incremental replacement and then authorized
+direct implementation without a separate prototype. The replacement must still
+meet the stated semantic, device and accessibility gates before activation. The
+currently enabled cluster-seeded pipeline has not been replaced. Initial local
+inspection and contract differences are recorded in the
+[audit](discovery-v2/evidence-first-audit.md); no fresh quality or performance
+measurement is claimed.
+
+The user subsequently directed that specifications stay in this repository and
+need not be synchronized to Notion. The Product, UI and Integration contracts
+now carry the evidence-first amendment locally. All five formerly exported
+governing documents are repository-owned; `AGENTS.md`, the documentation map and
+verification skill now direct edits here and prohibit overwriting them with the
+historical exporter. Before that clarification, the amendment was appended to
+the three Notion pages; its exact appended blocks were then removed and all three
+pages were read back to confirm the amendment absent. The transient API edits
+may remain in Notion page history; no claim is made that history was erased.
+
+Still open: implement the replacement in the existing coordinator, validate
+source withdrawal and continuity, gather comparable quality/cost measurements,
+and complete applicable representative-device and human acceptance gates. No
+production code or tests changed in this documentation round.

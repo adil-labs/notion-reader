@@ -1,16 +1,8 @@
-<!--
-  GENERATED FILE - do not edit by hand.
-  Exported from Notion by tools/export-notion-doc.ps1.
-  Source page: Notion Reader — Core Player & TTS Playback Spec
-  Page id:     3dfc9345-e10a-814e-b9c7-e5e8b4268669
-  Notion URL:  https://app.notion.com/p/Notion-Reader-Core-Player-TTS-Playback-Spec-3dfc9345e10a814eb9c7e5e8b4268669
-  Notion last edited: 09/18/2026 15:17:00
-  Notion is authoritative. Re-run the exporter after editing there.
--->
+<!-- Repository-owned governing specification. Originally imported from Notion; edit here. -->
 
 # Notion Reader — Core Player & TTS Playback Spec
 
-> Governing document, mirrored from Notion. See the header above for provenance.
+> Governing document maintained in this repository.
 
 > Governing implementation specification. Settles the Player's command vocabulary, the secondary playback controls, and what is spoken when playback starts, moves and stops. The Background Playback, Media Controls & Hands-Free Commands specification consumes the command set defined here.
 

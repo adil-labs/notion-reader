@@ -105,20 +105,10 @@ of a correct fix whose test was not running it, and the node dump that distingui
 
 ## 4. Documentation, if the change touches the contract set
 
-```powershell
-pwsh -File tools\export-notion-doc.ps1 -All
-git diff -- docs/notion
-```
-
-`docs/notion/*.md` are **generated mirrors**; regenerate rather than hand-edit, and **always diff the
-re-export**. An exporter bug and a spec change look identical otherwise, and both have happened here
-(numbered list markers vanishing, a page title duplicated as block 1).
-
-For a spec amendment, `tools/apply-spec-amendments.ps1` is dry-run by default. Run it with `-Inspect`
-first: the integration spec keeps its entire reader domain model in a single Notion code block, and
-patching part of a block replaces all of it, so a logically additive amendment can silently delete
-`ReaderDocument`, `ReaderSection` and `ReaderChunk` from the governing document. Print the full target
-text; a character count will not warn you.
+The governing specifications are repository-owned and edited directly, including
+the former Notion mirrors. Inspect `git diff -- docs/notion` and review dependent
+contracts for conflicts. Do not sync them to Notion or run the historical exporter
+over these authoritative files.
 
 ## 5. Device probe, for a user-visible flow
 

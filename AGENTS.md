@@ -34,26 +34,17 @@ The conflict protocol is:
 
 1. amend the governing source of truth;
 2. review dependent specifications;
-3. update affected specs/mirrors;
+3. update affected repository specifications;
 4. only then implement code.
 
-A hand-authored document cannot amend a mirrored Notion specification by itself.
+## 2. Repository-owned specifications
 
-## 2. Generated vs hand-authored documents
-
-Everything under `docs/notion/` is generated from Notion. **Never hand-edit it.** Make semantic changes in Notion, then regenerate:
-
-```powershell
-pwsh -File tools/export-notion-doc.ps1 -All
-```
-
-Always diff the regenerated files. An exporter defect must not be mistaken for a specification change.
-
-The hand-authored files under `docs/` are edited directly. In particular, the two hand-authored governing specs above are authoritative in their own scope.
-
-The Notion exporter currently has no table case. Do not add a Markdown table to a governing Notion page and assume it will appear in its mirror.
-
-The integration spec stores the reader domain model in one Notion code block. An in-place patch to part of that block can replace the whole block. Inspect the target's full current text before patching it.
+The governing specification files in this repository are authoritative and edited
+directly, including the files under `docs/notion/`. Those files originated as
+Notion exports, but are no longer mirrors. Do not sync specification changes to
+Notion or overwrite these files using the exporter. Review dependent specifications
+and their diffs whenever semantics change. `docs/notion/notion-note-organization.md`
+remains note-authoring guidance, not a governing specification.
 
 ## 3. Before changing behavior
 
@@ -200,7 +191,7 @@ Do not call a change complete until all applicable items below are satisfied:
 5. `:app:assembleDebug` passes when production/build code changed.
 6. `:app:compileDebugAndroidTestKotlin` passes when `androidTest` changed.
 7. Relevant instrumented accessibility/device tests pass when the behavior requires them.
-8. Generated Notion mirrors/fixtures were regenerated rather than hand-edited.
+8. Repository specifications were updated directly; captured API fixtures were regenerated rather than hand-edited.
 9. `README.md` and `docs/decisions.md` were updated when their summaries/history are affected.
 10. New repository files are tracked intentionally; verification tooling is not left only in ignored build output.
 
@@ -358,7 +349,7 @@ Important entry points:
 | `tools/proof-*.ps1` | Failing-first proofs for regression guards |
 | `tools/probe-*.ps1` | Drive real UI/device probes without hard-coded tap coordinates |
 | `tools/capture-reader-fixture.ps1` | Re-capture the real Notion fixture |
-| `tools/export-notion-doc.ps1` | Regenerate `docs/notion/` mirrors |
+| `tools/export-notion-doc.ps1` | Historical exporter; do not overwrite repository-owned specifications |
 | `tools/notion-tool.ps1` | Read-only live Notion inspection |
 
 On-demand agent skills live under `.agents/skills/` when installed. Project rules in this file and the governing specs override generic/vendor skills when they disagree. A skill explains **how** to perform a task; it does not decide **whether** the product should behave that way.
@@ -388,7 +379,7 @@ Use `agy` when the user requests delegation. Assign bounded work with explicit a
 When a round materially changes behavior, architecture, verification, or the explanation of a past defect:
 
 - update the governing source first when semantics changed;
-- regenerate mirrors if the source is Notion;
+- update affected repository specifications directly;
 - keep `README.md` aligned with the implemented product boundary;
 - append a new numbered section to `docs/decisions.md` when the round adds a durable decision, investigation result, regression proof, or verification lesson.
 

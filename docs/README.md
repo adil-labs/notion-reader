@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#135-structural-admission-recovery-and-review-corrections-2026-10-27)
+[the current decision-record entry](decisions.md#136-evidence-first-direction-and-repository-owned-specifications-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
@@ -17,9 +17,9 @@ The seven governing specifications, in precedence order, are:
    and [Queue Creation & Management](queue-creation-and-queue-management-spec.md).
 
 Higher rank wins. Resolve material conflicts at the same rank in the governing
-sources before implementing. Files in `notion/` are generated mirrors: amend
-Notion, run `tools/export-notion-doc.ps1 -All`, and inspect the diff. Never patch a
-mirror directly. The two hand-authored governing specs are edited locally.
+sources before implementing. Governing files in `notion/` originated as Notion
+exports but are now repository-owned specifications, edited directly. Do not
+sync them to Notion or overwrite them with the historical exporter.
 
 ## Unified knowledge system target design
 
@@ -28,8 +28,7 @@ local-first structured knowledge architecture, user requirements, identity and
 provenance model, Notion hierarchy/sync, incremental Discovery, query/ranking,
 accessibility, evaluation and roadmap. These documents are **non-governing target
 designs**, not evidence of implementation or release acceptance. Inventory existing
-capabilities and amend the authoritative Notion sources before changing behavior;
-never edit their generated mirrors directly.
+capabilities and amend the authoritative repository specifications before changing behavior.
 
 ## Discovery reading path
 

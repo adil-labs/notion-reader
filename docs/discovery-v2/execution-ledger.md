@@ -1,5 +1,13 @@
 # Generative Discovery execution ledger
 
+2026-11-02: User requested evidence-first incremental Discovery and authorized
+direct implementation instead of a separate prototype. The governing Product,
+UI and Integration files now carry the new direction locally; the user directed
+that specifications remain repository-owned, and the transient Notion amendment
+was removed and verified absent. Current cluster-seeded behavior remains enabled.
+No replacement code, fresh semantic comparison or acceptance is claimed; see
+decisions §136 and `evidence-first-audit.md`.
+
 Goal: execute `docs/superpowers/plans/2026-10-25-llm-discovery-v2.md` in full. Incomplete phases stay incomplete; this ledger is not a narrower replacement objective.
 
 ## 2026-10-25 — specification and evaluation preparation
