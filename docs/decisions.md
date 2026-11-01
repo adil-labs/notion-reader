@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[durable catalog scan (§157)](#157-durable-existing-concept-scan-2026-11-02)
+[catalog scan replay (§158)](#158-validate-restored-concept-scan-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12145,3 +12145,34 @@ Still open: implement restored-result and scope validation, safely reset stale
 completed work, coordinator scheduling and coverage acknowledgment, canonical
 publication and continuity, accessibility, and actual quality/device/human gates.
 The existing topic publisher remains in production.
+
+
+## 158. Validate restored concept scan (2026-11-02)
+
+Added a bounded replay of completed existing-concept checkpoints. It starts at
+the beginning of the catalog, reconstructs each candidate page and reuses only
+exact-input cached support decisions; it never invokes a model to fill a missing
+decision. Each reconstructed supported or uncertain assessment must equal an
+assessment in the saved checkpoint, and every saved assessment must be observed
+before the result is validated. The source, catalog scope, indexed content and
+saved checkpoint are checked during replay. Missing support stays incomplete;
+source/catalog changes are stale; forged or omitted assessments are invalid.
+Uncertainty remains explicit even when another concept supports the same passage.
+
+Replay state is bounded per page but held in memory; process death restarts replay
+and cached decisions remain reusable. The caller must hold a live ticket covering
+catalog and retrieval-vector changes throughout. The result is not yet consumed
+by a worker or used for publication, and stale completed checkpoints still need
+safe replacement before retry. Neither model correctness nor acceptance is implied.
+
+The initial replay test failed against a stub. Removing assessment equality made
+the omitted-assessment regression fail; the guard was restored. The test also
+covers missing cached support and changed catalog generation. Full JVM suite:
+1,503 tests, zero failures/errors/skips; app debug assembly, Android-test Kotlin
+compilation and standalone runtime-probe assembly passed.
+
+Still open: implement query/catalog tickets and stale checkpoint replacement,
+schedule scans and replay in the existing coordinator, consume only validated
+coverage, preserve canonical identity and publication, and complete comparative
+quality, device and human accessibility acceptance. Existing production topic
+publication remains active.

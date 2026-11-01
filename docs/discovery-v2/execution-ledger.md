@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added bounded replay to revalidate completed concept scans using
+cached support decisions; worker integration and live tickets remain open.
+Failing-first and omitted-assessment proof, 1,503 JVM tests and builds are in §158.
+
 2026-11-02: Added atomic source-bound catalog-scan checkpoints with retained
 support decisions. Restored results await validation and are not scheduled.
 Failing-first and retention proof, 1,502 JVM tests and builds are in §157.
