@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added bounded concept/passage iteration with scoped continuation;
+durable aggregation and scheduling remain open. Failing-first and scope-guard
+proof, 1,498 JVM tests and builds are recorded in §156.
+
 2026-11-02: Added source-validated canonical topic and retrieval-vector reuse for
 existing-concept checks. Iteration and scheduling remain open. Failing-first and
 withdrawal proof, 1,495 JVM tests and builds are recorded in §155.

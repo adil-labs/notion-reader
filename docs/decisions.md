@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[catalog concept reuse (§155)](#155-current-catalog-concept-reuse-2026-11-02)
+[bounded catalog scan (§156)](#156-bounded-existing-concept-scan-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12087,3 +12087,30 @@ Still open: bounded resumable iteration over every catalog concept and candidate
 page, incomplete/uncertain work management, durable coverage acknowledgment,
 coordinator integration, continuity and publication, and real quality, device
 and human acceptance. The existing production publisher remains active.
+
+
+## 156. Bounded existing-concept scan (2026-11-02)
+
+Added a one-page operation over current catalog topics in stable creation order.
+It obtains each exact stored query, verifies candidate passages using the existing
+support boundary, and emits supported and uncertain IDs plus a continuation for
+remaining passages or topics. An unavailable concept or incomplete catalog is not
+reported as a completed scan. A scope key rejects a continuation when the source,
+catalog, model, policy or verifier inputs change. Similarity alone never returns
+an explained ID. Each result covers only its page: the future coordinator must
+accumulate and revalidate all page results, retain uncertain work as incomplete,
+and provide a live ticket that also covers retrieval-vector replacement. The
+cursor and accumulated coverage are not yet durable or scheduled, and this step
+cannot publish a topic or acknowledge the pending delta.
+
+Two initial tests failed against the deferred stub; removing the scope check made
+the changed-catalog test fail. The guard was restored. A separate test covers
+continuation across multiple passage pages before advancing topics. Full JVM suite:
+1,498 tests, zero failures/errors/skips. App debug assembly, Android-test Kotlin
+compilation and standalone runtime-probe assembly passed. Fake support decisions
+establish sequencing only, not model accuracy.
+
+Still open: durable checkpoint and page-result revalidation, bounded coordinator
+scheduling, query and catalog generation tickets, coverage acknowledgment,
+canonical publication and continuity, accessible presentation and real quality,
+device and human acceptance. The existing production publisher remains active.
