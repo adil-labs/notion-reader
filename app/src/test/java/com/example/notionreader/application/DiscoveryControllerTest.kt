@@ -617,6 +617,25 @@ class DiscoveryControllerTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun anIndexedNoteCanFeedItsPendingChangesToTheBoundedProposalStep() = runBlocking {
+        val dir = Files.createTempDirectory("delta-to-proposal").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache")); val index = FileSemanticIndexStore(dir.resolve("index"))
+            val proposals = FileProposalProgressStore(dir.resolve("proposals")); val provider = Provider()
+            val note = CachedDocument(ReaderDocument.fromChunkTexts("p", "Seed germination", listOf(
+                "Moisture allows dormant seeds to absorb water and begin the germination process.")), null, Instant.EPOCH)
+            cache.put(note); index.setPaused(false)
+            DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")), provider,
+                proposalProgressStore = proposals).reconcile(emptyList(), true)
+            val record = index.read("p")!!
+            val result = advancePendingProposalWindow(record, emptySet(), mapOf("p" to record.revision), emptySet(),
+                false, 0, FileProposalProgressStore(dir.resolve("proposals")), 1, { true }, { true }) { null }
+                as PendingProposalStepResult.Ready
+            assertEquals(record.passages.single().passage.id, result.step.window.proposals.single().evidence.single().passageId)
+            assertNotNull(proposals.readDelta("p", record.revision, provider.identity))
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun refusedDeltaHandoffStopsBeforeTheOldIndexIsRetired() = runBlocking {
         val dir = Files.createTempDirectory("delta-index-refused").toFile()
         try {

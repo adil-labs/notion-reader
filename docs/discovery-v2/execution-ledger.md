@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected saved deltas to a bounded proposal operation with current
+evidence validation; the coordinator does not schedule it yet. Failing-first and
+fingerprint proof, 1,487 JVM tests and builds are recorded in §153.
+
 2026-11-02: Indexing captures pending passage deltas before retirement and
 queues previously indexed Notes. Publication remains on the current pipeline.
 Failing-first and policy proofs, 1,483 JVM tests and builds are in §152.

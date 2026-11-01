@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[indexing handoff (§152)](#152-indexing-captures-passage-deltas-2026-11-02)
+[pending proposal bridge (§153)](#153-pending-deltas-feed-bounded-proposals-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12014,3 +12014,27 @@ Still open: durable coverage acknowledgment and consumption of changed anchors,
 existing-concept matching and independent support, catalog continuity and
 publication, accessible presentation, real comparative and device/human gates.
 The existing topic pipeline remains the production publisher.
+
+
+## 153. Pending deltas feed bounded proposals (2026-11-02)
+
+Added a bounded operation that reads the indexing handoff, verifies its source
+revision, embedding identity, complete current-passage fingerprint and changed
+IDs, then passes those anchors to the existing resumable proposal step. Invalid
+or missing work does not become an empty success. Caller-supplied explained IDs
+must come from independently validated support; this operation does not infer
+support from similarity. It leaves the delta intact: a completed scan is not a
+completed generation, support assessment or canonical publication. An integration
+test now exercises real indexing through to a one-Note proposal window. No new
+worker is started and the operation is not yet scheduled by the coordinator.
+
+Three targeted tests failed against the initial stub. Removing the fingerprint
+guard failed the changed-body test; it passed after restoration. The full JVM
+suite passed 1,487 tests, zero failures/errors/skips. Debug assembly, Android-test
+Kotlin compilation and standalone runtime-probe assembly passed. No real model
+or comparative quality, Android performance or TalkBack evidence was obtained.
+
+Still open: schedule bounded proposal and support work in the existing coordinator,
+match existing concepts first, acknowledge only fully resolved work durably,
+preserve canonical continuity, publish and expose accessible evidence, and satisfy
+quality/device/human acceptance gates. The current publisher remains in production.

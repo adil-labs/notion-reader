@@ -33,7 +33,7 @@ abstract class PrepareProductionLabelSources : DefaultTask() {
             from(sourceDirectory) {
                 include("com/example/notionreader/domain/**")
                 include("com/example/notionreader/application/Discovery*.kt")
-                listOf("TopicCoordinator", "TopicLabelCoordinator", "TopicRetrievalCoordinator", "TopicSupportVerification", "IncrementalProposalStep", "PassageDeltaHandoff", "ExactEmbeddingMemo", "ConnectionCatalogProjection")
+                listOf("TopicCoordinator", "TopicLabelCoordinator", "TopicRetrievalCoordinator", "TopicSupportVerification", "IncrementalProposalStep", "PassageDeltaHandoff", "PendingProposalStep", "ExactEmbeddingMemo", "ConnectionCatalogProjection")
                     .forEach { include("com/example/notionreader/application/$it.kt") }
                 listOf("FileDocumentCache", "ReaderDocumentCodec", "FileSemanticIndexStore", "FileTopicStore", "StoredTopicGraph",
                     "FileConnectionCatalog", "FileTopicLabelStore", "FileTopicRetrievalStore").forEach { include("com/example/notionreader/data/local/$it.kt") }
