@@ -16,6 +16,13 @@ data class ProposalAbstentionRecord(val workKey: String, val evidence: List<Prop
 data class ProposalConceptRecord(val workKey: String, val evidence: List<ProposalEvidenceRef>,
     val name: String, val definition: String, val listeningDescription: String, val evidenceIds: List<String>)
 
+/** Checkpointed values are untrusted until revalidated against the current catalog and source bodies. */
+@Serializable
+data class ExistingConceptScanCursor(val scopeKey: String, val topicOffset: Int, val passage: TopicCandidateCursor?)
+@Serializable
+data class ExistingConceptScanRecord(val pageId: String, val revision: String, val sourceRevisions: Map<String, String>,
+    val scopeKey: String, val next: ExistingConceptScanCursor?, val assessments: List<TopicSupportAssessment>)
+
 enum class ProposalProgressWriteResult { Written, Stale, Invalid, StorageRefused, IoFailure, RecordMemoryLimit }
 
 interface ProposalProgressStore {
@@ -27,6 +34,8 @@ interface ProposalProgressStore {
     suspend fun writeConcept(record: ProposalConceptRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readDelta(pageId: String, revision: String, embedding: EmbeddingIdentity): PassageDeltaRecord?
     suspend fun writeDelta(record: PassageDeltaRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
+    suspend fun readConceptScan(pageId: String, sources: Map<String, String>): ExistingConceptScanRecord?
+    suspend fun writeConceptScan(record: ExistingConceptScanRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment?
     suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun reconcile(sources: Map<String, String>)

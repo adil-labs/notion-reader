@@ -60,6 +60,30 @@ class FileProposalProgressStoreTest {
         assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
     }
 
+    @Test fun conceptScanCheckpointSurvivesRestartAndEverySourceWithdrawal() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val scope = semanticHash("catalog")
+        val checkpoint = ExistingConceptScanRecord("older", "r2", sources, scope,
+            ExistingConceptScanCursor(scope, 1, null), listOf(support))
+        assertEquals(ProposalProgressWriteResult.Written, store.writeConceptScan(checkpoint) { true })
+        val reopened = FileProposalProgressStore(dir)
+        assertEquals(checkpoint, reopened.readConceptScan("older", sources))
+        assertNull(reopened.readConceptScan("older", sources + ("new" to "r3")))
+        store.reconcile(sources - "new")
+        assertNull(reopened.readConceptScan("older", sources)); assertEquals(0L, store.bytes())
+    }
+
+    @Test fun staleOrMalformedConceptScanCheckpointCannotBeSaved() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir); val scope = semanticHash("catalog")
+        val checkpoint = ExistingConceptScanRecord("older", "r2", sources, scope,
+            ExistingConceptScanCursor(scope, 1, null), listOf(support))
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeConceptScan(checkpoint.copy(next = checkpoint.next!!.copy(scopeKey = semanticHash("other")))) { true })
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.writeConceptScan(checkpoint) { ++checks == 1 })
+        assertNull(store.readConceptScan("older", sources))
+        assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
+    }
+
     @Test fun supportDecisionSurvivesRestartOnlyForCurrentSourceAndExactKey() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
         assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(support) { true })

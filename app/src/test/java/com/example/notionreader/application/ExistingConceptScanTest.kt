@@ -60,6 +60,40 @@ class ExistingConceptScanTest {
         val b = step(a.next); assertEquals(setOf("note:q"), b.supported); assertEquals(1, b.next!!.topicOffset)
         assertNull(b.next!!.passage)
     }
+    @Test fun durablePagesSurviveRestartWithoutLosingSupportDecisions() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val dir = root.resolve("progress")
+        val first = topic("first", 1); val second = topic("second", 2)
+        for (topic in listOf(first, second)) assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(query(topic))) { true })
+        val snapshot = TopicSnapshot(topics = listOf(first, second), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1"); var calls = 0
+        suspend fun step() = advanceDurableConceptScan(snapshot, note, identity, policy, verifier, 4, sources, retrievals, index,
+            FileProposalProgressStore(dir), 1, { true }, { true }) {
+            calls++; TopicSupportRun.Completed(if (it.topicId == "first") SupportDecision.SUPPORTED else SupportDecision.UNCERTAIN)
+        }
+        assertEquals(DurableConceptScanResult.Pending, step())
+        val done = step() as DurableConceptScanResult.AwaitingValidation
+        assertEquals(setOf(SupportDecision.SUPPORTED, SupportDecision.UNCERTAIN), done.record.assessments.map { it.decision }.toSet())
+        assertEquals(2, calls); assertEquals(done, step()); assertEquals(2, calls)
+    }
+
+    @Test fun refusedCheckpointDoesNotAdvanceAndReusesAlreadySavedSupport() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val real = FileProposalProgressStore(root.resolve("progress"))
+        val first = topic("first", 1); val second = topic("second", 2)
+        for (topic in listOf(first, second)) assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(query(topic))) { true })
+        val snapshot = TopicSnapshot(topics = listOf(first, second), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1"); var calls = 0
+        val refused = object : ProposalProgressStore by real {
+            override suspend fun writeConceptScan(record: ExistingConceptScanRecord, stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
+        }
+        suspend fun step(store: ProposalProgressStore) = advanceDurableConceptScan(snapshot, note, identity, policy, verifier,
+            4, sources, retrievals, index, store, 1, { true }, { true }) { calls++; TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        assertEquals(DurableConceptScanResult.StorageFailure(ProposalProgressWriteResult.StorageRefused), step(refused))
+        assertNull(real.readConceptScan("note", sources)); assertEquals(1, calls)
+        assertEquals(DurableConceptScanResult.Pending, step(real)); assertEquals(1, calls)
+    }
+
     @Test fun unavailableConceptAndChangedSnapshotCannotReportCompletedScan() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
         val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))

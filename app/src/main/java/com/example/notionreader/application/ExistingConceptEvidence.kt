@@ -5,7 +5,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 internal sealed interface ExistingConceptEvidenceResult {
-    data class Ready(val supported: Set<String>, val uncertain: Set<String>, val next: TopicCandidateCursor?) : ExistingConceptEvidenceResult
+    data class Ready(val supported: Set<String>, val uncertain: Set<String>, val next: TopicCandidateCursor?, val assessments: List<TopicSupportAssessment> = emptyList()) : ExistingConceptEvidenceResult
     data object Stale : ExistingConceptEvidenceResult
     data object Invalid : ExistingConceptEvidenceResult
     data object Deferred : ExistingConceptEvidenceResult
@@ -38,6 +38,7 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
     }
     val supported = linkedSetOf<String>()
     val uncertain = linkedSetOf<String>()
+    val assessments = mutableListOf<TopicSupportAssessment>()
     for (candidate in candidates.candidates) {
         context.ensureActive()
         if (!current()) return ExistingConceptEvidenceResult.Stale
@@ -47,10 +48,13 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
         if (!current()) return ExistingConceptEvidenceResult.Stale
         if (!mayWork()) return ExistingConceptEvidenceResult.Deferred
         when (result) {
-            is SupportVerificationResult.Completed -> when (result.assessment.decision) {
+            is SupportVerificationResult.Completed -> {
+                if (result.assessment.decision != SupportDecision.UNSUPPORTED) assessments += result.assessment
+                when (result.assessment.decision) {
                 SupportDecision.SUPPORTED -> supported += candidate.passageId
                 SupportDecision.UNSUPPORTED -> Unit
                 SupportDecision.UNCERTAIN -> uncertain += candidate.passageId
+                }
             }
             SupportVerificationResult.Stale -> return ExistingConceptEvidenceResult.Stale
             SupportVerificationResult.Invalid -> return ExistingConceptEvidenceResult.Invalid
@@ -62,5 +66,5 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
     if (!mayWork()) return ExistingConceptEvidenceResult.Deferred
     if (latest == null || latest.identity != record.identity || latest.revision != record.revision ||
         passageDeltaFingerprint(latest) != passageDeltaFingerprint(record)) return ExistingConceptEvidenceResult.Stale
-    return ExistingConceptEvidenceResult.Ready(supported, uncertain, candidates.next)
+    return ExistingConceptEvidenceResult.Ready(supported, uncertain, candidates.next, assessments)
 }

@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 @Serializable private data class StoredProposalAbstention(val version: Int = 1, val decision: ProposalAbstentionRecord)
 @Serializable private data class StoredProposalConcept(val version: Int = 1, val concept: ProposalConceptRecord)
 @Serializable private data class StoredPassageDelta(val version: Int = 1, val delta: PassageDeltaRecord)
+@Serializable private data class StoredConceptScan(val version: Int = 1, val scan: ExistingConceptScanRecord)
 @Serializable private data class StoredTopicSupport(val version: Int = 1, val assessment: TopicSupportAssessment)
 
 class FileProposalProgressStore(private val directory: File,
@@ -29,6 +30,7 @@ class FileProposalProgressStore(private val directory: File,
     private val abstentionName = Regex("proposal-abstention-[0-9a-f]{64}\\.json")
     private val conceptName = Regex("proposal-concept-[0-9a-f]{64}\\.json")
     private val deltaName = Regex("proposal-delta-[0-9a-f]{64}\\.json")
+    private val scanName = Regex("proposal-concept-scan-[0-9a-f]{64}\\.json")
     private val supportName = Regex("proposal-support-[0-9a-f]{64}\\.json")
     private val maxBytes = 8L * 1024 * 1024
     init {
@@ -45,10 +47,11 @@ class FileProposalProgressStore(private val directory: File,
     private fun abstentionTarget(workKey: String) = File(directory, "proposal-abstention-$workKey.json")
     private fun conceptTarget(workKey: String) = File(directory, "proposal-concept-$workKey.json")
     private fun deltaTarget(pageId: String) = File(directory, "proposal-delta-${semanticHash(canonicalSemanticId(pageId))}.json")
+    private fun scanTarget(pageId: String) = File(directory, "proposal-concept-scan-${semanticHash(canonicalSemanticId(pageId))}.json")
     private fun supportTarget(workKey: String) = File(directory, "proposal-support-$workKey.json")
     private fun ownedFiles(): List<File> = if (!directory.exists()) emptyList() else
         (directory.listFiles() ?: throw IOException("Proposal progress directory unavailable")).filter {
-            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || conceptName.matches(it.name) || deltaName.matches(it.name) || supportName.matches(it.name) ||
+            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || conceptName.matches(it.name) || deltaName.matches(it.name) || scanName.matches(it.name) || supportName.matches(it.name) ||
                 (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-") ||
                     it.name.startsWith("proposal-support-") || it.name.startsWith("proposal-concept-") || it.name.startsWith("proposal-delta-")) && it.extension == "tmp")
         }
@@ -72,6 +75,20 @@ class FileProposalProgressStore(private val directory: File,
             record.embedding.dimensions > 0 && old.size <= 32768 && current.size <= 32768 &&
             delta.removed.intersect(delta.rebound.keys).isEmpty() && delta.changed.intersect(delta.rebound.values.toSet()).isEmpty() &&
             delta.rebound.values.toSet().size == delta.rebound.size && (old + current).all { it.length in 1..512 }
+    }
+    private fun valid(record: ExistingConceptScanRecord): Boolean {
+        val cursor = record.next
+        val passage = cursor?.passage
+        return validId(record.pageId) && validRevision(record.revision) && record.sourceRevisions.size <= 32768 &&
+            record.sourceRevisions[record.pageId] == record.revision &&
+            record.sourceRevisions.all { (id, rev) -> validId(id) && validRevision(rev) } &&
+            Regex("[0-9a-f]{64}").matches(record.scopeKey) &&
+            (cursor == null || cursor.scopeKey == record.scopeKey && cursor.topicOffset >= 0) &&
+            (passage == null || Regex("[0-9a-f]{64}").matches(passage.queryKey) && passage.pageId == record.pageId &&
+                passage.revision == record.revision && passage.score.isFinite() && passage.score in -1f..1f && passage.passageId.length in 1..512) &&
+            record.assessments.size <= 32768 && record.assessments.map { it.workKey }.toSet().size == record.assessments.size &&
+            record.assessments.all { valid(it) && it.evidence.pageId == record.pageId && it.evidence.revision == record.revision &&
+                it.decision != SupportDecision.UNSUPPORTED }
     }
     private fun valid(record: TopicSupportAssessment): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
         record.topicId.length in 1..512 && record.conceptWorkKey.length in 1..512 &&
@@ -132,6 +149,12 @@ class FileProposalProgressStore(private val directory: File,
             stored.delta.takeIf { stored.version == 1 && valid(it) && deltaTarget(it.pageId).name == file.name }
         }
     } catch (_: Exception) { null }
+    private fun readConceptScanFile(file: File): ExistingConceptScanRecord? = try {
+        if (!file.isFile || file.length() !in 1..maxBytes) null else {
+            val stored = json.decodeFromString<StoredConceptScan>(file.readText(Charsets.UTF_8))
+            stored.scan.takeIf { stored.version == 1 && valid(it) && scanTarget(it.pageId).name == file.name }
+        }
+    } catch (_: Exception) { null }
     private fun readSupportFile(file: File): TopicSupportAssessment? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredTopicSupport>(file.readText(Charsets.UTF_8))
@@ -174,6 +197,18 @@ class FileProposalProgressStore(private val directory: File,
             if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
             if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
             writeAtomic(deltaTarget(record.pageId), json.encodeToString(StoredPassageDelta(delta = record)).toByteArray(Charsets.UTF_8), stillCurrent)
+        } }
+
+    override suspend fun readConceptScan(pageId: String, sources: Map<String, String>): ExistingConceptScanRecord? =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!validId(pageId)) null else readConceptScanFile(scanTarget(pageId))?.takeIf { it.sourceRevisions == sources }
+        } }
+
+    override suspend fun writeConceptScan(record: ExistingConceptScanRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
+            if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+            writeAtomic(scanTarget(record.pageId), json.encodeToString(StoredConceptScan(scan = record)).toByteArray(Charsets.UTF_8), stillCurrent)
         } }
 
     override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
@@ -236,6 +271,7 @@ class FileProposalProgressStore(private val directory: File,
                 abstentionName.matches(file.name) -> readAbstentionFile(file)?.let { eligible(it, sources) } == true
                 conceptName.matches(file.name) -> readConceptFile(file)?.evidence?.all { sources[it.pageId] == it.revision } == true
                 deltaName.matches(file.name) -> readDeltaFile(file)?.let { sources[it.pageId] == it.revision } == true
+                scanName.matches(file.name) -> readConceptScanFile(file)?.let { it.sourceRevisions == sources } == true
                 supportName.matches(file.name) -> readSupportFile(file)?.let { eligible(it, sources) } == true
                 else -> readFile(file)?.let { eligible(it, sources) } == true
             }

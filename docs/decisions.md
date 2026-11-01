@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[bounded catalog scan (§156)](#156-bounded-existing-concept-scan-2026-11-02)
+[durable catalog scan (§157)](#157-durable-existing-concept-scan-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12114,3 +12114,34 @@ Still open: durable checkpoint and page-result revalidation, bounded coordinator
 scheduling, query and catalog generation tickets, coverage acknowledgment,
 canonical publication and continuity, accessible presentation and real quality,
 device and human acceptance. The existing production publisher remains active.
+
+
+## 157. Durable existing-concept scan (2026-11-02)
+
+The existing proposal progress store now atomically persists a per-Note catalog
+scan continuation with the supported and uncertain assessments from prior pages.
+It stores source references and decision identities, not passage bodies. A source
+inventory or revision change prevents reuse and reconciliation deletes the old
+record; source removal and reset use the existing withdrawal path. Stale tickets,
+malformed records and refused writes cannot advance the persisted cursor. Retry
+can reuse separately persisted exact-input support decisions after a checkpoint
+write fails. The checkpoint is bounded by the store's record and memory limits.
+
+A finished checkpoint is explicitly `AwaitingValidation`, not an explained set:
+the scope, every decision, current topic definition and source body must still be
+revalidated before it may suppress proposals. It is not scheduled or connected to
+publication. The source inventory is deliberately strict; additions can restart
+this scan. A live query-vector/catalog ticket and a way to replace stale completed
+checkpoints are still needed for a production consumer.
+
+Both checkpoint tests and the initial restart test failed against stubs. Removing
+prior-page assessment retention made the restart test fail; the guard was restored.
+A refused-checkpoint test verified that retry reuses the earlier support decision.
+Full JVM suite: 1,502 tests, no failures/errors/skips; app debug assembly,
+Android-test Kotlin compilation and standalone runtime-probe build passed. Fake
+support outcomes are not evidence of model quality.
+
+Still open: implement restored-result and scope validation, safely reset stale
+completed work, coordinator scheduling and coverage acknowledgment, canonical
+publication and continuity, accessibility, and actual quality/device/human gates.
+The existing topic publisher remains in production.

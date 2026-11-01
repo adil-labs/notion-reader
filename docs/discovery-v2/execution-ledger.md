@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added atomic source-bound catalog-scan checkpoints with retained
+support decisions. Restored results await validation and are not scheduled.
+Failing-first and retention proof, 1,502 JVM tests and builds are in §157.
+
 2026-11-02: Added bounded concept/passage iteration with scoped continuation;
 durable aggregation and scheduling remain open. Failing-first and scope-guard
 proof, 1,498 JVM tests and builds are recorded in §156.
