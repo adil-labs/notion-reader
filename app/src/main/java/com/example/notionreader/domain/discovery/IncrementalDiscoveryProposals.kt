@@ -13,7 +13,8 @@ data class IncrementalProposal(val proposalKey: String, val evidence: List<Propo
 data class ProposalScoredEvidence(val ref: ProposalEvidenceRef, val score: Float, val reason: ProposalReason)
 @Serializable
 data class ProposalScanCheckpoint(val contextKey: String, val scannedRevisions: Map<String, String>,
-    val candidates: Map<String, List<ProposalScoredEvidence>>, val truncatedAnchors: Set<String>)
+    val candidates: Map<String, List<ProposalScoredEvidence>>, val truncatedAnchors: Set<String>,
+    val scopeKey: String? = null)
 data class ProposalWindow(val proposals: List<IncrementalProposal>, val nextAnchorOffset: Int?, val stale: Boolean = false,
     val checkpoint: ProposalScanCheckpoint? = null)
 
@@ -31,6 +32,16 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
     fun eligible(p: EmbeddedPassage, pageId: String): Boolean = p.passage.isBodyEvidence() &&
         canonicalSemanticId(p.passage.pageId) == pageId && p.vector.size == changed.identity.dimensions &&
         p.vector.all { it.isFinite() } && p.vector.any { it != 0f }
+    fun validBodies(record: SemanticRecord, pageId: String): Boolean {
+        val seen = mutableSetOf<String>()
+        for (passage in record.passages) {
+            checkActive()
+            if (!passage.passage.isBodyEvidence()) continue
+            if (passage.passage.id.isBlank() || !seen.add(passage.passage.id) || !eligible(passage, pageId)) return false
+        }
+        return true
+    }
+    if (!validBodies(changed, changedId)) return ProposalWindow(emptyList(), null, stale = true)
     val changedEligible = changed.passages.filter { eligible(it, changedId) }
         .sortedWith(compareBy<EmbeddedPassage> { it.passage.order }.thenBy { it.passage.id })
     fun similar(a: EmbeddedPassage, b: EmbeddedPassage): Boolean =
@@ -42,17 +53,18 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
     val next = (anchorOffset + selected.size).takeIf { it < anchors.size }
     if (selected.isEmpty()) return ProposalWindow(emptyList(), next)
     val expected = currentRevisions.filterKeys { it != changedId }
-    val contextFields = listOf("proposal-scan-v1", changedId, changed.revision, changed.identity.toString(),
+    val scopeFields = listOf("proposal-scan-v1", changedId, changed.revision, changed.identity.toString(),
         similarityThreshold.toString(), anchorOffset.toString(), maxAnchors.toString(), maxEvidence.toString(),
         structureComplete.toString(), "anchors", selected.size.toString()) + selected.map { it.passage.id } +
         listOf("changed", changedPassageIds.size.toString()) + changedPassageIds.sorted() +
         listOf("explained", explainedPassageIds.size.toString()) + explainedPassageIds.sorted() +
-        listOf("links", explicitPageIds.size.toString()) + explicitPageIds.map(::canonicalSemanticId).sorted() +
-        listOf("sources", currentRevisions.size.toString()) +
+        listOf("links", explicitPageIds.size.toString()) + explicitPageIds.map(::canonicalSemanticId).sorted()
+    val scopeKey = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
+    val contextFields = scopeFields + listOf("sources", currentRevisions.size.toString()) +
         currentRevisions.toSortedMap().entries.flatMap { listOf(it.key, it.value) }
     val contextKey = semanticHash(contextFields.joinToString("") { "${it.length}:$it" })
     val anchorIds = selected.map { it.passage.id }.toSet()
-    if (previous != null && (previous.contextKey != contextKey || previous.candidates.keys != anchorIds ||
+    if (previous != null && ((previous.contextKey != contextKey && previous.scopeKey != scopeKey) || previous.candidates.keys != anchorIds ||
         previous.truncatedAnchors.any { it !in anchorIds } || previous.scannedRevisions.any { (id, rev) -> expected[id] != rev } ||
         previous.candidates.values.any { list -> list.size > maxEvidence - 1 || list.any { candidate ->
             val ref = candidate.ref
@@ -90,7 +102,9 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
         val record = iterator.next(); read++
         val page = canonicalSemanticId(record.pageId)
         if (page == changedId) continue
-        if (record.identity != changed.identity || currentRevisions[page] != record.revision) { staleSource = true; continue }
+        if (record.identity != changed.identity || currentRevisions[page] != record.revision || !validBodies(record, page)) {
+            staleSource = true; continue
+        }
         scanned[page] = record.revision
         for (candidate in record.passages) {
             checkActive()
@@ -107,7 +121,7 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
     val incompleteScan = !scanComplete || iterator.hasNext() || scanned != expected
     val checkpoint = ProposalScanCheckpoint(contextKey, scanned.toMap(), selected.mapIndexed { index, anchor ->
         anchor.passage.id to candidates[index].toList()
-    }.toMap(), selected.indices.filter { truncated[it] }.mapTo(hashSetOf()) { selected[it].passage.id })
+    }.toMap(), selected.indices.filter { truncated[it] }.mapTo(hashSetOf()) { selected[it].passage.id }, scopeKey)
     return ProposalWindow(selected.mapIndexed { index, anchor ->
         val evidence = listOf(ProposalEvidenceRef(changedId, changed.revision, anchor.passage.id)) + candidates[index].map { it.ref }
         val reasons = setOf(ProposalReason.CHANGED_BODY) + candidates[index].map { it.reason }

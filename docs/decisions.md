@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[support decision persistence (§147)](#147-source-bound-support-decision-persistence-2026-11-02)
+[incremental proposal step (§148)](#148-resumable-incremental-proposal-step-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -11875,3 +11875,36 @@ Still open: prune incompatible or deleted concept/verifier records deliberately,
 schedule proposal and support work in the existing coordinator, preserve canonical
 continuity and accessible publication, compare real quality/cost, and complete
 device/human acceptance. The replacement is not active.
+
+## 148. Resumable incremental proposal step (2026-11-02)
+
+Added a bounded suspend function intended for the existing process coordinator;
+it owns no job, inference engine or topic catalog. It accepts a changed indexed
+Note and unexplained passage IDs, resumes the saved anchor/source window, reads
+at most the configured number of source records, and persists a fair last-attempt
+cursor. Unreadable sources remain incomplete without starving later sources.
+Partial proposals are returned with their incomplete status; a local fake-model
+path demonstrates that one indexed Note can produce a concept without global
+formation. This does not publish a canonical topic or establish semantic support.
+
+A source-independent scope key now preserves already-scanned current sources
+when a new source is added; changed or withdrawn scanned revisions still fail
+closed and currently discard the checkpoint rather than selectively repairing it.
+Malformed duplicate or invalid body records cannot be counted as complete
+coverage. The step checks cancellation, current-source tickets and work policy,
+and leaves the last committed window intact on interruption. A post-staging
+stale ticket cannot commit a new window.
+
+All five initial step tests failed against the deferred stub. The source-addition,
+malformed-body and policy-deferral tests each failed against their previous
+behavior. Disabling the atomic post-staging current check made the stale-write
+regression fail; it passed after restoration. Full JVM suite passed 1,465 tests
+with zero failures/errors/skips; debug assembly, Android-test Kotlin compilation
+and standalone probe assembly passed. No actual model quality, Android runtime,
+energy or comparative performance was measured.
+
+Still open: derive passage deltas and existing-concept matches, supply structural
+context, invoke this step from the sole production coordinator, persist accepted
+concepts and support coverage, reconcile capped/missing neighbors, preserve
+canonical identities and user state, update accessible presentation, and perform
+real quality/device/human evaluation. The replacement is not active.

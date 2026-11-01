@@ -60,8 +60,10 @@ class FileProposalProgressStore(private val directory: File,
     private fun valid(record: ProposalProgressRecord): Boolean {
         val cp = record.checkpoint
         if (!validId(record.pageId) || !validRevision(record.revision) || record.anchorOffset < 0 ||
+            (record.lastAttemptedId != null && !validId(record.lastAttemptedId)) ||
             record.embedding.model.isBlank() || record.embedding.dimensions <= 0 ||
             !Regex("[0-9a-f]{64}").matches(cp.contextKey) || cp.candidates.size !in 1..128 ||
+            (cp.scopeKey != null && !Regex("[0-9a-f]{64}").matches(cp.scopeKey)) ||
             cp.truncatedAnchors.any { it !in cp.candidates } ||
             cp.scannedRevisions.any { (id, revision) -> !validId(id) || id == record.pageId || !validRevision(revision) }) return false
         return cp.candidates.all { (anchor, candidates) ->

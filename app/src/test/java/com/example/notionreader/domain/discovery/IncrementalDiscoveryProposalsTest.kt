@@ -143,4 +143,15 @@ class IncrementalDiscoveryProposalsTest {
         assertTrue(resumed.stale)
         assertTrue(resumed.proposals.isEmpty())
     }
+
+    @Test fun malformedBodyRecordsCannotBeReportedAsScannedCoverage() {
+        val note = record("new", passage("new", "a", "s", listOf(1f, 0f)))
+        val valid = record("old", passage("old", "b", "s2", listOf(1f, 0f)))
+        val malformed = valid.copy(passages = valid.passages + valid.passages)
+        val result = run(note, listOf(malformed))
+        assertTrue(ProposalIncompleteReason.SOURCE_SCAN in result.proposals.single().incomplete)
+        assertTrue(ProposalIncompleteReason.STALE_SOURCE in result.proposals.single().incomplete)
+        assertFalse(result.checkpoint!!.scannedRevisions.containsKey("old"))
+        assertTrue(run(note.copy(passages = note.passages + note.passages)).stale)
+    }
 }

@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added a bounded, resumable proposal step for the existing coordinator,
+including fair retry of unreadable sources, source-addition scan reuse and policy
+deferral. It is not scheduled or published yet. Failing-first and stale-write
+proofs plus 1,465 JVM tests and app/probe builds are recorded in decisions §148.
+
 2026-11-02: Added exact-input support assessment persistence and current-source
 reuse checks using the existing proposal store. Failing-first and forged/withdrawn
 record guard proofs, 1,454 JVM tests and app/probe builds are in decisions §147.

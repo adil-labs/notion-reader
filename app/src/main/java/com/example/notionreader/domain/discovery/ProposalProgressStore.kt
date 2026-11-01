@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 /** Compact checkpoint for one changed Note and one bounded anchor window. */
 @Serializable
 data class ProposalProgressRecord(val pageId: String, val revision: String, val anchorOffset: Int,
-    val embedding: EmbeddingIdentity, val checkpoint: ProposalScanCheckpoint)
+    val embedding: EmbeddingIdentity, val checkpoint: ProposalScanCheckpoint, val lastAttemptedId: String? = null)
 
 /** Key covers the exact offered bodies and complete generator identity; bodies are not stored. */
 @Serializable

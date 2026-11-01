@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#147-source-bound-support-decision-persistence-2026-11-02)
+[the current decision-record entry](decisions.md#148-resumable-incremental-proposal-step-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
