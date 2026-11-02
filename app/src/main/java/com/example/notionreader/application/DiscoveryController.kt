@@ -144,12 +144,13 @@ class DiscoveryController(
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
         assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
-        retrieveCursor: PendingRetrievalCursor? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
             (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
             (retrievePageId == null || retrievePageId.isNotBlank() && generateIndex != null && assessEvidenceIndex == null) &&
-            (retrieveCursor == null || retrievePageId != null))
+            (retrieveCursor == null || retrievePageId != null && retrieveScan == null) &&
+            (retrieveScan == null || retrievePageId != null))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
@@ -238,6 +239,17 @@ class DiscoveryController(
                             if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                             val embeddedQuery = try { TopicQueryEmbedding(query, vector) } catch (_: IllegalArgumentException) {
                                 return@withContext EvidenceFirstNoteStep.Incomplete
+                            }
+                            if (retrieveScan != null) {
+                                val scan = scanPendingConceptNote(pendingConcept, embeddedQuery, target, guardedIndex, verifier,
+                                    ticket.epoch, sources, retrieveScan, maxRecords, store, ::current, ::mayWork) { request ->
+                                    runtime.verifyTopicSupport(request) { current() && mayWork() }
+                                }
+                                if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                                if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                                if (guardedIndex.read(targetId) != target || guardedIndex.read(canonicalSemanticId(pageId)) != record || !current())
+                                    return@withContext EvidenceFirstNoteStep.Stale
+                                return@withContext EvidenceFirstNoteStep.NoteRetrievalScan(generated, scan, result.step)
                             }
                             val page = retrievePendingConceptPage(pendingConcept, embeddedQuery, target, guardedIndex, verifier,
                                 ticket.epoch, sources, retrieveCursor, maxRecords, store, ::current, ::mayWork) { request ->

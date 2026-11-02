@@ -12459,3 +12459,32 @@ performance.
 Still open: durable retrieval coverage across eligible Notes, uncertainty
 resolution, process-loop scheduling, catalog continuity and publication, and
 comparative quality, device and human accessibility acceptance.
+
+## 170. Accumulate verified pending-concept evidence for one Note (2026-11-02)
+
+The evidence-first Note entry can now continue a bounded scan over the candidate
+pages of one Note. The in-memory continuation binds the concept, exact query and
+candidate vectors, Note body and revision, verifier, source set and epoch. It
+accumulates supported passages separately from uncertain passages; only a scan
+with no remaining pages or uncertain decisions reports Note-level completion.
+Continuation does not imply corpus completion or canonical publication. After
+process loss, a caller must restart the scan; stored exact-input support decisions
+can be reused. The existing production publisher remains active.
+
+The new test initially failed to compile before the scan existed. The first
+full run also exposed an invalid unnormalized test vector; the fixture was fixed.
+Failing-first guard proofs:
+
+| Guard removed | Test that noticed |
+| --- | --- |
+| Continuation identity binding | `noteScanAccumulatesPagesAndRejectsChangedConcept` |
+| Candidate vector binding | `noteScanAccumulatesPagesAndRejectsChangedConcept` |
+
+The final full JVM suite passed 1,517 tests with no failures, errors or skips;
+debug assembly, Android-test Kotlin compilation and standalone runtime-probe
+assembly passed. Runtime decisions are controlled test doubles, not evidence of
+real model accuracy or device performance.
+
+Still open: durable corpus-wide coverage and recovery, uncertainty resolution,
+process-loop scheduling, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance.

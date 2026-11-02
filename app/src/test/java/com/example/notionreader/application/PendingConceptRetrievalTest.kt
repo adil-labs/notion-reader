@@ -36,4 +36,30 @@ class PendingConceptRetrievalTest {
         assertEquals(setOf("b"), second.supported); assertNull(second.next); assertEquals(2, calls)
         assertEquals(first, step(query, null)); assertEquals(2, calls)
     }
+
+    @Test fun noteScanAccumulatesPagesAndRejectsChangedConcept() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val store = FileProposalProgressStore(root.resolve("progress"))
+        val embedding = EmbeddingIdentity("model", 2); val work = semanticHash("concept")
+        val concept = SupportConcept("pending:$work", work, "Seeds", "Seeds germinate with water.")
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(concept.topicId, work, "Seeds\nSeeds germinate with water.", embedding, TopicRetrievalPolicy(.5f)), listOf(1f, 0f))
+        val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
+        fun passage(id: String, order: Int): EmbeddedPassage {
+            val text = "Water helps seeds germinate in suitable conditions."
+            return EmbeddedPassage(SemanticPassage(id, "note", "section", "Overview", "block$id", "chunk$id", 0, text.length, text, text, order), listOf(1f, 0f))
+        }
+        val record = SemanticRecord("note", "r1", embedding, SemanticMetadata("note"), listOf(passage("a", 0), passage("b", 1)))
+        assertTrue(index.write(record))
+        suspend fun step(c: SupportConcept, state: PendingConceptNoteScan) = scanPendingConceptNote(c, query, record, index, verifier, 4, mapOf("note" to "r1"), state, 1, store, { true }, { true }) {
+            TopicSupportRun.Completed(if (it.evidence.passageId == "a") SupportDecision.SUPPORTED else SupportDecision.UNCERTAIN)
+        }
+        val first = step(concept, PendingConceptNoteScan.start()) as PendingConceptNoteScanResult.Pending
+        assertEquals(PendingConceptNoteScanResult.Stale, step(concept.copy(definition = "Changed definition"), first.scan))
+        val changedRecord = record.copy(passages = listOf(record.passages[0], record.passages[1].copy(vector = listOf(0f, 1f))))
+        assertTrue(index.write(changedRecord))
+        val changed = scanPendingConceptNote(concept, query, changedRecord, index, verifier, 4, mapOf("note" to "r1"), first.scan, 1, store, { true }, { true }) { TopicSupportRun.Unavailable }
+        assertEquals(PendingConceptNoteScanResult.Stale, changed)
+        assertTrue(index.write(record))
+        val done = step(concept, first.scan) as PendingConceptNoteScanResult.Uncertain
+        assertEquals(setOf("a"), done.supported); assertEquals(setOf("b"), done.uncertain)
+    }
 }

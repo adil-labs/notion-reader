@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added bounded Note-level accumulation of independently verified
+candidates, with uncertainty and continuation identity guards. Failing-first
+proofs, 1,517 JVM tests and builds are recorded in §170.
+
 2026-11-02: Added independently verified pending-concept retrieval for one Note
 and one page; corpus coverage and publication remain open. Cursor mutation proof,
 1,516 JVM tests and builds are recorded in §169.

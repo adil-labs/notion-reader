@@ -12,6 +12,8 @@ internal sealed interface EvidenceFirstNoteStep {
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class Retrieved(val generation: ProposalGenerationResult.Completed, val page: PendingConceptRetrievalPage.Ready,
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class NoteRetrievalScan(val generation: ProposalGenerationResult.Completed, val scan: PendingConceptNoteScanResult,
+        val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class RetrievalFailure(val result: PendingConceptRetrievalPage) : EvidenceFirstNoteStep
     data class AssessmentFailure(val result: SupportVerificationResult) : EvidenceFirstNoteStep
     data class GenerationFailure(val result: ProposalGenerationResult) : EvidenceFirstNoteStep

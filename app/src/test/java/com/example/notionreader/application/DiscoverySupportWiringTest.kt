@@ -121,6 +121,9 @@ class DiscoverySupportWiringTest {
         assertEquals(listOf(SupportDecision.SUPPORTED), (covered.coverage as PendingConceptCoverage.Complete).assessments.map { it.decision })
         val retrieved = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note") as EvidenceFirstNoteStep.Retrieved
         assertEquals(setOf("p"), retrieved.page.supported); assertTrue(retrieved.page.uncertain.isEmpty()); assertNull(retrieved.page.next)
+        val scanned = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
+            retrieveScan = PendingConceptNoteScan.start()) as EvidenceFirstNoteStep.NoteRetrievalScan
+        assertEquals(setOf("p"), (scanned.scan as PendingConceptNoteScanResult.Complete).supported)
         assertEquals(1, queryEmbeddings); assertEquals(1, pendingSupportCalls)
         activeSupportIdentity = supportIdentity.copy(policy = "unsupported-pending-v3"); pendingDecision = SupportDecision.UNSUPPORTED
         val pending = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
