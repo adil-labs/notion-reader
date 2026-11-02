@@ -12692,3 +12692,28 @@ Still open: process-owned scheduling and recovery, targeted proposal recomputati
 uncertainty resolution, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 179. Preserve incomplete proposal and support outcomes (2026-11-02)
+
+The pending-concept driver could previously return `Done` after replaying all
+Notes even when the selected proposal still reported incomplete structure or
+source scanning; it also wrapped uncertain corpus support in `Done`. Those
+outcomes now remain explicitly incomplete, carrying both the coverage and the
+proposal reasons. A valid abstention remains a distinct terminal model outcome
+and now carries the proposal's incomplete reasons and scan status as well. This
+is an internal boundary change and does not publish or schedule work.
+
+The updated integration test failed to compile before the incomplete result was
+added. Removing the proposal-incompleteness guard caused
+`coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` to fail; removing
+the uncertainty guard caused `unresolvedSupportCannotBecomeCompleteCorpusWork`
+to fail. Both guards were restored. The tests also distinguish a complete corpus
+from a still-pending source scan. Full JVM suite: 1,525 tests, zero
+failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. No model-quality, device or human
+accessibility evidence was obtained.
+
+Still open: process-owned scheduling and recovery, targeted proposal recomputation,
+uncertainty resolution, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

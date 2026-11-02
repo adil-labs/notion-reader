@@ -48,6 +48,20 @@ internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int
 internal sealed interface PendingCorpusWorkResult {
     data class Pending(val work: PendingCorpusWork) : PendingCorpusWorkResult
     data class Done(val coverage: PendingCorpusReplayResult) : PendingCorpusWorkResult
-    data class Abstained(val reason: com.example.notionreader.domain.discovery.DiscoveryAbstentionReason) : PendingCorpusWorkResult
+    data class Incomplete(val coverage: PendingCorpusReplayResult,
+        val reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>,
+        val scanPending: Boolean) : PendingCorpusWorkResult
+    data class Abstained(val reason: com.example.notionreader.domain.discovery.DiscoveryAbstentionReason,
+        val reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>,
+        val scanPending: Boolean) : PendingCorpusWorkResult
     data class Stopped(val reason: EvidenceFirstNoteStep, val work: PendingCorpusWork) : PendingCorpusWorkResult
+}
+
+/** Complete source retrieval cannot hide uncertain evidence or an incomplete proposal. */
+internal fun pendingCorpusOutcome(coverage: PendingCorpusReplayResult,
+    reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>, scanPending: Boolean): PendingCorpusWorkResult {
+    require(coverage is PendingCorpusReplayResult.Complete || coverage is PendingCorpusReplayResult.Uncertain)
+    return if (coverage is PendingCorpusReplayResult.Uncertain || scanPending || reasons.isNotEmpty())
+        PendingCorpusWorkResult.Incomplete(coverage, reasons, scanPending)
+    else PendingCorpusWorkResult.Done(coverage)
 }

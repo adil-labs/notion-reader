@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Prevented incomplete proposals and uncertain support from being
+reported as complete corpus work; abstention retains completeness context.
+Failing-first proofs, 1,525 JVM tests and builds are recorded in §179.
+
 2026-11-02: Scoped Note checkpoints to proposal dependencies, retaining them
 across unrelated edits while guarding withdrawal, epochs and legacy migration.
 Failing-first proofs, 1,524 JVM tests and builds are recorded in §178.

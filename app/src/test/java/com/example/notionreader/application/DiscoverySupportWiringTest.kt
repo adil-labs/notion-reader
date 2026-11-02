@@ -105,6 +105,7 @@ class DiscoverySupportWiringTest {
         assertEquals(1, proposalCalls)
         val abstained = controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)) as PendingCorpusWorkResult.Abstained
         assertEquals(DiscoveryAbstentionReason.MIXED_EVIDENCE, abstained.reason)
+        assertTrue(ProposalIncompleteReason.STRUCTURE in abstained.reasons)
         assertTrue(controller.advanceEvidenceFirstNote("note", generateIndex = 0) is EvidenceFirstNoteStep.Generated)
         assertEquals("An unchanged abstention must survive reuse", 1, proposalCalls)
         activeProposalIdentity = proposalIdentity.copy(policy = "proposal-v2"); switchProposalDuringInference = true
@@ -143,16 +144,19 @@ class DiscoverySupportWiringTest {
         val changedGeneration = controller.advancePendingCorpusWork(work) as PendingCorpusWorkResult.Stopped
         assertEquals(EvidenceFirstNoteStep.Stale, changedGeneration.reason)
         activeProposalIdentity = originalProposalIdentity
-        var finalCoverage: PendingCorpusReplayResult? = null
+        var terminal: PendingCorpusWorkResult? = null
         repeat(12) {
-            if (finalCoverage == null) when (val step = controller.advancePendingCorpusWork(work)) {
+            if (terminal == null) when (val step = controller.advancePendingCorpusWork(work)) {
                 is PendingCorpusWorkResult.Pending -> work = step.work
-                is PendingCorpusWorkResult.Done -> finalCoverage = step.coverage
+                is PendingCorpusWorkResult.Done -> terminal = step
+                is PendingCorpusWorkResult.Incomplete -> terminal = step
                 is PendingCorpusWorkResult.Stopped -> fail("Unexpected stop: ${step.reason}")
                 is PendingCorpusWorkResult.Abstained -> fail("Unexpected abstention: ${step.reason}")
             }
         }
-        assertEquals(mapOf("note" to setOf("p")), (finalCoverage as PendingCorpusReplayResult.Complete).supported)
+        val incomplete = terminal as PendingCorpusWorkResult.Incomplete
+        assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reasons)
+        assertEquals(mapOf("note" to setOf("p")), (incomplete.coverage as PendingCorpusReplayResult.Complete).supported)
         assertEquals(2, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
         val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
             retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true) as EvidenceFirstNoteStep.PendingNoteReplay

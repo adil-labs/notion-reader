@@ -167,7 +167,11 @@ class DiscoveryController(
         when (result) {
             is EvidenceFirstNoteStep.Generated -> {
                 val abstention = result.generation.response as? DiscoveryProposalResponse.Abstained
-                if (abstention != null) return PendingCorpusWorkResult.Abstained(abstention.reason)
+                if (abstention != null) {
+                    val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
+                        ?: return PendingCorpusWorkResult.Stopped(result, work)
+                    return PendingCorpusWorkResult.Abstained(abstention.reason, proposal.incomplete, result.window.scanPending)
+                }
             }
             is EvidenceFirstNoteStep.CitationCoverage -> {
                 val pending = result.coverage as? PendingConceptCoverage.Pending
@@ -185,7 +189,11 @@ class DiscoveryController(
                 is PendingCorpusReplayResult.Incomplete -> return PendingCorpusWorkResult.Pending(work.copy(
                     phase = PendingCorpusWorkPhase.REPLAY_NOTE, corpus = replay.replay, target = replay.pageId, generationKey = result.generation.workKey,
                     note = PendingConceptNoteScan.start()))
-                is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> return PendingCorpusWorkResult.Done(replay)
+                is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> {
+                    val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
+                        ?: return PendingCorpusWorkResult.Stopped(result, work)
+                    return pendingCorpusOutcome(replay, proposal.incomplete, result.window.scanPending)
+                }
                 else -> Unit
             }
             is EvidenceFirstNoteStep.PendingNoteReplay -> when (val replay = result.replay) {
