@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added process-local query mutation tickets to scan scopes and writes;
+catalog tickets and worker integration remain open. Failing-first and continuation
+proof, 1,509 JVM tests and builds are recorded in §160.
+
 2026-11-02: Added guarded atomic restart and compare-and-replace for catalog scan
 checkpoints. Scheduler and live catalog/query tickets remain open. Failing-first
 and comparison proof, 1,505 JVM tests and builds are recorded in §159.

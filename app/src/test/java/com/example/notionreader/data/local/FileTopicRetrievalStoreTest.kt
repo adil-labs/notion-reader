@@ -24,6 +24,37 @@ class FileTopicRetrievalStoreTest {
         assertFalse(dir.listFiles()!!.single().readText().contains("passageBody"))
         assertEquals(dir.listFiles()!!.sumOf { it.length() }, store.bytes())
     }
+    @Test fun queryTicketChangesOnlyWhenQueryEmbeddingsChange() = runBlocking {
+        val store = FileTopicRetrievalStore(files.newFolder())
+        val initial = store.queryTicket(); assertNotNull(initial)
+        assertEquals(TopicRetrievalWriteResult.Written, store.write(progress) { true })
+        val installed = store.queryTicket(); assertNotEquals(initial, installed)
+        assertEquals(TopicRetrievalWriteResult.Written, store.write(progress.copy(complete = false)) { true })
+        assertEquals(installed, store.queryTicket())
+        val changed = progress.copy(queryEmbedding = progress.queryEmbedding.copy(vector = listOf(0f, 1f)))
+        assertEquals(TopicRetrievalWriteResult.Written, store.write(changed) { true })
+        val replacement = store.queryTicket(); assertNotEquals(installed, replacement)
+        store.remove("topic"); assertNotEquals(replacement, store.queryTicket())
+        val afterRemoval = store.queryTicket()
+        assertEquals(TopicRetrievalWriteResult.Written, store.write(progress) { true })
+        val beforePrune = store.queryTicket(); store.prune(setOf("topic")); assertEquals(beforePrune, store.queryTicket())
+        store.prune(emptySet()); assertNotEquals(beforePrune, store.queryTicket())
+        assertNotEquals(afterRemoval, store.queryTicket())
+    }
+
+    @Test fun queryTicketIsUnavailableWhileAChangedEmbeddingIsBeingWritten() = runBlocking {
+        lateinit var store: FileTopicRetrievalStore
+        val gate = object : StorageWriteGate {
+            override suspend fun <T> write(category: StorageCategory, additionalPeakBytes: Long, block: suspend () -> T): T {
+                assertNull(store.queryTicket())
+                return block()
+            }
+        }
+        store = FileTopicRetrievalStore(files.newFolder(), gate)
+        assertEquals(TopicRetrievalWriteResult.Written, store.write(progress) { true })
+        assertNotNull(store.queryTicket())
+    }
+
     @Test fun aStaleCommitPreservesTheLastCompleteGeneration() = runBlocking {
         val dir = files.newFolder(); val store = FileTopicRetrievalStore(dir)
         store.write(progress) { true }

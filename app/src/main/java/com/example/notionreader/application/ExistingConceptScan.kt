@@ -22,13 +22,15 @@ internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: Se
     currentCoroutineContext().ensureActive()
     if (!current()) return ExistingConceptScanResult.Stale
     if (!mayWork()) return ExistingConceptScanResult.Deferred
+    val queryTicket = retrievals.queryTicket() ?: return ExistingConceptScanResult.Deferred
+    fun valid() = current() && retrievals.queryTicket() == queryTicket
     if (!snapshot.complete) return ExistingConceptScanResult.Incomplete
     if (snapshot.identity != identity || record.identity != identity || sources[canonicalSemanticId(record.pageId)] != record.revision)
         return ExistingConceptScanResult.Stale
     val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
     if (topics.map { it.id }.toSet().size != topics.size) return ExistingConceptScanResult.Incomplete
     val fields = listOf("existing-concept-scan-v1", snapshot.generation.toString(), passageDeltaFingerprint(record),
-        identity.toString(), policy.toString(), verifier.toString(), epoch.toString()) +
+        identity.toString(), policy.toString(), verifier.toString(), epoch.toString(), queryTicket) +
         sources.toSortedMap().entries.flatMap { listOf(it.key, it.value) } + topics.flatMap { topic ->
             listOf(topic.id, topic.createdOrder.toString(), topic.currentGeneratedLabel?.workKey.orEmpty()) +
                 topic.members.sortedBy { it.pageId }.flatMap { listOf(it.pageId, it.revision, it.passage.id) }
@@ -38,8 +40,8 @@ internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: Se
             cursor.topicOffset == topics.size && cursor.passage != null)) return ExistingConceptScanResult.Stale
     val offset = cursor?.topicOffset ?: 0
     if (offset == topics.size) return ExistingConceptScanResult.Page(emptySet(), emptySet(), null, scope)
-    val entry = currentExistingConcept(topics[offset], identity, policy, sources, retrievals) { current() && mayWork() }
-    if (!current()) return ExistingConceptScanResult.Stale
+    val entry = currentExistingConcept(topics[offset], identity, policy, sources, retrievals) { valid() && mayWork() }
+    if (!valid()) return ExistingConceptScanResult.Stale
     if (!mayWork()) return ExistingConceptScanResult.Deferred
     val concept = when (entry) {
         is ExistingConceptCatalogResult.Ready -> entry
@@ -47,7 +49,8 @@ internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: Se
         ExistingConceptCatalogResult.Stale -> return ExistingConceptScanResult.Stale
     }
     val result = verifyExistingConceptPage(concept.concept, concept.query, record, index, verifier, epoch, sources,
-        cursor?.passage, limit, progress, current, mayWork, verify)
+        cursor?.passage, limit, progress, ::valid, mayWork, verify)
+    if (!valid()) return ExistingConceptScanResult.Stale
     return when (result) {
         is ExistingConceptEvidenceResult.Ready -> {
             val next = if (result.next != null) ExistingConceptScanCursor(scope, offset, result.next)
@@ -77,23 +80,25 @@ internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: 
     currentCoroutineContext().ensureActive()
     if (!current()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
+    val queryTicket = retrievals.queryTicket() ?: return DurableConceptScanResult.Deferred
+    fun valid() = current() && retrievals.queryTicket() == queryTicket
     val id = canonicalSemanticId(record.pageId)
     if (sources[id] != record.revision) return DurableConceptScanResult.Stale
     val saved = progress.readConceptScan(id, sources)
-    if (!current()) return DurableConceptScanResult.Stale
+    if (!valid()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
     // A finished record is intentionally untrusted until its assessments and scope are revalidated.
     if (!restart && saved != null && saved.next == null) return DurableConceptScanResult.AwaitingValidation(saved)
     val result = scanExistingConceptPage(snapshot, record, identity, policy, verifier, epoch, sources,
-        retrievals, index, progress, if (restart) null else saved?.next, limit, current, mayWork, verify)
-    if (!current()) return DurableConceptScanResult.Stale
+        retrievals, index, progress, if (restart) null else saved?.next, limit, ::valid, mayWork, verify)
+    if (!valid()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
     return when (result) {
         is ExistingConceptScanResult.Page -> {
             val assessments = ((if (restart) emptyList() else saved?.assessments.orEmpty()) + result.assessments).distinctBy { it.workKey }
             val next = ExistingConceptScanRecord(id, record.revision, sources.toMap(), result.scopeKey, result.next, assessments)
-            val written = progress.replaceConceptScan(saved, next) { current() && mayWork() }
-            if (!current()) return DurableConceptScanResult.Stale
+            val written = progress.replaceConceptScan(saved, next) { valid() && mayWork() }
+            if (!valid()) return DurableConceptScanResult.Stale
             if (!mayWork()) return DurableConceptScanResult.Deferred
             when (written) {
                 ProposalProgressWriteResult.Written -> if (next.next == null) DurableConceptScanResult.AwaitingValidation(next)

@@ -44,6 +44,21 @@ class ExistingConceptScanTest {
         val a = step(null); assertTrue(a.supported.isEmpty()); assertNotNull(a.next)
         val b = step(a.next); assertEquals(setOf("note:p"), b.supported); assertNull(b.next)
     }
+    @Test fun replacingAPreviouslyScannedQueryInvalidatesTheContinuation() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))
+        val first = topic("first", 1); val second = topic("second", 2)
+        for (topic in listOf(first, second)) assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(query(topic))) { true })
+        val snapshot = TopicSnapshot(topics = listOf(first, second), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        suspend fun step(cursor: ExistingConceptScanCursor?) = scanExistingConceptPage(snapshot, note, identity, policy, verifier,
+            4, sources, retrievals, index, progress, cursor, 1, { true }, { true }) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        val firstPage = step(null) as ExistingConceptScanResult.Page
+        val changed = query(first).copy(vector = listOf(0f, 1f))
+        assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(changed)) { true })
+        assertEquals(ExistingConceptScanResult.Stale, step(firstPage.next))
+    }
+
     @Test fun passagePaginationFinishesBeforeAdvancingToTheNextConcept() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
         val base = record("note"); val original = base.passages.single()
@@ -144,6 +159,26 @@ class ExistingConceptScanTest {
         val replaced = (step(1, true) as DurableConceptScanResult.AwaitingValidation).record
         assertNotEquals(old.scopeKey, replaced.scopeKey)
         assertEquals(replaced, progress.readConceptScan("note", sources))
+    }
+
+    @Test fun queryReplacementDuringCheckpointWriteCannotSaveTheOldScan() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val real = FileProposalProgressStore(root.resolve("progress"))
+        val topic = topic("first", 1); val initial = query(topic)
+        assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(initial)) { true })
+        val snapshot = TopicSnapshot(topics = listOf(topic), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        val racing = object : ProposalProgressStore by real {
+            override suspend fun replaceConceptScan(expected: ExistingConceptScanRecord?, record: ExistingConceptScanRecord,
+                stillCurrent: () -> Boolean): ProposalProgressWriteResult {
+                retrievals.write(TopicRetrievalProgress(initial.copy(vector = listOf(0f, 1f)))) { true }
+                return real.replaceConceptScan(expected, record, stillCurrent)
+            }
+        }
+        val result = advanceDurableConceptScan(snapshot, note, identity, policy, verifier, 4, sources, retrievals, index,
+            racing, 1, { true }, { true }) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        assertEquals(DurableConceptScanResult.Stale, result)
+        assertNull(real.readConceptScan("note", sources))
     }
 
     @Test fun unavailableConceptAndChangedSnapshotCannotReportCompletedScan() = runBlocking {

@@ -8,6 +8,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +22,12 @@ import kotlinx.serialization.json.Json
 class FileTopicRetrievalStore(private val directory: File,
     private val writeGate: StorageWriteGate = StorageWriteGate.Unrestricted) : TopicRetrievalStore {
     private val lock = Mutex()
+    private val queryInstance = UUID.randomUUID().toString()
+    private val querySequence = AtomicLong()
+    override fun queryTicket(): String? {
+        val sequence = querySequence.get()
+        return if (sequence % 2L == 0L) "$queryInstance:$sequence" else null
+    }
     private val json = Json { encodeDefaults = true }
     private val recordName = Regex("retrieval-[0-9a-f]{64}\\.json")
     private val maximumRecordBytes = 8L * 1024 * 1024
@@ -65,6 +72,8 @@ class FileTopicRetrievalStore(private val directory: File,
             if (payload.size > maximumRecordBytes) return@withLock TopicRetrievalWriteResult.RecordMemoryLimit
             val destination = target(progress.queryEmbedding.query.topicId)
             val staged = File(directory, "${destination.name}.${UUID.randomUUID()}.tmp")
+            val changesQuery = readFile(destination)?.queryEmbedding != progress.queryEmbedding
+            if (changesQuery) querySequence.incrementAndGet()
             var cleanupFailed = false
             val result = try {
                 writeGate.write(StorageCategory.DISCOVERY, payload.size.toLong() + 4096) {
@@ -81,24 +90,39 @@ class FileTopicRetrievalStore(private val directory: File,
             } catch (_: StorageRefused) { TopicRetrievalWriteResult.StorageRefused }
             catch (_: IOException) { TopicRetrievalWriteResult.IoFailure }
             catch (_: SecurityException) { TopicRetrievalWriteResult.IoFailure }
-            finally { if (staged.exists() && !staged.delete()) cleanupFailed = true }
+            finally {
+                if (staged.exists() && !staged.delete()) cleanupFailed = true
+                if (changesQuery) querySequence.incrementAndGet()
+            }
             if (cleanupFailed) TopicRetrievalWriteResult.IoFailure else result
         } }
 
     override suspend fun remove(topicId: String) = withContext(Dispatchers.IO) { lock.withLock {
         val file = target(topicId)
-        if (file.exists() && !file.delete()) throw IOException("Topic retrieval removal failed")
+        if (file.exists()) {
+            querySequence.incrementAndGet()
+            try { if (!file.delete()) throw IOException("Topic retrieval removal failed") }
+            finally { querySequence.incrementAndGet() }
+        }
     } }
     override suspend fun prune(topicIds: Set<String>) = withContext(Dispatchers.IO) { lock.withLock {
         val retained = topicIds.mapTo(hashSetOf()) { target(it).name }
-        for (file in ownedFiles()) {
-            currentCoroutineContext().ensureActive()
-            if (file.name !in retained || readFile(file) == null)
+        val victims = ownedFiles().filter { it.name !in retained || readFile(it) == null }
+        if (victims.isNotEmpty()) {
+            querySequence.incrementAndGet()
+            try { for (file in victims) {
+                currentCoroutineContext().ensureActive()
                 if (!file.delete()) throw IOException("Topic retrieval pruning failed")
+            } } finally { querySequence.incrementAndGet() }
         }
     } }
     override suspend fun clear() = withContext(Dispatchers.IO) { lock.withLock {
-        ownedFiles().forEach { if (!it.delete()) throw IOException("Topic retrieval reset failed") }
+        val victims = ownedFiles()
+        if (victims.isNotEmpty()) {
+            querySequence.incrementAndGet()
+            try { victims.forEach { if (!it.delete()) throw IOException("Topic retrieval reset failed") } }
+            finally { querySequence.incrementAndGet() }
+        }
     } }
     override suspend fun bytes(): Long = withContext(Dispatchers.IO) { lock.withLock { ownedFiles().sumOf { it.length() } } }
 }

@@ -27,6 +27,8 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
     currentCoroutineContext().ensureActive()
     if (!current()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
+    val queryTicket = retrievals.queryTicket() ?: return ConceptScanReplayResult.Deferred
+    fun valid() = current() && retrievals.queryTicket() == queryTicket
     val id = canonicalSemanticId(record.pageId)
     if (saved.next != null || saved.pageId != id || saved.revision != record.revision || saved.sourceRevisions != sources ||
         sources[id] != record.revision) return ConceptScanReplayResult.Stale
@@ -37,17 +39,17 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
     if (replay.binding != null && replay.binding != binding) return ConceptScanReplayResult.Stale
     if (progress.readConceptScan(id, sources) != saved) return ConceptScanReplayResult.Stale
     val indexed = index.read(id)
-    if (!current()) return ConceptScanReplayResult.Stale
+    if (!valid()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
     if (indexed == null || indexed.identity != record.identity || indexed.revision != record.revision ||
         passageDeltaFingerprint(indexed) != passageDeltaFingerprint(record)) return ConceptScanReplayResult.Stale
     // Replay never invokes a model. Missing exact-input support means the checkpoint cannot be validated.
     val result = scanExistingConceptPage(snapshot, record, identity, policy, verifier, epoch, sources, retrievals,
-        index, progress, replay.next, limit, current, mayWork) { TopicSupportRun.Unavailable }
-    if (!current()) return ConceptScanReplayResult.Stale
+        index, progress, replay.next, limit, ::valid, mayWork) { TopicSupportRun.Unavailable }
+    if (!valid()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
     if (progress.readConceptScan(id, sources) != saved) return ConceptScanReplayResult.Stale
-    if (!current()) return ConceptScanReplayResult.Stale
+    if (!valid()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
     return when (result) {
         is ExistingConceptScanResult.Page -> {

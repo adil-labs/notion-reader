@@ -66,6 +66,8 @@ enum class TopicRetrievalWriteResult { Written, Stale, Invalid, StorageRefused, 
 
 /** Lookup only by canonical topic identity; this store cannot introduce another catalog. */
 interface TopicRetrievalStore {
+    /** Null while query inputs are changing; tickets are process-instance scoped. */
+    fun queryTicket(): String?
     suspend fun read(topicId: String): TopicRetrievalProgress?
     suspend fun write(progress: TopicRetrievalProgress, stillCurrent: () -> Boolean): TopicRetrievalWriteResult
     suspend fun remove(topicId: String)

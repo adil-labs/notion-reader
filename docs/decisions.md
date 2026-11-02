@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[scan checkpoint replacement (§159)](#159-restart-stale-concept-scans-safely-2026-11-02)
+[query mutation tickets (§160)](#160-query-mutation-tickets-for-concept-scans-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12199,3 +12199,33 @@ restart, hold a catalog/query-vector generation ticket, schedule and consume the
 validated work in the sole coordinator, preserve identity and publish supported
 results. Real model quality, device performance and human accessibility gates are
 also open. The existing topic publisher remains active.
+
+
+## 160. Query mutation tickets for concept scans (2026-11-02)
+
+The process-owned retrieval store now exposes a query ticket that is unavailable
+while a query embedding changes and changes when an embedding is installed,
+replaced or removed. Writes that only change matching progress preserve the
+ticket. Scan scopes include this ticket; scan execution, checkpoint writes and
+replay check it around suspended work. A query change between page completion and
+checkpoint commit therefore makes that commit stale. Failed query-write attempts
+may conservatively invalidate a ticket. The ticket includes a store-instance
+identity, so a process/store recreation invalidates prior cursors rather than
+accidentally accepting a reset counter; exact support decisions remain reusable.
+
+The ticket covers writes through the process-owned store instance, not unrelated
+instances or external file edits. Catalog and source generation remain separate
+caller-held guards, and completed stale checkpoints require the explicit guarded
+restart from §159. This does not start a worker or publish topics.
+
+The initial ticket and continuation tests failed against stubs. A checkpoint-write
+race test failed before its write guard was connected. Removing the query ticket
+from scan scope made the changed-query continuation test fail; restoring it passed.
+Full JVM suite: 1,509 tests, zero failures/errors/skips. App debug assembly,
+Android-test Kotlin compilation and runtime-probe assembly passed. No real model,
+device performance or human acceptance evidence was obtained.
+
+Still open: integrate catalog generation with the sole coordinator's live ticket,
+schedule the scan/replay/proposal path, establish and acknowledge complete coverage,
+preserve canonical identities and publish supported evidence. Quality comparisons,
+Android behavior and TalkBack observation remain required before activation.
