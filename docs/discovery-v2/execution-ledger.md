@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added an explicit guarded coordinator admission entry. The
+failing-first proof and 1,531 JVM tests are recorded in §192. It is not
+automatically scheduled; source-race recovery and matching remain open.
+
 2026-11-02: Preserve source-compatible concept evidence across existing
 regrouping. The failing-first proof and 1,531 JVM tests are recorded in §191;
 guarded canonical admission remains open.

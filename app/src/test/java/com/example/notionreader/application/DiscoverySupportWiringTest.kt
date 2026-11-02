@@ -67,10 +67,11 @@ class DiscoverySupportWiringTest {
         val request = topicLabelRequest(raw, labelIdentity, 0)!!
         val label = (validateTopicLabel(request, "Seed germination", request.evidence.map { it.passageId }, request.groupFingerprint, 0,
             "Conditions that allow seeds to germinate and sprout.") as TopicLabelValidation.Accepted).label
+        var rejectGraphWrites = false
         val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = true, connectionPassComplete = true)
+            var snapshot = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = true, connectionPassComplete = true, acceptedRevisions = mapOf("note" to revision))
             override suspend fun read() = snapshot
-            override suspend fun write(snapshot: TopicSnapshot): Boolean { this.snapshot = snapshot; return true }
+            override suspend fun write(snapshot: TopicSnapshot): Boolean { if (rejectGraphWrites) return false; this.snapshot = snapshot; return true }
             override suspend fun clear() { snapshot = TopicSnapshot() }
             override suspend fun bytes() = 0L
         }
@@ -224,6 +225,36 @@ class DiscoverySupportWiringTest {
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
         assertEquals("The cancelled attempt also reached the support runtime", 8, supportCalls)
         assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
+        switchDuringInference = false; activeSupportIdentity = supportIdentity.copy(policy = "support-v4")
+        decision = SupportDecision.UNSUPPORTED; pendingDecision = SupportDecision.SUPPORTED
+        assertTrue(controller.advanceEvidenceFirstNote("note", restart = true) is EvidenceFirstNoteStep.Proposals)
+        var readyWork = PendingCorpusWork.start("note", 0, structureComplete = true)
+        var done: PendingCorpusWorkResult.Done? = null
+        repeat(30) {
+            if (done == null) when (val step = controller.advancePendingCorpusWork(readyWork)) {
+                is PendingCorpusWorkResult.Pending -> readyWork = step.work
+                is PendingCorpusWorkResult.Done -> done = step
+                else -> fail("Expected complete work: $step")
+            }
+        }
+        val completed = requireNotNull(done)
+        val incompleteCandidate = completed.copy(candidate = completed.candidate.copy(
+            proposal = completed.candidate.proposal.copy(incomplete = setOf(ProposalIncompleteReason.STRUCTURE))))
+        assertEquals(CanonicalAdmissionResult.Incomplete, controller.advanceCanonicalAdmission(incompleteCandidate, PendingCorpusReplay.start()))
+        val forged = completed.copy(coverage = PendingCorpusReplayResult.Complete(emptyMap()))
+        assertEquals(CanonicalAdmissionResult.Stale, controller.advanceCanonicalAdmission(forged, PendingCorpusReplay.start()))
+        assertEquals(listOf("topic"), graph.snapshot.topics.map { it.id })
+        rejectGraphWrites = true
+        assertTrue(controller.advanceCanonicalAdmission(completed, PendingCorpusReplay.start()) is CanonicalAdmissionResult.StorageFailure)
+        assertEquals(listOf("topic"), graph.snapshot.topics.map { it.id })
+        rejectGraphWrites = false
+        val admitted = controller.advanceCanonicalAdmission(completed, PendingCorpusReplay.start())
+        assertTrue(admitted is CanonicalAdmissionResult.Admitted)
+        val savedTopic = graph.snapshot.topics.single { it.canonicalConcept != null }
+        assertEquals(completed.candidate.generation.workKey, savedTopic.canonicalConcept!!.workKey)
+        assertNotEquals("pending:${completed.candidate.generation.workKey}", savedTopic.id)
+        assertEquals(2, graph.snapshot.topics.size)
+        assertEquals(CanonicalAdmissionResult.Stale, controller.advanceCanonicalAdmission(completed, PendingCorpusReplay.start()))
     }
     @Test fun candidatesCanRemainProvisionalWithoutACompletedCatalog() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))

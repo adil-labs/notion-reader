@@ -212,6 +212,34 @@ class DiscoveryController(
             ticket.snapshot, dependencies)
     }
 
+    /** Revalidate before handing a completed concept to the sole catalog owner. */
+    internal suspend fun advanceCanonicalAdmission(done: PendingCorpusWorkResult.Done,
+        replay: PendingCorpusReplay): CanonicalAdmissionResult = withContext(workDispatcher) {
+        val candidate = done.candidate
+        val owner = topics ?: return@withContext CanonicalAdmissionResult.Incomplete
+        val ticket = candidate.catalogTicket ?: return@withContext CanonicalAdmissionResult.Incomplete
+        if (candidate.proposal.incomplete.isNotEmpty() || candidate.generation.incomplete.isNotEmpty())
+            return@withContext CanonicalAdmissionResult.Incomplete
+        val token = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = owner.isCatalogTicketCurrent(ticket) && runtime.validity.isCurrent(token) &&
+            mutable.value.indexedRevision == indexedRevision && topicProposalIdentity() == candidate.generator &&
+            topicSupportIdentity() == candidate.verifier
+        if (!current()) return@withContext CanonicalAdmissionResult.Stale
+        val checked = revalidatePendingCandidateCorpus(candidate, replay)
+        if (!current()) return@withContext CanonicalAdmissionResult.Stale
+        when (checked) {
+            is PendingCorpusReplayResult.Pending -> CanonicalAdmissionResult.Pending(checked.replay)
+            PendingCorpusReplayResult.Stale -> CanonicalAdmissionResult.Stale
+            PendingCorpusReplayResult.Deferred -> CanonicalAdmissionResult.Deferred
+            is PendingCorpusReplayResult.Complete -> {
+                if (done.coverage != checked) CanonicalAdmissionResult.Stale
+                else owner.admitCandidate(ticket, candidate, ::current)
+            }
+            else -> CanonicalAdmissionResult.Incomplete
+        }
+    }
+
     /** Runs bounded existing steps inside the caller's process-owned work window. */
     internal suspend fun advancePendingCorpusWindow(initial: PendingCorpusWork, maxSteps: Int,
         maxRecords: Int = 8, shouldContinue: () -> Boolean = { true }): PendingCorpusWorkResult = withContext(workDispatcher) {

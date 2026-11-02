@@ -13013,3 +13013,29 @@ The full JVM suite passed 1,531 tests with no failures, errors or skips; debug
 assembly and Android-test Kotlin compilation passed. No device or model-quality
 claim follows. Guarded admission, independently supported retrieval persistence,
 process-owned scheduling, and the remaining evaluation gates are still open.
+
+## 192. Add guarded candidate admission to the existing coordinator (2026-11-02)
+
+An explicit internal admission entry now rechecks citations and replays the
+corpus before handing a complete candidate to the existing TopicCoordinator.
+The coordinator checks its live ticket and source revisions, loads the cited
+anchor, gives the topic a fresh canonical ID, stores concept provenance with
+the topic and adds continuity in the same topic-store write. A rejected write
+leaves the previous in-memory catalog unchanged. If source or model state changes
+during the write, the current fallback clears the store to avoid retaining stale
+private evidence; recovery and continuity preservation for that race need a
+separate tested implementation before this entry can be scheduled.
+
+The integration test exercises a supported one-Note concept, separate canonical
+ID, rejection of incomplete and forged coverage, storage refusal, and stale
+ticket after admission. The admission entry is not scheduled in production;
+matching results, direct evidence-first catalog completion without formation,
+source-race recovery, presentation, and lifecycle work remain incomplete.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Compare replayed corpus with the completion result | `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` failed on forged empty coverage. |
+
+Full JVM suite: 1,531 tests, zero failures, errors or skips. Debug assembly and
+Android-test Kotlin compilation passed. Controlled runtimes do not establish
+semantic quality, device performance, TalkBack behavior or release acceptance.

@@ -79,6 +79,57 @@ internal class TopicCoordinator(
             cache.invalidations.value.isEmpty() &&
             identity() == ticket.identity && retrievals?.queryTicket() == ticket.queryTicket
 
+    /** Atomic catalog admission; replay and independent citation checks are performed by the caller. */
+    suspend fun admitCandidate(ticket: TopicCatalogTicket, candidate: PendingConceptCandidate,
+        current: () -> Boolean): CanonicalAdmissionResult = writes.withLock {
+        if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
+        if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
+        if (candidate.catalogTicket != ticket || candidate.sources != latest.acceptedRevisions ||
+            candidate.proposal.incomplete.isNotEmpty() || candidate.generation.incomplete.isNotEmpty())
+            return@withLock CanonicalAdmissionResult.Incomplete
+        val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
+            ?: return@withLock CanonicalAdmissionResult.Incomplete
+        val prior = latest.topics.singleOrNull { it.canonicalConcept?.workKey == candidate.generation.workKey }
+        if (prior != null) return@withLock CanonicalAdmissionResult.Admitted(prior.id)
+        val citation = candidate.citations.firstOrNull { it.decision == SupportDecision.SUPPORTED }?.evidence
+            ?: return@withLock CanonicalAdmissionResult.Incomplete
+        val record = readRecord(citation.pageId)
+        if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
+        if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
+        if (record == null || record.identity != ticket.identity || record.revision != citation.revision)
+            return@withLock CanonicalAdmissionResult.Incomplete
+        val anchor = record.passages.singleOrNull { it.passage.id == citation.passageId && it.passage.isBodyEvidence() }
+            ?: return@withLock CanonicalAdmissionResult.Incomplete
+        val order = (latest.continuity.maxOfOrNull { it.createdOrder } ?: 0L)
+        if (order == Long.MAX_VALUE) return@withLock CanonicalAdmissionResult.Incomplete
+        val id = java.util.UUID.randomUUID().toString()
+        val member = TopicMembership(citation.pageId, record.metadata, anchor.passage, 1f, anchor.passage, citation.revision)
+        val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
+            concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations)
+        val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order + 1,
+            canonicalConcept = evidence)
+        val continuity = TopicContinuity(id, order + 1, setOf(citation.pageId), setOf(topicEvidenceIdentity(anchor.passage)),
+            anchorSourceId = topicEvidenceIdentity(anchor.passage))
+        val next = latest.copy(topics = latest.topics + topic, continuity = latest.continuity + continuity,
+            generation = latest.generation + 1)
+        if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
+        val saved = bulk { store.writeDetailed(next) }
+        if (!isCatalogTicketCurrent(ticket) || !current()) {
+            // A source may have been withdrawn during I/O; never leave that staged evidence on disk.
+            store.clear()
+            return@withLock CanonicalAdmissionResult.Stale
+        }
+        if (saved is TopicWriteResult.Rejected) return@withLock CanonicalAdmissionResult.StorageFailure(saved)
+        latest = next
+        epoch.incrementAndGet()
+        formationWorkspace = null
+        pendingFormation = null
+        view = if (inspected) view.copy(updated = true) else view.copy(snapshot = next)
+        store.pinInspection(view.snapshot)
+        changed(view)
+        CanonicalAdmissionResult.Admitted(id)
+    }
+
     suspend fun advanceExistingConceptWork(ticket: TopicCatalogTicket, record: SemanticRecord,
         sources: Map<String, String>, verifier: TopicLabelIdentity, limit: Int, restart: Boolean = false,
         verifierCurrent: () -> Boolean = { true }, verify: suspend (TopicSupportRequest) -> TopicSupportRun): DurableConceptScanResult {

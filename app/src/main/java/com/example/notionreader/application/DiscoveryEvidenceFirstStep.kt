@@ -44,6 +44,15 @@ internal data class PendingConceptCandidate(
     val catalogTicket: TopicCatalogTicket?
 )
 
+internal sealed interface CanonicalAdmissionResult {
+    data class Pending(val replay: PendingCorpusReplay) : CanonicalAdmissionResult
+    data class Admitted(val topicId: String) : CanonicalAdmissionResult
+    data object Stale : CanonicalAdmissionResult
+    data object Deferred : CanonicalAdmissionResult
+    data object Incomplete : CanonicalAdmissionResult
+    data class StorageFailure(val result: com.example.notionreader.domain.discovery.TopicWriteResult.Rejected) : CanonicalAdmissionResult
+}
+
 internal enum class PendingCorpusWorkPhase { CORPUS, ASSESS_CITATION, REPLAY_NOTE, SCAN_NOTE }
 internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int,
     val phase: PendingCorpusWorkPhase, val corpus: PendingCorpusReplay, val target: String?,
