@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#158-validate-restored-concept-scan-2026-11-02)
+[the current decision-record entry](decisions.md#159-restart-stale-concept-scans-safely-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

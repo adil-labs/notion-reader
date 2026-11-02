@@ -35,7 +35,8 @@ interface ProposalProgressStore {
     suspend fun readDelta(pageId: String, revision: String, embedding: EmbeddingIdentity): PassageDeltaRecord?
     suspend fun writeDelta(record: PassageDeltaRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readConceptScan(pageId: String, sources: Map<String, String>): ExistingConceptScanRecord?
-    suspend fun writeConceptScan(record: ExistingConceptScanRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
+    suspend fun replaceConceptScan(expected: ExistingConceptScanRecord?, record: ExistingConceptScanRecord,
+        stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment?
     suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun reconcile(sources: Map<String, String>)

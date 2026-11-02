@@ -73,7 +73,7 @@ internal sealed interface DurableConceptScanResult {
 internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: SemanticRecord, identity: EmbeddingIdentity,
     policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
     retrievals: TopicRetrievalStore, index: SemanticIndexStore, progress: ProposalProgressStore, limit: Int,
-    current: () -> Boolean, mayWork: () -> Boolean, verify: suspend (TopicSupportRequest) -> TopicSupportRun): DurableConceptScanResult {
+    current: () -> Boolean, mayWork: () -> Boolean, restart: Boolean = false, verify: suspend (TopicSupportRequest) -> TopicSupportRun): DurableConceptScanResult {
     currentCoroutineContext().ensureActive()
     if (!current()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
@@ -83,16 +83,16 @@ internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: 
     if (!current()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
     // A finished record is intentionally untrusted until its assessments and scope are revalidated.
-    if (saved != null && saved.next == null) return DurableConceptScanResult.AwaitingValidation(saved)
+    if (!restart && saved != null && saved.next == null) return DurableConceptScanResult.AwaitingValidation(saved)
     val result = scanExistingConceptPage(snapshot, record, identity, policy, verifier, epoch, sources,
-        retrievals, index, progress, saved?.next, limit, current, mayWork, verify)
+        retrievals, index, progress, if (restart) null else saved?.next, limit, current, mayWork, verify)
     if (!current()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
     return when (result) {
         is ExistingConceptScanResult.Page -> {
-            val assessments = (saved?.assessments.orEmpty() + result.assessments).distinctBy { it.workKey }
+            val assessments = ((if (restart) emptyList() else saved?.assessments.orEmpty()) + result.assessments).distinctBy { it.workKey }
             val next = ExistingConceptScanRecord(id, record.revision, sources.toMap(), result.scopeKey, result.next, assessments)
-            val written = progress.writeConceptScan(next) { current() && mayWork() }
+            val written = progress.replaceConceptScan(saved, next) { current() && mayWork() }
             if (!current()) return DurableConceptScanResult.Stale
             if (!mayWork()) return DurableConceptScanResult.Deferred
             when (written) {

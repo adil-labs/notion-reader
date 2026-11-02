@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[catalog scan replay (§158)](#158-validate-restored-concept-scan-2026-11-02)
+[scan checkpoint replacement (§159)](#159-restart-stale-concept-scans-safely-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12176,3 +12176,26 @@ schedule scans and replay in the existing coordinator, consume only validated
 coverage, preserve canonical identity and publication, and complete comparative
 quality, device and human accessibility acceptance. Existing production topic
 publication remains active.
+
+
+## 159. Restart stale concept scans safely (2026-11-02)
+
+A caller can explicitly restart a stale concept scan. The first new page is
+computed before replacing the old checkpoint, and replacement compares the
+previously observed checkpoint under the existing store instance's mutex. A
+newer checkpoint or stale ticket is rejected; storage refusal preserves the old
+record. Normal advancement uses the same compare-and-replace operation, and the
+unguarded scan-record write was removed. Existing source reconciliation must run
+before this operation and the caller must maintain its live source/catalog ticket.
+This is process-instance serialization, not a claim of cross-process file locking.
+
+The compare-and-replace and restart tests failed against their initial stubs.
+Removing the comparison made the newer-checkpoint regression fail; the guard was
+restored. Full JVM suite: 1,505 tests, no failures/errors/skips. App debug assembly,
+Android-test Kotlin compilation and standalone runtime-probe assembly passed.
+
+Still open: a caller must decide when replay proves a checkpoint stale and invoke
+restart, hold a catalog/query-vector generation ticket, schedule and consume the
+validated work in the sole coordinator, preserve identity and publish supported
+results. Real model quality, device performance and human accessibility gates are
+also open. The existing topic publisher remains active.

@@ -101,7 +101,7 @@ class ExistingConceptScanTest {
             note, identity, policy, verifier, 4, sources, retrievals, index, missingSupport, 1, { true }, { true }))
         assertEquals(ConceptScanReplayResult.Stale, replayConceptScanPage(saved, ConceptScanReplay.start(), snapshot.copy(generation = 9),
             note, identity, policy, verifier, 4, sources, retrievals, index, progress, 1, { true }, { true }))
-        assertEquals(ProposalProgressWriteResult.Written, progress.writeConceptScan(saved.copy(assessments = emptyList())) { true })
+        assertEquals(ProposalProgressWriteResult.Written, progress.replaceConceptScan(saved, saved.copy(assessments = emptyList())) { true })
         assertEquals(ConceptScanReplayResult.Invalid, replayConceptScanPage(saved.copy(assessments = emptyList()), ConceptScanReplay.start(),
             snapshot, note, identity, policy, verifier, 4, sources, retrievals, index, progress, 1, { true }, { true }))
     }
@@ -114,13 +114,36 @@ class ExistingConceptScanTest {
         val snapshot = TopicSnapshot(topics = listOf(first, second), identity = identity, complete = true)
         val sources = mapOf("seed" to "r1", "note" to "r1"); var calls = 0
         val refused = object : ProposalProgressStore by real {
-            override suspend fun writeConceptScan(record: ExistingConceptScanRecord, stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
+            override suspend fun replaceConceptScan(expected: ExistingConceptScanRecord?, record: ExistingConceptScanRecord,
+                stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
         }
         suspend fun step(store: ProposalProgressStore) = advanceDurableConceptScan(snapshot, note, identity, policy, verifier,
             4, sources, retrievals, index, store, 1, { true }, { true }) { calls++; TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
         assertEquals(DurableConceptScanResult.StorageFailure(ProposalProgressWriteResult.StorageRefused), step(refused))
         assertNull(real.readConceptScan("note", sources)); assertEquals(1, calls)
         assertEquals(DurableConceptScanResult.Pending, step(real)); assertEquals(1, calls)
+    }
+
+    @Test fun restartingAStaleCompletedScanAtomicallyReplacesItsCheckpoint() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))
+        val topic = topic("first", 1)
+        assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(query(topic))) { true })
+        val snapshot = TopicSnapshot(topics = listOf(topic), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        suspend fun step(generation: Long, restart: Boolean, store: ProposalProgressStore = progress) =
+            advanceDurableConceptScan(snapshot.copy(generation = generation), note, identity, policy, verifier, 4, sources,
+                retrievals, index, store, 1, { true }, { true }, restart = restart) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        val old = (step(0, false) as DurableConceptScanResult.AwaitingValidation).record
+        val refused = object : ProposalProgressStore by progress {
+            override suspend fun replaceConceptScan(expected: ExistingConceptScanRecord?, record: ExistingConceptScanRecord,
+                stillCurrent: () -> Boolean) = ProposalProgressWriteResult.StorageRefused
+        }
+        assertEquals(DurableConceptScanResult.StorageFailure(ProposalProgressWriteResult.StorageRefused), step(1, true, refused))
+        assertEquals(old, progress.readConceptScan("note", sources))
+        val replaced = (step(1, true) as DurableConceptScanResult.AwaitingValidation).record
+        assertNotEquals(old.scopeKey, replaced.scopeKey)
+        assertEquals(replaced, progress.readConceptScan("note", sources))
     }
 
     @Test fun unavailableConceptAndChangedSnapshotCannotReportCompletedScan() = runBlocking {

@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added guarded atomic restart and compare-and-replace for catalog scan
+checkpoints. Scheduler and live catalog/query tickets remain open. Failing-first
+and comparison proof, 1,505 JVM tests and builds are recorded in §159.
+
 2026-11-02: Added bounded replay to revalidate completed concept scans using
 cached support decisions; worker integration and live tickets remain open.
 Failing-first and omitted-assessment proof, 1,503 JVM tests and builds are in §158.

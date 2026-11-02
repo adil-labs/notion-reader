@@ -65,7 +65,7 @@ class FileProposalProgressStoreTest {
         val scope = semanticHash("catalog")
         val checkpoint = ExistingConceptScanRecord("older", "r2", sources, scope,
             ExistingConceptScanCursor(scope, 1, null), listOf(support))
-        assertEquals(ProposalProgressWriteResult.Written, store.writeConceptScan(checkpoint) { true })
+        assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(null, checkpoint) { true })
         val reopened = FileProposalProgressStore(dir)
         assertEquals(checkpoint, reopened.readConceptScan("older", sources))
         assertNull(reopened.readConceptScan("older", sources + ("new" to "r3")))
@@ -77,11 +77,25 @@ class FileProposalProgressStoreTest {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir); val scope = semanticHash("catalog")
         val checkpoint = ExistingConceptScanRecord("older", "r2", sources, scope,
             ExistingConceptScanCursor(scope, 1, null), listOf(support))
-        assertEquals(ProposalProgressWriteResult.Invalid, store.writeConceptScan(checkpoint.copy(next = checkpoint.next!!.copy(scopeKey = semanticHash("other")))) { true })
+        assertEquals(ProposalProgressWriteResult.Invalid, store.replaceConceptScan(null, checkpoint.copy(next = checkpoint.next!!.copy(scopeKey = semanticHash("other")))) { true })
         var checks = 0
-        assertEquals(ProposalProgressWriteResult.Stale, store.writeConceptScan(checkpoint) { ++checks == 1 })
+        assertEquals(ProposalProgressWriteResult.Stale, store.replaceConceptScan(null, checkpoint) { ++checks == 1 })
         assertNull(store.readConceptScan("older", sources))
         assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
+    }
+
+    @Test fun compareAndReplaceCannotOverwriteANewerConceptScan() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir); val scope = semanticHash("catalog")
+        val first = ExistingConceptScanRecord("older", "r2", sources, scope, ExistingConceptScanCursor(scope, 1, null), listOf(support))
+        val second = first.copy(next = ExistingConceptScanCursor(scope, 2, null))
+        val third = first.copy(next = null)
+        assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(null, first) { true })
+        assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(first, second) { true })
+        assertEquals(ProposalProgressWriteResult.Stale, store.replaceConceptScan(first, third) { true })
+        assertEquals(second, store.readConceptScan("older", sources))
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.replaceConceptScan(second, third) { ++checks == 1 })
+        assertEquals(second, FileProposalProgressStore(dir).readConceptScan("older", sources))
     }
 
     @Test fun supportDecisionSurvivesRestartOnlyForCurrentSourceAndExactKey() = runBlocking {

@@ -204,12 +204,15 @@ class FileProposalProgressStore(private val directory: File,
             if (!validId(pageId)) null else readConceptScanFile(scanTarget(pageId))?.takeIf { it.sourceRevisions == sources }
         } }
 
-    override suspend fun writeConceptScan(record: ExistingConceptScanRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
-        withContext(Dispatchers.IO) { lock.withLock {
-            if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
-            if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
-            writeAtomic(scanTarget(record.pageId), json.encodeToString(StoredConceptScan(scan = record)).toByteArray(Charsets.UTF_8), stillCurrent)
-        } }
+    override suspend fun replaceConceptScan(expected: ExistingConceptScanRecord?, record: ExistingConceptScanRecord,
+        stillCurrent: () -> Boolean): ProposalProgressWriteResult = withContext(Dispatchers.IO) { lock.withLock {
+        if (!valid(record) || expected != null && (expected.pageId != record.pageId || expected.sourceRevisions != record.sourceRevisions))
+            return@withLock ProposalProgressWriteResult.Invalid
+        if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+        val observed = readConceptScanFile(scanTarget(record.pageId))?.takeIf { it.sourceRevisions == record.sourceRevisions }
+        if (observed != expected) return@withLock ProposalProgressWriteResult.Stale
+        writeAtomic(scanTarget(record.pageId), json.encodeToString(StoredConceptScan(scan = record)).toByteArray(Charsets.UTF_8), stillCurrent)
+    } }
 
     override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
         withContext(Dispatchers.IO) { lock.withLock {
