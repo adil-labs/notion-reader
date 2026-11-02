@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#170-accumulate-verified-pending-concept-evidence-for-one-note-2026-11-02)
+[the current decision-record entry](decisions.md#171-store-untrusted-pending-note-scan-checkpoints-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

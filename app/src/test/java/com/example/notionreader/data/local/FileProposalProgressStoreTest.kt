@@ -189,4 +189,32 @@ class FileProposalProgressStoreTest {
         assertEquals(ProposalProgressWriteResult.Written, store.write(record) { true }); store.clear()
         assertNull(store.read("new", 0, sources)); assertEquals("keep", unrelated.readText())
     }
+    @Test fun pendingNoteScanCheckpointSurvivesRestartAndIsWithdrawnWithItsSources() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val work = semanticHash("proposal"); val binding = semanticHash("scope")
+        val checkpoint = PendingNoteScanRecord(work, "older", "r2", sources, binding,
+            TopicCandidateCursor(semanticHash("query"), "older", "r2", .9f, 0, "passage"),
+            setOf("supported"), setOf("uncertain"))
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(null, checkpoint) { true })
+        val restored = FileProposalProgressStore(dir)
+        assertEquals(checkpoint, restored.readPendingNoteScan(work, "older", sources))
+        val later = checkpoint.copy(cursor = null)
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(checkpoint, later) { true })
+        assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(checkpoint, checkpoint) { true })
+        assertEquals(later, restored.readPendingNoteScan(work, "older", sources))
+        assertNull(restored.readPendingNoteScan(work, "older", sources - "new"))
+        store.reconcile(sources - "new")
+        assertNull(restored.readPendingNoteScan(work, "older", sources)); assertEquals(0L, store.bytes())
+    }
+
+    @Test fun staleOrInvalidPendingNoteCheckpointCannotOverwriteProgress() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val work = semanticHash("proposal"); val binding = semanticHash("scope")
+        val checkpoint = PendingNoteScanRecord(work, "older", "r2", sources, binding, null, setOf("p"), emptySet())
+        assertEquals(ProposalProgressWriteResult.Invalid, store.replacePendingNoteScan(null, checkpoint.copy(uncertain = setOf("p"))) { true })
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(null, checkpoint) { ++checks == 1 })
+        assertNull(store.readPendingNoteScan(work, "older", sources))
+        assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
+    }
 }

@@ -23,6 +23,11 @@ data class ExistingConceptScanCursor(val scopeKey: String, val topicOffset: Int,
 data class ExistingConceptScanRecord(val pageId: String, val revision: String, val sourceRevisions: Map<String, String>,
     val scopeKey: String, val next: ExistingConceptScanCursor?, val assessments: List<TopicSupportAssessment>)
 
+/** Untrusted pending-concept progress; replay against current sources before use. */
+@Serializable
+data class PendingNoteScanRecord(val workKey: String, val pageId: String, val revision: String,
+    val sourceRevisions: Map<String, String>, val binding: String, val cursor: TopicCandidateCursor?,
+    val supported: Set<String>, val uncertain: Set<String>)
 enum class ProposalProgressWriteResult { Written, Stale, Invalid, StorageRefused, IoFailure, RecordMemoryLimit }
 
 interface ProposalProgressStore {
@@ -36,6 +41,9 @@ interface ProposalProgressStore {
     suspend fun writeDelta(record: PassageDeltaRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readConceptScan(pageId: String, sources: Map<String, String>): ExistingConceptScanRecord?
     suspend fun replaceConceptScan(expected: ExistingConceptScanRecord?, record: ExistingConceptScanRecord,
+        stillCurrent: () -> Boolean): ProposalProgressWriteResult
+    suspend fun readPendingNoteScan(workKey: String, pageId: String, sources: Map<String, String>): PendingNoteScanRecord?
+    suspend fun replacePendingNoteScan(expected: PendingNoteScanRecord?, record: PendingNoteScanRecord,
         stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment?
     suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean): ProposalProgressWriteResult

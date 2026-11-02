@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 @Serializable private data class StoredProposalConcept(val version: Int = 1, val concept: ProposalConceptRecord)
 @Serializable private data class StoredPassageDelta(val version: Int = 1, val delta: PassageDeltaRecord)
 @Serializable private data class StoredConceptScan(val version: Int = 1, val scan: ExistingConceptScanRecord)
+@Serializable private data class StoredPendingNoteScan(val version: Int = 1, val scan: PendingNoteScanRecord)
 @Serializable private data class StoredTopicSupport(val version: Int = 1, val assessment: TopicSupportAssessment)
 
 class FileProposalProgressStore(private val directory: File,
@@ -31,6 +32,7 @@ class FileProposalProgressStore(private val directory: File,
     private val conceptName = Regex("proposal-concept-[0-9a-f]{64}\\.json")
     private val deltaName = Regex("proposal-delta-[0-9a-f]{64}\\.json")
     private val scanName = Regex("proposal-concept-scan-[0-9a-f]{64}\\.json")
+    private val pendingNoteScanName = Regex("proposal-pending-note-scan-[0-9a-f]{64}\\.json")
     private val supportName = Regex("proposal-support-[0-9a-f]{64}\\.json")
     private val maxBytes = 8L * 1024 * 1024
     init {
@@ -48,12 +50,14 @@ class FileProposalProgressStore(private val directory: File,
     private fun conceptTarget(workKey: String) = File(directory, "proposal-concept-$workKey.json")
     private fun deltaTarget(pageId: String) = File(directory, "proposal-delta-${semanticHash(canonicalSemanticId(pageId))}.json")
     private fun scanTarget(pageId: String) = File(directory, "proposal-concept-scan-${semanticHash(canonicalSemanticId(pageId))}.json")
+    private fun pendingNoteScanTarget(workKey: String, pageId: String) = File(directory,
+        "proposal-pending-note-scan-${semanticHash(listOf(workKey, canonicalSemanticId(pageId)).joinToString("") { "${it.length}:$it" })}.json")
     private fun supportTarget(workKey: String) = File(directory, "proposal-support-$workKey.json")
     private fun ownedFiles(): List<File> = if (!directory.exists()) emptyList() else
         (directory.listFiles() ?: throw IOException("Proposal progress directory unavailable")).filter {
-            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || conceptName.matches(it.name) || deltaName.matches(it.name) || scanName.matches(it.name) || supportName.matches(it.name) ||
+            it.isFile && (recordName.matches(it.name) || abstentionName.matches(it.name) || conceptName.matches(it.name) || deltaName.matches(it.name) || scanName.matches(it.name) || pendingNoteScanName.matches(it.name) || supportName.matches(it.name) ||
                 (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-") ||
-                    it.name.startsWith("proposal-support-") || it.name.startsWith("proposal-concept-") || it.name.startsWith("proposal-delta-")) && it.extension == "tmp")
+                    it.name.startsWith("proposal-support-") || it.name.startsWith("proposal-pending-note-scan-") || it.name.startsWith("proposal-concept-") || it.name.startsWith("proposal-delta-")) && it.extension == "tmp")
         }
     private fun validId(id: String) = id.length in 1..512 && id == canonicalSemanticId(id)
     private fun validRevision(value: String) = value.length in 1..1024
@@ -89,6 +93,18 @@ class FileProposalProgressStore(private val directory: File,
             record.assessments.size <= 32768 && record.assessments.map { it.workKey }.toSet().size == record.assessments.size &&
             record.assessments.all { valid(it) && it.evidence.pageId == record.pageId && it.evidence.revision == record.revision &&
                 it.decision != SupportDecision.UNSUPPORTED }
+    }
+    private fun valid(record: PendingNoteScanRecord): Boolean {
+        val cursor = record.cursor
+        return Regex("[0-9a-f]{64}").matches(record.workKey) && validId(record.pageId) && validRevision(record.revision) &&
+            Regex("[0-9a-f]{64}").matches(record.binding) && record.sourceRevisions.size <= 32768 &&
+            record.sourceRevisions[record.pageId] == record.revision &&
+            record.sourceRevisions.all { (id, revision) -> validId(id) && validRevision(revision) } &&
+            record.supported.size + record.uncertain.size <= 32768 &&
+            record.supported.intersect(record.uncertain).isEmpty() &&
+            (record.supported + record.uncertain).all { it.length in 1..512 } &&
+            (cursor == null || Regex("[0-9a-f]{64}").matches(cursor.queryKey) && cursor.pageId == record.pageId &&
+                cursor.revision == record.revision && cursor.score.isFinite() && cursor.score in -1f..1f && cursor.passageId.length in 1..512)
     }
     private fun valid(record: TopicSupportAssessment): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
         record.topicId.length in 1..512 && record.conceptWorkKey.length in 1..512 &&
@@ -155,6 +171,12 @@ class FileProposalProgressStore(private val directory: File,
             stored.scan.takeIf { stored.version == 1 && valid(it) && scanTarget(it.pageId).name == file.name }
         }
     } catch (_: Exception) { null }
+    private fun readPendingNoteScanFile(file: File): PendingNoteScanRecord? = try {
+        if (!file.isFile || file.length() !in 1..maxBytes) null else {
+            val stored = json.decodeFromString<StoredPendingNoteScan>(file.readText(Charsets.UTF_8))
+            stored.scan.takeIf { stored.version == 1 && valid(it) && pendingNoteScanTarget(it.workKey, it.pageId).name == file.name }
+        }
+    } catch (_: Exception) { null }
     private fun readSupportFile(file: File): TopicSupportAssessment? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredTopicSupport>(file.readText(Charsets.UTF_8))
@@ -214,6 +236,22 @@ class FileProposalProgressStore(private val directory: File,
         writeAtomic(scanTarget(record.pageId), json.encodeToString(StoredConceptScan(scan = record)).toByteArray(Charsets.UTF_8), stillCurrent)
     } }
 
+    override suspend fun readPendingNoteScan(workKey: String, pageId: String, sources: Map<String, String>): PendingNoteScanRecord? =
+        withContext(Dispatchers.IO) { lock.withLock {
+            if (!Regex("[0-9a-f]{64}").matches(workKey) || !validId(pageId)) null
+            else readPendingNoteScanFile(pendingNoteScanTarget(workKey, pageId))?.takeIf { it.sourceRevisions == sources }
+        } }
+
+    override suspend fun replacePendingNoteScan(expected: PendingNoteScanRecord?, record: PendingNoteScanRecord,
+        stillCurrent: () -> Boolean): ProposalProgressWriteResult = withContext(Dispatchers.IO) { lock.withLock {
+        if (!valid(record) || expected != null && (expected.workKey != record.workKey || expected.pageId != record.pageId ||
+                expected.sourceRevisions != record.sourceRevisions)) return@withLock ProposalProgressWriteResult.Invalid
+        if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+        val file = pendingNoteScanTarget(record.workKey, record.pageId)
+        val observed = readPendingNoteScanFile(file)?.takeIf { it.sourceRevisions == record.sourceRevisions }
+        if (observed != expected) return@withLock ProposalProgressWriteResult.Stale
+        writeAtomic(file, json.encodeToString(StoredPendingNoteScan(scan = record)).toByteArray(Charsets.UTF_8), stillCurrent)
+    } }
     override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
         withContext(Dispatchers.IO) { lock.withLock {
             if (!Regex("[0-9a-f]{64}").matches(workKey)) null
@@ -275,6 +313,7 @@ class FileProposalProgressStore(private val directory: File,
                 conceptName.matches(file.name) -> readConceptFile(file)?.evidence?.all { sources[it.pageId] == it.revision } == true
                 deltaName.matches(file.name) -> readDeltaFile(file)?.let { sources[it.pageId] == it.revision } == true
                 scanName.matches(file.name) -> readConceptScanFile(file)?.let { it.sourceRevisions == sources } == true
+                pendingNoteScanName.matches(file.name) -> readPendingNoteScanFile(file)?.let { it.sourceRevisions == sources } == true
                 supportName.matches(file.name) -> readSupportFile(file)?.let { eligible(it, sources) } == true
                 else -> readFile(file)?.let { eligible(it, sources) } == true
             }

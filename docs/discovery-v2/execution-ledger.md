@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added source-bound pending Note checkpoint storage; scanner replay and
+consumer integration remain open. Stale-write and withdrawal proofs, 1,519 JVM
+tests and builds are recorded in §171.
+
 2026-11-02: Added bounded Note-level accumulation of independently verified
 candidates, with uncertainty and continuation identity guards. Failing-first
 proofs, 1,517 JVM tests and builds are recorded in §170.

@@ -12488,3 +12488,31 @@ real model accuracy or device performance.
 Still open: durable corpus-wide coverage and recovery, uncertainty resolution,
 process-loop scheduling, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance.
+
+## 171. Store untrusted pending Note scan checkpoints (2026-11-02)
+
+The existing proposal-progress store now supports source-bound, per-proposal and
+per-Note scan checkpoints. Records contain passage IDs and cursor metadata, not
+source bodies or vectors. Writes use the existing atomic storage gate and compare
+against the expected prior checkpoint; changed source sets make reads ineligible
+and reconciliation removes withdrawn records. Checkpoints are untrusted and are
+not yet connected to the scanner: bounded replay and revalidation are required
+before they can control continuation or membership. No second catalog is created.
+
+The new store tests failed to compile before this interface existed. Regression
+proofs, each run against the named test only:
+
+| Guard removed | Test that noticed |
+| --- | --- |
+| Compare-and-replace against observed checkpoint | `pendingNoteScanCheckpointSurvivesRestartAndIsWithdrawnWithItsSources` |
+| Source-set eligibility on checkpoint reads | `pendingNoteScanCheckpointSurvivesRestartAndIsWithdrawnWithItsSources` |
+
+Both guards were restored. The full JVM suite passed 1,519 tests, with no
+failures, errors or skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. No real-model or device quality claim
+follows from these storage tests.
+
+Still open: connect checkpoint persistence to bounded replay and revalidation,
+corpus-wide coverage, uncertainty resolution, process-loop scheduling, catalog
+continuity and publication, and comparative quality, device and human accessibility
+acceptance. The existing production publisher remains active.
