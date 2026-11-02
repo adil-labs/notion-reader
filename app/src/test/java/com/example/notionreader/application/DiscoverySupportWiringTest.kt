@@ -187,6 +187,11 @@ class DiscoverySupportWiringTest {
         assertEquals(assessed.generation.workKey, incomplete.candidate.query.query.conceptWorkKey)
         assertNotNull(incomplete.candidate.catalogTicket)
         assertTrue(controller.revalidatePendingCandidate(incomplete.candidate) is PendingConceptCoverage.Complete)
+        val replayedCorpus = controller.revalidatePendingCandidateCorpus(incomplete.candidate, PendingCorpusReplay.start())
+        assertEquals(mapOf("note" to setOf("p")), (replayedCorpus as PendingCorpusReplayResult.Complete).supported)
+        val changedCitation = incomplete.candidate.citations.single().copy(decision = SupportDecision.UNSUPPORTED)
+        assertEquals(PendingCorpusReplayResult.Invalid, controller.revalidatePendingCandidateCorpus(
+            incomplete.candidate.copy(citations = listOf(changedCitation)), PendingCorpusReplay.start()))
         activeProposalIdentity = originalProposalIdentity.copy(policy = "changed-after-replay")
         assertEquals(PendingConceptCoverage.Stale, controller.revalidatePendingCandidate(incomplete.candidate))
         activeProposalIdentity = originalProposalIdentity

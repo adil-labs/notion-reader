@@ -12946,3 +12946,25 @@ Still open: bounded corpus revalidation and atomic canonical publication,
 identity continuity, process-owned scheduling and recovery, uncertainty
 resolution, and comparative quality, device and human accessibility acceptance.
 The existing production publisher remains active.
+
+## 189. Revalidate pending concept corpus in bounded steps (2026-11-02)
+
+The controller can now recheck selected citations and replay the stored per-Note
+support checkpoints under a live coordinator ticket, current source revisions,
+model identities and indexed generation. Each call advances at most one bounded
+replay step, defers for foreground work or power policy, and preserves uncertain
+results. The returned membership is reconstructed from support evidence rather
+than accepted from an earlier terminal result. This remains a revalidation seam,
+not a publication ticket, canonical write, or production scheduler.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Compare rechecked citation assessments with the candidate | `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` failed when a changed citation was accepted. |
+
+The full JVM suite passed 1,529 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. Controlled test runtimes do
+not establish actual model quality or device behavior.
+
+Still open: atomic canonical publication and identity continuity, process-owned
+scheduling and recovery, uncertainty resolution, and comparative quality, device
+and human accessibility acceptance. The existing production publisher remains active.

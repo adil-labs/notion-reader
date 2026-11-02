@@ -169,6 +169,49 @@ class DiscoveryController(
         coverage
     }
 
+    /** Replays one bounded corpus step; the result is evidence, not permission to publish. */
+    internal suspend fun revalidatePendingCandidateCorpus(candidate: PendingConceptCandidate,
+        replay: PendingCorpusReplay): PendingCorpusReplayResult = withContext(workDispatcher) {
+        val owner = topics ?: return@withContext PendingCorpusReplayResult.Invalid
+        val ticket = candidate.catalogTicket ?: return@withContext PendingCorpusReplayResult.Invalid
+        val store = proposalProgressStore ?: return@withContext PendingCorpusReplayResult.Invalid
+        val token = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = owner.isCatalogTicketCurrent(ticket) && runtime.validity.isCurrent(token) &&
+            mutable.value.indexedRevision == indexedRevision && topicProposalIdentity() == candidate.generator &&
+            topicSupportIdentity() == candidate.verifier && candidate.embedding == ticket.identity
+        fun mayWork() = mayContinueWork() && runtime.foregroundQueries.get() == 0
+        if (!current()) return@withContext PendingCorpusReplayResult.Stale
+        if (!mayWork()) return@withContext PendingCorpusReplayResult.Deferred
+        val citations = revalidatePendingCandidate(candidate)
+        if (!current()) return@withContext PendingCorpusReplayResult.Stale
+        if (!mayWork()) return@withContext PendingCorpusReplayResult.Deferred
+        when (citations) {
+            PendingConceptCoverage.Stale -> return@withContext PendingCorpusReplayResult.Stale
+            is PendingConceptCoverage.Complete -> if (citations.assessments.any { it.decision != SupportDecision.SUPPORTED })
+                return@withContext PendingCorpusReplayResult.Invalid
+            else -> return@withContext PendingCorpusReplayResult.Invalid
+        }
+        val sources = runtime.validity.eligibleRevisions()
+        if (sources != candidate.sources || !current()) return@withContext PendingCorpusReplayResult.Stale
+        val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
+            ?: return@withContext PendingCorpusReplayResult.Invalid
+        val refs = candidate.proposal.evidence.groupBy { canonicalSemanticId(it.pageId) }
+        if (refs.any { (id, entries) -> id.isBlank() || entries.map { it.revision }.toSet().size != 1 ||
+                sources[id] != entries.first().revision }) return@withContext PendingCorpusReplayResult.Stale
+        val dependencies = refs.mapValues { it.value.first().revision }
+        val scopeFields = listOf("candidate-revalidation-v1", ticket.epoch.toString(), ticket.cacheRevision.toString(),
+            ticket.queryTicket, token.reset.toString(), token.cacheRevision.toString(), indexedRevision.toString())
+        val scope = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
+        val guardedIndex = object : SemanticIndexStore by index {
+            override suspend fun read(pageId: String): SemanticRecord? = runtime.bulkStep { index.read(pageId) }
+        }
+        replayPendingCorpus(replay, scope,
+            SupportConcept("pending:${candidate.generation.workKey}", candidate.generation.workKey, concept.name, concept.definition),
+            candidate.query, candidate.verifier, ticket.epoch, sources, guardedIndex, store, ::current, ::mayWork,
+            ticket.snapshot, dependencies)
+    }
+
     /** Runs bounded existing steps inside the caller's process-owned work window. */
     internal suspend fun advancePendingCorpusWindow(initial: PendingCorpusWork, maxSteps: Int,
         maxRecords: Int = 8, shouldContinue: () -> Boolean = { true }): PendingCorpusWorkResult = withContext(workDispatcher) {
