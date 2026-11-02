@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Preserve source-compatible concept evidence across existing
+regrouping. The failing-first proof and 1,531 JVM tests are recorded in §191;
+guarded canonical admission remains open.
+
 2026-11-02: Added source-bound concept evidence to existing compact topic records
 and withdrawal handling. Failing-first proof and 1,530 JVM tests are in §190;
 guarded canonical admission remains open.

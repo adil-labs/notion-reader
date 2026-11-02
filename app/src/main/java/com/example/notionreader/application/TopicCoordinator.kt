@@ -439,7 +439,7 @@ internal class TopicCoordinator(
                 failed("Stored connections are unavailable. Retry processing."); return
             }
         val connected = semantic
-        val result = grouped.copy(connections = connected, catalogReference = null, referenceTitles = referenceTitles,
+        val result = retainCanonicalConcepts(latest, grouped).copy(connections = connected, catalogReference = null, referenceTitles = referenceTitles,
             connectionCursor = connectionCursor, connectionPassageCursor = connectionPassageCursor,
             connectionTargetCursor = connectionTargetCursor,
             connectionTargetCount = sources.size,

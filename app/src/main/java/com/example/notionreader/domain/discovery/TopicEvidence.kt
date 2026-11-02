@@ -2,6 +2,26 @@ package com.example.notionreader.domain.discovery
 
 import kotlin.math.sqrt
 
+/** Preserve an existing concept only when its topic and cited body evidence genuinely survive regrouping. */
+fun retainCanonicalConcepts(previous: TopicSnapshot, next: TopicSnapshot): TopicSnapshot {
+    if (previous.identity == null || previous.identity != next.identity) return next
+    val byId = (previous.topics + previous.provisionalTopics).associateBy { it.id }
+    fun retain(topic: DiscoveredTopic): DiscoveredTopic {
+        if (topic.canonicalConcept != null) return topic
+        val old = byId[topic.id] ?: return topic
+        val concept = old.canonicalConcept ?: return topic
+        if (concept.offered.any { next.acceptedRevisions[it.pageId] != it.revision }) return topic
+        val cited = concept.citations.map { it.evidence }.toSet()
+        val survives = old.members.any { prior ->
+            val ref = ProposalEvidenceRef(canonicalSemanticId(prior.pageId), prior.revision, prior.passage.id)
+            ref in cited && topic.members.any { current -> current.revision == prior.revision &&
+                canonicalSemanticId(current.pageId) == ref.pageId && current.passage == prior.passage }
+        }
+        return if (survives) topic.copy(canonicalConcept = concept) else topic
+    }
+    return next.copy(topics = next.topics.map(::retain), provisionalTopics = next.provisionalTopics.map(::retain))
+}
+
 /** Mandatory source removal also applies to pinned snapshots. No removed text survives in continuity. */
 fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: Boolean,
     replacements: Map<String, EmbeddedPassage> = emptyMap(), retentionThreshold: Float = TopicPolicy().retention): TopicSnapshot {

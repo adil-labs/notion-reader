@@ -12994,3 +12994,22 @@ no failures, errors or skips; debug assembly and Android-test compilation passed
 Still open: guarded atomic admission and retrieval persistence, identity
 continuity, process-owned scheduling and recovery, and quality, device and human
 accessibility acceptance. The existing production publisher remains active.
+
+## 191. Retain compatible concept evidence through regrouping (2026-11-02)
+
+The existing coordinator's regrouping commit now carries a stored concept to
+the same topic ID only when the embedding identity and all offered source
+revisions still match and at least one cited body passage survives unchanged in
+the regrouped topic. It does not infer continuity from a label, transfer a
+concept to another ID, or create a concept. This prevents the legacy formation
+path from discarding compatible evidence while guarded admission and replacement
+of that path remain unfinished.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Require the cited passage to survive regrouping | `compatibleRegroupingRetainsConceptOnlyForTheSameEvidenceAndIdentity` failed for changed evidence. |
+
+The full JVM suite passed 1,531 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. No device or model-quality
+claim follows. Guarded admission, independently supported retrieval persistence,
+process-owned scheduling, and the remaining evaluation gates are still open.
