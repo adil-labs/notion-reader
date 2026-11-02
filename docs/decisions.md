@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[coordinator concept work (§162)](#162-coordinator-owned-concept-work-entry-2026-11-02)
+[shared support runtime (§163)](#163-wire-concept-checks-to-shared-support-runtime-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12280,3 +12280,31 @@ Still open: wire the entry to the existing process loop and native verifier, rep
 and aggregate validated coverage, generate pending concepts, preserve canonical
 identity and publish supported work. Complete comparative quality, device and
 human accessibility acceptance before switching the existing production publisher.
+
+
+## 163. Wire concept checks to shared support runtime (2026-11-02)
+
+DiscoveryController now has an internal bounded entry that captures the existing
+coordinator ticket, resolves current source revisions and indexed Note, and invokes
+the coordinator's concept check through `DiscoveryRuntime.verifyTopicSupport`.
+ReaderApplication supplies the separately versioned support identity from the
+existing model pack. The runtime's existing inference mutex, foreground priority,
+model availability, cancellation and engine release remain authoritative. A
+changed support identity invalidates in-flight work, including cached-decision
+paths, and a late result cannot replace the previous checkpoint.
+
+The path is wired but is not automatically scheduled and does not publish topics.
+The generative model remains subject to the existing explicit availability and
+acceptance gate; this change did not download or run a real model. The integration
+test's fake verifier establishes the control flow and engine-release boundary,
+not actual semantic reliability.
+
+The initial wiring test failed against the stub. Disabling support-identity checks
+made its in-flight identity-change regression fail; restoring the checks passed.
+Full JVM suite: 1,514 tests, zero failures/errors/skips. Debug assembly,
+Android-test Kotlin compilation and standalone runtime-probe assembly passed.
+
+Still open: schedule bounded scan and validated replay in the existing process
+loop, aggregate and acknowledge coverage, generate concepts, preserve canonical
+continuity and publish only supported evidence. Comparative quality, Android
+performance and human accessibility acceptance remain required before activation.

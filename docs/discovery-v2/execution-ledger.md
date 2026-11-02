@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Wired bounded concept checks to the existing serialized support runtime
+and versioned identity; scheduling and real quality evaluation remain open.
+Failing-first and identity-race proof, 1,514 JVM tests and builds are in §163.
+
 2026-11-02: Added a ticketed bounded concept-work entry to TopicCoordinator;
 scheduling and real verifier wiring remain open. Failing-first and withdrawal
 race proof, 1,513 JVM tests and builds are recorded in §162.

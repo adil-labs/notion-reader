@@ -41,7 +41,8 @@ class DiscoveryController(
     topicLabelUnavailableMessage: () -> String = { "Topic naming is unavailable. Install the topic naming model in Discovery settings." },
     topicRetrievalStore: TopicRetrievalStore? = null,
     topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
-    private val proposalProgressStore: ProposalProgressStore? = null
+    private val proposalProgressStore: ProposalProgressStore? = null,
+    private val topicSupportIdentity: () -> TopicLabelIdentity? = { null }
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
     private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
@@ -106,6 +107,24 @@ class DiscoveryController(
     private val previews = DiscoveryPreviews(mutable, retrieval)
     private val search = DiscoverySearch(runtime, retrieval, mutable, workDispatcher, modelAvailable,
         recommendationThreshold, ::recordTiming)
+
+    internal suspend fun advanceExistingConceptWorkForNote(pageId: String, limit: Int, restart: Boolean = false): DurableConceptScanResult =
+        withContext(workDispatcher) {
+            val owner = topics ?: return@withContext DurableConceptScanResult.Incomplete
+            if (!mayContinueWork()) return@withContext DurableConceptScanResult.Deferred
+            val ticket = owner.captureCatalogTicket() ?: return@withContext DurableConceptScanResult.Incomplete
+            val verifier = topicSupportIdentity() ?: return@withContext DurableConceptScanResult.Incomplete
+            val sources = runtime.validity.eligibleRevisions()
+            if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext DurableConceptScanResult.Stale
+            val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext DurableConceptScanResult.Incomplete
+            if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext DurableConceptScanResult.Stale
+            owner.advanceExistingConceptWork(ticket, record, sources, verifier, limit, restart,
+                verifierCurrent = { topicSupportIdentity() == verifier }) { request ->
+                runtime.verifyTopicSupport(request) {
+                    mayContinueWork() && owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier
+                }
+            }
+        }
 
     suspend fun refreshTopics() = withContext(workDispatcher) { topics?.refresh() }
     suspend fun setTopicsInspected(active: Boolean) = withContext(workDispatcher) { topics?.setInspected(active) }
