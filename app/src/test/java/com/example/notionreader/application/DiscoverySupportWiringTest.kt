@@ -179,6 +179,11 @@ class DiscoverySupportWiringTest {
         val incomplete = terminal as PendingCorpusWorkResult.Incomplete
         assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reasons)
         assertEquals(mapOf("note" to setOf("p")), (incomplete.coverage as PendingCorpusReplayResult.Complete).supported)
+        assertEquals(assessed.generation.workKey, incomplete.candidate.generation.workKey)
+        assertEquals(setOf("p"), incomplete.candidate.citations.map { it.evidence.passageId }.toSet())
+        assertTrue(incomplete.candidate.citations.all { it.decision == SupportDecision.SUPPORTED })
+        assertEquals(mapOf("note" to revision), incomplete.candidate.sources)
+        assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reasons)
         assertEquals(2, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
         val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
             retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true) as EvidenceFirstNoteStep.PendingNoteReplay

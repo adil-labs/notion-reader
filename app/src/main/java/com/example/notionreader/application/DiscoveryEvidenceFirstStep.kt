@@ -18,7 +18,7 @@ internal sealed interface EvidenceFirstNoteStep {
     data class PendingNoteReplay(val generation: ProposalGenerationResult.Completed, val replay: PendingNoteReplayResult,
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class PendingNoteStorageFailure(val reason: com.example.notionreader.domain.discovery.ProposalProgressWriteResult) : EvidenceFirstNoteStep
-    data class CorpusReplay(val generation: ProposalGenerationResult.Completed, val replay: PendingCorpusReplayResult,
+    data class CorpusReplay(val candidate: PendingConceptCandidate, val replay: PendingCorpusReplayResult,
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class RetrievalFailure(val result: PendingConceptRetrievalPage) : EvidenceFirstNoteStep
     data class AssessmentFailure(val result: SupportVerificationResult) : EvidenceFirstNoteStep
@@ -30,6 +30,16 @@ internal sealed interface EvidenceFirstNoteStep {
     data class ScanFailure(val result: DurableConceptScanResult) : EvidenceFirstNoteStep
     data class ProposalFailure(val result: PendingProposalStepResult) : EvidenceFirstNoteStep
 }
+
+/** Evidence retained for a later coordinator commit; this is not a canonical topic or a commit ticket. */
+internal data class PendingConceptCandidate(
+    val proposal: com.example.notionreader.domain.discovery.IncrementalProposal,
+    val generation: ProposalGenerationResult.Completed,
+    val citations: List<com.example.notionreader.domain.discovery.TopicSupportAssessment>,
+    val sources: Map<String, String>,
+    val embedding: com.example.notionreader.domain.discovery.EmbeddingIdentity,
+    val verifier: com.example.notionreader.domain.discovery.TopicLabelIdentity
+)
 
 internal enum class PendingCorpusWorkPhase { CORPUS, ASSESS_CITATION, REPLAY_NOTE, SCAN_NOTE }
 internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int,
@@ -49,8 +59,8 @@ internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int
 }
 internal sealed interface PendingCorpusWorkResult {
     data class Pending(val work: PendingCorpusWork) : PendingCorpusWorkResult
-    data class Done(val coverage: PendingCorpusReplayResult) : PendingCorpusWorkResult
-    data class Incomplete(val coverage: PendingCorpusReplayResult,
+    data class Done(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate) : PendingCorpusWorkResult
+    data class Incomplete(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate,
         val reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>,
         val scanPending: Boolean) : PendingCorpusWorkResult
     data class Abstained(val reason: com.example.notionreader.domain.discovery.DiscoveryAbstentionReason,
@@ -60,12 +70,10 @@ internal sealed interface PendingCorpusWorkResult {
 }
 
 /** Complete source retrieval cannot hide uncertain evidence or an incomplete proposal. */
-internal fun pendingCorpusOutcome(coverage: PendingCorpusReplayResult,
-    reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>, scanPending: Boolean): PendingCorpusWorkResult {
+internal fun pendingCorpusIsIncomplete(coverage: PendingCorpusReplayResult,
+    reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>, scanPending: Boolean): Boolean {
     require(coverage is PendingCorpusReplayResult.Complete || coverage is PendingCorpusReplayResult.Uncertain)
-    return if (coverage is PendingCorpusReplayResult.Uncertain || scanPending || reasons.isNotEmpty())
-        PendingCorpusWorkResult.Incomplete(coverage, reasons, scanPending)
-    else PendingCorpusWorkResult.Done(coverage)
+    return coverage is PendingCorpusReplayResult.Uncertain || scanPending || reasons.isNotEmpty()
 }
 /** Process-local cursor for known concepts in an explicitly incomplete catalog. */
 internal class KnownCatalogScan private constructor(internal val ticket: TopicCatalogTicket?,

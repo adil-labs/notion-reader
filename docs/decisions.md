@@ -12898,3 +12898,27 @@ Still open: canonical publication and continuity without mandatory formation,
 process-owned scheduling and recovery, uncertainty resolution, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 187. Retain verified candidate evidence through corpus replay (2026-11-02)
+
+The bounded corpus driver now returns the proposal, generated response, selected
+citation support assessments, source revision snapshot, embedding identity and
+verifier identity with its terminal coverage. These are a pending candidate,
+not a canonical topic or a commit ticket: a later coordinator publication must
+revalidate the current source and catalog state before writing. Incomplete
+catalog, structure or uncertain coverage remains explicitly incomplete. No
+production publication or scheduling is enabled by this change.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Retain selected citation assessments in the candidate | `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` failed when the returned list was replaced with an empty list. |
+
+The integration test also checks the generation key and source revisions. The
+full JVM suite passed 1,529 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. These checks do not prove
+model quality, a guarded canonical commit, device performance or TalkBack.
+
+Still open: canonical publication and continuity without mandatory formation,
+process-owned scheduling and recovery, uncertainty resolution, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

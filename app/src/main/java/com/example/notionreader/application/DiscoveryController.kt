@@ -206,14 +206,16 @@ class DiscoveryController(
                     return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.CORPUS, citationIndex = null))
             }
             is EvidenceFirstNoteStep.CorpusReplay -> when (val replay = result.replay) {
-                is PendingCorpusReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(corpus = replay.replay, generationKey = result.generation.workKey))
+                is PendingCorpusReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(corpus = replay.replay, generationKey = result.candidate.generation.workKey))
                 is PendingCorpusReplayResult.Incomplete -> return PendingCorpusWorkResult.Pending(work.copy(
-                    phase = PendingCorpusWorkPhase.REPLAY_NOTE, corpus = replay.replay, target = replay.pageId, generationKey = result.generation.workKey,
+                    phase = PendingCorpusWorkPhase.REPLAY_NOTE, corpus = replay.replay, target = replay.pageId, generationKey = result.candidate.generation.workKey,
                     note = PendingConceptNoteScan.start()))
                 is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> {
                     val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
                         ?: return PendingCorpusWorkResult.Stopped(result, work)
-                    return pendingCorpusOutcome(replay, proposal.incomplete, result.window.scanPending)
+                    return if (pendingCorpusIsIncomplete(replay, proposal.incomplete, result.window.scanPending))
+                        PendingCorpusWorkResult.Incomplete(replay, result.candidate, proposal.incomplete, result.window.scanPending)
+                    else PendingCorpusWorkResult.Done(replay, result.candidate)
                 }
                 else -> Unit
             }
@@ -236,7 +238,7 @@ class DiscoveryController(
     }
     /** Shared bounded retrieval for complete and provisional concepts; caller validates citations first. */
     private suspend fun advancePendingRetrieval(proposal: IncrementalProposal, generated: ProposalGenerationResult.Completed,
-        window: IncrementalProposalStepResult.Ready, concept: DiscoveryProposalResponse.Concept, identity: EmbeddingIdentity,
+        window: IncrementalProposalStepResult.Ready, concept: DiscoveryProposalResponse.Concept, citations: List<TopicSupportAssessment>, identity: EmbeddingIdentity,
         verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>, guardedIndex: SemanticIndexStore,
         store: ProposalProgressStore, originPageId: String, record: SemanticRecord, retrievePageId: String,
         retrieveCursor: PendingRetrievalCursor?, retrieveScan: PendingConceptNoteScan?, checkpointPendingScan: Boolean,
@@ -270,7 +272,8 @@ class DiscoveryController(
             if (!mayWork()) return EvidenceFirstNoteStep.Deferred
             if (guardedIndex.read(canonicalSemanticId(originPageId)) != record || !current())
                 return EvidenceFirstNoteStep.Stale
-            return EvidenceFirstNoteStep.CorpusReplay(generated, corpus, window)
+            return EvidenceFirstNoteStep.CorpusReplay(PendingConceptCandidate(proposal, generated, citations.toList(),
+                sources.toMap(), identity, verifier), corpus, window)
         }
         if (replayPendingScan) {
             val saved = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
@@ -395,7 +398,7 @@ class DiscoveryController(
                             val scopeFields = listOf("provisional-retrieval-v1", catalogScope, token.reset.toString(),
                                 token.cacheRevision.toString(), indexedRevision.toString(), identity.toString())
                             val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
-                            return advancePendingRetrieval(proposal, generated, window, concept, identity, verifier, token.reset,
+                            return advancePendingRetrieval(proposal, generated, window, concept, coverage.assessments, identity, verifier, token.reset,
                                 sources, guardedIndex, store, pageId, record, retrievePageId, retrieveCursor, retrieveScan,
                                 checkpointPendingScan, replayPendingScan, corpusReplay, scopeTicket, scopeAnchor, maxRecords,
                                 ::assessmentCurrent, ::mayWork)
@@ -591,7 +594,7 @@ class DiscoveryController(
                             val scopeFields = listOf(ticket.epoch.toString(), ticket.cacheRevision.toString(), ticket.queryTicket,
                                 token.reset.toString(), token.cacheRevision.toString(), indexedRevision.toString(), ticket.identity.toString())
                             val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
-                            return@withContext advancePendingRetrieval(proposal, generated, result.step, concept, ticket.identity,
+                            return@withContext advancePendingRetrieval(proposal, generated, result.step, concept, coverage.assessments, ticket.identity,
                                 verifier, ticket.epoch, sources, guardedIndex, store, pageId, record, retrievePageId, retrieveCursor,
                                 retrieveScan, checkpointPendingScan, replayPendingScan, corpusReplay, scopeTicket, ticket.snapshot,
                                 maxRecords, ::current, ::mayWork)

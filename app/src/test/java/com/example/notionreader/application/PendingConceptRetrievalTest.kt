@@ -185,8 +185,8 @@ class PendingConceptRetrievalTest {
         store.reconcile(updated - "origin"); assertNull(store.readPendingNoteScan(work, "note", updated))
     }    @Test fun unresolvedSupportCannotBecomeCompleteCorpusWork() {
         val uncertain = PendingCorpusReplayResult.Uncertain(mapOf("a" to setOf("pa")), mapOf("b" to setOf("pb")))
-        assertTrue(pendingCorpusOutcome(uncertain, emptySet(), false) is PendingCorpusWorkResult.Incomplete)
+        assertTrue(pendingCorpusIsIncomplete(uncertain, emptySet(), false))
         val complete = PendingCorpusReplayResult.Complete(mapOf("a" to setOf("pa")))
-        assertTrue(pendingCorpusOutcome(complete, emptySet(), false) is PendingCorpusWorkResult.Done)
-        assertTrue(pendingCorpusOutcome(complete, emptySet(), true) is PendingCorpusWorkResult.Incomplete)
+        assertFalse(pendingCorpusIsIncomplete(complete, emptySet(), false))
+        assertTrue(pendingCorpusIsIncomplete(complete, emptySet(), true))
     }}

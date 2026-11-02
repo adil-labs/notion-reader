@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Retained verified proposal and citation evidence through terminal
+corpus replay for a later guarded canonical commit. Failing-first proof and
+1,529 JVM tests are recorded in §187; publication remains open.
+
 2026-11-02: Prevented empty-corpus completion after concept-source withdrawal.
 Failing-first proof and 1,529 JVM tests are recorded in §186; publication remains open.
 
