@@ -146,6 +146,10 @@ class DiscoveryController(
             PendingCorpusWorkPhase.CORPUS -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = work.pageId, corpusReplay = work.corpus)
+            PendingCorpusWorkPhase.ASSESS_CITATION -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset,
+                assessEvidenceIndex = checkNotNull(work.citationIndex))
             PendingCorpusWorkPhase.REPLAY_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
@@ -161,6 +165,21 @@ class DiscoveryController(
         if (work.phase == PendingCorpusWorkPhase.REPLAY_NOTE && result == EvidenceFirstNoteStep.Incomplete)
             return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.SCAN_NOTE, note = PendingConceptNoteScan.start()))
         when (result) {
+            is EvidenceFirstNoteStep.Generated -> {
+                val abstention = result.generation.response as? DiscoveryProposalResponse.Abstained
+                if (abstention != null) return PendingCorpusWorkResult.Abstained(abstention.reason)
+            }
+            is EvidenceFirstNoteStep.CitationCoverage -> {
+                val pending = result.coverage as? PendingConceptCoverage.Pending
+                val concept = result.generation.response as? DiscoveryProposalResponse.Concept
+                val citation = concept?.evidenceIds?.indexOfFirst { it in pending?.missingEvidenceIds.orEmpty() } ?: -1
+                if (citation >= 0) return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.ASSESS_CITATION,
+                    citationIndex = citation, generationKey = result.generation.workKey))
+            }
+            is EvidenceFirstNoteStep.Assessed -> {
+                if (result.assessment.decision == SupportDecision.SUPPORTED)
+                    return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.CORPUS, citationIndex = null))
+            }
             is EvidenceFirstNoteStep.CorpusReplay -> when (val replay = result.replay) {
                 is PendingCorpusReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(corpus = replay.replay, generationKey = result.generation.workKey))
                 is PendingCorpusReplayResult.Incomplete -> return PendingCorpusWorkResult.Pending(work.copy(
@@ -269,7 +288,8 @@ class DiscoveryController(
                         if (expectedGenerationKey != null && generated.workKey != expectedGenerationKey)
                             return@withContext EvidenceFirstNoteStep.Stale
                         if (retrievePageId != null) {
-                            val concept = generated.response as? DiscoveryProposalResponse.Concept ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                            val concept = generated.response as? DiscoveryProposalResponse.Concept
+                                ?: return@withContext EvidenceFirstNoteStep.Generated(generated, result.step)
                             val coverage = readPendingConceptCoverage(proposal, generated, guardedIndex, ticket.identity,
                                 checkNotNull(generator), verifier, ticket.epoch, sources, store, ::current)
                             if (!current()) return@withContext EvidenceFirstNoteStep.Stale
@@ -369,7 +389,8 @@ class DiscoveryController(
                             return@withContext EvidenceFirstNoteStep.CitationCoverage(generated, coverage, result.step)
                         }
                         if (assessEvidenceIndex == null) return@withContext EvidenceFirstNoteStep.Generated(generated, result.step)
-                        val concept = generated.response as? DiscoveryProposalResponse.Concept ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                        val concept = generated.response as? DiscoveryProposalResponse.Concept
+                                ?: return@withContext EvidenceFirstNoteStep.Incomplete
                         val evidenceId = concept.evidenceIds.getOrNull(assessEvidenceIndex) ?: return@withContext EvidenceFirstNoteStep.Incomplete
                         val ref = proposal.evidence.singleOrNull { it.passageId == evidenceId } ?: return@withContext EvidenceFirstNoteStep.Stale
                         // The pending ID scopes the assessment and is never a canonical catalog ID.

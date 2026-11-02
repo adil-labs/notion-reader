@@ -30,23 +30,24 @@ internal sealed interface EvidenceFirstNoteStep {
     data class ProposalFailure(val result: PendingProposalStepResult) : EvidenceFirstNoteStep
 }
 
-internal enum class PendingCorpusWorkPhase { CORPUS, REPLAY_NOTE, SCAN_NOTE }
+internal enum class PendingCorpusWorkPhase { CORPUS, ASSESS_CITATION, REPLAY_NOTE, SCAN_NOTE }
 internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int,
     val phase: PendingCorpusWorkPhase, val corpus: PendingCorpusReplay, val target: String?,
     val note: PendingConceptNoteScan, val existingReplay: ConceptScanReplay?, val generationKey: String?,
-    val explicitPageIds: Set<String>, val structureComplete: Boolean, val anchorOffset: Int) {
+    val explicitPageIds: Set<String>, val structureComplete: Boolean, val anchorOffset: Int, val citationIndex: Int?) {
     companion object {
         fun start(pageId: String, proposalIndex: Int, explicitPageIds: Set<String> = emptySet(),
             structureComplete: Boolean = false, anchorOffset: Int = 0): PendingCorpusWork {
             require(pageId.isNotBlank() && proposalIndex >= 0 && anchorOffset >= 0)
             return PendingCorpusWork(pageId, proposalIndex, PendingCorpusWorkPhase.CORPUS,
                 PendingCorpusReplay.start(), null, PendingConceptNoteScan.start(), null, null,
-                explicitPageIds.toSet(), structureComplete, anchorOffset)
+                explicitPageIds.toSet(), structureComplete, anchorOffset, null)
         }
     }
 }
 internal sealed interface PendingCorpusWorkResult {
     data class Pending(val work: PendingCorpusWork) : PendingCorpusWorkResult
     data class Done(val coverage: PendingCorpusReplayResult) : PendingCorpusWorkResult
+    data class Abstained(val reason: com.example.notionreader.domain.discovery.DiscoveryAbstentionReason) : PendingCorpusWorkResult
     data class Stopped(val reason: EvidenceFirstNoteStep, val work: PendingCorpusWork) : PendingCorpusWorkResult
 }

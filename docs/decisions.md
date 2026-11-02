@@ -12640,3 +12640,26 @@ Still open: process-owned scheduling and recovery, incremental retention across
 source changes, uncertainty resolution, catalog continuity and publication, and
 comparative quality, device and human accessibility acceptance. The existing
 production publisher remains active.
+
+## 177. Drive pending citation checks and abstention (2026-11-02)
+
+The bounded pending-concept driver now selects missing generated citations one at
+a time and assesses them through the existing serialized support runtime. Only a
+supported assessment returns the driver to corpus work; unsupported and uncertain
+assessments stop it with the actual result. A generated abstention is returned as
+a successful terminal outcome rather than an incomplete scan or retry request.
+This work remains unscheduled and cannot publish a topic.
+
+The shared-runtime integration test failed to compile before these outcomes were
+connected. Removing the supported-decision guard made
+`coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` fail when the
+verifier returned unsupported; the guard was restored. The same test checks
+citation progression and a cached abstention. Full JVM suite: 1,522 tests, zero
+failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. Controlled runtime decisions do not
+establish semantic quality.
+
+Still open: process-owned scheduling and recovery, incremental retention across
+source changes, uncertainty resolution, catalog continuity and publication, and
+comparative quality, device and human accessibility acceptance. The existing
+production publisher remains active.

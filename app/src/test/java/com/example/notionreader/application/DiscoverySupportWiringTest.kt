@@ -103,6 +103,8 @@ class DiscoverySupportWiringTest {
         val generated = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0) as EvidenceFirstNoteStep.Generated
         assertEquals(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE), generated.generation.response)
         assertEquals(1, proposalCalls)
+        val abstained = controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)) as PendingCorpusWorkResult.Abstained
+        assertEquals(DiscoveryAbstentionReason.MIXED_EVIDENCE, abstained.reason)
         assertTrue(controller.advanceEvidenceFirstNote("note", generateIndex = 0) is EvidenceFirstNoteStep.Generated)
         assertEquals("An unchanged abstention must survive reuse", 1, proposalCalls)
         activeProposalIdentity = proposalIdentity.copy(policy = "proposal-v2"); switchProposalDuringInference = true
@@ -111,6 +113,10 @@ class DiscoverySupportWiringTest {
         assertNull(progress.readAbstention(discoveryProposalWorkKey(lastProposal!!), mapOf("note" to revision)))
         switchProposalDuringInference = false
         activeProposalIdentity = proposalIdentity.copy(policy = "proposal-concept-v3"); proposeConcept = true
+        var citationWork = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)) as PendingCorpusWorkResult.Pending).work
+        assertEquals(PendingCorpusWorkPhase.ASSESS_CITATION, citationWork.phase)
+        citationWork = (controller.advancePendingCorpusWork(citationWork) as PendingCorpusWorkResult.Pending).work
+        assertEquals(PendingCorpusWorkPhase.CORPUS, citationWork.phase)
         val assessed = controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
         assertEquals(SupportDecision.SUPPORTED, assessed.assessment.decision)
         assertTrue(assessed.assessment.topicId.startsWith("pending:")); assertEquals("p", assessed.assessment.evidence.passageId)
@@ -140,6 +146,7 @@ class DiscoverySupportWiringTest {
                 is PendingCorpusWorkResult.Pending -> work = step.work
                 is PendingCorpusWorkResult.Done -> finalCoverage = step.coverage
                 is PendingCorpusWorkResult.Stopped -> fail("Unexpected stop: ${step.reason}")
+                is PendingCorpusWorkResult.Abstained -> fail("Unexpected abstention: ${step.reason}")
             }
         }
         assertEquals(mapOf("note" to setOf("p")), (finalCoverage as PendingCorpusReplayResult.Complete).supported)
@@ -153,6 +160,9 @@ class DiscoverySupportWiringTest {
         activeSupportIdentity = supportIdentity.copy(policy = "unsupported-pending-v3"); pendingDecision = SupportDecision.UNSUPPORTED
         val pending = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
         assertEquals(PendingConceptCoverage.Pending(setOf("p")), pending.coverage)
+        val unsupportedWork = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)) as PendingCorpusWorkResult.Pending).work
+        val unsupportedStop = controller.advancePendingCorpusWork(unsupportedWork) as PendingCorpusWorkResult.Stopped
+        assertEquals(SupportDecision.UNSUPPORTED, (unsupportedStop.reason as EvidenceFirstNoteStep.Assessed).assessment.decision)
         val rejected = controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
         assertEquals(SupportDecision.UNSUPPORTED, rejected.assessment.decision)
         assertEquals(2, pendingSupportCalls)

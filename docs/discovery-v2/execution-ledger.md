@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected pending concept citation assessment and terminal abstention
+to the bounded driver. Unsupported-citation proof, 1,522 JVM tests and builds
+are recorded in §177; scheduling remains open.
+
 2026-11-02: Connected corpus replay to bounded missing-Note checkpoint work and
 proposal identity checks. Transition and identity proofs, 1,522 JVM tests and
 builds are recorded in §176; process scheduling remains open.
