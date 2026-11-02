@@ -150,7 +150,7 @@ class DiscoveryController(
             if (!shouldContinue()) return@withContext PendingCorpusWorkResult.Pending(work)
             if (!mayContinueWork() || runtime.foregroundQueries.get() > 0)
                 return@withContext PendingCorpusWorkResult.Stopped(EvidenceFirstNoteStep.Deferred, work)
-            when (val result = advancePendingCorpusWork(work, maxRecords)) {
+            when (val result = advancePendingCorpusWork(work, maxRecords, shouldContinue)) {
                 is PendingCorpusWorkResult.Pending -> work = result.work
                 else -> return@withContext result
             }
@@ -159,21 +159,22 @@ class DiscoveryController(
         PendingCorpusWorkResult.Pending(work)
     }
     /** Advance at most one existing bounded operation; the caller owns scheduling and retries. */
-    internal suspend fun advancePendingCorpusWork(work: PendingCorpusWork, maxRecords: Int = 8): PendingCorpusWorkResult {
+    internal suspend fun advancePendingCorpusWork(work: PendingCorpusWork, maxRecords: Int = 8,
+        windowContinue: () -> Boolean = { true }): PendingCorpusWorkResult {
         val result = when (work.phase) {
             PendingCorpusWorkPhase.CORPUS -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = work.pageId, corpusReplay = work.corpus)
             PendingCorpusWorkPhase.ASSESS_CITATION -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset,
                 assessEvidenceIndex = checkNotNull(work.citationIndex))
             PendingCorpusWorkPhase.REPLAY_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
                 retrieveScan = work.note, replayPendingScan = true)
             PendingCorpusWorkPhase.SCAN_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
                 retrieveScan = work.note, checkpointPendingScan = true)
         }
@@ -237,7 +238,8 @@ class DiscoveryController(
         assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
         checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
-        corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null,
+        windowContinue: () -> Boolean = { true }): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
             (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
@@ -249,7 +251,7 @@ class DiscoveryController(
             (corpusReplay == null || retrievePageId != null && retrieveScan == null && retrieveCursor == null && !checkpointPendingScan && !replayPendingScan))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
-        if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
+        if (!mayContinueWork() || !windowContinue() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
         val ticket = owner.captureCatalogTicket() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null
@@ -257,7 +259,7 @@ class DiscoveryController(
         val indexedRevision = mutable.value.indexedRevision
         fun current() = owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier &&
             (generator == null || topicProposalIdentity() == generator) && runtime.validity.isCurrent(token) && mutable.value.indexedRevision == indexedRevision
-        fun mayWork() = mayContinueWork() && runtime.foregroundQueries.get() == 0
+        fun mayWork() = mayContinueWork() && windowContinue() && runtime.foregroundQueries.get() == 0
         val sources = runtime.validity.eligibleRevisions()
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
         val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext EvidenceFirstNoteStep.Incomplete

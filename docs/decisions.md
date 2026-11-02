@@ -12740,3 +12740,29 @@ device cost or human accessibility evidence was obtained.
 Still open: process-owned scheduling and recovery, targeted proposal recomputation,
 uncertainty resolution, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance.
+
+## 181. Propagate work-window expiry into inference (2026-11-02)
+
+The pending-concept work window previously checked its continuation predicate
+only between steps. It now passes that predicate through the bounded driver to the
+existing `DiscoveryRuntime` work gate, so an expired window can cancel a pending
+proposal or support inference through the existing native-cancellation path. No
+additional worker or inference gate was added, and the production scheduler still
+does not invoke this path. Bounded non-inference work still relies on its existing
+cooperative checks and the caller's process policy.
+
+The first test attempt failed before entering the fake runtime because its blocking
+fixture had not been connected; that fixture was corrected. With the fixture
+actually entered, the test failed because the expired window did not cancel it.
+After the change, removing the in-flight predicate again caused
+`coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` to fail with the same
+expired-window assertion; the guard was restored. The cancelled invocation counts
+as an actual support-runtime attempt. Full JVM suite: 1,525 tests, zero
+failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. This controlled coroutine test does not
+measure native cancellation latency on an Android device.
+
+Still open: process-owned scheduling and recovery, targeted proposal recomputation,
+uncertainty resolution, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

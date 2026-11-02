@@ -5,7 +5,7 @@ import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.discovery.*
 import com.example.notionreader.domain.document.CachedDocument
 import java.time.Instant
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -20,6 +20,8 @@ class DiscoverySupportWiringTest {
         val proposalIdentity = labelIdentity.copy(prompt = "proposal", policy = "proposal-v1")
         var activeProposalIdentity = proposalIdentity; var switchProposalDuringInference = false; var proposeConcept = false
         var pendingSupportCalls = 0; var pendingDecision = SupportDecision.SUPPORTED
+        var blockSupport = false; var supportCancelled = false
+        val supportEntered = CompletableDeferred<Unit>(); val supportRelease = CompletableDeferred<Unit>()
         var lastProposal: DiscoveryProposalRequest? = null
         var activeSupportIdentity = supportIdentity; var switchDuringInference = false
         var decision = SupportDecision.SUPPORTED
@@ -36,6 +38,10 @@ class DiscoverySupportWiringTest {
                 assertEquals(activeSupportIdentity, request.verifier); assertTrue("Embedding engine must release before support inference", releases > 0)
                 supportCalls++
                 if (request.topicId.startsWith("pending:")) {
+                    if (blockSupport) {
+                        supportEntered.complete(Unit)
+                        try { supportRelease.await() } catch (cancelled: CancellationException) { supportCancelled = true; throw cancelled }
+                    }
                     pendingSupportCalls++
                     return TopicSupportRun.Completed(pendingDecision)
                 }
@@ -116,6 +122,16 @@ class DiscoverySupportWiringTest {
         activeProposalIdentity = proposalIdentity.copy(policy = "proposal-concept-v3"); proposeConcept = true
         var citationWork = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)) as PendingCorpusWorkResult.Pending).work
         assertEquals(PendingCorpusWorkPhase.ASSESS_CITATION, citationWork.phase)
+        blockSupport = true
+        val windowOpen = java.util.concurrent.atomic.AtomicBoolean(true)
+        val expiring = async { controller.advancePendingCorpusWindow(citationWork, maxSteps = 1, shouldContinue = { windowOpen.get() }) }
+        withTimeout(2_000) { supportEntered.await() }
+        windowOpen.set(false)
+        val expiredResult = withTimeoutOrNull(1_500) { expiring.await() }
+        if (expiredResult == null) expiring.cancelAndJoin()
+        assertNotNull("An expired window must cancel in-flight support", expiredResult)
+        assertEquals(EvidenceFirstNoteStep.Deferred, (expiredResult as PendingCorpusWorkResult.Stopped).reason)
+        assertTrue(supportCancelled); blockSupport = false
         citationWork = (controller.advancePendingCorpusWork(citationWork) as PendingCorpusWorkResult.Pending).work
         assertEquals(PendingCorpusWorkPhase.CORPUS, citationWork.phase)
         val assessed = controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
@@ -189,7 +205,7 @@ class DiscoverySupportWiringTest {
         val uncertainCheckpoint = progress.readConceptScan("note", mapOf("note" to revision))!!
         activeSupportIdentity = supportIdentity.copy(policy = "support-v4"); switchDuringInference = true
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
-        assertEquals(7, supportCalls)
+        assertEquals("The cancelled attempt also reached the support runtime", 8, supportCalls)
         assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
     }
 }

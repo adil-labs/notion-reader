@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Propagated pending-work window expiry to the shared inference gate.
+In-flight cancellation proof, 1,525 JVM tests and builds are recorded in §181;
+Android cancellation timing and production scheduling remain open.
+
 2026-11-02: Added an opt-in bounded pending-concept window entry in the existing
 controller. Window and step-limit proofs, 1,525 JVM tests and builds are recorded
 in §180; production scheduling remains open.
