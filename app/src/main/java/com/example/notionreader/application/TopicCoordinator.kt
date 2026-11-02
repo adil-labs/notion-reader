@@ -79,6 +79,28 @@ internal class TopicCoordinator(
             cache.invalidations.value.isEmpty() &&
             identity() == ticket.identity && retrievals?.queryTicket() == ticket.queryTicket
 
+    suspend fun advanceExistingConceptWork(ticket: TopicCatalogTicket, record: SemanticRecord,
+        sources: Map<String, String>, verifier: TopicLabelIdentity, limit: Int, restart: Boolean = false,
+        verify: suspend (TopicSupportRequest) -> TopicSupportRun): DurableConceptScanResult {
+        if (!isCatalogTicketCurrent(ticket)) return DurableConceptScanResult.Stale
+        if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
+        val matching = retrievals ?: return DurableConceptScanResult.Incomplete
+        val pending = proposalProgress ?: return DurableConceptScanResult.Incomplete
+        val snapshots = bulk { cache.snapshot() }
+        if (!isCatalogTicketCurrent(ticket)) return DurableConceptScanResult.Stale
+        if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
+        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        if (revisions.size != snapshots.size || revisions != sources) return DurableConceptScanResult.Stale
+        val currentRecord = readRecord(canonicalSemanticId(record.pageId))
+        if (!isCatalogTicketCurrent(ticket)) return DurableConceptScanResult.Stale
+        if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
+        if (currentRecord != record || sources[canonicalSemanticId(record.pageId)] != record.revision)
+            return DurableConceptScanResult.Stale
+        return advanceDurableConceptScan(ticket.snapshot, record, ticket.identity, matching.existingConceptPolicy(), verifier,
+            ticket.epoch, sources, matching.existingConceptStore(), index, pending, limit, { isCatalogTicketCurrent(ticket) },
+            { mayWork() && !shouldYield() }, restart, verify)
+    }
+
     suspend fun setInspected(active: Boolean) = writes.withLock {
         if (inspected == active) return@withLock
         inspected = active

@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added a ticketed bounded concept-work entry to TopicCoordinator;
+scheduling and real verifier wiring remain open. Failing-first and withdrawal
+race proof, 1,513 JVM tests and builds are recorded in §162.
+
 2026-11-02: The existing coordinator can capture catalog/source/model/query
 tickets; scheduling and publication remain open. Failing-first and reset-race
 proof, 1,512 JVM tests and builds are recorded in §161.

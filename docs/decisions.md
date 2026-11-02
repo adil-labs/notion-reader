@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[coordinator catalog tickets (§161)](#161-process-coordinator-catalog-tickets-2026-11-02)
+[coordinator concept work (§162)](#162-coordinator-owned-concept-work-entry-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12257,3 +12257,26 @@ Still open: use this ticket in sole-coordinator scheduling and replay, establish
 complete coverage, match and generate concepts, preserve canonical continuity and
 publish verified evidence. Comparative model quality, Android performance and
 human accessibility gates remain unfulfilled; the existing publisher remains active.
+
+
+## 162. Coordinator-owned concept work entry (2026-11-02)
+
+The existing TopicCoordinator now exposes a bounded existing-concept scan entry
+using its catalog ticket, existing retrieval store, policy and proposal store.
+Before work it compares the caller's source inventory with the current cache and
+rehydrates the exact indexed record. It passes the ticket and power/foreground
+conditions through every suspended scan and checkpoint write. The caller supplies
+the verifier; production wiring must use the existing DiscoveryRuntime inference
+gate. This entry owns no new job or catalog and does not schedule or publish work.
+
+An integration test drives a current catalog topic through the coordinator entry
+with a fake verifier. It failed against the initial stub. With source withdrawal
+inside verification, removing the coordinator-ticket guard made the same test fail;
+the guard was restored. Full JVM suite: 1,513 tests, no failures/errors/skips; app
+debug assembly, Android-test Kotlin compilation and standalone runtime-probe
+assembly passed. Fake support is evidence of control flow, not model reliability.
+
+Still open: wire the entry to the existing process loop and native verifier, replay
+and aggregate validated coverage, generate pending concepts, preserve canonical
+identity and publish supported work. Complete comparative quality, device and
+human accessibility acceptance before switching the existing production publisher.
