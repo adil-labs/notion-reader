@@ -12968,3 +12968,29 @@ not establish actual model quality or device behavior.
 Still open: atomic canonical publication and identity continuity, process-owned
 scheduling and recovery, uncertainty resolution, and comparative quality, device
 and human accessibility acceptance. The existing production publisher remains active.
+
+## 190. Persist source-bound concept evidence in existing topic records (2026-11-02)
+
+The existing canonical topic record and compact graph can now persist an optional
+generated concept with its offered source references, selected support decisions,
+and generator/verifier identities. Storage checks reference shape, current
+accepted revisions and supported citation provenance. Withdrawing any offered
+source removes the concept, including a source that was not selected as a
+citation but contributed to generation. Coordinator invalidation tracks these
+references in both current and inspected snapshots. Legacy records have no
+concept field and remain readable. This is a storage representation; no caller
+yet creates or displays the new field, and its validation alone does not prove
+semantic support or authorize a commit.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Clear concept when an offered source is withdrawn | `canonicalConceptEvidenceSurvivesStorageAndIsWithdrawnWithItsSources` failed. |
+
+Removing only the additional affected-source predicate did not fail this fixture
+because its accepted revision also marked the snapshot affected; no separate
+proof is claimed for that predicate. The full JVM suite passed 1,530 tests with
+no failures, errors or skips; debug assembly and Android-test compilation passed.
+
+Still open: guarded atomic admission and retrieval persistence, identity
+continuity, process-owned scheduling and recovery, and quality, device and human
+accessibility acceptance. The existing production publisher remains active.

@@ -206,11 +206,13 @@ internal class TopicCoordinator(
             .asSequence().flatMap { it.members.asSequence() } +
             (latest.connections.asSequence() + view.snapshot.connections.asSequence()).flatMap { sequenceOf(it.left, it.right) }
         val relationships = latest.subjectRelationships + view.snapshot.subjectRelationships
+        val conceptSources = (latest.topics + latest.provisionalTopics + view.snapshot.topics + view.snapshot.provisionalTopics)
+            .flatMap { it.canonicalConcept?.offered.orEmpty() }
         val tracked = listOf(latest, view.snapshot)
         val known = evidence.map { it.pageId }.toSet() + relationships.map { it.evidence.pageId } +
-            tracked.flatMap { it.acceptedRevisions.keys + it.referenceTitles.keys }
+            tracked.flatMap { it.acceptedRevisions.keys + it.referenceTitles.keys } + conceptSources.map { it.pageId }
         val stale = evidence.filter { latest.identity != identity() || sources[it.pageId] != it.revision }.map { it.pageId }.toSet() +
-            (known - sources.keys) + relationships.filter { latest.identity != identity() ||
+            (known - sources.keys) + conceptSources.filter { latest.identity != identity() || sources[it.pageId] != it.revision }.map { it.pageId } + relationships.filter { latest.identity != identity() ||
                 sources[it.evidence.pageId] != it.revision }.map { it.evidence.pageId } +
             tracked.flatMap { snapshot -> snapshot.acceptedRevisions.filter { (id, revision) ->
                 snapshot.identity != identity() || sources[id] != revision }.keys }

@@ -7,12 +7,18 @@ data class TopicMembership(val pageId: String, val metadata: SemanticMetadata, v
     val score: Float, val anchor: SemanticPassage, val revision: String = "") {
     fun toMatch() = SemanticMatch(pageId, metadata, passage, score)
 }
+/** Source references and independently assessed citations for one concept in the canonical topic record. */
+@Serializable
+data class CanonicalConceptEvidence(val workKey: String, val name: String, val definition: String,
+    val listeningDescription: String, val generator: TopicLabelIdentity, val verifier: TopicLabelIdentity,
+    val offered: List<ProposalEvidenceRef>, val citations: List<TopicSupportAssessment>)
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
     val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,
     val subjectVector: List<Float> = anchor.vector,
     @kotlinx.serialization.Transient val generatedLabel: GeneratedTopicLabel? = null,
-    @kotlinx.serialization.Transient val topicMatches: TopicMatches? = null) {
+    @kotlinx.serialization.Transient val topicMatches: TopicMatches? = null,
+    val canonicalConcept: CanonicalConceptEvidence? = null) {
     internal val labelEvidenceFingerprint by lazy { computeTopicLabelFingerprint(this) }
     private val checkedGeneratedLabel by lazy { generatedLabel?.let { reusableTopicLabel(this, it, it.identity) } }
     /** Cluster wording is evidence, never a provisional display name. */

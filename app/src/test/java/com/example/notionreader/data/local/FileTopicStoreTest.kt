@@ -38,6 +38,30 @@ class FileTopicStoreTest {
         assertEquals(prior, FileTopicStore(directory).read())
     }
 
+    @Test fun canonicalConceptEvidenceSurvivesStorageAndIsWithdrawnWithItsSources() = runBlocking {
+        val directory = temporary.newFolder()
+        val model = EmbeddingIdentity("model", 2)
+        val text = "Seeds need moisture to germinate and develop into plants."
+        val passage = SemanticPassage("p", "note", "section", "Seeds", "block", "chunk", 0, text.length, text, text, 0)
+        val member = TopicMembership("note", SemanticMetadata("Seeds"), passage, 1f, passage, "r1")
+        val key = semanticHash("concept")
+        val generator = TopicLabelIdentity("g", "t", "template", "proposal", "schema", "v1", "CPU")
+        val verifier = generator.copy(prompt = "support")
+        val offered = listOf(ProposalEvidenceRef("note", "r1", "p"), ProposalEvidenceRef("other", "r2", "q"))
+        val assessment = TopicSupportAssessment("pending:$key", key, offered.first(), verifier, semanticHash("support"), SupportDecision.SUPPORTED)
+        val concept = CanonicalConceptEvidence(key, "Seeds", "Seeds need moisture.", "Listen about seeds.",
+            generator, verifier, offered, listOf(assessment))
+        val topic = DiscoveredTopic("topic", "Seeds", passage, EmbeddedPassage(passage, listOf(1f, 0f)),
+            listOf(member), 1, canonicalConcept = concept)
+        val snapshot = TopicSnapshot(topics = listOf(topic), identity = model, acceptedRevisions = mapOf("note" to "r1", "other" to "r2"))
+        val store = FileTopicStore(directory)
+        assertEquals(TopicWriteResult.Written, store.writeDetailed(snapshot))
+        assertEquals(concept, FileTopicStore(directory).read()!!.topics.single().canonicalConcept)
+        assertNull(invalidateTopics(snapshot, setOf("other"), false).topics.single().canonicalConcept)
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidTopic),
+            store.writeDetailed(snapshot.copy(acceptedRevisions = mapOf("note" to "r1"))))
+    }
+
     @Test fun sharedTopicEvidenceIsStoredOnceAndRestoredWithoutChangingMemberships() = runBlocking {
         val directory = temporary.newFolder()
         val model = EmbeddingIdentity("shared-evidence", 2)

@@ -11,7 +11,7 @@ internal data class StoredTopicMember(val pageId: String, val metadata: Semantic
 @Serializable
 internal data class StoredTopic(val id: String, val label: String, val labelSource: Int,
     val anchor: Int, val anchorVector: List<Float>, val members: List<StoredTopicMember>,
-    val createdOrder: Long, val subjectVector: List<Float>)
+    val createdOrder: Long, val subjectVector: List<Float>, val canonicalConcept: CanonicalConceptEvidence? = null)
 
 @Serializable
 internal data class StoredTopicGraph(val passages: List<SemanticPassage>, val topics: List<StoredTopic>,
@@ -24,7 +24,7 @@ internal data class StoredTopicGraph(val passages: List<SemanticPassage>, val to
             passages[value.passage], value.score, passages[value.anchor], value.revision)
         fun topic(value: StoredTopic) = DiscoveredTopic(value.id, value.label, passages[value.labelSource],
             EmbeddedPassage(passages[value.anchor], value.anchorVector), value.members.map(::member),
-            value.createdOrder, value.subjectVector)
+            value.createdOrder, value.subjectVector, canonicalConcept = value.canonicalConcept)
         return base.copy(topics = topics.map(::topic), provisionalTopics = provisional.map(::topic),
             formationProgress = base.formationProgress?.copy(projectionMembers = projectionMembers.map(::member)))
     }
@@ -41,7 +41,7 @@ internal data class StoredTopicGraph(val passages: List<SemanticPassage>, val to
                 ref(value.passage), value.score, ref(value.anchor), value.revision)
             fun topic(value: DiscoveredTopic) = StoredTopic(value.id, value.label, ref(value.labelSource),
                 ref(value.anchor.passage), value.anchor.vector, value.members.map(::member), value.createdOrder,
-                value.subjectVector)
+                value.subjectVector, value.canonicalConcept)
             val topics = snapshot.topics.map(::topic)
             val provisional = snapshot.provisionalTopics.map(::topic)
             val projection = snapshot.formationProgress?.projectionMembers.orEmpty().map(::member)

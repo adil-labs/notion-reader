@@ -9,6 +9,7 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
     if (removed.isEmpty()) return snapshot
     val affected = (snapshot.topics + snapshot.provisionalTopics).any { t -> t.members.any { canonicalSemanticId(it.pageId) in removed } ||
         t.matchingMembers.any { canonicalSemanticId(it.pageId) in removed } ||
+        t.canonicalConcept?.offered.orEmpty().any { canonicalSemanticId(it.pageId) in removed } ||
         canonicalSemanticId(t.anchor.passage.pageId) in removed || canonicalSemanticId(t.labelSource.pageId) in removed } ||
         snapshot.connections.any { canonicalSemanticId(it.left.pageId) in removed || canonicalSemanticId(it.right.pageId) in removed } ||
         snapshot.subjectRelationships.any { canonicalSemanticId(it.evidence.pageId) in removed } ||
@@ -46,7 +47,9 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
             }
         }
     }
-    fun withoutStaleLabels(values: List<DiscoveredTopic>) = values.map { topic ->
+    fun withoutStaleLabels(values: List<DiscoveredTopic>) = values.map { original ->
+        val topic = if (original.canonicalConcept?.offered.orEmpty().any { !available(it.pageId) })
+            original.copy(canonicalConcept = null) else original
         if (topic.generatedLabel != null && topic.currentGeneratedLabel == null) topic.copy(generatedLabel = null, topicMatches = null)
         else topic.copy(topicMatches = topic.currentTopicMatches?.let { matches ->
             matches.copy(members = matches.members.filter { available(it.pageId) })

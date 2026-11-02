@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added source-bound concept evidence to existing compact topic records
+and withdrawal handling. Failing-first proof and 1,530 JVM tests are in §190;
+guarded canonical admission remains open.
+
 2026-11-02: Added bounded live replay of candidate corpus support. The
 failing-first proof and 1,529 JVM tests are recorded in §189; canonical
 publication remains open.

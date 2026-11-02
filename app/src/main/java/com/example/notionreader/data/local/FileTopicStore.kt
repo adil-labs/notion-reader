@@ -113,6 +113,21 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             if (topic.id.isBlank() || topic.label.isBlank() || topic.anchor.vector.size != identity!!.dimensions ||
                 topic.anchor.vector.any { !it.isFinite() } || topic.anchor.vector.none { it != 0f } || topic.subjectVector.size != identity.dimensions ||
                 topic.subjectVector.any { !it.isFinite() } || topic.subjectVector.none { it != 0f }) return TopicValidationReason.InvalidTopic
+            topic.canonicalConcept?.let { concept ->
+                val offered = concept.offered
+                if (!Regex("[0-9a-f]{64}").matches(concept.workKey) || concept.name.isBlank() || concept.name.length > 96 ||
+                    concept.definition.isBlank() || concept.definition.length > 512 || concept.listeningDescription.isBlank() ||
+                    concept.listeningDescription.length > 512 || offered.size !in 1..16 ||
+                    offered.map { it.passageId }.toSet().size != offered.size || offered.any {
+                        it.pageId.isBlank() || canonicalSemanticId(it.pageId) != it.pageId || it.passageId.isBlank() ||
+                            it.revision.isBlank() || snapshot.acceptedRevisions[it.pageId] != it.revision
+                    } || concept.citations.isEmpty() || concept.citations.size > offered.size ||
+                    concept.citations.map { it.evidence.passageId }.toSet().size != concept.citations.size ||
+                    concept.citations.any { it.evidence !in offered || it.verifier != concept.verifier ||
+                        it.topicId != "pending:${concept.workKey}" || it.conceptWorkKey != concept.workKey ||
+                        !Regex("[0-9a-f]{64}").matches(it.workKey) || it.decision != SupportDecision.SUPPORTED })
+                    return TopicValidationReason.InvalidTopic
+            }
             if (topic.members.map { canonicalSemanticId(it.pageId) }.distinct().size != topic.members.size ||
                 topic.members.any { member -> !member.score.isFinite() || member.score !in -1f..1f ||
                     canonicalSemanticId(member.passage.pageId) != canonicalSemanticId(member.pageId) ||
