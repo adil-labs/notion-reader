@@ -13085,3 +13085,22 @@ Still open: hydration and accessible presentation, incremental update and
 scheduling, post-replacement race recovery, removal of mandatory formation, and
 quality, device and human accessibility acceptance. The production publisher
 remains active.
+
+## 195. Keep canonical concepts out of legacy naming and cosine matching (2026-11-02)
+
+A topic carrying canonical evidence no longer exposes an old cluster-generated
+label, enters the legacy naming worker, or restores legacy cosine-only matches.
+Until its evidence-first presentation is hydrated, it remains pending rather than
+being assigned unverified members. Legacy topics retain their existing behavior.
+This is a compatibility safeguard, not the completed hydration or production
+scheduler.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Exclude old generated labels from canonical concepts | `canonicalConceptCannotReceiveCosineOnlyMembers` failed. |
+| Exclude canonical concepts from legacy generation | `canonicalConceptIsNotRenamedByLegacyLabeling` failed. |
+
+The full JVM suite passed 1,534 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. Remaining work includes
+source-checked hydration and presentation, incremental scheduling, source-race
+recovery, removal of mandatory formation, and quality/device/human acceptance.

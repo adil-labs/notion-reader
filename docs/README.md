@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#194-persist-independently-replayed-canonical-membership-references-2026-11-02)
+[the current decision-record entry](decisions.md#195-keep-canonical-concepts-out-of-legacy-naming-and-cosine-matching-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

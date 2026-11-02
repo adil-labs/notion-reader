@@ -14,7 +14,7 @@ internal class TopicLabelCoordinator(private val store: TopicLabelStore,
     private val waitForQueries: suspend () -> Unit = {},
     val unavailableMessage: () -> String = { "Topic naming is unavailable. Install the topic naming model in Discovery settings." }) {
     fun status(snapshot: TopicSnapshot): TopicNamingStatus = when {
-        snapshot.topics.all { it.currentGeneratedLabel?.identity == identity() && it.currentGeneratedLabel != null } -> TopicNamingStatus.Ready
+        snapshot.topics.all { it.canonicalConcept != null || it.currentGeneratedLabel?.identity == identity() && it.currentGeneratedLabel != null } -> TopicNamingStatus.Ready
         identity() == null || !available() -> TopicNamingStatus.Unavailable
         else -> TopicNamingStatus.Pending
     }
@@ -24,7 +24,7 @@ internal class TopicLabelCoordinator(private val store: TopicLabelStore,
         for (topic in snapshot.topics) {
             currentCoroutineContext().ensureActive()
             if (!current()) return null
-            val saved = topic.currentGeneratedLabel?.takeIf { it.identity == expected }
+            val saved = if (topic.canonicalConcept != null) null else topic.currentGeneratedLabel?.takeIf { it.identity == expected }
                 ?: if (readSaved) store.read(topic.id) else null
             val label = expected?.let { reusableTopicLabel(topic, saved, it) }
             topics += if (topic.generatedLabel == label) topic else topic.copy(generatedLabel = label)
@@ -39,7 +39,7 @@ internal class TopicLabelCoordinator(private val store: TopicLabelStore,
         fun valid() = current() && identity() == expected
         var shown = restore(snapshot, ::valid) ?: return TopicLabelBatch(snapshot, pending = true, stale = true)
         if (expected == null || !available()) return TopicLabelBatch(shown, unavailable = true)
-        val ordered = shown.topics.filter { it.currentGeneratedLabel == null && topicLabelRequest(it, expected, epoch) != null }
+        val ordered = shown.topics.filter { it.canonicalConcept == null && it.currentGeneratedLabel == null && topicLabelRequest(it, expected, epoch) != null }
             .sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
         val cursor = store.readCursor()
         val start = cursor?.let { point -> ordered.indexOfFirst {

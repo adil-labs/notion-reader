@@ -55,6 +55,10 @@ internal class TopicRetrievalCoordinator(private val index: SemanticIndexStore, 
         val topics = ArrayList<DiscoveredTopic>(snapshot.topics.size)
         for (topic in snapshot.topics) {
             if (!valid()) return null
+            if (topic.canonicalConcept != null) {
+                topics += if (topic.topicMatches == null) topic else topic.copy(topicMatches = null)
+                continue
+            }
             val request = query(topic, model)
             if (!readSaved) {
                 val pinned = topic.currentTopicMatches?.takeIf { it.query.key == request?.key }

@@ -24,8 +24,8 @@ data class DiscoveredTopic(val id: String, val label: String, val labelSource: S
     internal val labelEvidenceFingerprint by lazy { computeTopicLabelFingerprint(this) }
     private val checkedGeneratedLabel by lazy { generatedLabel?.let { reusableTopicLabel(this, it, it.identity) } }
     /** Cluster wording is evidence, never a provisional display name. */
-    val effectiveLabel: String get() = checkedGeneratedLabel?.text ?: "Topic name pending"
-    val currentGeneratedLabel: GeneratedTopicLabel? get() = checkedGeneratedLabel
+    val effectiveLabel: String get() = currentGeneratedLabel?.text ?: "Topic name pending"
+    val currentGeneratedLabel: GeneratedTopicLabel? get() = if (canonicalConcept == null) checkedGeneratedLabel else null
     val currentTopicMatches: TopicMatches? get() = topicMatches?.takeIf { matches ->
         val concept = currentGeneratedLabel
         concept != null && matches.query.topicId == id && matches.query.conceptWorkKey == concept.workKey &&

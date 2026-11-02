@@ -34,6 +34,18 @@ class TopicRetrievalCoordinatorTest {
         TopicRetrievalCoordinator(index, store, { identity }, TopicRetrievalPolicy(.8f), embed,
             { true }, {}, Mutex(), recordsPerWindow = window)
 
+    @Test fun canonicalConceptCannotReceiveCosineOnlyMembers() = runBlocking {
+        val index = FileSemanticIndexStore(files.newFolder()); index.write(record("seed", false)); index.write(record("outside"))
+        val original = snapshot(); val topic = original.topics.single()
+        val labelIdentity = topic.currentGeneratedLabel!!.identity
+        val concept = CanonicalConceptEvidence(semanticHash("concept"), "Seeds", "Seeds need water.",
+            "Listen about seeds.", labelIdentity, labelIdentity, emptyList(), emptyList())
+        val result = coordinator(index, FileTopicRetrievalStore(files.newFolder())).process(
+            original.copy(topics = listOf(topic.copy(canonicalConcept = concept))), mapOf("seed" to "r1", "outside" to "r1")) { true }
+        assertEquals(0, embeddingCalls)
+        assertTrue(result.snapshot.topics.single().matchingMembers.isEmpty())
+        assertNull(result.snapshot.topics.single().currentTopicMatches)
+    }
     @Test fun aPartialScanNeverPublishesSeedMembersAndDurableResumeFindsAnOutsideNote() = runBlocking {
         val index = FileSemanticIndexStore(files.newFolder()); index.write(record("seed", false)); index.write(record("outside"))
         val directory = files.newFolder(); val store = FileTopicRetrievalStore(directory)

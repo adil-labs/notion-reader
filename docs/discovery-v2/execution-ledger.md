@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Prevented legacy naming and cosine-only membership from replacing
+canonical evidence. Failing-first proofs and 1,534 JVM tests are in §195;
+hydration and production scheduling remain open.
+
 2026-11-02: Persisted revalidated membership references and source coverage
 with canonical concepts. Failing-first proof and 1,532 JVM tests are in §194;
 hydration and automatic scheduling remain open.

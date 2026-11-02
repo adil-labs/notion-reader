@@ -44,6 +44,16 @@ class TopicLabelCoordinatorTest {
     }
     private fun completed(request: TopicLabelRequest) = TopicLabelRun.Completed(
         TopicLabelCandidate("Retry backoff", request.evidence.map { it.passageId }, "Increasing retry waits reduces repeated server load."))
+    @Test fun canonicalConceptIsNotRenamedByLegacyLabeling() = runBlocking {
+        val raw = snapshot().topics.first()
+        val concept = CanonicalConceptEvidence(semanticHash("concept"), "Seeds", "Seeds need water.",
+            "Listen about seeds.", identity, identity, emptyList(), emptyList())
+        val store = Store(); var calls = 0
+        val worker = TopicLabelCoordinator(store, { identity }, { true }, { calls++; completed(it) }, { true })
+        val result = worker.process(snapshot().copy(topics = listOf(raw.copy(canonicalConcept = concept))), 0, { true })
+        assertEquals(0, calls)
+        assertNull(result.snapshot.topics.single().currentGeneratedLabel)
+    }
     @Test fun labelingChangesOnlyNamesAndARecreatedCoordinatorReusesSuccessfulRecords() = runBlocking {
         val store = Store(); var calls = 0
         fun coordinator() = TopicLabelCoordinator(store, { identity }, { true }, { calls++; completed(it) }, { true })
