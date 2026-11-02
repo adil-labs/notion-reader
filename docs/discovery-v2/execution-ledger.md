@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Allowed supported concepts with incomplete structural context while
+retaining the reconciliation reason. Failing-first proof, 1,536 JVM tests and
+22/22 existing navigation tests are in §198. Verifier checkpoint recovery remains open.
+
 2026-11-02: Connected verified canonical details, counts and follow text. The
 failing-first proof, 1,536 JVM tests and targeted 22/22 existing navigation
 accessibility run are in §197; canonical end-to-end scheduling remains open.

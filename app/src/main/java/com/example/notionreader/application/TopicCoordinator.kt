@@ -85,7 +85,8 @@ internal class TopicCoordinator(
         if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
         if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
         if (candidate.catalogTicket != ticket || candidate.sources != latest.acceptedRevisions ||
-            candidate.proposal.incomplete.isNotEmpty() || candidate.generation.incomplete.isNotEmpty())
+            candidate.proposal.incomplete != candidate.generation.incomplete ||
+            candidate.proposal.incomplete.any { it != ProposalIncompleteReason.STRUCTURE })
             return@withLock CanonicalAdmissionResult.Incomplete
         val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
             ?: return@withLock CanonicalAdmissionResult.Incomplete
@@ -110,7 +111,8 @@ internal class TopicCoordinator(
         }
         val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
             concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations,
-            supported, candidate.sources, matchingComplete = true, proposalKey = candidate.proposal.proposalKey)
+            supported, candidate.sources, matchingComplete = true, proposalKey = candidate.proposal.proposalKey,
+            incomplete = candidate.proposal.incomplete)
         val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order + 1,
             canonicalConcept = evidence)
         val continuity = TopicContinuity(id, order + 1, setOf(citation.pageId), setOf(topicEvidenceIdentity(anchor.passage)),

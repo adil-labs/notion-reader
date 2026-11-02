@@ -13151,3 +13151,32 @@ interrupted; a separate hidden AVD start was used for the wrapper.
 Automatic scheduling, end-to-end canonical UI/device probing, post-replacement
 race recovery, removal of mandatory formation and quality/device/human gates
 remain open.
+
+## 198. Admit supported concepts with incomplete structural context (2026-11-02)
+
+The bounded driver previously blocked admission whenever structural inventory
+was incomplete, contradicting the contract that ordinary updates must not
+require a complete inventory. A fully replayed and supported concept can now
+proceed with STRUCTURE recorded as a reconciliation reason. The coordinator
+persists that reason and the detail screen exposes it. Unknown existing-catalog
+coverage, incomplete source scanning and uncertain support remain blocking; a
+forged mismatch between proposal and generation reasons is rejected. This does
+not yet remove the separate completed-catalog/formation dependency.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Permit STRUCTURE as a nonblocking reconciliation reason | `unresolvedSupportCannotBecomeCompleteCorpusWork` failed before the change. |
+
+The coordinator integration test admits a one-Note concept with incomplete
+structure and checks that the reason is retained. The JVM suite passed 1,536
+tests with no failures, errors or skips; debug assembly and Android-test Kotlin
+compilation passed. The existing topic navigation accessibility class passed
+22/22 on API 36 through the wrapper; it does not exercise this canonical message
+or observe TalkBack speech.
+
+During the integration test, reusing a pending per-Note checkpoint after changing
+the verifier produced Invalid rather than rebuilding under the new verifier. The
+fixture was returned to its original verifier to isolate this change; verifier
+checkpoint recovery remains open and must be fixed before automatic scheduling.
+Post-replacement race recovery, automatic scheduling, removal of mandatory
+formation and the quality/device/human gates also remain open.

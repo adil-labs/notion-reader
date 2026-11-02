@@ -115,7 +115,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 topic.subjectVector.any { !it.isFinite() } || topic.subjectVector.none { it != 0f }) return TopicValidationReason.InvalidTopic
             topic.canonicalConcept?.let { concept ->
                 val offered = concept.offered
-                if (!Regex("[0-9a-f]{64}").matches(concept.workKey) || concept.name.isBlank() || concept.name.length > 96 ||
+                if (concept.incomplete.any { it != ProposalIncompleteReason.STRUCTURE } ||
+                    !Regex("[0-9a-f]{64}").matches(concept.workKey) || concept.name.isBlank() || concept.name.length > 96 ||
                     concept.definition.isBlank() || concept.definition.length > 512 || concept.listeningDescription.isBlank() ||
                     concept.listeningDescription.length > 512 || offered.size !in 1..16 ||
                     offered.map { it.passageId }.toSet().size != offered.size || offered.any {

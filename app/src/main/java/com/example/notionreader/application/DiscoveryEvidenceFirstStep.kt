@@ -71,7 +71,8 @@ internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int
 }
 internal sealed interface PendingCorpusWorkResult {
     data class Pending(val work: PendingCorpusWork) : PendingCorpusWorkResult
-    data class Done(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate) : PendingCorpusWorkResult
+    data class Done(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate,
+        val reconciliationReasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason> = emptySet()) : PendingCorpusWorkResult
     data class Incomplete(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate,
         val reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>,
         val scanPending: Boolean) : PendingCorpusWorkResult
@@ -85,7 +86,8 @@ internal sealed interface PendingCorpusWorkResult {
 internal fun pendingCorpusIsIncomplete(coverage: PendingCorpusReplayResult,
     reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>, scanPending: Boolean): Boolean {
     require(coverage is PendingCorpusReplayResult.Complete || coverage is PendingCorpusReplayResult.Uncertain)
-    return coverage is PendingCorpusReplayResult.Uncertain || scanPending || reasons.isNotEmpty()
+    return coverage is PendingCorpusReplayResult.Uncertain || scanPending ||
+        reasons.any { it != com.example.notionreader.domain.discovery.ProposalIncompleteReason.STRUCTURE }
 }
 /** Process-local cursor for known concepts in an explicitly incomplete catalog. */
 internal class KnownCatalogScan private constructor(internal val ticket: TopicCatalogTicket?,

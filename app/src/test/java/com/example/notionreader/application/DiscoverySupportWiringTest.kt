@@ -16,6 +16,7 @@ class DiscoverySupportWiringTest {
     private fun assertCanonicalMatches(topic: DiscoveredTopic, revision: String) {
         val concept = requireNotNull(topic.canonicalConcept)
         assertTrue(concept.matchingComplete)
+        assertEquals(setOf(ProposalIncompleteReason.STRUCTURE), concept.incomplete)
         assertEquals(listOf(ProposalEvidenceRef("note", revision, "p")), concept.supported)
         assertEquals(mapOf("note" to revision), concept.scannedRevisions)
     }
@@ -188,8 +189,8 @@ class DiscoverySupportWiringTest {
                 is PendingCorpusWorkResult.Abstained -> fail("Unexpected abstention: ${step.reason}")
             }
         }
-        val incomplete = terminal as PendingCorpusWorkResult.Incomplete
-        assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reasons)
+        val incomplete = terminal as PendingCorpusWorkResult.Done
+        assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reconciliationReasons)
         assertEquals(mapOf("note" to setOf("p")), (incomplete.coverage as PendingCorpusReplayResult.Complete).supported)
         assertEquals(assessed.generation.workKey, incomplete.candidate.generation.workKey)
         assertEquals(setOf("p"), incomplete.candidate.citations.map { it.evidence.passageId }.toSet())
@@ -207,7 +208,7 @@ class DiscoverySupportWiringTest {
         activeProposalIdentity = originalProposalIdentity.copy(policy = "changed-after-replay")
         assertEquals(PendingConceptCoverage.Stale, controller.revalidatePendingCandidate(incomplete.candidate))
         activeProposalIdentity = originalProposalIdentity
-        assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reasons)
+        assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reconciliationReasons)
         assertEquals(2, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
         val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
             retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true) as EvidenceFirstNoteStep.PendingNoteReplay
@@ -236,10 +237,10 @@ class DiscoverySupportWiringTest {
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
         assertEquals("The cancelled attempt also reached the support runtime", 8, supportCalls)
         assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
-        switchDuringInference = false; activeSupportIdentity = supportIdentity.copy(policy = "support-v4")
+        switchDuringInference = false; activeSupportIdentity = supportIdentity.copy(policy = "unsupported-v2")
         decision = SupportDecision.UNSUPPORTED; pendingDecision = SupportDecision.SUPPORTED
         assertTrue(controller.advanceEvidenceFirstNote("note", restart = true) is EvidenceFirstNoteStep.Proposals)
-        var readyWork = PendingCorpusWork.start("note", 0, structureComplete = true)
+        var readyWork = PendingCorpusWork.start("note", 0, structureComplete = false)
         var done: PendingCorpusWorkResult.Done? = null
         repeat(30) {
             if (done == null) when (val step = controller.advancePendingCorpusWork(readyWork)) {
@@ -250,7 +251,7 @@ class DiscoverySupportWiringTest {
         }
         val completed = requireNotNull(done)
         val incompleteCandidate = completed.copy(candidate = completed.candidate.copy(
-            proposal = completed.candidate.proposal.copy(incomplete = setOf(ProposalIncompleteReason.STRUCTURE))))
+            proposal = completed.candidate.proposal.copy(incomplete = setOf(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG))))
         assertEquals(CanonicalAdmissionResult.Incomplete, controller.advanceCanonicalAdmission(incompleteCandidate, PendingCorpusReplay.start()))
         val forged = completed.copy(coverage = PendingCorpusReplayResult.Complete(emptyMap()))
         assertEquals(CanonicalAdmissionResult.Stale, controller.advanceCanonicalAdmission(forged, PendingCorpusReplay.start()))

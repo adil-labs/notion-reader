@@ -85,6 +85,10 @@ internal fun TopicDetailsScreen(
             }
             Text(topicNoteCount(topic), style = MaterialTheme.typography.labelLarge)
             topicDescription(topic)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (topic.currentCanonicalProjection != null &&
+                com.example.notionreader.domain.discovery.ProposalIncompleteReason.STRUCTURE in topic.canonicalConcept!!.incomplete) {
+                Text("Some structural context is still being checked.", style = MaterialTheme.typography.bodySmall)
+            }
 
             SubjectRelationshipRows(app, topic, published, visibleRelationships, titles)
 

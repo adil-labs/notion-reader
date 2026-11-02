@@ -218,7 +218,9 @@ class DiscoveryController(
         val candidate = done.candidate
         val owner = topics ?: return@withContext CanonicalAdmissionResult.Incomplete
         val ticket = candidate.catalogTicket ?: return@withContext CanonicalAdmissionResult.Incomplete
-        if (candidate.proposal.incomplete.isNotEmpty() || candidate.generation.incomplete.isNotEmpty())
+        if (candidate.proposal.incomplete != candidate.generation.incomplete ||
+            done.reconciliationReasons != candidate.proposal.incomplete ||
+            candidate.proposal.incomplete.any { it != ProposalIncompleteReason.STRUCTURE })
             return@withContext CanonicalAdmissionResult.Incomplete
         val token = runtime.validity.capture()
         val indexedRevision = mutable.value.indexedRevision
@@ -315,7 +317,7 @@ class DiscoveryController(
                         ?: return PendingCorpusWorkResult.Stopped(result, work)
                     return if (pendingCorpusIsIncomplete(replay, proposal.incomplete, result.window.scanPending))
                         PendingCorpusWorkResult.Incomplete(replay, result.candidate, proposal.incomplete, result.window.scanPending)
-                    else PendingCorpusWorkResult.Done(replay, result.candidate)
+                    else PendingCorpusWorkResult.Done(replay, result.candidate, proposal.incomplete)
                 }
                 else -> Unit
             }
