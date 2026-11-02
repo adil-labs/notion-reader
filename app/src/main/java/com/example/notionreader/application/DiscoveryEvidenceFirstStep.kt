@@ -2,6 +2,7 @@ package com.example.notionreader.application
 
 internal sealed interface EvidenceFirstNoteStep {
     data object PendingScan : EvidenceFirstNoteStep
+    data class PendingKnownCatalog(val scan: KnownCatalogScan) : EvidenceFirstNoteStep
     data class PendingReplay(val replay: ConceptScanReplay) : EvidenceFirstNoteStep
     data class Proposals(val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class Generated(val generation: ProposalGenerationResult.Completed, val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
@@ -34,14 +35,15 @@ internal enum class PendingCorpusWorkPhase { CORPUS, ASSESS_CITATION, REPLAY_NOT
 internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int,
     val phase: PendingCorpusWorkPhase, val corpus: PendingCorpusReplay, val target: String?,
     val note: PendingConceptNoteScan, val existingReplay: ConceptScanReplay?, val generationKey: String?,
-    val explicitPageIds: Set<String>, val structureComplete: Boolean, val anchorOffset: Int, val citationIndex: Int?) {
+    val explicitPageIds: Set<String>, val structureComplete: Boolean, val anchorOffset: Int, val citationIndex: Int?,
+    val knownCatalogScan: KnownCatalogScan?) {
     companion object {
         fun start(pageId: String, proposalIndex: Int, explicitPageIds: Set<String> = emptySet(),
             structureComplete: Boolean = false, anchorOffset: Int = 0): PendingCorpusWork {
             require(pageId.isNotBlank() && proposalIndex >= 0 && anchorOffset >= 0)
             return PendingCorpusWork(pageId, proposalIndex, PendingCorpusWorkPhase.CORPUS,
                 PendingCorpusReplay.start(), null, PendingConceptNoteScan.start(), null, null,
-                explicitPageIds.toSet(), structureComplete, anchorOffset, null)
+                explicitPageIds.toSet(), structureComplete, anchorOffset, null, null)
         }
     }
 }
@@ -64,4 +66,14 @@ internal fun pendingCorpusOutcome(coverage: PendingCorpusReplayResult,
     return if (coverage is PendingCorpusReplayResult.Uncertain || scanPending || reasons.isNotEmpty())
         PendingCorpusWorkResult.Incomplete(coverage, reasons, scanPending)
     else PendingCorpusWorkResult.Done(coverage)
+}
+/** Process-local cursor for known concepts in an explicitly incomplete catalog. */
+internal class KnownCatalogScan private constructor(internal val ticket: TopicCatalogTicket?,
+    internal val verifier: com.example.notionreader.domain.discovery.TopicLabelIdentity?, internal val indexedRevision: Long,
+    internal val scope: String?, internal val cursor: com.example.notionreader.domain.discovery.ExistingConceptScanCursor?,
+    internal val supported: Set<String>, internal val uncertain: Set<String>) {
+    companion object { fun start() = KnownCatalogScan(null, null, 0, null, null, emptySet(), emptySet()) }
+    internal fun advance(ticket: TopicCatalogTicket, verifier: com.example.notionreader.domain.discovery.TopicLabelIdentity,
+        indexedRevision: Long, scope: String, cursor: com.example.notionreader.domain.discovery.ExistingConceptScanCursor,
+        supported: Set<String>, uncertain: Set<String>) = KnownCatalogScan(ticket, verifier, indexedRevision, scope, cursor, supported, uncertain)
 }

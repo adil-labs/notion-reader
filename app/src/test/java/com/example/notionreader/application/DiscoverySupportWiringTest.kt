@@ -240,4 +240,64 @@ class DiscoverySupportWiringTest {
         cache.remove("note")
         cache.put(CachedDocument(doc, null, Instant.EPOCH))
         assertEquals(EvidenceFirstNoteStep.Stale, controller.advanceEvidenceFirstNote("note", generateIndex = 0))
+    }    @Test fun provisionalCandidatesFirstCheckKnownConceptsInAnIncompleteCatalog() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))
+        val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "c", "support", "s", "v", "CPU")
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
+            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override fun release() {}
+        }
+        var qDecision = SupportDecision.UNSUPPORTED
+        var activeVerifier = verifier
+        val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
+            override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No labels")
+            override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(
+                if (request.evidence.passageId == "p") SupportDecision.SUPPORTED else qDecision)
+            override suspend fun close() {}
+        }
+        val text = "Moisture and suitable temperature allow seeds to germinate and begin sprouting."
+        val doc = ReaderDocument.fromChunkTexts("note", "Seed germination", listOf(text)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+        val revision = semanticRevision(doc)
+        val p = SemanticPassage("p", "note", "section", "Summary", "block", "chunk", 0, text.length, text, text, 0)
+        val q = p.copy(id = "q", sourceBlockId = "block2", readerChunkId = "chunk2", order = 1)
+        val embedded = EmbeddedPassage(p, listOf(1f, 0f)); val metadata = SemanticMetadata("Seeds")
+        assertTrue(index.write(SemanticRecord("note", revision, model, metadata, listOf(embedded, EmbeddedPassage(q, listOf(1f, 0f)))))); index.setPaused(false)
+        val raw = DiscoveredTopic("topic", "seed", p, embedded, listOf(TopicMembership("note", metadata, p, 1f, p, revision)), 1)
+        val request = topicLabelRequest(raw, verifier, 0)!!
+        val label = (validateTopicLabel(request, "Seed germination", request.evidence.map { it.passageId }, request.groupFingerprint, 0,
+            "Conditions that allow seeds to germinate and sprout.") as TopicLabelValidation.Accepted).label
+        val graph = object : TopicStore {
+            override suspend fun read() = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = false)
+            override suspend fun write(snapshot: TopicSnapshot) = true
+            override suspend fun clear() {}
+            override suspend fun bytes() = 0L
+        }
+        val queries = FileTopicRetrievalStore(root.resolve("retrieval")); val policy = TopicRetrievalPolicy(.85f)
+        val query = TopicRetrievalQuery("topic", label.workKey, topicConceptQuery(label)!!, model, policy)
+        assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(1f, 0f)))) { true })
+        val progress = FileProposalProgressStore(root.resolve("progress"))
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, topicRetrievalStore = queries, proposalProgressStore = progress,
+            topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicSupportIdentity = { activeVerifier })
+        controller.reconcile(emptyList(), false)
+        val publishedBefore = controller.state.value.publishedTopics
+        val first = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
+        val result = controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = first.scan) as EvidenceFirstNoteStep.Proposals
+        val proposals = result.window.window.proposals
+        assertEquals(setOf("q"), proposals.map { it.evidence.first().passageId }.toSet())
+        assertTrue(proposals.all { ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in it.incomplete })
+        assertEquals(publishedBefore, controller.state.value.publishedTopics)
+        val driven = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0), maxRecords = 1) as PendingCorpusWorkResult.Pending).work
+        val provisionalStop = controller.advancePendingCorpusWork(driven, maxRecords = 1) as PendingCorpusWorkResult.Stopped
+        assertTrue(provisionalStop.reason is EvidenceFirstNoteStep.Proposals)
+        qDecision = SupportDecision.UNCERTAIN; activeVerifier = verifier.copy(policy = "uncertain-v2")
+        val uncertainFirst = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
+        val uncertain = controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = uncertainFirst.scan) as EvidenceFirstNoteStep.Proposals
+        assertEquals(setOf("q"), uncertain.window.window.proposals.map { it.evidence.first().passageId }.toSet())
+        assertTrue(uncertain.window.window.proposals.all { ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN in it.incomplete })
+        val pending = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
+        assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(0f, 1f)))) { true })
+        assertEquals(EvidenceFirstNoteStep.Stale, controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = pending.scan))
     }}

@@ -196,4 +196,19 @@ class ExistingConceptScanTest {
         assertEquals(ExistingConceptScanResult.Stale, step(snapshot.copy(topics = listOf(first)), firstPage.next))
         assertEquals(ExistingConceptScanResult.Incomplete, step(snapshot.copy(complete = false), null))
     }
-}
+    @Test fun knownConceptsCanBeCheckedWithoutClaimingCatalogCompletion() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))
+        val first = topic("first", 1); val second = topic("second", 2)
+        for (item in listOf(first, second)) assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(query(item))) { true })
+        val snapshot = TopicSnapshot(topics = listOf(first, second), identity = identity, complete = false)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        assertEquals(ExistingConceptScanResult.Incomplete, scanExistingConceptPage(snapshot, note, identity, policy, verifier,
+            4, sources, retrievals, index, progress, null, 1, { true }, { true }) { error("Must not infer") })
+        val page = scanExistingConceptPage(snapshot, note, identity, policy, verifier, 4, sources, retrievals, index,
+            progress, null, 1, { true }, { true }, allowIncompleteCatalog = true) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) } as ExistingConceptScanResult.Page
+        assertEquals(setOf("note:p"), page.supported); assertNotNull(page.next)
+        val changed = scanExistingConceptPage(snapshot.copy(complete = true), note, identity, policy, verifier, 4, sources, retrievals, index,
+            progress, page.next, 1, { true }, { true }) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        assertEquals(ExistingConceptScanResult.Stale, changed)
+    }}

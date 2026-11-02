@@ -163,21 +163,23 @@ class DiscoveryController(
         windowContinue: () -> Boolean = { true }): PendingCorpusWorkResult {
         val result = when (work.phase) {
             PendingCorpusWorkPhase.CORPUS -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = work.pageId, corpusReplay = work.corpus)
             PendingCorpusWorkPhase.ASSESS_CITATION -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset,
                 assessEvidenceIndex = checkNotNull(work.citationIndex))
             PendingCorpusWorkPhase.REPLAY_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
                 retrieveScan = work.note, replayPendingScan = true)
             PendingCorpusWorkPhase.SCAN_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
-                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
                 retrieveScan = work.note, checkpointPendingScan = true)
         }
+        if (result is EvidenceFirstNoteStep.PendingKnownCatalog)
+            return PendingCorpusWorkResult.Pending(work.copy(knownCatalogScan = result.scan))
         if (result is EvidenceFirstNoteStep.PendingReplay)
             return PendingCorpusWorkResult.Pending(work.copy(existingReplay = result.replay))
         if (result == EvidenceFirstNoteStep.PendingScan) return PendingCorpusWorkResult.Pending(work)
@@ -235,7 +237,7 @@ class DiscoveryController(
     /** Candidate-only work while the existing catalog cannot yet be validated. */
     private suspend fun provisionalEvidenceFirstWindow(pageId: String, explicitPageIds: Set<String>,
         structureComplete: Boolean, anchorOffset: Int, maxRecords: Int, store: ProposalProgressStore,
-        windowContinue: () -> Boolean): EvidenceFirstNoteStep {
+        windowContinue: () -> Boolean, explained: Set<String> = emptySet(), uncertain: Boolean = false): EvidenceFirstNoteStep {
         val token = runtime.validity.capture()
         val identity = provider.identity
         val indexedRevision = mutable.value.indexedRevision
@@ -249,7 +251,7 @@ class DiscoveryController(
         val record = runtime.bulkStep { index.read(id) } ?: return EvidenceFirstNoteStep.Incomplete
         if (!current() || record.identity != identity || sources[id] != record.revision) return EvidenceFirstNoteStep.Stale
         if (!mayWork()) return EvidenceFirstNoteStep.Deferred
-        val result = advancePendingProposalWindow(record, emptySet(), sources, explicitPageIds, structureComplete,
+        val result = advancePendingProposalWindow(record, explained, sources, explicitPageIds, structureComplete,
             anchorOffset, store, maxRecords, ::current, ::mayWork) { target -> runtime.bulkStep { index.read(target) } }
         if (!current()) return EvidenceFirstNoteStep.Stale
         if (!mayWork()) return EvidenceFirstNoteStep.Deferred
@@ -258,7 +260,8 @@ class DiscoveryController(
             is PendingProposalStepResult.Ready -> {
                 val provisional = result.step.window.proposals.map { proposal ->
                     proposal.copy(proposalKey = semanticHash("unverified-catalog-v1:${proposal.proposalKey}"),
-                        incomplete = proposal.incomplete + ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG)
+                        incomplete = proposal.incomplete + ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG +
+                            if (uncertain) setOf(ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN) else emptySet())
                 }
                 EvidenceFirstNoteStep.Proposals(result.step.copy(window = result.step.window.copy(proposals = provisional)))
             }
@@ -268,6 +271,52 @@ class DiscoveryController(
             is PendingProposalStepResult.StorageFailure -> EvidenceFirstNoteStep.ProposalFailure(result)
         }
     }
+    private suspend fun advanceKnownCatalogWindow(owner: TopicCoordinator, ticket: TopicCatalogTicket,
+        verifier: TopicLabelIdentity, pageId: String, explicitPageIds: Set<String>, structureComplete: Boolean,
+        anchorOffset: Int, maxRecords: Int, store: ProposalProgressStore, windowContinue: () -> Boolean,
+        scan: KnownCatalogScan): EvidenceFirstNoteStep {
+        val token = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier &&
+            runtime.validity.isCurrent(token) && mutable.value.indexedRevision == indexedRevision
+        fun mayWork() = mayContinueWork() && windowContinue() && runtime.foregroundQueries.get() == 0
+        if (scan.ticket != null && (!owner.isCatalogTicketCurrent(scan.ticket) || scan.ticket.snapshot !== ticket.snapshot ||
+                scan.verifier != verifier || scan.indexedRevision != indexedRevision)) return EvidenceFirstNoteStep.Stale
+        if (!current()) return EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+        val sources = runtime.validity.eligibleRevisions()
+        val id = canonicalSemanticId(pageId)
+        val record = runtime.bulkStep { index.read(id) } ?: return EvidenceFirstNoteStep.Incomplete
+        if (!current() || record.identity != ticket.identity || sources[id] != record.revision) return EvidenceFirstNoteStep.Stale
+        val result = owner.scanKnownConceptWork(ticket, record, sources, verifier, scan.cursor, maxRecords,
+            verifierCurrent = { topicSupportIdentity() == verifier }) { request ->
+            runtime.verifyTopicSupport(request) { current() && mayWork() }
+        }
+        if (!current()) return EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+        return when (result) {
+            is ExistingConceptScanResult.Page -> {
+                if (scan.scope != null && scan.scope != result.scopeKey) return EvidenceFirstNoteStep.Stale
+                val supported = scan.supported + result.supported
+                val uncertain = scan.uncertain + result.uncertain
+                if (result.next != null) EvidenceFirstNoteStep.PendingKnownCatalog(scan.advance(ticket, verifier, indexedRevision,
+                    result.scopeKey, result.next, supported, uncertain))
+                else {
+                    val provisional = provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
+                        maxRecords, store, windowContinue, supported, uncertain.isNotEmpty())
+                    if (!current()) EvidenceFirstNoteStep.Stale else if (!mayWork()) EvidenceFirstNoteStep.Deferred else provisional
+                }
+            }
+            ExistingConceptScanResult.Incomplete -> {
+                val provisional = provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
+                    maxRecords, store, windowContinue, scan.supported, scan.uncertain.isNotEmpty())
+                if (!current()) EvidenceFirstNoteStep.Stale else if (!mayWork()) EvidenceFirstNoteStep.Deferred else provisional
+            }
+            ExistingConceptScanResult.Stale -> EvidenceFirstNoteStep.Stale
+            ExistingConceptScanResult.Deferred -> EvidenceFirstNoteStep.Deferred
+            is ExistingConceptScanResult.Failure -> EvidenceFirstNoteStep.ScanFailure(DurableConceptScanResult.Failure(result.result))
+        }
+    }
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
@@ -275,7 +324,7 @@ class DiscoveryController(
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
         checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
         corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null,
-        windowContinue: () -> Boolean = { true }): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
             (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
@@ -288,8 +337,16 @@ class DiscoveryController(
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || !windowContinue() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
-        val ticket = owner.captureCatalogTicket() ?: return@withContext provisionalEvidenceFirstWindow(
-            pageId, explicitPageIds, structureComplete, anchorOffset, maxRecords, store, windowContinue)
+        val ticket = owner.captureCatalogTicket()
+        if (ticket == null) {
+            val partial = owner.captureCatalogTicket(allowIncomplete = true)
+            val knownVerifier = topicSupportIdentity()
+            if (partial != null && !partial.snapshot.complete && partial.snapshot.topics.isNotEmpty() && knownVerifier != null)
+                return@withContext advanceKnownCatalogWindow(owner, partial, knownVerifier, pageId, explicitPageIds,
+                    structureComplete, anchorOffset, maxRecords, store, windowContinue, knownCatalogScan ?: KnownCatalogScan.start())
+            return@withContext provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
+                maxRecords, store, windowContinue)
+        }
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null
         val token = runtime.validity.capture()

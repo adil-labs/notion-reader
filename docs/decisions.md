@@ -12792,3 +12792,32 @@ mandatory global formation, process-owned scheduling and recovery, targeted
 proposal recomputation, uncertainty resolution, catalog continuity and publication,
 and comparative quality, device and human accessibility acceptance. The existing
 production publisher remains active.
+
+## 183. Check known concepts in an incomplete catalog (2026-11-02)
+
+The candidate-only path can now check surviving known concepts in a source- and
+query-ticketed partial catalog before proposing unexplained passages. It uses the
+existing retrieval and independent support runtime in bounded pages. Supported
+passages are excluded from the provisional proposal window; unsupported passages
+remain eligible, and uncertain checks retain an explicit uncertainty reason. The
+catalog remains incomplete regardless of how many known concepts were checked, so
+this path cannot generate or publish a concept. The bounded driver carries its
+process-local continuation and stops at provisional proposals. Complete-catalog
+checkpoint identities retain their previous format; partial scans use a distinct
+scope, preventing a partial continuation from being reused as complete coverage.
+
+The focused scan test initially failed to compile before partial scanning existed.
+Removing the partial/complete scope distinction made
+`knownConceptsCanBeCheckedWithoutClaimingCatalogCompletion` fail. Bypassing the
+known-concept path made `provisionalCandidatesFirstCheckKnownConceptsInAnIncompleteCatalog`
+fail, and removing the uncertainty marker made it fail again. The test fixture was
+corrected to compare the existing published state before and after the operation:
+the partial catalog already contained a topic. All guards were restored. Full JVM
+suite: 1,528 tests, zero failures/errors/skips; debug assembly, Android-test Kotlin
+compilation and standalone runtime-probe assembly passed. Controlled support
+decisions do not establish actual verifier quality or device cost.
+
+Still open: validated concept generation and publication without mandatory global
+formation, process-owned scheduling and recovery, uncertainty resolution, catalog
+continuity, and comparative quality, device and human accessibility acceptance.
+The existing production publisher remains active.

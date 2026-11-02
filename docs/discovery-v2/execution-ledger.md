@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added bounded independent checks of known concepts before provisional
+proposals from an incomplete catalog. Scope, known-match and uncertainty proofs,
+1,528 JVM tests and builds are recorded in §183.
+
 2026-11-02: Enabled bounded, explicitly incomplete candidate neighborhoods when
 the existing catalog is unavailable, without publication. Catalog and withdrawal
 proofs, 1,526 JVM tests and builds are recorded in §182.

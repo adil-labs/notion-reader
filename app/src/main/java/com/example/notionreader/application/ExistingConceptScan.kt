@@ -16,7 +16,8 @@ internal sealed interface ExistingConceptScanResult {
 internal fun existingConceptScanScope(snapshot: TopicSnapshot, record: SemanticRecord, identity: EmbeddingIdentity,
     policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>, queryTicket: String): String {
     val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
-    val fields = listOf("existing-concept-scan-v1", snapshot.generation.toString(), passageDeltaFingerprint(record),
+    val version = if (snapshot.complete) "existing-concept-scan-v1" else "known-concept-scan-v1"
+    val fields = listOf(version, snapshot.generation.toString(), passageDeltaFingerprint(record),
         identity.toString(), policy.toString(), verifier.toString(), epoch.toString(), queryTicket) +
         sources.toSortedMap().entries.flatMap { listOf(it.key, it.value) } + topics.flatMap { topic ->
             listOf(topic.id, topic.createdOrder.toString(), topic.currentGeneratedLabel?.workKey.orEmpty()) +
@@ -29,14 +30,14 @@ internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: Se
     policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
     retrievals: TopicRetrievalStore, index: SemanticIndexStore, progress: ProposalProgressStore,
     cursor: ExistingConceptScanCursor?, limit: Int, current: () -> Boolean, mayWork: () -> Boolean,
-    verify: suspend (TopicSupportRequest) -> TopicSupportRun): ExistingConceptScanResult {
+    allowIncompleteCatalog: Boolean = false, verify: suspend (TopicSupportRequest) -> TopicSupportRun): ExistingConceptScanResult {
     require(limit in 1..128)
     currentCoroutineContext().ensureActive()
     if (!current()) return ExistingConceptScanResult.Stale
     if (!mayWork()) return ExistingConceptScanResult.Deferred
     val queryTicket = retrievals.queryTicket() ?: return ExistingConceptScanResult.Deferred
     fun valid() = current() && retrievals.queryTicket() == queryTicket
-    if (!snapshot.complete) return ExistingConceptScanResult.Incomplete
+    if (!snapshot.complete && !allowIncompleteCatalog) return ExistingConceptScanResult.Incomplete
     if (snapshot.identity != identity || record.identity != identity || sources[canonicalSemanticId(record.pageId)] != record.revision)
         return ExistingConceptScanResult.Stale
     val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
@@ -96,7 +97,7 @@ internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: 
     // A finished record is intentionally untrusted until its assessments and scope are revalidated.
     if (!restart && saved != null && saved.next == null) return DurableConceptScanResult.AwaitingValidation(saved)
     val result = scanExistingConceptPage(snapshot, record, identity, policy, verifier, epoch, sources,
-        retrievals, index, progress, if (restart) null else saved?.next, limit, ::valid, mayWork, verify)
+        retrievals, index, progress, if (restart) null else saved?.next, limit, ::valid, mayWork, verify = verify)
     if (!valid()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
     return when (result) {

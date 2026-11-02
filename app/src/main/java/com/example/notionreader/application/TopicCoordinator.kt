@@ -65,8 +65,8 @@ internal class TopicCoordinator(
         if (startEpoch == epoch.get()) needsMoreWork = true
     }
     /** Captured from the sole coordinator; object identity changes on catalog or label publication. */
-    suspend fun captureCatalogTicket(): TopicCatalogTicket? = writes.withLock {
-        if (!loaded || !latest.complete || cache.invalidations.value.isNotEmpty()) return@withLock null
+    suspend fun captureCatalogTicket(allowIncomplete: Boolean = false): TopicCatalogTicket? = writes.withLock {
+        if (!loaded || (!latest.complete && !allowIncomplete) || cache.invalidations.value.isNotEmpty()) return@withLock null
         val snapshot = latest
         val model = identity()
         if (snapshot.identity != model) return@withLock null
@@ -102,6 +102,28 @@ internal class TopicCoordinator(
             { mayWork() && !shouldYield() }, restart, verify)
     }
 
+    /** Known topics may be checked provisionally; the partial snapshot is never complete coverage. */
+    suspend fun scanKnownConceptWork(ticket: TopicCatalogTicket, record: SemanticRecord, sources: Map<String, String>,
+        verifier: TopicLabelIdentity, cursor: ExistingConceptScanCursor?, limit: Int,
+        verifierCurrent: () -> Boolean = { true }, verify: suspend (TopicSupportRequest) -> TopicSupportRun): ExistingConceptScanResult {
+        fun current() = isCatalogTicketCurrent(ticket) && verifierCurrent()
+        if (!current()) return ExistingConceptScanResult.Stale
+        if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
+        val matching = retrievals ?: return ExistingConceptScanResult.Incomplete
+        val pending = proposalProgress ?: return ExistingConceptScanResult.Incomplete
+        val snapshots = bulk { cache.snapshot() }
+        if (!current()) return ExistingConceptScanResult.Stale
+        if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
+        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        if (revisions.size != snapshots.size || revisions != sources) return ExistingConceptScanResult.Stale
+        val currentRecord = readRecord(canonicalSemanticId(record.pageId))
+        if (!current()) return ExistingConceptScanResult.Stale
+        if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
+        if (currentRecord != record || sources[canonicalSemanticId(record.pageId)] != record.revision) return ExistingConceptScanResult.Stale
+        return scanExistingConceptPage(ticket.snapshot, record, ticket.identity, matching.existingConceptPolicy(), verifier,
+            ticket.epoch, sources, matching.existingConceptStore(), index, pending, cursor, limit, ::current,
+            { mayWork() && !shouldYield() }, allowIncompleteCatalog = true, verify = verify)
+    }
     suspend fun replayExistingConceptWork(ticket: TopicCatalogTicket, record: SemanticRecord,
         sources: Map<String, String>, verifier: TopicLabelIdentity, saved: ExistingConceptScanRecord,
         replay: ConceptScanReplay, limit: Int, verifierCurrent: () -> Boolean = { true }): ConceptScanReplayResult {
