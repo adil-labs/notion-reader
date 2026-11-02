@@ -96,6 +96,11 @@ sealed interface TopicWriteResult {
     data object Written : TopicWriteResult
     data class Rejected(val failure: TopicWriteFailure, val validationReason: TopicValidationReason? = null) : TopicWriteResult
 }
+sealed interface TopicGuardedWriteResult {
+    data object Written : TopicGuardedWriteResult
+    data object Stale : TopicGuardedWriteResult
+    data class Rejected(val result: TopicWriteResult.Rejected) : TopicGuardedWriteResult
+}
 interface TopicStore {
     suspend fun read(): TopicSnapshot?
     suspend fun readMetadata(): TopicSnapshot? = read()
@@ -124,6 +129,9 @@ interface TopicStore {
     suspend fun write(snapshot: TopicSnapshot): Boolean
     suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult =
         if (write(snapshot)) TopicWriteResult.Written else TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
+    /** Stores without a commit-time guard must decline guarded admission. */
+    suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult =
+        TopicGuardedWriteResult.Rejected(TopicWriteResult.Rejected(TopicWriteFailure.Unknown))
     suspend fun clear()
     suspend fun bytes(): Long
 }

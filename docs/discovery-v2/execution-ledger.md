@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Guarded topic-file replacement after staging; stale writes preserve
+the previous catalog. The failing-first proof and 1,532 JVM tests are in §193.
+Post-replacement recovery and automatic admission remain open.
+
 2026-11-02: Added an explicit guarded coordinator admission entry. The
 failing-first proof and 1,531 JVM tests are recorded in §192. It is not
 automatically scheduled; source-race recovery and matching remain open.

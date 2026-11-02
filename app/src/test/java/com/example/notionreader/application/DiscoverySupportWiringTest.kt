@@ -72,6 +72,11 @@ class DiscoverySupportWiringTest {
             var snapshot = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = true, connectionPassComplete = true, acceptedRevisions = mapOf("note" to revision))
             override suspend fun read() = snapshot
             override suspend fun write(snapshot: TopicSnapshot): Boolean { if (rejectGraphWrites) return false; this.snapshot = snapshot; return true }
+            override suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
+                if (!current()) return TopicGuardedWriteResult.Stale
+                return if (write(snapshot)) TopicGuardedWriteResult.Written else
+                    TopicGuardedWriteResult.Rejected(TopicWriteResult.Rejected(TopicWriteFailure.Unknown))
+            }
             override suspend fun clear() { snapshot = TopicSnapshot() }
             override suspend fun bytes() = 0L
         }

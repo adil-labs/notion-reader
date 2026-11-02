@@ -160,6 +160,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     }
 
     private class RecordLimitExceeded : java.io.IOException()
+    private class StaleGuard : RuntimeException()
 
     /** Counts actual UTF-8 bytes without retaining JSON; stops before allocating a whole record. */
     private fun encode(value: TopicStoreEnvelope, output: OutputStream? = null,
@@ -180,11 +181,12 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         return count
     }
 
-    private suspend fun writeEnvelope(value: TopicStoreEnvelope, external: Long, checkActive: () -> Unit = {}): Boolean {
+    private suspend fun writeEnvelope(value: TopicStoreEnvelope, external: Long, checkActive: () -> Unit = {},
+        beforeCommit: () -> Unit = {}): Boolean {
         val size = encode(value, checkActive = checkActive)
         if (!fits(size, external)) return false
         writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, size) {
-            atomicSemanticWrite(file) { encode(value, it, checkActive) }
+            atomicSemanticWrite(file, onStaged = { beforeCommit() }) { encode(value, it, checkActive) }
         }
         return true
     }
@@ -381,7 +383,17 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         catch (_: java.io.IOException) { discard(); false }
         catch (_: IllegalArgumentException) { discard(); false }
     } } }
-    override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
+    override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult = writeInternal(snapshot, null)
+    override suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
+        if (!current()) return TopicGuardedWriteResult.Stale
+        return try {
+            when (val result = writeInternal(snapshot, current)) {
+                TopicWriteResult.Written -> TopicGuardedWriteResult.Written
+                is TopicWriteResult.Rejected -> TopicGuardedWriteResult.Rejected(result)
+            }
+        } catch (_: StaleGuard) { TopicGuardedWriteResult.Stale }
+    }
+    private suspend fun writeInternal(snapshot: TopicSnapshot, guard: (() -> Boolean)?): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
         val staged = mutableListOf<File>()
         var committed = false
         try {
@@ -400,7 +412,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                     ?: return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
             val key = ref?.key ?: reused?.key ?: UUID.randomUUID().toString()
             if (!writeEnvelope(envelope(snapshot.copy(connections = emptyList(), catalogReference = null), manifest,
-                key) { context.ensureActive() }, external) { context.ensureActive() })
+                key) { context.ensureActive() }, external, { context.ensureActive() },
+                { if (guard != null && !guard()) throw StaleGuard() }))
                 return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
             committed = true
             catalogs[key] = manifest; currentCatalogKey = key

@@ -113,13 +113,14 @@ internal class TopicCoordinator(
         val next = latest.copy(topics = latest.topics + topic, continuity = latest.continuity + continuity,
             generation = latest.generation + 1)
         if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
-        val saved = bulk { store.writeDetailed(next) }
+        val saved = bulk { store.writeGuarded(next) { isCatalogTicketCurrent(ticket) && current() } }
+        if (saved == TopicGuardedWriteResult.Stale) return@withLock CanonicalAdmissionResult.Stale
         if (!isCatalogTicketCurrent(ticket) || !current()) {
-            // A source may have been withdrawn during I/O; never leave that staged evidence on disk.
+            // The state may change after atomic replacement; do not retain newly stale evidence.
             store.clear()
             return@withLock CanonicalAdmissionResult.Stale
         }
-        if (saved is TopicWriteResult.Rejected) return@withLock CanonicalAdmissionResult.StorageFailure(saved)
+        if (saved is TopicGuardedWriteResult.Rejected) return@withLock CanonicalAdmissionResult.StorageFailure(saved.result)
         latest = next
         epoch.incrementAndGet()
         formationWorkspace = null

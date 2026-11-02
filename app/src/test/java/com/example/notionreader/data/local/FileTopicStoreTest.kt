@@ -38,6 +38,19 @@ class FileTopicStoreTest {
         assertEquals(prior, FileTopicStore(directory).read())
     }
 
+    @Test fun staleGuardAtAtomicCommitPreservesThePreviousCatalog() = runBlocking {
+        val directory = temporary.newFolder()
+        val store = FileTopicStore(directory)
+        val original = TopicSnapshot(generation = 7, continuity = listOf(TopicContinuity("followed", 1, setOf("note"))))
+        assertEquals(TopicWriteResult.Written, store.writeDetailed(original))
+        var checks = 0
+        val result = store.writeGuarded(original.copy(generation = 8)) { ++checks < 2 }
+        assertEquals(TopicGuardedWriteResult.Stale, result)
+        assertEquals(2, checks)
+        assertEquals(original, FileTopicStore(directory).read())
+        assertTrue(directory.listFiles().orEmpty().none { it.extension == "tmp" })
+    }
+
     @Test fun canonicalConceptEvidenceSurvivesStorageAndIsWithdrawnWithItsSources() = runBlocking {
         val directory = temporary.newFolder()
         val model = EmbeddingIdentity("model", 2)

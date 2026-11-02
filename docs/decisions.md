@@ -13039,3 +13039,22 @@ source-race recovery, presentation, and lifecycle work remain incomplete.
 Full JVM suite: 1,531 tests, zero failures, errors or skips. Debug assembly and
 Android-test Kotlin compilation passed. Controlled runtimes do not establish
 semantic quality, device performance, TalkBack behavior or release acceptance.
+
+## 193. Guard the staged catalog replacement (2026-11-02)
+
+Candidate admission now uses a guarded topic-store write. FileTopicStore checks
+the live ticket before writing and again after staging, immediately before the
+atomic replacement; a stale check discards staged files and preserves the prior
+catalog. Other TopicStore implementations must explicitly implement this guard
+or decline the write. A state change after the final check or replacement still
+uses the conservative clearing fallback described in §192; preserving unaffected
+continuity and proving the source-withdrawal race end to end remain open.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Check current state after staging and before replacement | `staleGuardAtAtomicCommitPreservesThePreviousCatalog` failed. |
+
+The full JVM suite passed 1,532 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. The internal admission
+entry is not automatically scheduled, and these checks do not establish device
+behavior, model quality or human accessibility acceptance.
