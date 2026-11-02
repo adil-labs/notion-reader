@@ -12922,3 +12922,27 @@ Still open: canonical publication and continuity without mandatory formation,
 process-owned scheduling and recovery, uncertainty resolution, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 188. Recheck candidate citations against the live catalog (2026-11-02)
+
+A terminal candidate now retains its generator identity, query and, when it
+was built from a complete catalog, the coordinator ticket. A bounded citation
+recheck verifies that the catalog ticket, source revisions, index generation,
+generator and verifier remain current; reconstructs the query identity; and
+replays selected citation assessments from current source records and storage.
+A partial catalog has no commit-capable ticket. This method checks citations
+only: it does not revalidate corpus membership, grant publication authority or
+write to the catalog.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Live generator identity check during candidate recheck | `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` failed when the generator changed after replay. |
+
+The full JVM suite passed 1,529 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. The test uses controlled
+runtimes and does not establish model quality or Android device behavior.
+
+Still open: bounded corpus revalidation and atomic canonical publication,
+identity continuity, process-owned scheduling and recovery, uncertainty
+resolution, and comparative quality, device and human accessibility acceptance.
+The existing production publisher remains active.

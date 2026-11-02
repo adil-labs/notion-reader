@@ -140,6 +140,35 @@ class DiscoveryController(
         owner.replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit) { topicSupportIdentity() == verifier }
     }
 
+    /** Rechecks selected citations against live state; this alone does not authorize publication. */
+    internal suspend fun revalidatePendingCandidate(candidate: PendingConceptCandidate): PendingConceptCoverage = withContext(workDispatcher) {
+        val owner = topics ?: return@withContext PendingConceptCoverage.Unavailable
+        val ticket = candidate.catalogTicket ?: return@withContext PendingConceptCoverage.Unavailable
+        val store = proposalProgressStore ?: return@withContext PendingConceptCoverage.Unavailable
+        val token = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = owner.isCatalogTicketCurrent(ticket) && runtime.validity.isCurrent(token) &&
+            mutable.value.indexedRevision == indexedRevision && topicProposalIdentity() == candidate.generator &&
+            topicSupportIdentity() == candidate.verifier && candidate.embedding == ticket.identity
+        if (!current()) return@withContext PendingConceptCoverage.Stale
+        val sources = runtime.validity.eligibleRevisions()
+        if (sources != candidate.sources || !current()) return@withContext PendingConceptCoverage.Stale
+        val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
+            ?: return@withContext PendingConceptCoverage.Invalid
+        val expectedQuery = TopicRetrievalQuery("pending:${candidate.generation.workKey}", candidate.generation.workKey,
+            "${concept.name.trim()}\n${concept.definition.trim()}", candidate.embedding, topicRetrievalPolicy)
+        if (candidate.query.query != expectedQuery) return@withContext PendingConceptCoverage.Invalid
+        val guardedIndex = object : SemanticIndexStore by index {
+            override suspend fun read(pageId: String): SemanticRecord? = runtime.bulkStep { index.read(pageId) }
+        }
+        val coverage = readPendingConceptCoverage(candidate.proposal, candidate.generation, guardedIndex,
+            candidate.embedding, candidate.generator, candidate.verifier, ticket.epoch, sources, store, ::current)
+        if (!current()) return@withContext PendingConceptCoverage.Stale
+        if (coverage is PendingConceptCoverage.Complete && coverage.assessments != candidate.citations)
+            return@withContext PendingConceptCoverage.Invalid
+        coverage
+    }
+
     /** Runs bounded existing steps inside the caller's process-owned work window. */
     internal suspend fun advancePendingCorpusWindow(initial: PendingCorpusWork, maxSteps: Int,
         maxRecords: Int = 8, shouldContinue: () -> Boolean = { true }): PendingCorpusWorkResult = withContext(workDispatcher) {
@@ -239,7 +268,7 @@ class DiscoveryController(
     /** Shared bounded retrieval for complete and provisional concepts; caller validates citations first. */
     private suspend fun advancePendingRetrieval(proposal: IncrementalProposal, generated: ProposalGenerationResult.Completed,
         window: IncrementalProposalStepResult.Ready, concept: DiscoveryProposalResponse.Concept, citations: List<TopicSupportAssessment>, identity: EmbeddingIdentity,
-        verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>, guardedIndex: SemanticIndexStore,
+        verifier: TopicLabelIdentity, generator: TopicLabelIdentity, catalogTicket: TopicCatalogTicket?, epoch: Long, sources: Map<String, String>, guardedIndex: SemanticIndexStore,
         store: ProposalProgressStore, originPageId: String, record: SemanticRecord, retrievePageId: String,
         retrieveCursor: PendingRetrievalCursor?, retrieveScan: PendingConceptNoteScan?, checkpointPendingScan: Boolean,
         replayPendingScan: Boolean, corpusReplay: PendingCorpusReplay?, scopeTicket: String, scopeAnchor: Any,
@@ -273,7 +302,7 @@ class DiscoveryController(
             if (guardedIndex.read(canonicalSemanticId(originPageId)) != record || !current())
                 return EvidenceFirstNoteStep.Stale
             return EvidenceFirstNoteStep.CorpusReplay(PendingConceptCandidate(proposal, generated, citations.toList(),
-                sources.toMap(), identity, verifier), corpus, window)
+                sources.toMap(), identity, verifier, generator, embeddedQuery, catalogTicket), corpus, window)
         }
         if (replayPendingScan) {
             val saved = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
@@ -398,7 +427,7 @@ class DiscoveryController(
                             val scopeFields = listOf("provisional-retrieval-v1", catalogScope, token.reset.toString(),
                                 token.cacheRevision.toString(), indexedRevision.toString(), identity.toString())
                             val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
-                            return advancePendingRetrieval(proposal, generated, window, concept, coverage.assessments, identity, verifier, token.reset,
+                            return advancePendingRetrieval(proposal, generated, window, concept, coverage.assessments, identity, verifier, generator, null, token.reset,
                                 sources, guardedIndex, store, pageId, record, retrievePageId, retrieveCursor, retrieveScan,
                                 checkpointPendingScan, replayPendingScan, corpusReplay, scopeTicket, scopeAnchor, maxRecords,
                                 ::assessmentCurrent, ::mayWork)
@@ -595,7 +624,7 @@ class DiscoveryController(
                                 token.reset.toString(), token.cacheRevision.toString(), indexedRevision.toString(), ticket.identity.toString())
                             val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
                             return@withContext advancePendingRetrieval(proposal, generated, result.step, concept, coverage.assessments, ticket.identity,
-                                verifier, ticket.epoch, sources, guardedIndex, store, pageId, record, retrievePageId, retrieveCursor,
+                                verifier, checkNotNull(generator), ticket, ticket.epoch, sources, guardedIndex, store, pageId, record, retrievePageId, retrieveCursor,
                                 retrieveScan, checkpointPendingScan, replayPendingScan, corpusReplay, scopeTicket, ticket.snapshot,
                                 maxRecords, ::current, ::mayWork)
                         }

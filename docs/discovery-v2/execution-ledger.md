@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Bound candidate citation rechecks to the live catalog and model
+identities. Failing-first proof and 1,529 JVM tests are in §188; corpus
+revalidation and canonical publication remain open.
+
 2026-11-02: Retained verified proposal and citation evidence through terminal
 corpus replay for a later guarded canonical commit. Failing-first proof and
 1,529 JVM tests are recorded in §187; publication remains open.

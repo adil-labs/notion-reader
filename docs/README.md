@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#187-retain-verified-candidate-evidence-through-corpus-replay-2026-11-02)
+[the current decision-record entry](decisions.md#188-recheck-candidate-citations-against-the-live-catalog-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

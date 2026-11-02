@@ -183,6 +183,13 @@ class DiscoverySupportWiringTest {
         assertEquals(setOf("p"), incomplete.candidate.citations.map { it.evidence.passageId }.toSet())
         assertTrue(incomplete.candidate.citations.all { it.decision == SupportDecision.SUPPORTED })
         assertEquals(mapOf("note" to revision), incomplete.candidate.sources)
+        assertEquals(originalProposalIdentity, incomplete.candidate.generator)
+        assertEquals(assessed.generation.workKey, incomplete.candidate.query.query.conceptWorkKey)
+        assertNotNull(incomplete.candidate.catalogTicket)
+        assertTrue(controller.revalidatePendingCandidate(incomplete.candidate) is PendingConceptCoverage.Complete)
+        activeProposalIdentity = originalProposalIdentity.copy(policy = "changed-after-replay")
+        assertEquals(PendingConceptCoverage.Stale, controller.revalidatePendingCandidate(incomplete.candidate))
+        activeProposalIdentity = originalProposalIdentity
         assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reasons)
         assertEquals(2, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
         val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",

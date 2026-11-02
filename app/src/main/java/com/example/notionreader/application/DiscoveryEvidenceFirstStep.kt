@@ -38,7 +38,10 @@ internal data class PendingConceptCandidate(
     val citations: List<com.example.notionreader.domain.discovery.TopicSupportAssessment>,
     val sources: Map<String, String>,
     val embedding: com.example.notionreader.domain.discovery.EmbeddingIdentity,
-    val verifier: com.example.notionreader.domain.discovery.TopicLabelIdentity
+    val verifier: com.example.notionreader.domain.discovery.TopicLabelIdentity,
+    val generator: com.example.notionreader.domain.discovery.TopicLabelIdentity,
+    val query: com.example.notionreader.domain.discovery.TopicQueryEmbedding,
+    val catalogTicket: TopicCatalogTicket?
 )
 
 internal enum class PendingCorpusWorkPhase { CORPUS, ASSESS_CITATION, REPLAY_NOTE, SCAN_NOTE }
