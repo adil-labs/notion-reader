@@ -12766,3 +12766,29 @@ Still open: process-owned scheduling and recovery, targeted proposal recomputati
 uncertainty resolution, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 182. Offer provisional candidates without global formation (2026-11-02)
+
+The evidence-first Note entry previously returned incomplete whenever it could not
+capture a completed existing-catalog ticket, so even a new Note could not offer
+candidate neighborhoods until global formation finished. It can now perform the
+existing bounded delta-based proposal scan in that state. Every returned candidate
+is marked `EXISTING_CONCEPT_CATALOG` incomplete and has a distinct provisional
+work key. This path does not assume an absent or corrupt catalog is empty, does
+not invoke generation or publish a topic, and still blocks unresolved withdrawals.
+The existing-catalog check remains required before concept generation and corpus
+work can proceed; this does not yet remove global formation from production.
+
+`candidatesCanRemainProvisionalWithoutACompletedCatalog` initially failed against
+the old entry. Removing its incomplete-catalog marker made the test fail. Removing
+the pending-invalidation guard also made the test fail after deleting and recaching
+the same Note; both guards were restored. Full JVM suite: 1,526 tests, zero
+failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. No semantic-quality or device cost was
+measured.
+
+Still open: matching existing concepts and generating validated concepts without
+mandatory global formation, process-owned scheduling and recovery, targeted
+proposal recomputation, uncertainty resolution, catalog continuity and publication,
+and comparative quality, device and human accessibility acceptance. The existing
+production publisher remains active.

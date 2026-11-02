@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Enabled bounded, explicitly incomplete candidate neighborhoods when
+the existing catalog is unavailable, without publication. Catalog and withdrawal
+proofs, 1,526 JVM tests and builds are recorded in §182.
+
 2026-11-02: Propagated pending-work window expiry to the shared inference gate.
 In-flight cancellation proof, 1,525 JVM tests and builds are recorded in §181;
 Android cancellation timing and production scheduling remain open.

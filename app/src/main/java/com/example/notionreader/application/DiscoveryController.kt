@@ -232,6 +232,42 @@ class DiscoveryController(
         }
         return PendingCorpusWorkResult.Stopped(result, work)
     }
+    /** Candidate-only work while the existing catalog cannot yet be validated. */
+    private suspend fun provisionalEvidenceFirstWindow(pageId: String, explicitPageIds: Set<String>,
+        structureComplete: Boolean, anchorOffset: Int, maxRecords: Int, store: ProposalProgressStore,
+        windowContinue: () -> Boolean): EvidenceFirstNoteStep {
+        val token = runtime.validity.capture()
+        val identity = provider.identity
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = runtime.validity.isCurrent(token) && provider.identity == identity &&
+            mutable.value.indexedRevision == indexedRevision && cache.invalidations.value.isEmpty()
+        fun mayWork() = mayContinueWork() && windowContinue() && runtime.foregroundQueries.get() == 0
+        if (!current()) return EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+        val sources = runtime.validity.eligibleRevisions()
+        val id = canonicalSemanticId(pageId)
+        val record = runtime.bulkStep { index.read(id) } ?: return EvidenceFirstNoteStep.Incomplete
+        if (!current() || record.identity != identity || sources[id] != record.revision) return EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+        val result = advancePendingProposalWindow(record, emptySet(), sources, explicitPageIds, structureComplete,
+            anchorOffset, store, maxRecords, ::current, ::mayWork) { target -> runtime.bulkStep { index.read(target) } }
+        if (!current()) return EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+        if (runtime.bulkStep { index.read(id) } != record || !current()) return EvidenceFirstNoteStep.Stale
+        return when (result) {
+            is PendingProposalStepResult.Ready -> {
+                val provisional = result.step.window.proposals.map { proposal ->
+                    proposal.copy(proposalKey = semanticHash("unverified-catalog-v1:${proposal.proposalKey}"),
+                        incomplete = proposal.incomplete + ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG)
+                }
+                EvidenceFirstNoteStep.Proposals(result.step.copy(window = result.step.window.copy(proposals = provisional)))
+            }
+            PendingProposalStepResult.Missing -> EvidenceFirstNoteStep.Incomplete
+            PendingProposalStepResult.Stale -> EvidenceFirstNoteStep.Stale
+            PendingProposalStepResult.Deferred -> EvidenceFirstNoteStep.Deferred
+            is PendingProposalStepResult.StorageFailure -> EvidenceFirstNoteStep.ProposalFailure(result)
+        }
+    }
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
@@ -252,7 +288,8 @@ class DiscoveryController(
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || !windowContinue() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
-        val ticket = owner.captureCatalogTicket() ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        val ticket = owner.captureCatalogTicket() ?: return@withContext provisionalEvidenceFirstWindow(
+            pageId, explicitPageIds, structureComplete, anchorOffset, maxRecords, store, windowContinue)
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null
         val token = runtime.validity.capture()

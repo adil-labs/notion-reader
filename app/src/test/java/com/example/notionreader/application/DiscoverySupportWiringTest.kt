@@ -208,4 +208,36 @@ class DiscoverySupportWiringTest {
         assertEquals("The cancelled attempt also reached the support runtime", 8, supportCalls)
         assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
     }
-}
+    @Test fun candidatesCanRemainProvisionalWithoutACompletedCatalog() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))
+        val model = EmbeddingIdentity("model", 2)
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
+            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override fun release() {}
+        }
+        val text = "Moisture and suitable temperature allow seeds to germinate and begin sprouting."
+        val doc = ReaderDocument.fromChunkTexts("note", "Seed germination", listOf(text)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+        val revision = semanticRevision(doc)
+        val p = SemanticPassage("p", "note", "section", "Summary", "block", "chunk", 0, text.length, text, text, 0)
+        val record = SemanticRecord("note", revision, model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))
+        assertTrue(index.write(record)); index.setPaused(false)
+        val progress = FileProposalProgressStore(root.resolve("progress"))
+        val graph = object : TopicStore {
+            override suspend fun read() = TopicSnapshot(identity = model, complete = false)
+            override suspend fun write(snapshot: TopicSnapshot) = true
+            override suspend fun clear() {}
+            override suspend fun bytes() = 0L
+        }
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, proposalProgressStore = progress)
+        controller.reconcile(emptyList(), false)
+        val preview = controller.advanceEvidenceFirstNote("note", generateIndex = 0) as EvidenceFirstNoteStep.Proposals
+        assertEquals(1, preview.window.window.proposals.size)
+        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in preview.window.window.proposals.single().incomplete)
+        assertTrue(controller.state.value.publishedTopics.isEmpty())
+        cache.remove("note")
+        cache.put(CachedDocument(doc, null, Instant.EPOCH))
+        assertEquals(EvidenceFirstNoteStep.Stale, controller.advanceEvidenceFirstNote("note", generateIndex = 0))
+    }}
