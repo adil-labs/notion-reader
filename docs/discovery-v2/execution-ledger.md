@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Prevented empty-corpus completion after concept-source withdrawal.
+Failing-first proof and 1,529 JVM tests are recorded in §186; publication remains open.
+
 2026-11-02: Connected provisional concepts to shared bounded retrieval and
 corpus replay while retaining incomplete-catalog status. Failing-first proof,
 1,528 JVM tests and builds are recorded in §185; publication remains open.

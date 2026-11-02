@@ -12876,3 +12876,25 @@ Still open: canonical publication and continuity without mandatory formation,
 process-owned scheduling and recovery, uncertainty resolution, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 186. Reject corpus completion after concept evidence withdrawal (2026-11-02)
+
+Corpus replay now checks the concept's source dependencies before returning a
+complete result for an empty eligible source set. Previously that early return
+could report complete even though the originating evidence had disappeared.
+This guards pending work; it does not publish concepts or establish that the
+replacement is ready for activation.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Dependency check before empty-corpus completion | `emptyCorpusCannotCompleteAfterConceptEvidenceIsWithdrawn` failed: expected stale, got complete. |
+
+The targeted regression failed before the fix. The full JVM suite then passed
+1,529 tests with no failures, errors or skips; debug assembly and Android-test
+Kotlin compilation passed. This application-layer change does not itself alter
+a screen or establish device, model-quality or human accessibility acceptance.
+
+Still open: canonical publication and continuity without mandatory formation,
+process-owned scheduling and recovery, uncertainty resolution, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

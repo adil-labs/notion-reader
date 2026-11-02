@@ -11,6 +11,20 @@ import org.junit.rules.TemporaryFolder
 
 class PendingConceptRetrievalTest {
     @get:Rule val files = TemporaryFolder()
+    @Test fun emptyCorpusCannotCompleteAfterConceptEvidenceIsWithdrawn() = runBlocking {
+        val root = files.newFolder()
+        val index = FileSemanticIndexStore(root.resolve("index"))
+        val store = FileProposalProgressStore(root.resolve("progress"))
+        val model = EmbeddingIdentity("model", 2)
+        val work = semanticHash("concept")
+        val concept = SupportConcept("pending:$work", work, "Seeds", "Seeds need water.")
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(concept.topicId, work, "Seeds\nSeeds need water.",
+            model, TopicRetrievalPolicy(.5f)), listOf(1f, 0f))
+        val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
+        val result = replayPendingCorpus(PendingCorpusReplay.start(), "scope", concept, query, verifier, 4,
+            emptyMap(), index, store, { true }, { true }, conceptDependencies = mapOf("origin" to "revision"))
+        assertEquals(PendingCorpusReplayResult.Stale, result)
+    }
     @Test fun candidatePagesRequireSupportAndBindContinuationToTheExactQueryVector() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val store = FileProposalProgressStore(root.resolve("progress"))
         val embedding = EmbeddingIdentity("model", 2); val work = semanticHash("concept")

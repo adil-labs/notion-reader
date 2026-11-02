@@ -209,6 +209,7 @@ internal suspend fun replayPendingCorpus(replay: PendingCorpusReplay, scopeTicke
     val ids = sources.keys.sorted()
     if (ids.any { it.isBlank() || canonicalSemanticId(it) != it } || replay.offset !in 0..ids.size)
         return PendingCorpusReplayResult.Invalid
+    if (conceptDependencies.any { (page, revision) -> sources[page] != revision }) return PendingCorpusReplayResult.Stale
     if (replay.offset == ids.size) return if (replay.uncertain.isEmpty()) PendingCorpusReplayResult.Complete(replay.supported)
         else PendingCorpusReplayResult.Uncertain(replay.supported, replay.uncertain)
     val id = ids[replay.offset]
@@ -219,7 +220,6 @@ internal suspend fun replayPendingCorpus(replay: PendingCorpusReplay, scopeTicke
     if (record == null || record.revision != sources[id] || record.identity != query.query.embedding)
         return PendingCorpusReplayResult.Incomplete(id, bound)
     val dependencies = conceptDependencies + (id to record.revision)
-    if (conceptDependencies.any { (page, revision) -> sources[page] != revision }) return PendingCorpusReplayResult.Stale
     val saved = store.readPendingNoteScan(concept.workKey, id, sources)
     if (!current()) return PendingCorpusReplayResult.Stale
     if (!mayWork()) return PendingCorpusReplayResult.Deferred
