@@ -223,6 +223,19 @@ class DiscoverySupportWiringTest {
         val p = SemanticPassage("p", "note", "section", "Summary", "block", "chunk", 0, text.length, text, text, 0)
         val record = SemanticRecord("note", revision, model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))
         assertTrue(index.write(record)); index.setPaused(false)
+        val generatorIdentity = TopicLabelIdentity("a", "t", "c", "proposal", "s", "v", "CPU")
+        var generations = 0; var changeDuringGeneration = false; var lastRequest: DiscoveryProposalRequest? = null
+        var activeGenerator = generatorIdentity
+        val generator = object : TopicLabelRuntime, DiscoveryProposalRuntime {
+            override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No labels")
+            override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun {
+                generations++; lastRequest = request
+                if (changeDuringGeneration) { cache.remove("note"); cache.put(CachedDocument(doc, null, Instant.EPOCH)) }
+                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination conditions",
+                    "Conditions that allow seeds to germinate.", "Listen to seed germination conditions.", listOf(request.evidence.first().passageId)))
+            }
+            override suspend fun close() {}
+        }
         val progress = FileProposalProgressStore(root.resolve("progress"))
         val graph = object : TopicStore {
             override suspend fun read() = TopicSnapshot(identity = model, complete = false)
@@ -231,15 +244,22 @@ class DiscoverySupportWiringTest {
             override suspend fun bytes() = 0L
         }
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
-            topicStore = graph, proposalProgressStore = progress)
+            topicStore = graph, proposalProgressStore = progress, topicLabelRuntime = generator,
+            topicLabelModelAvailable = { true }, topicProposalIdentity = { activeGenerator })
         controller.reconcile(emptyList(), false)
-        val preview = controller.advanceEvidenceFirstNote("note", generateIndex = 0) as EvidenceFirstNoteStep.Proposals
+        val preview = controller.advanceEvidenceFirstNote("note") as EvidenceFirstNoteStep.Proposals
         assertEquals(1, preview.window.window.proposals.size)
         assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in preview.window.window.proposals.single().incomplete)
         assertTrue(controller.state.value.publishedTopics.isEmpty())
-        cache.remove("note")
-        cache.put(CachedDocument(doc, null, Instant.EPOCH))
+        val generated = controller.advanceEvidenceFirstNote("note", generateIndex = 0) as EvidenceFirstNoteStep.Generated
+        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in generated.generation.incomplete)
+        assertTrue(generated.generation.response is DiscoveryProposalResponse.Concept)
+        assertTrue(controller.advanceEvidenceFirstNote("note", generateIndex = 0) is EvidenceFirstNoteStep.Generated)
+        assertEquals(1, generations); assertTrue(controller.state.value.publishedTopics.isEmpty())
+        activeGenerator = generatorIdentity.copy(policy = "changed-generator")
+        changeDuringGeneration = true
         assertEquals(EvidenceFirstNoteStep.Stale, controller.advanceEvidenceFirstNote("note", generateIndex = 0))
+        assertNull(progress.readConcept(discoveryProposalWorkKey(lastRequest!!), mapOf("note" to revision)))
     }    @Test fun provisionalCandidatesFirstCheckKnownConceptsInAnIncompleteCatalog() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "c", "support", "s", "v", "CPU")
@@ -249,12 +269,15 @@ class DiscoverySupportWiringTest {
             override suspend fun embed(text: String) = listOf(1f, 0f)
             override fun release() {}
         }
-        var qDecision = SupportDecision.UNSUPPORTED
+        var qDecision = SupportDecision.UNSUPPORTED; var pendingDecision = SupportDecision.UNSUPPORTED
         var activeVerifier = verifier
-        val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
+        val runtime = object : TopicLabelRuntime, TopicSupportRuntime, DiscoveryProposalRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No labels")
             override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(
-                if (request.evidence.passageId == "p") SupportDecision.SUPPORTED else qDecision)
+                if (request.topicId.startsWith("pending:")) pendingDecision else if (request.evidence.passageId == "p") SupportDecision.SUPPORTED else qDecision)
+            override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun = DiscoveryProposalRun.Completed(
+                DiscoveryProposalResponse.Concept("Seed germination conditions", "Conditions that allow seeds to germinate.",
+                    "Listen to seed germination conditions.", listOf(request.evidence.first().passageId)))
             override suspend fun close() {}
         }
         val text = "Moisture and suitable temperature allow seeds to germinate and begin sprouting."
@@ -280,7 +303,8 @@ class DiscoverySupportWiringTest {
         val progress = FileProposalProgressStore(root.resolve("progress"))
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
             topicStore = graph, topicRetrievalStore = queries, proposalProgressStore = progress,
-            topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicSupportIdentity = { activeVerifier })
+            topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicSupportIdentity = { activeVerifier },
+            topicProposalIdentity = { verifier })
         controller.reconcile(emptyList(), false)
         val publishedBefore = controller.state.value.publishedTopics
         val first = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
@@ -288,15 +312,37 @@ class DiscoverySupportWiringTest {
         val proposals = result.window.window.proposals
         assertEquals(setOf("q"), proposals.map { it.evidence.first().passageId }.toSet())
         assertTrue(proposals.all { ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in it.incomplete })
+        val originalGeneration = controller.advanceEvidenceFirstNote("note", maxRecords = 1, generateIndex = 0,
+            knownCatalogScan = first.scan) as EvidenceFirstNoteStep.Generated
         assertEquals(publishedBefore, controller.state.value.publishedTopics)
         val driven = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0), maxRecords = 1) as PendingCorpusWorkResult.Pending).work
-        val provisionalStop = controller.advancePendingCorpusWork(driven, maxRecords = 1) as PendingCorpusWorkResult.Stopped
-        assertTrue(provisionalStop.reason is EvidenceFirstNoteStep.Proposals)
+        val citation = (controller.advancePendingCorpusWork(driven, maxRecords = 1) as PendingCorpusWorkResult.Pending).work
+        assertEquals(PendingCorpusWorkPhase.ASSESS_CITATION, citation.phase)
+        val provisionalStop = controller.advancePendingCorpusWork(citation, maxRecords = 1) as PendingCorpusWorkResult.Stopped
+        val assessed = provisionalStop.reason as EvidenceFirstNoteStep.Assessed
+        assertEquals(SupportDecision.UNSUPPORTED, assessed.assessment.decision)
+        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in assessed.generation.incomplete)
+        pendingDecision = SupportDecision.SUPPORTED; activeVerifier = verifier.copy(policy = "provisional-supported-v3")
+        var supportedWork = PendingCorpusWork.start("note", 0)
+        var supportedStop: PendingCorpusWorkResult.Stopped? = null
+        repeat(12) {
+            if (supportedStop == null) when (val next = controller.advancePendingCorpusWork(supportedWork, maxRecords = 1)) {
+                is PendingCorpusWorkResult.Pending -> supportedWork = next.work
+                is PendingCorpusWorkResult.Stopped -> supportedStop = next
+                else -> fail("An incomplete catalog cannot finish corpus work")
+            }
+        }
+        val pendingConcept = supportedStop!!.reason as EvidenceFirstNoteStep.Generated
+        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in pendingConcept.generation.incomplete)
+        assertEquals(publishedBefore, controller.state.value.publishedTopics)
         qDecision = SupportDecision.UNCERTAIN; activeVerifier = verifier.copy(policy = "uncertain-v2")
         val uncertainFirst = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
         val uncertain = controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = uncertainFirst.scan) as EvidenceFirstNoteStep.Proposals
         assertEquals(setOf("q"), uncertain.window.window.proposals.map { it.evidence.first().passageId }.toSet())
         assertTrue(uncertain.window.window.proposals.all { ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN in it.incomplete })
+        val uncertainGeneration = controller.advanceEvidenceFirstNote("note", maxRecords = 1, generateIndex = 0,
+            knownCatalogScan = uncertainFirst.scan) as EvidenceFirstNoteStep.Generated
+        assertNotEquals(originalGeneration.generation.workKey, uncertainGeneration.generation.workKey)
         val pending = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
         assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(0f, 1f)))) { true })
         assertEquals(EvidenceFirstNoteStep.Stale, controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = pending.scan))

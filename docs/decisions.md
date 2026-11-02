@@ -12821,3 +12821,32 @@ Still open: validated concept generation and publication without mandatory globa
 formation, process-owned scheduling and recovery, uncertainty resolution, catalog
 continuity, and comparative quality, device and human accessibility acceptance.
 The existing production publisher remains active.
+
+## 184. Generate and assess provisional concepts before catalog completion (2026-11-02)
+
+The evidence-first entry can now send a bounded provisional neighborhood to the
+existing shared proposal runtime without waiting for a completed catalog. The
+result retains `EXISTING_CONCEPT_CATALOG` incomplete status, uses a distinct
+work key including all incomplete reasons, and is stored only as pending work.
+For a partial catalog, known concepts are checked first; the driver independently
+assesses selected citations, stops on unsupported or uncertain results, and
+leaves even a supported generated concept provisional. It cannot perform corpus
+publication through this route. Source, model, verifier, catalog and work-window
+checks remain live through generation and assessment.
+
+`candidatesCanRemainProvisionalWithoutACompletedCatalog` failed against the old
+candidate-only path. Bypassing citation coverage made
+`provisionalCandidatesFirstCheckKnownConceptsInAnIncompleteCatalog` fail, and
+omitting incomplete reasons from the provisional key made its distinct-context
+assertion fail. Removing the provisional source-state check changed the
+withdrawal-during-generation result from stale to cancelled; the runtime's own
+cancellation prevented a write in that mutation, so this is evidence for stale
+classification rather than a separate persistence proof. All guards were restored.
+Full JVM suite: 1,528 tests, zero failures/errors/skips; debug assembly,
+Android-test Kotlin compilation and standalone runtime-probe assembly passed.
+Controlled runtimes do not establish actual Gemma or verifier quality.
+
+Still open: corpus verification and canonical publication without mandatory
+formation, process-owned scheduling and recovery, uncertainty resolution, catalog
+continuity, and comparative quality, device and human accessibility acceptance.
+The existing production publisher remains active.

@@ -237,12 +237,14 @@ class DiscoveryController(
     /** Candidate-only work while the existing catalog cannot yet be validated. */
     private suspend fun provisionalEvidenceFirstWindow(pageId: String, explicitPageIds: Set<String>,
         structureComplete: Boolean, anchorOffset: Int, maxRecords: Int, store: ProposalProgressStore,
-        windowContinue: () -> Boolean, explained: Set<String> = emptySet(), uncertain: Boolean = false): EvidenceFirstNoteStep {
+        windowContinue: () -> Boolean, explained: Set<String> = emptySet(), uncertain: Boolean = false,
+        generateIndex: Int? = null, expectedGenerationKey: String? = null, assessEvidenceIndex: Int? = null,
+        wantCoverage: Boolean = false, extraCurrent: () -> Boolean = { true }): EvidenceFirstNoteStep {
         val token = runtime.validity.capture()
         val identity = provider.identity
         val indexedRevision = mutable.value.indexedRevision
         fun current() = runtime.validity.isCurrent(token) && provider.identity == identity &&
-            mutable.value.indexedRevision == indexedRevision && cache.invalidations.value.isEmpty()
+            mutable.value.indexedRevision == indexedRevision && cache.invalidations.value.isEmpty() && extraCurrent()
         fun mayWork() = mayContinueWork() && windowContinue() && runtime.foregroundQueries.get() == 0
         if (!current()) return EvidenceFirstNoteStep.Stale
         if (!mayWork()) return EvidenceFirstNoteStep.Deferred
@@ -259,11 +261,62 @@ class DiscoveryController(
         return when (result) {
             is PendingProposalStepResult.Ready -> {
                 val provisional = result.step.window.proposals.map { proposal ->
-                    proposal.copy(proposalKey = semanticHash("unverified-catalog-v1:${proposal.proposalKey}"),
-                        incomplete = proposal.incomplete + ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG +
-                            if (uncertain) setOf(ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN) else emptySet())
+                    val incomplete = proposal.incomplete + ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG +
+                        if (uncertain) setOf(ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN) else emptySet()
+                    val fields = listOf("unverified-catalog-v2", proposal.proposalKey) + incomplete.map { it.name }.sorted()
+                    proposal.copy(proposalKey = semanticHash(fields.joinToString("") { "${it.length}:$it" }), incomplete = incomplete)
                 }
-                EvidenceFirstNoteStep.Proposals(result.step.copy(window = result.step.window.copy(proposals = provisional)))
+                val window = result.step.copy(window = result.step.window.copy(proposals = provisional))
+                if (generateIndex == null) return EvidenceFirstNoteStep.Proposals(window)
+                val proposal = provisional.getOrNull(generateIndex) ?: return EvidenceFirstNoteStep.Incomplete
+                val generator = topicProposalIdentity() ?: return EvidenceFirstNoteStep.GenerationFailure(ProposalGenerationResult.Unavailable)
+                fun generationCurrent() = current() && topicProposalIdentity() == generator
+                val guardedIndex = object : SemanticIndexStore by index {
+                    override suspend fun read(pageId: String): SemanticRecord? = runtime.bulkStep { index.read(pageId) }
+                }
+                val generated = generateProposal(proposal, guardedIndex, identity, generator, token.reset, sources,
+                    { generationCurrent() && mayWork() }, store) { request ->
+                    runtime.proposeTopic(request) { generationCurrent() && mayWork() }
+                }
+                if (!generationCurrent()) return EvidenceFirstNoteStep.Stale
+                if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+                if (guardedIndex.read(id) != record || !generationCurrent()) return EvidenceFirstNoteStep.Stale
+                when (generated) {
+                    is ProposalGenerationResult.Completed -> {
+                        if (expectedGenerationKey != null && generated.workKey != expectedGenerationKey) return EvidenceFirstNoteStep.Stale
+                        val concept = generated.response as? DiscoveryProposalResponse.Concept
+                        if (concept == null || (!wantCoverage && assessEvidenceIndex == null)) return EvidenceFirstNoteStep.Generated(generated, window)
+                        val verifier = topicSupportIdentity() ?: return EvidenceFirstNoteStep.AssessmentFailure(SupportVerificationResult.Unavailable)
+                        fun assessmentCurrent() = generationCurrent() && topicSupportIdentity() == verifier
+                        if (wantCoverage) {
+                            val coverage = readPendingConceptCoverage(proposal, generated, guardedIndex, identity, generator,
+                                verifier, token.reset, sources, store) { assessmentCurrent() && mayWork() }
+                            if (!assessmentCurrent()) return EvidenceFirstNoteStep.Stale
+                            if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+                            if (coverage == PendingConceptCoverage.Stale) return EvidenceFirstNoteStep.Stale
+                            return if (coverage is PendingConceptCoverage.Complete && coverage.assessments.all { it.decision == SupportDecision.SUPPORTED })
+                                EvidenceFirstNoteStep.Generated(generated, window) else EvidenceFirstNoteStep.CitationCoverage(generated, coverage, window)
+                        }
+                        val evidenceId = concept.evidenceIds.getOrNull(checkNotNull(assessEvidenceIndex)) ?: return EvidenceFirstNoteStep.Incomplete
+                        val ref = proposal.evidence.singleOrNull { it.passageId == evidenceId } ?: return EvidenceFirstNoteStep.Stale
+                        val pending = SupportConcept("pending:${generated.workKey}", generated.workKey, concept.name, concept.definition)
+                        val candidate = TopicMatchReference(ref.pageId, ref.revision, ref.passageId, 0f)
+                        val assessed = verifyRetrievedPassage(pending, candidate, guardedIndex, identity, verifier, token.reset,
+                            sources, { assessmentCurrent() && mayWork() }, store) { request ->
+                            runtime.verifyTopicSupport(request) { assessmentCurrent() && mayWork() }
+                        }
+                        if (!assessmentCurrent()) return EvidenceFirstNoteStep.Stale
+                        if (!mayWork()) return EvidenceFirstNoteStep.Deferred
+                        if (guardedIndex.read(id) != record || !assessmentCurrent()) return EvidenceFirstNoteStep.Stale
+                        when (assessed) {
+                            is SupportVerificationResult.Completed -> EvidenceFirstNoteStep.Assessed(generated, assessed.assessment, assessEvidenceIndex, window)
+                            SupportVerificationResult.Stale -> EvidenceFirstNoteStep.Stale
+                            else -> EvidenceFirstNoteStep.AssessmentFailure(assessed)
+                        }
+                    }
+                    ProposalGenerationResult.Stale -> EvidenceFirstNoteStep.Stale
+                    else -> EvidenceFirstNoteStep.GenerationFailure(generated)
+                }
             }
             PendingProposalStepResult.Missing -> EvidenceFirstNoteStep.Incomplete
             PendingProposalStepResult.Stale -> EvidenceFirstNoteStep.Stale
@@ -274,7 +327,8 @@ class DiscoveryController(
     private suspend fun advanceKnownCatalogWindow(owner: TopicCoordinator, ticket: TopicCatalogTicket,
         verifier: TopicLabelIdentity, pageId: String, explicitPageIds: Set<String>, structureComplete: Boolean,
         anchorOffset: Int, maxRecords: Int, store: ProposalProgressStore, windowContinue: () -> Boolean,
-        scan: KnownCatalogScan): EvidenceFirstNoteStep {
+        scan: KnownCatalogScan, generateIndex: Int?, expectedGenerationKey: String?, assessEvidenceIndex: Int?,
+        wantCoverage: Boolean): EvidenceFirstNoteStep {
         val token = runtime.validity.capture()
         val indexedRevision = mutable.value.indexedRevision
         fun current() = owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier &&
@@ -303,13 +357,13 @@ class DiscoveryController(
                     result.scopeKey, result.next, supported, uncertain))
                 else {
                     val provisional = provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
-                        maxRecords, store, windowContinue, supported, uncertain.isNotEmpty())
+                        maxRecords, store, windowContinue, supported, uncertain.isNotEmpty(), generateIndex, expectedGenerationKey, assessEvidenceIndex, wantCoverage, ::current)
                     if (!current()) EvidenceFirstNoteStep.Stale else if (!mayWork()) EvidenceFirstNoteStep.Deferred else provisional
                 }
             }
             ExistingConceptScanResult.Incomplete -> {
                 val provisional = provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
-                    maxRecords, store, windowContinue, scan.supported, scan.uncertain.isNotEmpty())
+                    maxRecords, store, windowContinue, scan.supported, scan.uncertain.isNotEmpty(), generateIndex, expectedGenerationKey, assessEvidenceIndex, wantCoverage, ::current)
                 if (!current()) EvidenceFirstNoteStep.Stale else if (!mayWork()) EvidenceFirstNoteStep.Deferred else provisional
             }
             ExistingConceptScanResult.Stale -> EvidenceFirstNoteStep.Stale
@@ -343,9 +397,11 @@ class DiscoveryController(
             val knownVerifier = topicSupportIdentity()
             if (partial != null && !partial.snapshot.complete && partial.snapshot.topics.isNotEmpty() && knownVerifier != null)
                 return@withContext advanceKnownCatalogWindow(owner, partial, knownVerifier, pageId, explicitPageIds,
-                    structureComplete, anchorOffset, maxRecords, store, windowContinue, knownCatalogScan ?: KnownCatalogScan.start())
+                    structureComplete, anchorOffset, maxRecords, store, windowContinue, knownCatalogScan ?: KnownCatalogScan.start(),
+                    generateIndex, expectedGenerationKey, assessEvidenceIndex, summarizeEvidence || retrievePageId != null)
             return@withContext provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
-                maxRecords, store, windowContinue)
+                maxRecords, store, windowContinue, generateIndex = generateIndex, expectedGenerationKey = expectedGenerationKey,
+                assessEvidenceIndex = assessEvidenceIndex, wantCoverage = summarizeEvidence || retrievePageId != null)
         }
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null

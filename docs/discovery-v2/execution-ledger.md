@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Enabled source-guarded provisional generation and citation assessment
+before catalog completion, retaining incomplete status. Failing-first evidence,
+1,528 JVM tests and builds are recorded in §184; publication remains open.
+
 2026-11-02: Added bounded independent checks of known concepts before provisional
 proposals from an incomplete catalog. Scope, known-match and uncertainty proofs,
 1,528 JVM tests and builds are recorded in §183.
