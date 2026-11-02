@@ -137,7 +137,13 @@ class DiscoverySupportWiringTest {
             semanticHash("legacy"), null, emptySet(), emptySet())
         assertEquals(ProposalProgressWriteResult.Written, backing.replacePendingNoteScan(null, legacy) { true })
         var work = PendingCorpusWork.start("note", 0)
-        work = (controller.advancePendingCorpusWork(work) as PendingCorpusWorkResult.Pending).work
+        val stoppedWindow = controller.advancePendingCorpusWindow(work, maxSteps = 8, shouldContinue = { false }) as PendingCorpusWorkResult.Pending
+        assertSame(work, stoppedWindow.work)
+        controller.updatePowerState(DiscoveryPowerState(percent = 10, connected = false))
+        val lowPower = controller.advancePendingCorpusWindow(work, maxSteps = 8) as PendingCorpusWorkResult.Stopped
+        assertEquals(EvidenceFirstNoteStep.Deferred, lowPower.reason); assertSame(work, lowPower.work)
+        controller.updatePowerState(DiscoveryPowerState(percent = 100, connected = false))
+        work = (controller.advancePendingCorpusWindow(work, maxSteps = 1) as PendingCorpusWorkResult.Pending).work
         assertNotNull(work.generationKey)
         val originalProposalIdentity = activeProposalIdentity
         activeProposalIdentity = activeProposalIdentity.copy(policy = "changed-during-corpus")

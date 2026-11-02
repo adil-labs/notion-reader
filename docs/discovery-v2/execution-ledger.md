@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added an opt-in bounded pending-concept window entry in the existing
+controller. Window and step-limit proofs, 1,525 JVM tests and builds are recorded
+in §180; production scheduling remains open.
+
 2026-11-02: Prevented incomplete proposals and uncertain support from being
 reported as complete corpus work; abstention retains completeness context.
 Failing-first proofs, 1,525 JVM tests and builds are recorded in §179.

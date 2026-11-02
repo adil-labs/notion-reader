@@ -140,6 +140,24 @@ class DiscoveryController(
         owner.replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit) { topicSupportIdentity() == verifier }
     }
 
+    /** Runs bounded existing steps inside the caller's process-owned work window. */
+    internal suspend fun advancePendingCorpusWindow(initial: PendingCorpusWork, maxSteps: Int,
+        maxRecords: Int = 8, shouldContinue: () -> Boolean = { true }): PendingCorpusWorkResult = withContext(workDispatcher) {
+        require(maxSteps in 1..128 && maxRecords in 1..128)
+        var work = initial
+        repeat(maxSteps) {
+            currentCoroutineContext().ensureActive()
+            if (!shouldContinue()) return@withContext PendingCorpusWorkResult.Pending(work)
+            if (!mayContinueWork() || runtime.foregroundQueries.get() > 0)
+                return@withContext PendingCorpusWorkResult.Stopped(EvidenceFirstNoteStep.Deferred, work)
+            when (val result = advancePendingCorpusWork(work, maxRecords)) {
+                is PendingCorpusWorkResult.Pending -> work = result.work
+                else -> return@withContext result
+            }
+            kotlinx.coroutines.yield()
+        }
+        PendingCorpusWorkResult.Pending(work)
+    }
     /** Advance at most one existing bounded operation; the caller owns scheduling and retries. */
     internal suspend fun advancePendingCorpusWork(work: PendingCorpusWork, maxRecords: Int = 8): PendingCorpusWorkResult {
         val result = when (work.phase) {

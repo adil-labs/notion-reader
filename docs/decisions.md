@@ -12717,3 +12717,26 @@ Still open: process-owned scheduling and recovery, targeted proposal recomputati
 uncertainty resolution, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 180. Bound pending-concept work windows (2026-11-02)
+
+The existing Discovery controller now offers an opt-in window entry for pending
+concept work. It advances at most the requested number of existing bounded steps,
+checks the caller's continuation predicate before each step, yields cooperatively,
+and returns a deferred result when the existing power/work/foreground-query gate
+blocks progress. It creates no worker or inference gate. The predicate is checked
+between steps; it is not a new guarantee that an already running step stops at an
+arbitrary wall-clock deadline. The app's production scheduler does not call this
+entry yet and the existing publisher remains active.
+
+The shared-runtime integration test failed to compile before the entry existed.
+Removing its window predicate or replacing its requested step limit with a larger
+fixed limit each caused `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity`
+to fail; both guards were restored. The test also checks low-power deferral. Full
+JVM suite: 1,525 tests, zero failures/errors/skips; debug assembly, Android-test
+Kotlin compilation and standalone runtime-probe assembly passed. No model-quality,
+device cost or human accessibility evidence was obtained.
+
+Still open: process-owned scheduling and recovery, targeted proposal recomputation,
+uncertainty resolution, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance.
