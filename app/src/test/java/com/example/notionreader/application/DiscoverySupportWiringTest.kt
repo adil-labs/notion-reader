@@ -23,11 +23,11 @@ class DiscoverySupportWiringTest {
         var lastProposal: DiscoveryProposalRequest? = null
         var activeSupportIdentity = supportIdentity; var switchDuringInference = false
         var decision = SupportDecision.SUPPORTED
-        var releases = 0; var supportCalls = 0; var proposalCalls = 0
+        var releases = 0; var supportCalls = 0; var proposalCalls = 0; var queryEmbeddings = 0
         val provider = object : EmbeddingProvider {
             override val identity = model
             override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
-            override suspend fun embed(text: String): List<Float> = error("Query vector is already stored")
+            override suspend fun embed(text: String): List<Float> { queryEmbeddings++; return listOf(1f, 0f) }
             override fun release() { releases++ }
         }
         val labeler = object : TopicLabelRuntime, TopicSupportRuntime, DiscoveryProposalRuntime {
@@ -119,6 +119,9 @@ class DiscoverySupportWiringTest {
         assertEquals("Unchanged support must be reused", 1, pendingSupportCalls)
         val covered = controller.advanceEvidenceFirstNote("note", generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
         assertEquals(listOf(SupportDecision.SUPPORTED), (covered.coverage as PendingConceptCoverage.Complete).assessments.map { it.decision })
+        val retrieved = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note") as EvidenceFirstNoteStep.Retrieved
+        assertEquals(setOf("p"), retrieved.page.supported); assertTrue(retrieved.page.uncertain.isEmpty()); assertNull(retrieved.page.next)
+        assertEquals(1, queryEmbeddings); assertEquals(1, pendingSupportCalls)
         activeSupportIdentity = supportIdentity.copy(policy = "unsupported-pending-v3"); pendingDecision = SupportDecision.UNSUPPORTED
         val pending = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
         assertEquals(PendingConceptCoverage.Pending(setOf("p")), pending.coverage)

@@ -12437,3 +12437,25 @@ Still open: bounded retrieval and support across eligible Notes, durable coverag
 and completion, process-loop scheduling, canonical continuity and publication,
 and comparative quality, device and human accessibility acceptance. The existing
 production publisher remains active.
+
+## 169. Retrieve pending concept candidates (2026-11-02)
+
+The bounded Note step can retrieve one page of candidates for a pending concept
+against one eligible Note after every selected citation has a supported decision.
+It embeds the versioned concept query through the shared runtime and independently
+checks retrieved passages with the existing support verifier. Supported and
+uncertain evidence remain separate, and unsupported candidates are excluded.
+The continuation cursor binds the exact query vector, preventing a changed vector
+from resuming a previous ordering. A page is not corpus-wide completion, canonical
+membership or publication; the existing production publisher remains active.
+
+The integration test failed before retrieval was connected. Removing the cursor's
+vector identity guard made the continuation regression test fail; restoring it
+passed. Full JVM suite: 1,516 tests, zero failures/errors/skips; debug assembly,
+Android-test Kotlin compilation and standalone runtime-probe assembly passed.
+The tests use controlled runtimes and do not establish model quality or device
+performance.
+
+Still open: durable retrieval coverage across eligible Notes, uncertainty
+resolution, process-loop scheduling, catalog continuity and publication, and
+comparative quality, device and human accessibility acceptance.

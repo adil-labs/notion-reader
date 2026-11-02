@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added independently verified pending-concept retrieval for one Note
+and one page; corpus coverage and publication remain open. Cursor mutation proof,
+1,516 JVM tests and builds are recorded in §169.
+
 2026-11-02: Added revalidation of all selected pending-concept citation decisions;
 complete citations are not publication approval. Failing-first and forged-record
 proof, 1,515 JVM tests and builds are recorded in §168.

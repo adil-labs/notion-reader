@@ -10,6 +10,9 @@ internal sealed interface EvidenceFirstNoteStep {
         val evidenceIndex: Int, val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class CitationCoverage(val generation: ProposalGenerationResult.Completed, val coverage: PendingConceptCoverage,
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class Retrieved(val generation: ProposalGenerationResult.Completed, val page: PendingConceptRetrievalPage.Ready,
+        val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class RetrievalFailure(val result: PendingConceptRetrievalPage) : EvidenceFirstNoteStep
     data class AssessmentFailure(val result: SupportVerificationResult) : EvidenceFirstNoteStep
     data class GenerationFailure(val result: ProposalGenerationResult) : EvidenceFirstNoteStep
     data class Uncertain(val passageIds: Set<String>) : EvidenceFirstNoteStep

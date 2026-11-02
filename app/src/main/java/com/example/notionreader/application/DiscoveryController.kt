@@ -40,7 +40,7 @@ class DiscoveryController(
     topicLabelIdentity: () -> TopicLabelIdentity? = { null },
     topicLabelUnavailableMessage: () -> String = { "Topic naming is unavailable. Install the topic naming model in Discovery settings." },
     topicRetrievalStore: TopicRetrievalStore? = null,
-    topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
+    private val topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
     private val proposalProgressStore: ProposalProgressStore? = null,
     private val topicSupportIdentity: () -> TopicLabelIdentity? = { null },
     private val topicProposalIdentity: () -> TopicLabelIdentity? = { null }
@@ -143,10 +143,13 @@ class DiscoveryController(
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
-        assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
+        retrieveCursor: PendingRetrievalCursor? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
-            (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null))
+            (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
+            (retrievePageId == null || retrievePageId.isNotBlank() && generateIndex != null && assessEvidenceIndex == null) &&
+            (retrieveCursor == null || retrievePageId != null))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
@@ -211,6 +214,46 @@ class DiscoveryController(
                     return@withContext EvidenceFirstNoteStep.Stale
                 when (generated) {
                     is ProposalGenerationResult.Completed -> {
+                        if (retrievePageId != null) {
+                            val concept = generated.response as? DiscoveryProposalResponse.Concept ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                            val coverage = readPendingConceptCoverage(proposal, generated, guardedIndex, ticket.identity,
+                                checkNotNull(generator), verifier, ticket.epoch, sources, store, ::current)
+                            if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                            if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                            if (coverage == PendingConceptCoverage.Stale) return@withContext EvidenceFirstNoteStep.Stale
+                            if (coverage !is PendingConceptCoverage.Complete || coverage.assessments.any { it.decision != SupportDecision.SUPPORTED })
+                                return@withContext EvidenceFirstNoteStep.CitationCoverage(generated, coverage, result.step)
+                            val targetId = canonicalSemanticId(retrievePageId)
+                            if (sources[targetId] == null) return@withContext EvidenceFirstNoteStep.Stale
+                            val target = guardedIndex.read(targetId) ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                            if (!current() || target.identity != ticket.identity || target.revision != sources[targetId])
+                                return@withContext EvidenceFirstNoteStep.Stale
+                            val pendingConcept = SupportConcept("pending:${generated.workKey}", generated.workKey, concept.name, concept.definition)
+                            val query = TopicRetrievalQuery(pendingConcept.topicId, generated.workKey,
+                                "${concept.name.trim()}\n${concept.definition.trim()}", ticket.identity, topicRetrievalPolicy)
+                            val vector = runtime.bulkStep { runtime.inference.withLock {
+                                if (!current() || !mayWork()) null else runtime.embedExactInput(query.text)
+                            } } ?: return@withContext if (current()) EvidenceFirstNoteStep.Deferred else EvidenceFirstNoteStep.Stale
+                            if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                            if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                            val embeddedQuery = try { TopicQueryEmbedding(query, vector) } catch (_: IllegalArgumentException) {
+                                return@withContext EvidenceFirstNoteStep.Incomplete
+                            }
+                            val page = retrievePendingConceptPage(pendingConcept, embeddedQuery, target, guardedIndex, verifier,
+                                ticket.epoch, sources, retrieveCursor, maxRecords, store, ::current, ::mayWork) { request ->
+                                runtime.verifyTopicSupport(request) { current() && mayWork() }
+                            }
+                            if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                            if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                            if (guardedIndex.read(targetId) != target || guardedIndex.read(canonicalSemanticId(pageId)) != record || !current())
+                                return@withContext EvidenceFirstNoteStep.Stale
+                            return@withContext when (page) {
+                                is PendingConceptRetrievalPage.Ready -> EvidenceFirstNoteStep.Retrieved(generated, page, result.step)
+                                PendingConceptRetrievalPage.Stale -> EvidenceFirstNoteStep.Stale
+                                PendingConceptRetrievalPage.Deferred -> EvidenceFirstNoteStep.Deferred
+                                else -> EvidenceFirstNoteStep.RetrievalFailure(page)
+                            }
+                        }
                         if (summarizeEvidence) {
                             val coverage = readPendingConceptCoverage(proposal, generated, guardedIndex, ticket.identity,
                                 checkNotNull(generator), verifier, ticket.epoch, sources, store, ::current)
