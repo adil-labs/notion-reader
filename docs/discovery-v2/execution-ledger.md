@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added durable completed and uncertain Note results with full evidence
+replay before reuse. Forged-completion proof, 1,520 JVM tests and builds are
+recorded in §173; corpus coverage remains open.
+
 2026-11-02: Connected partial pending Note checkpoints to bounded evidence replay;
 completed and corpus coverage remain open. Forged-checkpoint proof, 1,520 JVM
 tests and builds are recorded in §172.

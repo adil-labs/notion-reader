@@ -12541,3 +12541,27 @@ Still open: durable completed Note and corpus coverage, uncertainty resolution,
 process-loop scheduling, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 173. Revalidate completed pending Note scans (2026-11-02)
+
+The bounded evidence-first entry now persists completed and uncertain Note scan
+results in the existing source-bound checkpoint store. Reuse requires replay of
+all candidate pages against current bodies and exact-input support decisions.
+A complete replay returns supported passage IDs only after the reconstructed
+scope and aggregate match the checkpoint; uncertain decisions remain a distinct
+result. This is Note-level coverage, not proof that every eligible Note was
+scanned, and it does not publish a topic or schedule work.
+
+The completed-replay test failed to compile before this path existed. Removing
+the completed aggregate equality check caused
+`checkpointReplayRechecksStoredEvidenceBeforeResuming` to fail when a fabricated
+passage was added to the checkpoint; the guard was restored. The tests also
+replay uncertain results and exercise the bounded entry's completed replay. Full
+JVM suite: 1,520 tests, zero failures/errors/skips; debug assembly, Android-test
+Kotlin compilation and standalone runtime-probe assembly passed. These tests do
+not establish actual model quality or device behavior.
+
+Still open: durable corpus-wide coverage, uncertainty resolution, process-loop
+scheduling, catalog continuity and publication, and comparative quality, device
+and human accessibility acceptance. The existing production publisher remains
+active.

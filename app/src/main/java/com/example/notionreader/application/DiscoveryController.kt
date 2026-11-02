@@ -271,8 +271,9 @@ class DiscoveryController(
                                 if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                                 if (guardedIndex.read(targetId) != target || guardedIndex.read(canonicalSemanticId(pageId)) != record || !current())
                                     return@withContext EvidenceFirstNoteStep.Stale
-                                if (checkpointPendingScan && scan is PendingConceptNoteScanResult.Pending) {
-                                    val written = savePendingNoteScan(pendingConcept, target, sources, scan.scan, expected, store) { current() && mayWork() }
+                                if (checkpointPendingScan && (scan is PendingConceptNoteScanResult.Pending ||
+                                        scan is PendingConceptNoteScanResult.Complete || scan is PendingConceptNoteScanResult.Uncertain)) {
+                                    val written = savePendingNoteResult(pendingConcept, target, sources, scan, expected, store) { current() && mayWork() }
                                     if (!current()) return@withContext EvidenceFirstNoteStep.Stale
                                     if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                                     if (written != ProposalProgressWriteResult.Written)

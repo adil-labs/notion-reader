@@ -40,8 +40,8 @@ internal class PendingConceptNoteScan private constructor(internal val binding: 
 }
 internal sealed interface PendingConceptNoteScanResult {
     data class Pending(val scan: PendingConceptNoteScan) : PendingConceptNoteScanResult
-    data class Complete(val supported: Set<String>) : PendingConceptNoteScanResult
-    data class Uncertain(val supported: Set<String>, val uncertain: Set<String>) : PendingConceptNoteScanResult
+    data class Complete(val supported: Set<String>, val binding: String) : PendingConceptNoteScanResult
+    data class Uncertain(val supported: Set<String>, val uncertain: Set<String>, val binding: String) : PendingConceptNoteScanResult
     data object Stale : PendingConceptNoteScanResult
     data class Failure(val page: PendingConceptRetrievalPage) : PendingConceptNoteScanResult
 }
@@ -76,8 +76,8 @@ internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: Topi
             val uncertain = scan.uncertain + page.uncertain
             when {
                 page.next != null -> PendingConceptNoteScanResult.Pending(scan.advance(binding, page.next, supported, uncertain))
-                uncertain.isNotEmpty() -> PendingConceptNoteScanResult.Uncertain(supported, uncertain)
-                else -> PendingConceptNoteScanResult.Complete(supported)
+                uncertain.isNotEmpty() -> PendingConceptNoteScanResult.Uncertain(supported, uncertain, binding)
+                else -> PendingConceptNoteScanResult.Complete(supported, binding)
             }
         }
         PendingConceptRetrievalPage.Stale -> PendingConceptNoteScanResult.Stale
@@ -88,6 +88,8 @@ internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: Topi
 internal sealed interface PendingNoteReplayResult {
     data class Pending(val scan: PendingConceptNoteScan) : PendingNoteReplayResult
     data class Validated(val scan: PendingConceptNoteScan) : PendingNoteReplayResult
+    data class Complete(val supported: Set<String>) : PendingNoteReplayResult
+    data class Uncertain(val supported: Set<String>, val uncertain: Set<String>) : PendingNoteReplayResult
     data object Invalid : PendingNoteReplayResult
     data object Stale : PendingNoteReplayResult
     data object Deferred : PendingNoteReplayResult
@@ -105,7 +107,6 @@ internal suspend fun replayPendingNoteScan(saved: PendingNoteScanRecord, replay:
     val id = canonicalSemanticId(record.pageId)
     if (saved.workKey != concept.workKey || saved.pageId != id || saved.revision != record.revision ||
         saved.sourceRevisions != sources || sources[id] != record.revision) return PendingNoteReplayResult.Stale
-    if (saved.cursor == null) return PendingNoteReplayResult.Incomplete
     if (store.readPendingNoteScan(saved.workKey, id, sources) != saved || !current()) return PendingNoteReplayResult.Stale
     if (!mayWork()) return PendingNoteReplayResult.Deferred
     val result = scanPendingConceptNote(concept, query, record, index, verifier, epoch, sources, replay, 1,
@@ -124,9 +125,14 @@ internal suspend fun replayPendingNoteScan(saved: PendingNoteScanRecord, replay:
                 else PendingNoteReplayResult.Invalid
             } else PendingNoteReplayResult.Pending(scan)
         }
+        is PendingConceptNoteScanResult.Complete -> if (saved.cursor == null && result.binding == saved.binding &&
+            result.supported == saved.supported && saved.uncertain.isEmpty()) PendingNoteReplayResult.Complete(result.supported)
+            else PendingNoteReplayResult.Invalid
+        is PendingConceptNoteScanResult.Uncertain -> if (saved.cursor == null && result.binding == saved.binding &&
+            result.supported == saved.supported && result.uncertain == saved.uncertain)
+                PendingNoteReplayResult.Uncertain(result.supported, result.uncertain) else PendingNoteReplayResult.Invalid
         PendingConceptNoteScanResult.Stale -> PendingNoteReplayResult.Stale
         is PendingConceptNoteScanResult.Failure -> PendingNoteReplayResult.Incomplete
-        else -> PendingNoteReplayResult.Invalid
     }
 }
 
@@ -141,4 +147,24 @@ internal suspend fun savePendingNoteScan(concept: SupportConcept, record: Semant
     val checkpoint = PendingNoteScanRecord(concept.workKey, id, record.revision, sources.toMap(), binding, cursor,
         scan.supported, scan.uncertain)
     return store.replacePendingNoteScan(expected, checkpoint, current)
+}
+
+/** Persist a completed result as untrusted coverage; replay is required before reuse. */
+internal suspend fun savePendingNoteResult(concept: SupportConcept, record: SemanticRecord, sources: Map<String, String>,
+    result: PendingConceptNoteScanResult, expected: PendingNoteScanRecord?, store: ProposalProgressStore,
+    current: () -> Boolean): ProposalProgressWriteResult {
+    if (result is PendingConceptNoteScanResult.Pending)
+        return savePendingNoteScan(concept, record, sources, result.scan, expected, store, current)
+    val binding: String
+    val supported: Set<String>
+    val uncertain: Set<String>
+    when (result) {
+        is PendingConceptNoteScanResult.Complete -> { binding = result.binding; supported = result.supported; uncertain = emptySet() }
+        is PendingConceptNoteScanResult.Uncertain -> { binding = result.binding; supported = result.supported; uncertain = result.uncertain }
+        else -> return ProposalProgressWriteResult.Invalid
+    }
+    val id = canonicalSemanticId(record.pageId)
+    if (sources[id] != record.revision) return ProposalProgressWriteResult.Stale
+    return store.replacePendingNoteScan(expected, PendingNoteScanRecord(concept.workKey, id, record.revision,
+        sources.toMap(), binding, null, supported, uncertain), current)
 }

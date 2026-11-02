@@ -61,6 +61,13 @@ class PendingConceptRetrievalTest {
         assertTrue(index.write(record))
         val done = step(concept, first.scan) as PendingConceptNoteScanResult.Uncertain
         assertEquals(setOf("a"), done.supported); assertEquals(setOf("b"), done.uncertain)
+        assertEquals(ProposalProgressWriteResult.Written, savePendingNoteResult(concept, record, mapOf("note" to "r1"), done, null, store) { true })
+        val checkpoint = store.readPendingNoteScan(work, "note", mapOf("note" to "r1"))!!
+        val firstReplay = replayPendingNoteScan(checkpoint, PendingConceptNoteScan.start(), concept, query, record, index, verifier, 4,
+            mapOf("note" to "r1"), store, { true }, { true }) as PendingNoteReplayResult.Pending
+        val replayed = replayPendingNoteScan(checkpoint, firstReplay.scan, concept, query, record, index, verifier, 4,
+            mapOf("note" to "r1"), store, { true }, { true }) as PendingNoteReplayResult.Uncertain
+        assertEquals(setOf("a"), replayed.supported); assertEquals(setOf("b"), replayed.uncertain)
     }
     @Test fun checkpointReplayRechecksStoredEvidenceBeforeResuming() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val store = FileProposalProgressStore(root.resolve("progress"))
@@ -88,4 +95,24 @@ class PendingConceptRetrievalTest {
         assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(forged, saved) { true })
         val missing = object : ProposalProgressStore by store { override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? = null }
         assertEquals(PendingNoteReplayResult.Incomplete, replay(saved, missing))
+        val done = scanPendingConceptNote(concept, query, record, index, verifier, 4, sources, restored.scan, 1, store, { true }, { true }) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        assertTrue(done is PendingConceptNoteScanResult.Complete)
+        assertEquals(ProposalProgressWriteResult.Written, savePendingNoteResult(concept, record, sources, done, saved, store) { true })
+        val completed = store.readPendingNoteScan(work, "note", sources)!!
+        assertNull(completed.cursor)
+        var state = PendingConceptNoteScan.start()
+        var outcome: PendingNoteReplayResult
+        do {
+            outcome = replay(completed, state = state)
+            if (outcome is PendingNoteReplayResult.Pending) state = outcome.scan
+        } while (outcome is PendingNoteReplayResult.Pending)
+        assertEquals(setOf("a", "b", "c"), (outcome as PendingNoteReplayResult.Complete).supported)
+        val forgedCompleted = completed.copy(supported = completed.supported + "invented")
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(completed, forgedCompleted) { true })
+        state = PendingConceptNoteScan.start()
+        do {
+            outcome = replay(forgedCompleted, state = state)
+            if (outcome is PendingNoteReplayResult.Pending) state = outcome.scan
+        } while (outcome is PendingNoteReplayResult.Pending)
+        assertEquals(PendingNoteReplayResult.Invalid, outcome)
     }}
