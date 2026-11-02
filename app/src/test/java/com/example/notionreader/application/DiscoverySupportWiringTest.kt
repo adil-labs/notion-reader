@@ -324,16 +324,17 @@ class DiscoverySupportWiringTest {
         assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in assessed.generation.incomplete)
         pendingDecision = SupportDecision.SUPPORTED; activeVerifier = verifier.copy(policy = "provisional-supported-v3")
         var supportedWork = PendingCorpusWork.start("note", 0)
-        var supportedStop: PendingCorpusWorkResult.Stopped? = null
-        repeat(12) {
-            if (supportedStop == null) when (val next = controller.advancePendingCorpusWork(supportedWork, maxRecords = 1)) {
+        var supportedResult: PendingCorpusWorkResult.Incomplete? = null
+        repeat(30) {
+            if (supportedResult == null) when (val next = controller.advancePendingCorpusWork(supportedWork, maxRecords = 1)) {
                 is PendingCorpusWorkResult.Pending -> supportedWork = next.work
-                is PendingCorpusWorkResult.Stopped -> supportedStop = next
-                else -> fail("An incomplete catalog cannot finish corpus work")
+                is PendingCorpusWorkResult.Incomplete -> supportedResult = next
+                else -> fail("An incomplete catalog cannot finish corpus work: $next")
             }
         }
-        val pendingConcept = supportedStop!!.reason as EvidenceFirstNoteStep.Generated
-        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in pendingConcept.generation.incomplete)
+        val provisionalCoverage = checkNotNull(supportedResult)
+        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in provisionalCoverage.reasons)
+        assertEquals(mapOf("note" to setOf("p", "q")), (provisionalCoverage.coverage as PendingCorpusReplayResult.Complete).supported)
         assertEquals(publishedBefore, controller.state.value.publishedTopics)
         qDecision = SupportDecision.UNCERTAIN; activeVerifier = verifier.copy(policy = "uncertain-v2")
         val uncertainFirst = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog

@@ -12850,3 +12850,29 @@ Still open: corpus verification and canonical publication without mandatory
 formation, process-owned scheduling and recovery, uncertainty resolution, catalog
 continuity, and comparative quality, device and human accessibility acceptance.
 The existing production publisher remains active.
+
+## 185. Verify provisional concept coverage without global formation (2026-11-02)
+
+A generated concept with supported selected citations can now use the same bounded
+candidate retrieval, independent support checks, Note checkpoints and corpus
+replay whether the existing catalog is complete or partial. Partial-catalog work
+is bound to its catalog/source/model/query scope and retains the incomplete-catalog
+reason through the terminal driver result. Even a fully replayed eligible source
+set remains incomplete while existing-catalog coverage is unknown; the path does
+not publish a topic. The previous complete-catalog path now shares the same
+retrieval implementation instead of maintaining a second implementation.
+
+The extended `provisionalCandidatesFirstCheckKnownConceptsInAnIncompleteCatalog`
+test failed before the partial path could advance to corpus verification. Making
+that path return immediately after citation checks made the test fail again; the
+retrieval path was restored. The test exercises supported and unsupported
+citations, verifies two supported passages through the shared path, and requires
+the incomplete-catalog reason at the end. Full JVM suite: 1,528 tests, zero
+failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. The verifier is controlled test code;
+no actual semantic-quality or Android performance claim follows.
+
+Still open: canonical publication and continuity without mandatory formation,
+process-owned scheduling and recovery, uncertainty resolution, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

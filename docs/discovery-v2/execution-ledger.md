@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected provisional concepts to shared bounded retrieval and
+corpus replay while retaining incomplete-catalog status. Failing-first proof,
+1,528 JVM tests and builds are recorded in §185; publication remains open.
+
 2026-11-02: Enabled source-guarded provisional generation and citation assessment
 before catalog completion, retaining incomplete status. Failing-first evidence,
 1,528 JVM tests and builds are recorded in §184; publication remains open.

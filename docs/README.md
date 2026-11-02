@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#184-generate-and-assess-provisional-concepts-before-catalog-completion-2026-11-02)
+[the current decision-record entry](decisions.md#185-verify-provisional-concept-coverage-without-global-formation-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
