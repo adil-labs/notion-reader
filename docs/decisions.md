@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[pending concept support (§167)](#167-assess-pending-concept-evidence-2026-11-02)
+[citation coverage (§168)](#168-revalidate-pending-concept-citations-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12413,3 +12413,27 @@ Still open: bounded continuation and aggregation across all cited and retrieved
 passages, process-loop scheduling, durable completion, canonical continuity and
 publication, plus comparative quality, Android and human accessibility gates. The
 existing production publisher remains active.
+
+
+## 168. Revalidate pending concept citations (2026-11-02)
+
+The bounded Note step can now read coverage for all selected citations of a
+pending concept. It rehydrates the offered evidence, revalidates the exact
+proposal work key and reconstructs each support request against current source
+bodies and verifier identity. Missing decisions remain pending; stored decisions
+must exactly match the reconstructed assessment. A complete citation set can
+still contain unsupported or uncertain decisions and is not permission to publish
+or a claim of complete Note retrieval.
+
+The initial two-citation test failed against a stub, and the integration test
+failed before the coverage path was connected. Removing stored-assessment equality
+made the forged-decision test fail; the guard was restored. Source withdrawal,
+verifier changes and a ticket change during lookup are also covered. Full JVM
+suite: 1,515 tests, zero failures/errors/skips; debug assembly, Android-test Kotlin
+compilation and standalone runtime-probe assembly passed. Model quality remains
+unmeasured; these tests use controlled decisions.
+
+Still open: bounded retrieval and support across eligible Notes, durable coverage
+and completion, process-loop scheduling, canonical continuity and publication,
+and comparative quality, device and human accessibility acceptance. The existing
+production publisher remains active.

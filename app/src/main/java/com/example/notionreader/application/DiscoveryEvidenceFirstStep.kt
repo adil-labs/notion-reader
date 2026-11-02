@@ -8,6 +8,8 @@ internal sealed interface EvidenceFirstNoteStep {
     data class Assessed(val generation: ProposalGenerationResult.Completed,
         val assessment: com.example.notionreader.domain.discovery.TopicSupportAssessment,
         val evidenceIndex: Int, val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class CitationCoverage(val generation: ProposalGenerationResult.Completed, val coverage: PendingConceptCoverage,
+        val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class AssessmentFailure(val result: SupportVerificationResult) : EvidenceFirstNoteStep
     data class GenerationFailure(val result: ProposalGenerationResult) : EvidenceFirstNoteStep
     data class Uncertain(val passageIds: Set<String>) : EvidenceFirstNoteStep

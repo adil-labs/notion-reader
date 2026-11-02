@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added revalidation of all selected pending-concept citation decisions;
+complete citations are not publication approval. Failing-first and forged-record
+proof, 1,515 JVM tests and builds are recorded in §168.
+
 2026-11-02: Connected one generated-concept citation at a time to independent
 shared-runtime support assessment; aggregation and scheduling remain open.
 Failing-first and bypass proof, 1,514 JVM tests and builds are in §167.

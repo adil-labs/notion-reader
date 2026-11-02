@@ -143,9 +143,10 @@ class DiscoveryController(
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
-        assessEvidenceIndex: Int? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
-            (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null))
+            (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
+            (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
@@ -210,6 +211,16 @@ class DiscoveryController(
                     return@withContext EvidenceFirstNoteStep.Stale
                 when (generated) {
                     is ProposalGenerationResult.Completed -> {
+                        if (summarizeEvidence) {
+                            val coverage = readPendingConceptCoverage(proposal, generated, guardedIndex, ticket.identity,
+                                checkNotNull(generator), verifier, ticket.epoch, sources, store, ::current)
+                            if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                            if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                            if (coverage == PendingConceptCoverage.Stale) return@withContext EvidenceFirstNoteStep.Stale
+                            if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
+                                return@withContext EvidenceFirstNoteStep.Stale
+                            return@withContext EvidenceFirstNoteStep.CitationCoverage(generated, coverage, result.step)
+                        }
                         if (assessEvidenceIndex == null) return@withContext EvidenceFirstNoteStep.Generated(generated, result.step)
                         val concept = generated.response as? DiscoveryProposalResponse.Concept ?: return@withContext EvidenceFirstNoteStep.Incomplete
                         val evidenceId = concept.evidenceIds.getOrNull(assessEvidenceIndex) ?: return@withContext EvidenceFirstNoteStep.Incomplete

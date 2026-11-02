@@ -117,10 +117,16 @@ class DiscoverySupportWiringTest {
         assertEquals(1, pendingSupportCalls)
         assertTrue(controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) is EvidenceFirstNoteStep.Assessed)
         assertEquals("Unchanged support must be reused", 1, pendingSupportCalls)
+        val covered = controller.advanceEvidenceFirstNote("note", generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
+        assertEquals(listOf(SupportDecision.SUPPORTED), (covered.coverage as PendingConceptCoverage.Complete).assessments.map { it.decision })
         activeSupportIdentity = supportIdentity.copy(policy = "unsupported-pending-v3"); pendingDecision = SupportDecision.UNSUPPORTED
-        val rejected = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
+        val pending = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
+        assertEquals(PendingConceptCoverage.Pending(setOf("p")), pending.coverage)
+        val rejected = controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
         assertEquals(SupportDecision.UNSUPPORTED, rejected.assessment.decision)
         assertEquals(2, pendingSupportCalls)
+        val rejectedCoverage = controller.advanceEvidenceFirstNote("note", generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
+        assertEquals(listOf(SupportDecision.UNSUPPORTED), (rejectedCoverage.coverage as PendingConceptCoverage.Complete).assessments.map { it.decision })
         assertEquals(listOf("topic"), controller.state.value.topicSnapshot.topics.map { it.id })
         activeSupportIdentity = supportIdentity.copy(policy = "uncertain-v3")
         decision = SupportDecision.UNCERTAIN
