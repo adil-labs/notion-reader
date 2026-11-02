@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[validated coverage to proposals (§165)](#165-validated-coverage-feeds-proposal-windows-2026-11-02)
+[bounded proposal generation (§166)](#166-generate-selected-evidence-first-proposals-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12358,3 +12358,33 @@ structural context, local generation and independent support, canonical continui
 and publication, and real comparative/device/human acceptance. The current catalog
 snapshot is still produced by the existing formation pipeline; the new step is not
 production activation and must not be used to claim no clustering is required.
+
+
+## 166. Generate selected evidence-first proposals (2026-11-02)
+
+The internal bounded Note step can now select one proposal from its freshly
+validated window and call `generateProposal` through the existing serialized
+DiscoveryRuntime. ReaderApplication supplies the independently versioned proposal
+identity. Evidence is rehydrated from the current index through the bulk gate;
+source, catalog, support and proposal identities, foreground work and power are
+checked through generation and persistence. Exact-input abstentions and pending
+concepts reuse the existing progress store. A generator identity change during
+inference rejects the late response and does not store its abstention.
+
+Generated concepts remain pending: selected citations and a valid response do not
+prove semantic support or establish a canonical topic. Partial proposal-window
+coverage remains visible in the returned result. The bounded step is not scheduled
+or published, and the current catalog still depends on the existing formation path.
+
+The shared-runtime integration test failed before the generation connection. It
+now exercises a fake unsupported decision followed by a successful abstention and
+exact-input reuse. Removing the proposal-identity guard made its in-flight identity
+change test fail; restoring it passed. Full JVM suite: 1,514 tests, no failures,
+errors or skips; debug assembly, Android-test Kotlin compilation and runtime-probe
+assembly passed. No real model response, semantic quality, Android performance or
+human accessibility evidence was obtained.
+
+Still open: process-loop scheduling, bounded generation continuation and retry
+policy, independent support verification for generated concepts, catalog continuity
+and publication, and comparative/device/human acceptance. The existing production
+publisher remains active.

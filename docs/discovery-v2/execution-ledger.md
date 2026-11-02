@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected selected proposal generation to the shared local runtime;
+generated concepts remain pending and the step is not scheduled. Failing-first
+and identity-race proof, 1,514 JVM tests and builds are recorded in §166.
+
 2026-11-02: Joined validated existing-concept coverage to pending-delta proposal
 windows; uncertain support blocks progression. The step is not scheduled.
 Failing-first and uncertainty proof, 1,514 JVM tests and builds are in §165.

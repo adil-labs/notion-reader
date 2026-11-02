@@ -42,7 +42,8 @@ class DiscoveryController(
     topicRetrievalStore: TopicRetrievalStore? = null,
     topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
     private val proposalProgressStore: ProposalProgressStore? = null,
-    private val topicSupportIdentity: () -> TopicLabelIdentity? = { null }
+    private val topicSupportIdentity: () -> TopicLabelIdentity? = { null },
+    private val topicProposalIdentity: () -> TopicLabelIdentity? = { null }
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
     private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
@@ -141,17 +142,18 @@ class DiscoveryController(
 
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
-        maxRecords: Int = 8, restart: Boolean = false): EvidenceFirstNoteStep = withContext(workDispatcher) {
-        require(maxRecords in 1..128 && anchorOffset >= 0)
+        maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
         val ticket = owner.captureCatalogTicket() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null
         val token = runtime.validity.capture()
         val indexedRevision = mutable.value.indexedRevision
         fun current() = owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier &&
-            runtime.validity.isCurrent(token) && mutable.value.indexedRevision == indexedRevision
+            (generator == null || topicProposalIdentity() == generator) && runtime.validity.isCurrent(token) && mutable.value.indexedRevision == indexedRevision
         fun mayWork() = mayContinueWork() && runtime.foregroundQueries.get() == 0
         val sources = runtime.validity.eligibleRevisions()
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
@@ -192,7 +194,24 @@ class DiscoveryController(
         if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
             return@withContext EvidenceFirstNoteStep.Stale
         when (result) {
-            is PendingProposalStepResult.Ready -> EvidenceFirstNoteStep.Proposals(result.step)
+            is PendingProposalStepResult.Ready -> {
+                if (generateIndex == null) return@withContext EvidenceFirstNoteStep.Proposals(result.step)
+                val proposal = result.step.window.proposals.getOrNull(generateIndex) ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                val guardedIndex = object : SemanticIndexStore by index {
+                    override suspend fun read(pageId: String): SemanticRecord? = runtime.bulkStep { index.read(pageId) }
+                }
+                val generated = generateProposal(proposal, guardedIndex, ticket.identity, checkNotNull(generator), ticket.epoch,
+                    sources, ::current, store) { request -> runtime.proposeTopic(request) { current() && mayWork() } }
+                if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
+                    return@withContext EvidenceFirstNoteStep.Stale
+                when (generated) {
+                    is ProposalGenerationResult.Completed -> EvidenceFirstNoteStep.Generated(generated, result.step)
+                    ProposalGenerationResult.Stale -> EvidenceFirstNoteStep.Stale
+                    else -> EvidenceFirstNoteStep.GenerationFailure(generated)
+                }
+            }
             PendingProposalStepResult.Missing -> EvidenceFirstNoteStep.Incomplete
             PendingProposalStepResult.Stale -> EvidenceFirstNoteStep.Stale
             PendingProposalStepResult.Deferred -> EvidenceFirstNoteStep.Deferred
