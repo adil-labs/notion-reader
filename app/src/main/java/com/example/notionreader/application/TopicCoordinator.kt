@@ -110,7 +110,7 @@ internal class TopicCoordinator(
         }
         val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
             concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations,
-            supported, candidate.sources, matchingComplete = true)
+            supported, candidate.sources, matchingComplete = true, proposalKey = candidate.proposal.proposalKey)
         val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order + 1,
             canonicalConcept = evidence)
         val continuity = TopicContinuity(id, order + 1, setOf(citation.pageId), setOf(topicEvidenceIdentity(anchor.passage)),
@@ -370,6 +370,20 @@ internal class TopicCoordinator(
         shown = labels?.restore(shown, ::current, readSaved = restoring || !inspected) ?: shown
         latest = retrievals?.restore(latest, sources, current = ::current) ?: latest
         shown = retrievals?.restore(shown, sources, readSaved = restoring || !inspected, current = ::current) ?: shown
+        suspend fun hydrate(snapshot: TopicSnapshot): TopicSnapshot {
+            val progress = proposalProgress ?: return snapshot
+            val guarded = object : SemanticIndexStore by index {
+                override suspend fun read(pageId: String): SemanticRecord? = readRecord(pageId)
+            }
+            val topics = snapshot.topics.map { topic ->
+                if (topic.canonicalConcept == null) topic else
+                    hydrateCanonicalTopic(topic, identity(), sources, guarded, progress, ::current)
+                        ?: topic.copy(canonicalProjection = null)
+            }
+            return snapshot.copy(topics = topics)
+        }
+        latest = hydrate(latest)
+        shown = hydrate(shown)
         naming = labels?.status(latest)
         namingStatus = namingMessage(naming, labels?.unavailableMessage?.invoke())
         if (latest.complete) needsMoreWork = !latest.connectionPassComplete || naming == TopicNamingStatus.Pending ||

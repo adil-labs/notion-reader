@@ -13,18 +13,20 @@ data class CanonicalConceptEvidence(val workKey: String, val name: String, val d
     val listeningDescription: String, val generator: TopicLabelIdentity, val verifier: TopicLabelIdentity,
     val offered: List<ProposalEvidenceRef>, val citations: List<TopicSupportAssessment>,
     val supported: List<ProposalEvidenceRef> = emptyList(), val scannedRevisions: Map<String, String> = emptyMap(),
-    val matchingComplete: Boolean = false)
+    val matchingComplete: Boolean = false, val proposalKey: String = "")
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
     val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,
     val subjectVector: List<Float> = anchor.vector,
     @kotlinx.serialization.Transient val generatedLabel: GeneratedTopicLabel? = null,
     @kotlinx.serialization.Transient val topicMatches: TopicMatches? = null,
-    val canonicalConcept: CanonicalConceptEvidence? = null) {
+    val canonicalConcept: CanonicalConceptEvidence? = null,
+    @kotlinx.serialization.Transient val canonicalProjection: CanonicalTopicProjection? = null) {
     internal val labelEvidenceFingerprint by lazy { computeTopicLabelFingerprint(this) }
     private val checkedGeneratedLabel by lazy { generatedLabel?.let { reusableTopicLabel(this, it, it.identity) } }
     /** Cluster wording is evidence, never a provisional display name. */
-    val effectiveLabel: String get() = currentGeneratedLabel?.text ?: "Topic name pending"
+    val effectiveLabel: String get() = currentCanonicalProjection?.name ?: currentGeneratedLabel?.text ?: "Topic name pending"
+    val currentCanonicalProjection: CanonicalTopicProjection? get() = canonicalProjection?.takeIf { it.workKey == canonicalConcept?.workKey }
     val currentGeneratedLabel: GeneratedTopicLabel? get() = if (canonicalConcept == null) checkedGeneratedLabel else null
     val currentTopicMatches: TopicMatches? get() = topicMatches?.takeIf { matches ->
         val concept = currentGeneratedLabel
@@ -32,8 +34,10 @@ data class DiscoveredTopic(val id: String, val label: String, val labelSource: S
             matches.query.text == topicConceptQuery(concept)
     }
     /** Seed memberships are proposal evidence; they are never fallback retrieved Notes. */
-    val matchingMembers: List<TopicMembership> get() = currentTopicMatches?.members.orEmpty()
+    val matchingMembers: List<TopicMembership> get() = currentCanonicalProjection?.members.orEmpty() + currentTopicMatches?.members.orEmpty()
 }
+data class CanonicalTopicProjection(val workKey: String, val name: String, val definition: String,
+    val listeningDescription: String, val citations: List<TopicMembership>, val members: List<TopicMembership>?)
 data class TopicMatches(val query: TopicRetrievalQuery, val members: List<TopicMembership>)
 @Serializable
 data class TopicContinuity(val id: String, val createdOrder: Long, val pageIds: Set<String> = emptySet(),

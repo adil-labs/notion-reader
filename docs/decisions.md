@@ -13104,3 +13104,26 @@ The full JVM suite passed 1,534 tests with no failures, errors or skips; debug
 assembly and Android-test Kotlin compilation passed. Remaining work includes
 source-checked hydration and presentation, incremental scheduling, source-race
 recovery, removal of mandatory formation, and quality/device/human acceptance.
+
+## 196. Restore canonical concepts from current evidence (2026-11-02)
+
+Canonical records now retain the proposal key needed to reconstruct the exact
+generation request. On coordinator restoration, source references are resolved
+from the current index, the proposal key and cited support are recomputed, and
+each saved matching passage must have a matching independently stored support
+assessment. Only then is a transient presentation projection produced. Complete
+coverage with one matching Note reports Emerging; missing support or stale source
+content leaves the concept pending. Incomplete membership coverage never becomes
+a complete match set. Source invalidation clears the projection immediately.
+Older canonical records without the proposal key remain pending.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Require the independently stored support assessment during hydration | `restorationRequiresCurrentSourceAndIndependentlySavedSupport` failed when support was removed. |
+
+The JVM suite passed 1,535 tests with no failures, errors or skips; debug assembly
+and Android-test Kotlin compilation passed. `adb devices -l` reported no attached
+device, so no device accessibility or TalkBack observation was made. The targeted
+test validates the hydration helper, not a complete UI or process-restart journey.
+Topic-detail presentation, incremental scheduling, post-replacement race recovery,
+removal of mandatory formation, and quality/device/human acceptance remain open.

@@ -76,10 +76,10 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
         val concept = original.canonicalConcept
         val topic = when {
             concept == null -> original
-            concept.offered.any { !available(it.pageId) } -> original.copy(canonicalConcept = null)
+            concept.offered.any { !available(it.pageId) } -> original.copy(canonicalConcept = null, canonicalProjection = null)
             concept.scannedRevisions.keys.any { !available(it) } -> original.copy(canonicalConcept = concept.copy(
                 supported = concept.supported.filter { available(it.pageId) },
-                scannedRevisions = concept.scannedRevisions.filterKeys(::available), matchingComplete = false))
+                scannedRevisions = concept.scannedRevisions.filterKeys(::available), matchingComplete = false), canonicalProjection = null)
             else -> original
         }
         if (topic.generatedLabel != null && topic.currentGeneratedLabel == null) topic.copy(generatedLabel = null, topicMatches = null)
