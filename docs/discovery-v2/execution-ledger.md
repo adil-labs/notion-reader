@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: The existing coordinator can capture catalog/source/model/query
+tickets; scheduling and publication remain open. Failing-first and reset-race
+proof, 1,512 JVM tests and builds are recorded in §161.
+
 2026-11-02: Added process-local query mutation tickets to scan scopes and writes;
 catalog tickets and worker integration remain open. Failing-first and continuation
 proof, 1,509 JVM tests and builds are recorded in §160.

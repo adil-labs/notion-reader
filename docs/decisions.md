@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[query mutation tickets (§160)](#160-query-mutation-tickets-for-concept-scans-2026-11-02)
+[coordinator catalog tickets (§161)](#161-process-coordinator-catalog-tickets-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12229,3 +12229,31 @@ Still open: integrate catalog generation with the sole coordinator's live ticket
 schedule the scan/replay/proposal path, establish and acknowledge complete coverage,
 preserve canonical identities and publish supported evidence. Quality comparisons,
 Android behavior and TalkBack observation remain required before activation.
+
+
+## 161. Process coordinator catalog tickets (2026-11-02)
+
+The existing TopicCoordinator can now capture a process-local ticket for a fully
+loaded catalog snapshot, reset epoch, cache revision, embedding identity and query
+store ticket. A changed snapshot, reset or memory release, source revision, model,
+or query vector invalidates the ticket. Snapshot identity is intentionally
+conservative: replacing an equivalent snapshot also invalidates in-flight work.
+A pending cache-withdrawal event prevents capture and invalidates an existing
+ticket until reconciliation. The checkpoint race test passes this ticket through
+the existing durable scan operation and verifies reset prevents a stale write.
+
+This provides a guard for a future consumer; it does not schedule the evidence-first
+pipeline, prove catalog quality or change topic publication. The query ticket and
+checkpoint store still assume the process-owned instances. Ticket scope is not a
+cross-process lock, and the caller must use it for every relevant suspended step.
+
+The two initial ticket tests failed against stubs. Capturing with a pending
+withdrawal failed before the withdrawal guard was added. Removing the reset-epoch
+check made the checkpoint race test fail; the guard was restored. Full JVM suite:
+1,512 tests, zero failures/errors/skips. App debug assembly, Android-test Kotlin
+compilation and standalone runtime-probe build passed.
+
+Still open: use this ticket in sole-coordinator scheduling and replay, establish
+complete coverage, match and generate concepts, preserve canonical continuity and
+publish verified evidence. Comparative model quality, Android performance and
+human accessibility gates remain unfulfilled; the existing publisher remains active.

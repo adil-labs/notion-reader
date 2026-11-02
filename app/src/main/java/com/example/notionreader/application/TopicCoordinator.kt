@@ -13,6 +13,9 @@ import java.util.concurrent.atomic.AtomicLong
 internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val updated: Boolean = false,
     val status: String? = null, val failure: String? = null, val naming: TopicNamingStatus? = null)
 
+internal data class TopicCatalogTicket(val snapshot: TopicSnapshot, val epoch: Long, val cacheRevision: Long,
+    val identity: EmbeddingIdentity, val queryTicket: String)
+
 /** Shared with explicit host replay so resume diagnostics describe the shipping input identity. */
 internal fun topicSourceSignature(model: EmbeddingIdentity, policy: TopicPolicy, metadataVersion: Int,
     sources: Map<String, String>): String = semanticHash(model.toString() + policy.toString() + metadataVersion +
@@ -61,6 +64,21 @@ internal class TopicCoordinator(
     private fun retainPendingWork(startEpoch: Long) = synchronized(workspaceLock) {
         if (startEpoch == epoch.get()) needsMoreWork = true
     }
+    /** Captured from the sole coordinator; object identity changes on catalog or label publication. */
+    suspend fun captureCatalogTicket(): TopicCatalogTicket? = writes.withLock {
+        if (!loaded || !latest.complete || cache.invalidations.value.isNotEmpty()) return@withLock null
+        val snapshot = latest
+        val model = identity()
+        if (snapshot.identity != model) return@withLock null
+        val ticket = TopicCatalogTicket(snapshot, epoch.get(), cache.revision.value, model,
+            retrievals?.queryTicket() ?: return@withLock null)
+        ticket.takeIf(::isCatalogTicketCurrent)
+    }
+    fun isCatalogTicketCurrent(ticket: TopicCatalogTicket): Boolean =
+        latest === ticket.snapshot && epoch.get() == ticket.epoch && cache.revision.value == ticket.cacheRevision &&
+            cache.invalidations.value.isEmpty() &&
+            identity() == ticket.identity && retrievals?.queryTicket() == ticket.queryTicket
+
     suspend fun setInspected(active: Boolean) = writes.withLock {
         if (inspected == active) return@withLock
         inspected = active

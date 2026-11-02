@@ -16,6 +16,7 @@ internal class TopicRetrievalCoordinator(private val index: SemanticIndexStore, 
     private val waitForQueries: suspend () -> Unit, private val bulkGate: Mutex,
     private val recordsPerWindow: Int = 128) {
     init { require(recordsPerWindow in 1..4096) }
+    fun queryTicket(): String? = store.queryTicket()
     private fun query(topic: DiscoveredTopic, model: EmbeddingIdentity): TopicRetrievalQuery? {
         val concept = topic.currentGeneratedLabel ?: return null
         return topicConceptQuery(concept)?.let { TopicRetrievalQuery(topic.id, concept.workKey, it, model, policy) }
