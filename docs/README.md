@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#177-drive-pending-citation-checks-and-abstention-2026-11-02)
+[the current decision-record entry](decisions.md#178-retain-pending-note-coverage-across-unrelated-edits-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

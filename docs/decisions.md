@@ -12663,3 +12663,32 @@ Still open: process-owned scheduling and recovery, incremental retention across
 source changes, uncertainty resolution, catalog continuity and publication, and
 comparative quality, device and human accessibility acceptance. The existing
 production publisher remains active.
+
+## 178. Retain pending Note coverage across unrelated edits (2026-11-02)
+
+Pending Note checkpoints now bind the scanned Note and all offered proposal
+evidence sources rather than the entire eligible library. An unrelated source
+edit no longer deletes an otherwise current checkpoint; a change or withdrawal
+of any bound source makes it unreadable and reconciliation removes it. Before
+use, the coordinator reconstructs the exact dependency set from the current
+proposal and replays the checkpoint against current bodies and verifier decisions.
+Corpus aggregation still restarts when its source set changes and still has to
+visit every eligible Note; this change preserves reusable per-Note work rather
+than asserting a measured performance gain.
+
+Version 2 checkpoints omit the process epoch from their durable binding so they
+can be replayed after a new epoch. Live in-memory continuations retain a separate
+epoch guard. Legacy version 1 checkpoints are not trusted as version 2: the driver
+rebuilds them using compare-and-replace. The new unrelated-edit test initially
+failed before subset retention existed. Removing the live-epoch guard failed
+`noteScanAccumulatesPagesAndRejectsChangedConcept`; removing the version-2 source
+eligibility guard failed `pendingNoteScanCheckpointSurvivesRestartAndIsWithdrawnWithItsSources`;
+and bypassing the legacy rebuild failed `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity`.
+All guards were restored. Full JVM suite: 1,524 tests, zero failures/errors/skips;
+debug assembly, Android-test Kotlin compilation and standalone runtime-probe
+assembly passed. No real-model quality or device cost was measured.
+
+Still open: process-owned scheduling and recovery, targeted proposal recomputation,
+uncertainty resolution, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

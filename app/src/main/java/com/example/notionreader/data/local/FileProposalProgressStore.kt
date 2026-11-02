@@ -96,7 +96,7 @@ class FileProposalProgressStore(private val directory: File,
     }
     private fun valid(record: PendingNoteScanRecord): Boolean {
         val cursor = record.cursor
-        return Regex("[0-9a-f]{64}").matches(record.workKey) && validId(record.pageId) && validRevision(record.revision) &&
+        return record.formatVersion in 1..2 && Regex("[0-9a-f]{64}").matches(record.workKey) && validId(record.pageId) && validRevision(record.revision) &&
             Regex("[0-9a-f]{64}").matches(record.binding) && record.sourceRevisions.size <= 32768 &&
             record.sourceRevisions[record.pageId] == record.revision &&
             record.sourceRevisions.all { (id, revision) -> validId(id) && validRevision(revision) } &&
@@ -239,16 +239,15 @@ class FileProposalProgressStore(private val directory: File,
     override suspend fun readPendingNoteScan(workKey: String, pageId: String, sources: Map<String, String>): PendingNoteScanRecord? =
         withContext(Dispatchers.IO) { lock.withLock {
             if (!Regex("[0-9a-f]{64}").matches(workKey) || !validId(pageId)) null
-            else readPendingNoteScanFile(pendingNoteScanTarget(workKey, pageId))?.takeIf { it.sourceRevisions == sources }
+            else readPendingNoteScanFile(pendingNoteScanTarget(workKey, pageId))?.takeIf { scan -> if (scan.formatVersion == 1) scan.sourceRevisions == sources else scan.sourceRevisions.all { (id, revision) -> sources[id] == revision } }
         } }
 
     override suspend fun replacePendingNoteScan(expected: PendingNoteScanRecord?, record: PendingNoteScanRecord,
         stillCurrent: () -> Boolean): ProposalProgressWriteResult = withContext(Dispatchers.IO) { lock.withLock {
-        if (!valid(record) || expected != null && (expected.workKey != record.workKey || expected.pageId != record.pageId ||
-                expected.sourceRevisions != record.sourceRevisions)) return@withLock ProposalProgressWriteResult.Invalid
+        if (!valid(record) || expected != null && (expected.workKey != record.workKey || expected.pageId != record.pageId)) return@withLock ProposalProgressWriteResult.Invalid
         if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
         val file = pendingNoteScanTarget(record.workKey, record.pageId)
-        val observed = readPendingNoteScanFile(file)?.takeIf { it.sourceRevisions == record.sourceRevisions }
+        val observed = readPendingNoteScanFile(file)
         if (observed != expected) return@withLock ProposalProgressWriteResult.Stale
         writeAtomic(file, json.encodeToString(StoredPendingNoteScan(scan = record)).toByteArray(Charsets.UTF_8), stillCurrent)
     } }
@@ -318,7 +317,7 @@ class FileProposalProgressStore(private val directory: File,
                 conceptName.matches(file.name) -> readConceptFile(file)?.evidence?.all { sources[it.pageId] == it.revision } == true
                 deltaName.matches(file.name) -> readDeltaFile(file)?.let { sources[it.pageId] == it.revision } == true
                 scanName.matches(file.name) -> readConceptScanFile(file)?.let { it.sourceRevisions == sources } == true
-                pendingNoteScanName.matches(file.name) -> readPendingNoteScanFile(file)?.let { it.sourceRevisions == sources } == true
+                pendingNoteScanName.matches(file.name) -> readPendingNoteScanFile(file)?.let { scan -> if (scan.formatVersion == 1) scan.sourceRevisions == sources else scan.sourceRevisions.all { (id, revision) -> sources[id] == revision } } == true
                 supportName.matches(file.name) -> readSupportFile(file)?.let { eligible(it, sources) } == true
                 else -> readFile(file)?.let { eligible(it, sources) } == true
             }

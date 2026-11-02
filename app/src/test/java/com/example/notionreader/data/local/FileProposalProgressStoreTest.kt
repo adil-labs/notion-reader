@@ -194,7 +194,7 @@ class FileProposalProgressStoreTest {
         val work = semanticHash("proposal"); val binding = semanticHash("scope")
         val checkpoint = PendingNoteScanRecord(work, "older", "r2", sources, binding,
             TopicCandidateCursor(semanticHash("query"), "older", "r2", .9f, 0, "passage"),
-            setOf("supported"), setOf("uncertain"))
+            setOf("supported"), setOf("uncertain"), formatVersion = 2)
         assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(null, checkpoint) { true })
         val restored = FileProposalProgressStore(dir)
         assertEquals(checkpoint, restored.readPendingNoteScan(work, "older", sources))
@@ -202,6 +202,10 @@ class FileProposalProgressStoreTest {
         assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(checkpoint, later) { true })
         assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(checkpoint, checkpoint) { true })
         assertEquals(later, restored.readPendingNoteScan(work, "older", sources))
+        val expanded = sources + ("unrelated" to "r3")
+        assertEquals(later, restored.readPendingNoteScan(work, "older", expanded))
+        store.reconcile(expanded)
+        assertEquals(later, restored.readPendingNoteScan(work, "older", expanded))
         assertNull(restored.readPendingNoteScan(work, "older", sources - "new"))
         store.reconcile(sources - "new")
         assertNull(restored.readPendingNoteScan(work, "older", sources)); assertEquals(0L, store.bytes())
@@ -225,4 +229,13 @@ class FileProposalProgressStoreTest {
         assertEquals(support, FileProposalProgressStore(dir).readSupport(support.workKey, sources))
         var checks = 0
         assertEquals(ProposalProgressWriteResult.Stale, store.writeSupport(support) { ++checks == 1 })
+    }    @Test fun legacyPendingNoteCheckpointCanBeReplacedOnlyByItsObservedSuccessor() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val legacy = PendingNoteScanRecord(semanticHash("proposal"), "older", "r2", sources,
+            semanticHash("old"), null, setOf("p"), emptySet())
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(null, legacy) { true })
+        val replacement = legacy.copy(sourceRevisions = mapOf("older" to "r2"), binding = semanticHash("new"), formatVersion = 2)
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(legacy, replacement) { true })
+        assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(legacy, replacement) { true })
+        assertEquals(replacement, store.readPendingNoteScan(legacy.workKey, "older", sources + ("extra" to "r3")))
     }}

@@ -27,7 +27,7 @@ data class ExistingConceptScanRecord(val pageId: String, val revision: String, v
 @Serializable
 data class PendingNoteScanRecord(val workKey: String, val pageId: String, val revision: String,
     val sourceRevisions: Map<String, String>, val binding: String, val cursor: TopicCandidateCursor?,
-    val supported: Set<String>, val uncertain: Set<String>)
+    val supported: Set<String>, val uncertain: Set<String>, val formatVersion: Int = 1)
 enum class ProposalProgressWriteResult { Written, Stale, Invalid, StorageRefused, IoFailure, RecordMemoryLimit }
 
 interface ProposalProgressStore {

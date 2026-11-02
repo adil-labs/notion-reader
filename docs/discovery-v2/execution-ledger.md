@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Scoped Note checkpoints to proposal dependencies, retaining them
+across unrelated edits while guarding withdrawal, epochs and legacy migration.
+Failing-first proofs, 1,524 JVM tests and builds are recorded in §178.
+
 2026-11-02: Connected pending concept citation assessment and terminal abstention
 to the bounded driver. Unsupported-citation proof, 1,522 JVM tests and builds
 are recorded in §177; scheduling remains open.

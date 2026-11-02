@@ -302,6 +302,11 @@ class DiscoveryController(
                             val target = guardedIndex.read(targetId) ?: return@withContext EvidenceFirstNoteStep.Incomplete
                             if (!current() || target.identity != ticket.identity || target.revision != sources[targetId])
                                 return@withContext EvidenceFirstNoteStep.Stale
+                            val dependencyGroups = proposal.evidence.groupBy { canonicalSemanticId(it.pageId) }
+                            if (dependencyGroups.any { (id, refs) -> id.isBlank() || refs.map { it.revision }.toSet().size != 1 ||
+                                    sources[id] != refs.first().revision }) return@withContext EvidenceFirstNoteStep.Stale
+                            val proposalDependencies = dependencyGroups.mapValues { it.value.first().revision }
+                            val noteDependencies = proposalDependencies + (targetId to target.revision)
                             val pendingConcept = SupportConcept("pending:${generated.workKey}", generated.workKey, concept.name, concept.definition)
                             val query = TopicRetrievalQuery(pendingConcept.topicId, generated.workKey,
                                 "${concept.name.trim()}\n${concept.definition.trim()}", ticket.identity, topicRetrievalPolicy)
@@ -318,7 +323,7 @@ class DiscoveryController(
                                     token.reset.toString(), token.cacheRevision.toString(), indexedRevision.toString(), ticket.identity.toString())
                                 val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
                                 val corpus = replayPendingCorpus(corpusReplay, scopeTicket, pendingConcept, embeddedQuery, verifier,
-                                    ticket.epoch, sources, guardedIndex, store, ::current, ::mayWork, ticket.snapshot)
+                                    ticket.epoch, sources, guardedIndex, store, ::current, ::mayWork, ticket.snapshot, proposalDependencies)
                                 if (!current()) return@withContext EvidenceFirstNoteStep.Stale
                                 if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                                 if (guardedIndex.read(canonicalSemanticId(pageId)) != record || !current())
@@ -328,8 +333,9 @@ class DiscoveryController(
                             if (replayPendingScan) {
                                 val saved = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
                                     ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                                if (saved.formatVersion != 2) return@withContext EvidenceFirstNoteStep.Incomplete
                                 val replayed = replayPendingNoteScan(saved, checkNotNull(retrieveScan), pendingConcept, embeddedQuery,
-                                    target, guardedIndex, verifier, ticket.epoch, sources, store, ::current, ::mayWork)
+                                    target, guardedIndex, verifier, ticket.epoch, sources, store, ::current, ::mayWork, noteDependencies)
                                 if (!current()) return@withContext EvidenceFirstNoteStep.Stale
                                 if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                                 if (guardedIndex.read(targetId) != target || guardedIndex.read(canonicalSemanticId(pageId)) != record || !current())
@@ -339,14 +345,14 @@ class DiscoveryController(
                             if (retrieveScan != null) {
                                 val expected = if (checkpointPendingScan) {
                                     val stored = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
-                                    val old = if (retrieveScan.binding == null) null else PendingNoteScanRecord(pendingConcept.workKey,
-                                        targetId, target.revision, sources, retrieveScan.binding, checkNotNull(retrieveScan.next).passage,
-                                        retrieveScan.supported, retrieveScan.uncertain)
+                                    val old = if (retrieveScan.binding == null) stored?.takeIf { it.formatVersion == 1 } else PendingNoteScanRecord(pendingConcept.workKey,
+                                        targetId, target.revision, noteDependencies, retrieveScan.binding, checkNotNull(retrieveScan.next).passage,
+                                        retrieveScan.supported, retrieveScan.uncertain, formatVersion = 2)
                                     if (stored != old) return@withContext EvidenceFirstNoteStep.Stale
                                     stored
                                 } else null
                                 val scan = scanPendingConceptNote(pendingConcept, embeddedQuery, target, guardedIndex, verifier,
-                                    ticket.epoch, sources, retrieveScan, maxRecords, store, ::current, ::mayWork) { request ->
+                                    ticket.epoch, sources, retrieveScan, maxRecords, store, ::current, ::mayWork, scopeSources = noteDependencies) { request ->
                                     runtime.verifyTopicSupport(request) { current() && mayWork() }
                                 }
                                 if (!current()) return@withContext EvidenceFirstNoteStep.Stale
@@ -355,7 +361,7 @@ class DiscoveryController(
                                     return@withContext EvidenceFirstNoteStep.Stale
                                 if (checkpointPendingScan && (scan is PendingConceptNoteScanResult.Pending ||
                                         scan is PendingConceptNoteScanResult.Complete || scan is PendingConceptNoteScanResult.Uncertain)) {
-                                    val written = savePendingNoteResult(pendingConcept, target, sources, scan, expected, store) { current() && mayWork() }
+                                    val written = savePendingNoteResult(pendingConcept, target, noteDependencies, scan, expected, store) { current() && mayWork() }
                                     if (!current()) return@withContext EvidenceFirstNoteStep.Stale
                                     if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                                     if (written != ProposalProgressWriteResult.Written)

@@ -132,6 +132,9 @@ class DiscoverySupportWiringTest {
         assertEquals(setOf("p"), (scanned.scan as PendingConceptNoteScanResult.Complete).supported)
         assertEquals(EvidenceFirstNoteStep.Incomplete, controller.advanceEvidenceFirstNote("note", generateIndex = 0,
             retrievePageId = "note", retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true))
+        val legacy = PendingNoteScanRecord(assessed.generation.workKey, "note", revision, mapOf("note" to revision),
+            semanticHash("legacy"), null, emptySet(), emptySet())
+        assertEquals(ProposalProgressWriteResult.Written, backing.replacePendingNoteScan(null, legacy) { true })
         var work = PendingCorpusWork.start("note", 0)
         work = (controller.advancePendingCorpusWork(work) as PendingCorpusWorkResult.Pending).work
         assertNotNull(work.generationKey)
@@ -150,6 +153,7 @@ class DiscoverySupportWiringTest {
             }
         }
         assertEquals(mapOf("note" to setOf("p")), (finalCoverage as PendingCorpusReplayResult.Complete).supported)
+        assertEquals(2, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
         val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
             retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true) as EvidenceFirstNoteStep.PendingNoteReplay
         assertEquals(setOf("p"), (restoredScan.replay as PendingNoteReplayResult.Complete).supported)

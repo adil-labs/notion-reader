@@ -33,10 +33,10 @@ internal suspend fun retrievePendingConceptPage(concept: SupportConcept, query: 
 
 /** Ephemeral continuation; restart replays bounded pages using persisted support decisions. */
 internal class PendingConceptNoteScan private constructor(internal val binding: String?, internal val next: PendingRetrievalCursor?,
-    internal val supported: Set<String>, internal val uncertain: Set<String>) {
-    companion object { fun start() = PendingConceptNoteScan(null, null, emptySet(), emptySet()) }
-    internal fun advance(binding: String, next: PendingRetrievalCursor, supported: Set<String>, uncertain: Set<String>) =
-        PendingConceptNoteScan(binding, next, supported, uncertain)
+    internal val supported: Set<String>, internal val uncertain: Set<String>, internal val epoch: Long?) {
+    companion object { fun start() = PendingConceptNoteScan(null, null, emptySet(), emptySet(), null) }
+    internal fun advance(binding: String, next: PendingRetrievalCursor, supported: Set<String>, uncertain: Set<String>, epoch: Long) =
+        PendingConceptNoteScan(binding, next, supported, uncertain, epoch)
 }
 internal sealed interface PendingConceptNoteScanResult {
     data class Pending(val scan: PendingConceptNoteScan) : PendingConceptNoteScanResult
@@ -50,8 +50,12 @@ internal sealed interface PendingConceptNoteScanResult {
 internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: TopicQueryEmbedding, record: SemanticRecord,
     index: SemanticIndexStore, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
     scan: PendingConceptNoteScan, limit: Int, store: ProposalProgressStore, current: () -> Boolean, mayWork: () -> Boolean,
+    scopeSources: Map<String, String> = sources,
     verify: suspend (TopicSupportRequest) -> TopicSupportRun): PendingConceptNoteScanResult {
     val context = kotlinx.coroutines.currentCoroutineContext()
+    val noteId = canonicalSemanticId(record.pageId)
+    if (scopeSources[noteId] != record.revision || scopeSources.any { (id, revision) -> sources[id] != revision })
+        return PendingConceptNoteScanResult.Stale
     val digest = java.security.MessageDigest.getInstance("SHA-256")
     for (passage in record.passages) {
         context.ensureActive()
@@ -64,18 +68,18 @@ internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: Topi
         }
     }
     val vectors = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    val fields = listOf("pending-note-scan-v1", vectors, concept.topicId, concept.workKey, concept.name, concept.definition,
-        query.query.key, canonicalSemanticId(record.pageId), record.revision, passageDeltaFingerprint(record), verifier.toString(), epoch.toString()) +
-        query.vector.map { it.toRawBits().toString() } + sources.toSortedMap().flatMap { listOf(it.key, it.value) }
+    val fields = listOf("pending-note-scan-v2", vectors, concept.topicId, concept.workKey, concept.name, concept.definition,
+        query.query.key, canonicalSemanticId(record.pageId), record.revision, passageDeltaFingerprint(record), verifier.toString()) +
+        query.vector.map { it.toRawBits().toString() } + scopeSources.toSortedMap().flatMap { listOf(it.key, it.value) }
     val binding = semanticHash(fields.joinToString("") { "${it.length}:$it" })
-    if (scan.binding != null && scan.binding != binding) return PendingConceptNoteScanResult.Stale
+    if (scan.binding != null && (scan.binding != binding || scan.epoch != epoch)) return PendingConceptNoteScanResult.Stale
     return when (val page = retrievePendingConceptPage(concept, query, record, index, verifier, epoch, sources,
         scan.next, limit, store, current, mayWork, verify)) {
         is PendingConceptRetrievalPage.Ready -> {
             val supported = scan.supported + page.supported
             val uncertain = scan.uncertain + page.uncertain
             when {
-                page.next != null -> PendingConceptNoteScanResult.Pending(scan.advance(binding, page.next, supported, uncertain))
+                page.next != null -> PendingConceptNoteScanResult.Pending(scan.advance(binding, page.next, supported, uncertain, epoch))
                 uncertain.isNotEmpty() -> PendingConceptNoteScanResult.Uncertain(supported, uncertain, binding)
                 else -> PendingConceptNoteScanResult.Complete(supported, binding)
             }
@@ -100,17 +104,18 @@ internal sealed interface PendingNoteReplayResult {
 internal suspend fun replayPendingNoteScan(saved: PendingNoteScanRecord, replay: PendingConceptNoteScan,
     concept: SupportConcept, query: TopicQueryEmbedding, record: SemanticRecord, index: SemanticIndexStore,
     verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>, store: ProposalProgressStore,
-    current: () -> Boolean, mayWork: () -> Boolean): PendingNoteReplayResult {
+    current: () -> Boolean, mayWork: () -> Boolean, dependencies: Map<String, String> = sources): PendingNoteReplayResult {
     kotlinx.coroutines.currentCoroutineContext().ensureActive()
     if (!current()) return PendingNoteReplayResult.Stale
     if (!mayWork()) return PendingNoteReplayResult.Deferred
     val id = canonicalSemanticId(record.pageId)
+    if (saved.formatVersion != 2) return PendingNoteReplayResult.Incomplete
     if (saved.workKey != concept.workKey || saved.pageId != id || saved.revision != record.revision ||
-        saved.sourceRevisions != sources || sources[id] != record.revision) return PendingNoteReplayResult.Stale
+        saved.sourceRevisions != dependencies || dependencies.any { (page, revision) -> sources[page] != revision } || sources[id] != record.revision) return PendingNoteReplayResult.Stale
     if (store.readPendingNoteScan(saved.workKey, id, sources) != saved || !current()) return PendingNoteReplayResult.Stale
     if (!mayWork()) return PendingNoteReplayResult.Deferred
     val result = scanPendingConceptNote(concept, query, record, index, verifier, epoch, sources, replay, 1,
-        store, current, mayWork) { TopicSupportRun.Unavailable }
+        store, current, mayWork, scopeSources = dependencies) { TopicSupportRun.Unavailable }
     if (!current()) return PendingNoteReplayResult.Stale
     if (!mayWork()) return PendingNoteReplayResult.Deferred
     if (store.readPendingNoteScan(saved.workKey, id, sources) != saved || !current()) return PendingNoteReplayResult.Stale
@@ -145,7 +150,7 @@ internal suspend fun savePendingNoteScan(concept: SupportConcept, record: Semant
     val id = canonicalSemanticId(record.pageId)
     if (sources[id] != record.revision) return ProposalProgressWriteResult.Stale
     val checkpoint = PendingNoteScanRecord(concept.workKey, id, record.revision, sources.toMap(), binding, cursor,
-        scan.supported, scan.uncertain)
+        scan.supported, scan.uncertain, formatVersion = 2)
     return store.replacePendingNoteScan(expected, checkpoint, current)
 }
 
@@ -166,7 +171,7 @@ internal suspend fun savePendingNoteResult(concept: SupportConcept, record: Sema
     val id = canonicalSemanticId(record.pageId)
     if (sources[id] != record.revision) return ProposalProgressWriteResult.Stale
     return store.replacePendingNoteScan(expected, PendingNoteScanRecord(concept.workKey, id, record.revision,
-        sources.toMap(), binding, null, supported, uncertain), current)
+        sources.toMap(), binding, null, supported, uncertain, formatVersion = 2), current)
 }
 /** In-memory aggregation of independently replayed Note checkpoints, tied to one live coordinator scope. */
 internal class PendingCorpusReplay private constructor(internal val scope: String?, internal val anchor: Any?,
@@ -191,13 +196,14 @@ internal sealed interface PendingCorpusReplayResult {
 internal suspend fun replayPendingCorpus(replay: PendingCorpusReplay, scopeTicket: String, concept: SupportConcept,
     query: TopicQueryEmbedding, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
     index: SemanticIndexStore, store: ProposalProgressStore, current: () -> Boolean, mayWork: () -> Boolean,
-    anchor: Any? = null): PendingCorpusReplayResult {
+    anchor: Any? = null, conceptDependencies: Map<String, String> = sources): PendingCorpusReplayResult {
     kotlinx.coroutines.currentCoroutineContext().ensureActive()
     if (!current()) return PendingCorpusReplayResult.Stale
     if (!mayWork()) return PendingCorpusReplayResult.Deferred
     val fields = listOf("pending-corpus-replay-v1", scopeTicket, concept.topicId, concept.workKey, concept.name,
-        concept.definition, query.query.key, verifier.toString(), epoch.toString()) +
-        query.vector.map { it.toRawBits().toString() } + sources.toSortedMap().flatMap { listOf(it.key, it.value) }
+        concept.definition, query.query.key, verifier.toString(), epoch.toString(), sources.size.toString(), conceptDependencies.size.toString()) +
+        query.vector.map { it.toRawBits().toString() } + sources.toSortedMap().flatMap { listOf(it.key, it.value) } +
+        conceptDependencies.toSortedMap().flatMap { listOf(it.key, it.value) }
     val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
     if (replay.scope != null && (replay.scope != scope || replay.anchor !== anchor)) return PendingCorpusReplayResult.Stale
     val ids = sources.keys.sorted()
@@ -212,11 +218,14 @@ internal suspend fun replayPendingCorpus(replay: PendingCorpusReplay, scopeTicke
     if (!mayWork()) return PendingCorpusReplayResult.Deferred
     if (record == null || record.revision != sources[id] || record.identity != query.query.embedding)
         return PendingCorpusReplayResult.Incomplete(id, bound)
+    val dependencies = conceptDependencies + (id to record.revision)
+    if (conceptDependencies.any { (page, revision) -> sources[page] != revision }) return PendingCorpusReplayResult.Stale
     val saved = store.readPendingNoteScan(concept.workKey, id, sources)
     if (!current()) return PendingCorpusReplayResult.Stale
     if (!mayWork()) return PendingCorpusReplayResult.Deferred
-    if (saved == null || saved.cursor != null) return PendingCorpusReplayResult.Incomplete(id, bound)
-    val result = replayPendingNoteScan(saved, replay.note, concept, query, record, index, verifier, epoch, sources, store, current, mayWork)
+    if (saved == null || saved.formatVersion != 2 || saved.cursor != null) return PendingCorpusReplayResult.Incomplete(id, bound)
+    if (saved.sourceRevisions != dependencies) return PendingCorpusReplayResult.Stale
+    val result = replayPendingNoteScan(saved, replay.note, concept, query, record, index, verifier, epoch, sources, store, current, mayWork, dependencies)
     if (!current()) return PendingCorpusReplayResult.Stale
     if (!mayWork()) return PendingCorpusReplayResult.Deferred
     if (index.read(id) != record || !current()) return PendingCorpusReplayResult.Stale
