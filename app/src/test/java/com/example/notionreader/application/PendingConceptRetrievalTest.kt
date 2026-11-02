@@ -62,4 +62,30 @@ class PendingConceptRetrievalTest {
         val done = step(concept, first.scan) as PendingConceptNoteScanResult.Uncertain
         assertEquals(setOf("a"), done.supported); assertEquals(setOf("b"), done.uncertain)
     }
-}
+    @Test fun checkpointReplayRechecksStoredEvidenceBeforeResuming() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val store = FileProposalProgressStore(root.resolve("progress"))
+        val embedding = EmbeddingIdentity("model", 2); val work = semanticHash("concept")
+        val concept = SupportConcept("pending:$work", work, "Seeds", "Seeds germinate with water.")
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(concept.topicId, work, "Seeds\nSeeds germinate with water.", embedding, TopicRetrievalPolicy(.5f)), listOf(1f, 0f))
+        val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
+        fun passage(id: String, order: Int): EmbeddedPassage {
+            val text = "Water helps seeds germinate in suitable conditions."
+            return EmbeddedPassage(SemanticPassage(id, "note", "section", "Overview", "block$id", "chunk$id", 0, text.length, text, text, order), listOf(1f, 0f))
+        }
+        val record = SemanticRecord("note", "r1", embedding, SemanticMetadata("note"), listOf(passage("a", 0), passage("b", 1), passage("c", 2)))
+        val sources = mapOf("note" to "r1"); assertTrue(index.write(record))
+        val first = scanPendingConceptNote(concept, query, record, index, verifier, 4, sources, PendingConceptNoteScan.start(), 2, store, { true }, { true }) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) } as PendingConceptNoteScanResult.Pending
+        val saved = PendingNoteScanRecord(work, "note", "r1", sources, first.scan.binding!!, first.scan.next!!.passage, first.scan.supported, first.scan.uncertain)
+        assertEquals(ProposalProgressWriteResult.Written, savePendingNoteScan(concept, record, sources, first.scan, null, store) { true })
+        assertEquals(saved, store.readPendingNoteScan(work, "note", sources))
+        suspend fun replay(checkpoint: PendingNoteScanRecord, progress: ProposalProgressStore = store, state: PendingConceptNoteScan = PendingConceptNoteScan.start()) = replayPendingNoteScan(checkpoint, state, concept, query, record, index, verifier, 4, sources, progress, { true }, { true })
+        val partial = replay(saved) as PendingNoteReplayResult.Pending
+        val restored = replay(saved, state = partial.scan) as PendingNoteReplayResult.Validated
+        assertEquals(first.scan.next, restored.scan.next); assertEquals(setOf("a", "b"), restored.scan.supported)
+        val forged = saved.copy(supported = emptySet())
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(saved, forged) { true })
+        assertEquals(PendingNoteReplayResult.Invalid, replay(forged))
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(forged, saved) { true })
+        val missing = object : ProposalProgressStore by store { override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? = null }
+        assertEquals(PendingNoteReplayResult.Incomplete, replay(saved, missing))
+    }}

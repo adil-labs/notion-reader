@@ -12516,3 +12516,28 @@ Still open: connect checkpoint persistence to bounded replay and revalidation,
 corpus-wide coverage, uncertainty resolution, process-loop scheduling, catalog
 continuity and publication, and comparative quality, device and human accessibility
 acceptance. The existing production publisher remains active.
+
+## 172. Replay pending Note scan checkpoints (2026-11-02)
+
+The bounded evidence-first entry can now opt into saving a partial pending Note
+scan and replaying it after interruption. Replay advances one candidate at a time
+from the beginning, reconstructs support requests against current source bodies,
+and accepts only existing exact-input decisions. It checks the stored scope,
+cursor and accumulated supported/uncertain IDs before yielding a continuation;
+missing support remains incomplete. The entry checks the expected checkpoint
+before advancing and uses the existing compare-and-replace storage operation.
+A finished Note scan is not durably checkpointed yet; this mechanism neither
+schedules work nor establishes corpus-wide completion or publication.
+
+The replay test failed to compile before the operation existed. Removing both
+aggregate-consistency checks caused `checkpointReplayRechecksStoredEvidenceBeforeResuming`
+to fail against a forged checkpoint; the checks were restored. The test also
+replays a two-candidate checkpoint in one-candidate steps and checks missing
+support. Full JVM suite: 1,520 tests, zero failures/errors/skips; debug assembly,
+Android-test Kotlin compilation and standalone runtime-probe assembly passed.
+No actual model quality, device behavior or human accessibility was measured.
+
+Still open: durable completed Note and corpus coverage, uncertainty resolution,
+process-loop scheduling, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.

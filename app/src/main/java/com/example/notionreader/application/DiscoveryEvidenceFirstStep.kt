@@ -14,6 +14,9 @@ internal sealed interface EvidenceFirstNoteStep {
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
     data class NoteRetrievalScan(val generation: ProposalGenerationResult.Completed, val scan: PendingConceptNoteScanResult,
         val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class PendingNoteReplay(val generation: ProposalGenerationResult.Completed, val replay: PendingNoteReplayResult,
+        val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class PendingNoteStorageFailure(val reason: com.example.notionreader.domain.discovery.ProposalProgressWriteResult) : EvidenceFirstNoteStep
     data class RetrievalFailure(val result: PendingConceptRetrievalPage) : EvidenceFirstNoteStep
     data class AssessmentFailure(val result: SupportVerificationResult) : EvidenceFirstNoteStep
     data class GenerationFailure(val result: ProposalGenerationResult) : EvidenceFirstNoteStep

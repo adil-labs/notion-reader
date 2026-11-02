@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected partial pending Note checkpoints to bounded evidence replay;
+completed and corpus coverage remain open. Forged-checkpoint proof, 1,520 JVM
+tests and builds are recorded in §172.
+
 2026-11-02: Added source-bound pending Note checkpoint storage; scanner replay and
 consumer integration remain open. Stale-write and withdrawal proofs, 1,519 JVM
 tests and builds are recorded in §171.
