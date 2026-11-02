@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected verified canonical details, counts and follow text. The
+failing-first proof, 1,536 JVM tests and targeted 22/22 existing navigation
+accessibility run are in §197; canonical end-to-end scheduling remains open.
+
 2026-11-02: Added source-checked hydration of saved canonical concepts and
 verified members. Failing-first proof and 1,535 JVM tests are in §196. No
 Android device was attached; topic-detail and production scheduling remain open.

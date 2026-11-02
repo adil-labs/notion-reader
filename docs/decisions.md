@@ -13127,3 +13127,27 @@ device, so no device accessibility or TalkBack observation was made. The targete
 test validates the hydration helper, not a complete UI or process-restart journey.
 Topic-detail presentation, incremental scheduling, post-replacement race recovery,
 removal of mandatory formation, and quality/device/human acceptance remain open.
+
+## 197. Present verified canonical concept details (2026-11-02)
+
+Topic details now use a hydrated canonical concept's listening description,
+verified citation passages and name/definition for following. Matching counts
+use the hydrated independently supported members, distinguishing pending from
+a completed empty result. Evidence wording for canonical concepts describes
+independent checking rather than cluster formation; legacy wording is unchanged.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Count canonical hydrated members rather than legacy retrieval only | `canonicalPresentationUsesVerifiedDescriptionCitationsAndMatches` failed. |
+
+The JVM suite passed 1,536 tests with no failures, errors or skips; debug assembly
+and Android-test Kotlin compilation passed. The repository accessibility wrapper
+passed the existing `DiscoveryTopicsNavigationAccessibilityTest` class on the
+API 36 emulator: 22/22, no failures or skips. That class exercises the existing
+navigation path, not a newly scheduled canonical journey. TalkBack speech was
+not observed. The setup helper's attached emulator ended when the helper was
+interrupted; a separate hidden AVD start was used for the wrapper.
+
+Automatic scheduling, end-to-end canonical UI/device probing, post-replacement
+race recovery, removal of mandatory formation and quality/device/human gates
+remain open.

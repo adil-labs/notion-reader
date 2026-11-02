@@ -101,16 +101,24 @@ internal fun topicDisplayName(topic: com.example.notionreader.domain.discovery.D
 
 internal fun topicNamingEvidence(topic: com.example.notionreader.domain.discovery.DiscoveredTopic):
     List<com.example.notionreader.domain.discovery.TopicMembership> {
+    topic.currentCanonicalProjection?.let { return it.citations }
     val ids = topic.currentGeneratedLabel?.evidenceIds ?: return emptyList()
     return ids.mapNotNull { id -> topic.members.firstOrNull { it.passage.id == id } }
 }
+
+internal fun topicDescription(topic: com.example.notionreader.domain.discovery.DiscoveredTopic): String? =
+    topic.currentCanonicalProjection?.listeningDescription ?: topic.currentGeneratedLabel?.definition
+
+internal fun topicFollowText(topic: com.example.notionreader.domain.discovery.DiscoveredTopic): String =
+    topic.currentCanonicalProjection?.let { "${it.name}\n${it.definition}" }
+        ?: topic.currentGeneratedLabel?.let { com.example.notionreader.domain.discovery.topicConceptQuery(it) }.orEmpty()
 
 internal fun recentListeningTitle(entry: HistoryEntry): String = entry.originLabel
     ?.takeUnless { it == "Single Note" || it == "Browse selection" } ?: entry.title
 
 /** Attribution, not an inferred replacement topic name. Resolved only from eligible members. */
 internal fun topicSourceContext(topic: com.example.notionreader.domain.discovery.DiscoveredTopic): String? =
-    if (topic.currentGeneratedLabel != null) null else topic.members.firstOrNull {
+    if (topic.currentGeneratedLabel != null || topic.currentCanonicalProjection != null) null else topic.members.firstOrNull {
         com.example.notionreader.domain.discovery.canonicalSemanticId(it.pageId) ==
             com.example.notionreader.domain.discovery.canonicalSemanticId(topic.labelSource.pageId)
     }?.metadata?.title?.takeIf { it.isNotBlank() }

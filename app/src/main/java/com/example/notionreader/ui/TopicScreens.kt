@@ -232,7 +232,8 @@ internal fun TopicNavigationRow(topic: DiscoveredTopic, onOpen: () -> Unit,
 }
 
 internal fun topicNoteCount(topic: DiscoveredTopic): String {
-    if (topic.currentTopicMatches == null) return "Matching Notes pending"
+    if (topic.canonicalConcept != null && topic.currentCanonicalProjection?.members == null ||
+        topic.canonicalConcept == null && topic.currentTopicMatches == null) return "Matching Notes pending"
     val count = topic.matchingMembers.distinctBy { canonicalSemanticId(it.pageId) }.size
     return if (count == 0) "No matching Notes" else "$count matching ${if (count == 1) "Note" else "Notes"}"
 }

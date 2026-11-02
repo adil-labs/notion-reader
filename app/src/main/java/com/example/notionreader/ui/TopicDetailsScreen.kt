@@ -84,7 +84,7 @@ internal fun TopicDetailsScreen(
                 )
             }
             Text(topicNoteCount(topic), style = MaterialTheme.typography.labelLarge)
-            topic.currentGeneratedLabel?.definition?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            topicDescription(topic)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
             SubjectRelationshipRows(app, topic, published, visibleRelationships, titles)
 
@@ -124,14 +124,17 @@ internal fun TopicDetailsScreen(
 
             if (evidenceExpanded) {
                 Text(
-                    "A source group proposes this topic's name and definition. Matching Notes are retrieved from indexed passages and may differ from the original group. A saved alias takes precedence.",
+                    if (topic.canonicalConcept != null)
+                        "Source passages support this topic. Matching Notes are checked independently against its definition. A saved alias takes precedence."
+                    else "A source group proposes this topic's name and definition. Matching Notes are retrieved from indexed passages and may differ from the original group. A saved alias takes precedence.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
                     "${state.indexedCount} of ${state.cachedPageIds.size} cached Notes indexed",
                     style = MaterialTheme.typography.bodySmall
                 )
-                Text("Group evidence", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+                Text(if (topic.canonicalConcept != null) "Supporting evidence" else "Group evidence",
+                    Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
                 topic.labelSource.sectionTitle?.takeIf { it.isNotBlank() }?.let { Text(it) }
                 Text(topic.labelSource.excerpt)
                 TextButton(
@@ -141,7 +144,7 @@ internal fun TopicDetailsScreen(
                     },
                     modifier = Modifier.restoreFocusOn(nav.focusTarget.takeIf { labelSourceActivated }, topic.labelSource.pageId, app::focusHandled)
                 ) {
-                    Text("Open group evidence Note")
+                    Text(if (topic.canonicalConcept != null) "Open supporting evidence Note" else "Open group evidence Note")
                 }
                 topic.members.map { it.anchor }.distinctBy { it.id }.filter { it.id != topic.labelSource.id }.forEach { anchor ->
                     Text("Comparison context", style = MaterialTheme.typography.titleSmall)
@@ -198,8 +201,8 @@ internal fun TopicDetailsScreen(
 
             if (following) {
                 InterestDefinitionDialog(
-                    initialName = topic.currentGeneratedLabel?.text.orEmpty(),
-                    initialText = topic.currentGeneratedLabel?.let(::topicConceptQuery).orEmpty(),
+                    initialName = topic.currentCanonicalProjection?.name ?: topic.currentGeneratedLabel?.text.orEmpty(),
+                    initialText = topicFollowText(topic),
                     title = "Follow topic",
                     onCancel = { following = false }
                 ) { name, text ->

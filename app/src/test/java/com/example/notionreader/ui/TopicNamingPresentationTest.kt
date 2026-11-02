@@ -43,6 +43,23 @@ class TopicNamingPresentationTest {
         assertTrue(topicNamingEvidence(changed).isEmpty())
         assertTrue(topicNamingEvidence(original).isEmpty())
     }
+    @Test fun canonicalPresentationUsesVerifiedDescriptionCitationsAndMatches() {
+        val raw = topic(); val identity = TopicLabelIdentity("a", "t", "c", "p", "s", "v", "GPU")
+        val key = semanticHash("concept"); val member = raw.members.single()
+        val concept = CanonicalConceptEvidence(key, "Seed germination", "Seeds need moisture.",
+            "Listen to seed germination.", identity, identity, emptyList(), emptyList())
+        val projection = CanonicalTopicProjection(key, concept.name, concept.definition, concept.listeningDescription,
+            listOf(member), listOf(member))
+        val ready = raw.copy(canonicalConcept = concept, canonicalProjection = projection)
+        assertEquals("Seed germination", topicDisplayName(ready))
+        assertEquals("1 matching Note", topicNoteCount(ready))
+        assertEquals("Listen to seed germination.", topicDescription(ready))
+        assertEquals("Seed germination\nSeeds need moisture.", topicFollowText(ready))
+        assertEquals(listOf(member), topicNamingEvidence(ready))
+        assertNull(topicSourceContext(ready))
+        assertEquals("Matching Notes pending", topicNoteCount(ready.copy(canonicalProjection = projection.copy(members = null))))
+        assertEquals("No matching Notes", topicNoteCount(ready.copy(canonicalProjection = projection.copy(members = emptyList()))))
+    }
     @Test fun aNamedSeedWithoutRetrievalDoesNotClaimSeedNotesAsMatchingNotes() {
         assertEquals("Matching Notes pending", topicNoteCount(named(topic())))
     }
