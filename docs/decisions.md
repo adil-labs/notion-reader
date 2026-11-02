@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[coordinator replay (§164)](#164-replay-concept-coverage-through-the-coordinator-2026-11-02)
+[validated coverage to proposals (§165)](#165-validated-coverage-feeds-proposal-windows-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12332,3 +12332,29 @@ and consume fully validated coverage safely, generate pending concepts, preserve
 canonical continuity and publish independently supported evidence. Real comparative
 quality, device performance and human accessibility gates remain open; the existing
 production publisher remains active.
+
+
+## 165. Validated coverage feeds proposal windows (2026-11-02)
+
+An internal bounded Note step now joins the existing coordinator's durable concept
+scan, cached-decision replay and pending-delta proposal window under one live
+catalog, query, source, verifier and indexed-revision ticket. It emits pending
+scan/replay states until coverage is revalidated. Only replay-validated supported
+passage IDs suppress proposal anchors; any uncertain decision blocks proposal
+formation as unresolved. Source and indexed-record checks reject late work.
+The operation returns proposal windows with their existing incomplete flags and
+does not acknowledge the delta, create a canonical topic or start a worker.
+
+The shared-runtime integration test initially failed against the Note-step stub.
+Removing the uncertainty guard made the test fail; it passed after restoration.
+The same fake-verifier test confirms a supported passage is not proposed again.
+Full JVM suite: 1,514 tests, zero failures/errors/skips; app debug assembly,
+Android-test Kotlin compilation and runtime-probe assembly passed. Fake support
+is not evidence of actual model precision. Replaying coverage for subsequent
+windows can add work; durable validated coverage and performance remain open.
+
+Still open: bounded process-loop scheduling, durable coverage acknowledgment,
+structural context, local generation and independent support, canonical continuity
+and publication, and real comparative/device/human acceptance. The current catalog
+snapshot is still produced by the existing formation pipeline; the new step is not
+production activation and must not be used to claim no clustering is required.

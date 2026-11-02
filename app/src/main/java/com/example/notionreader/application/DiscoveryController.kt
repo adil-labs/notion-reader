@@ -139,6 +139,67 @@ class DiscoveryController(
         owner.replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit) { topicSupportIdentity() == verifier }
     }
 
+    internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
+        explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
+        maxRecords: Int = 8, restart: Boolean = false): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        require(maxRecords in 1..128 && anchorOffset >= 0)
+        val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
+        val ticket = owner.captureCatalogTicket() ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        val token = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier &&
+            runtime.validity.isCurrent(token) && mutable.value.indexedRevision == indexedRevision
+        fun mayWork() = mayContinueWork() && runtime.foregroundQueries.get() == 0
+        val sources = runtime.validity.eligibleRevisions()
+        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+        val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+        val scan = owner.advanceExistingConceptWork(ticket, record, sources, verifier, maxRecords, restart,
+            verifierCurrent = { topicSupportIdentity() == verifier }) { request ->
+            runtime.verifyTopicSupport(request) { current() && mayWork() }
+        }
+        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+        val saved = when (scan) {
+            DurableConceptScanResult.Pending -> return@withContext EvidenceFirstNoteStep.PendingScan
+            is DurableConceptScanResult.AwaitingValidation -> scan.record
+            DurableConceptScanResult.Incomplete -> return@withContext EvidenceFirstNoteStep.Incomplete
+            DurableConceptScanResult.Stale -> return@withContext EvidenceFirstNoteStep.Stale
+            DurableConceptScanResult.Deferred -> return@withContext EvidenceFirstNoteStep.Deferred
+            else -> return@withContext EvidenceFirstNoteStep.ScanFailure(scan)
+        }
+        val checked = owner.replayExistingConceptWork(ticket, record, sources, verifier, saved,
+            if (restart) ConceptScanReplay.start() else replay ?: ConceptScanReplay.start(), maxRecords) { topicSupportIdentity() == verifier }
+        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+        val supported = when (checked) {
+            is ConceptScanReplayResult.Pending -> return@withContext EvidenceFirstNoteStep.PendingReplay(checked.replay)
+            is ConceptScanReplayResult.Validated -> {
+                if (checked.uncertain.isNotEmpty()) return@withContext EvidenceFirstNoteStep.Uncertain(checked.uncertain)
+                checked.supported
+            }
+            ConceptScanReplayResult.Stale -> return@withContext EvidenceFirstNoteStep.Stale
+            ConceptScanReplayResult.Deferred -> return@withContext EvidenceFirstNoteStep.Deferred
+            else -> return@withContext EvidenceFirstNoteStep.Incomplete
+        }
+        val result = advancePendingProposalWindow(record, supported, sources, explicitPageIds, structureComplete,
+            anchorOffset, store, maxRecords, ::current, ::mayWork) { id -> runtime.bulkStep { index.read(id) } }
+        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+        if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
+            return@withContext EvidenceFirstNoteStep.Stale
+        when (result) {
+            is PendingProposalStepResult.Ready -> EvidenceFirstNoteStep.Proposals(result.step)
+            PendingProposalStepResult.Missing -> EvidenceFirstNoteStep.Incomplete
+            PendingProposalStepResult.Stale -> EvidenceFirstNoteStep.Stale
+            PendingProposalStepResult.Deferred -> EvidenceFirstNoteStep.Deferred
+            is PendingProposalStepResult.StorageFailure -> EvidenceFirstNoteStep.ProposalFailure(result)
+        }
+    }
+
     suspend fun refreshTopics() = withContext(workDispatcher) { topics?.refresh() }
     suspend fun setTopicsInspected(active: Boolean) = withContext(workDispatcher) { topics?.setInspected(active) }
     fun sourcePageId(id: String): String = state.value.cachedSourceIds[canonicalSemanticId(id)] ?: id

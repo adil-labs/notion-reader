@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Joined validated existing-concept coverage to pending-delta proposal
+windows; uncertain support blocks progression. The step is not scheduled.
+Failing-first and uncertainty proof, 1,514 JVM tests and builds are in §165.
+
 2026-11-02: Wired bounded checkpoint replay through the existing coordinator and
 fixed stale verifier classification. Scheduling and publication remain open.
 Failing-first and scope proof, 1,514 JVM tests and builds are in §164.

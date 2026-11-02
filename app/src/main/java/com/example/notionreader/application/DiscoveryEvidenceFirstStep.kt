@@ -1,0 +1,13 @@
+package com.example.notionreader.application
+
+internal sealed interface EvidenceFirstNoteStep {
+    data object PendingScan : EvidenceFirstNoteStep
+    data class PendingReplay(val replay: ConceptScanReplay) : EvidenceFirstNoteStep
+    data class Proposals(val window: IncrementalProposalStepResult.Ready) : EvidenceFirstNoteStep
+    data class Uncertain(val passageIds: Set<String>) : EvidenceFirstNoteStep
+    data object Incomplete : EvidenceFirstNoteStep
+    data object Stale : EvidenceFirstNoteStep
+    data object Deferred : EvidenceFirstNoteStep
+    data class ScanFailure(val result: DurableConceptScanResult) : EvidenceFirstNoteStep
+    data class ProposalFailure(val result: PendingProposalStepResult) : EvidenceFirstNoteStep
+}

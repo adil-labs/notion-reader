@@ -18,6 +18,7 @@ class DiscoverySupportWiringTest {
         val model = EmbeddingIdentity("model", 2); val labelIdentity = TopicLabelIdentity("a", "t", "c", "label", "s", "v", "CPU")
         val supportIdentity = labelIdentity.copy(prompt = "support", policy = "support-v1")
         var activeSupportIdentity = supportIdentity; var switchDuringInference = false
+        var decision = SupportDecision.SUPPORTED
         var releases = 0; var supportCalls = 0
         val provider = object : EmbeddingProvider {
             override val identity = model
@@ -31,7 +32,7 @@ class DiscoverySupportWiringTest {
                 assertEquals(activeSupportIdentity, request.verifier); assertTrue("Embedding engine must release before support inference", releases > 0)
                 supportCalls++
                 if (switchDuringInference) activeSupportIdentity = activeSupportIdentity.copy(policy = "changed-during-inference")
-                return TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+                return TopicSupportRun.Completed(decision)
             }
             override suspend fun close() {}
         }
@@ -69,6 +70,9 @@ class DiscoverySupportWiringTest {
             topicStore = graph, topicLabelRuntime = labeler, topicLabelModelAvailable = { true }, topicRetrievalStore = queries,
             proposalProgressStore = progress, topicSupportIdentity = { activeSupportIdentity })
         controller.reconcile(emptyList(), false)
+        val proposed = controller.advanceEvidenceFirstNote("note") as EvidenceFirstNoteStep.Proposals
+        assertTrue("Verified existing support must prevent a duplicate proposal", proposed.window.window.proposals.isEmpty())
+        assertEquals(1, supportCalls)
         val result = controller.advanceExistingConceptWorkForNote("note", 1) as DurableConceptScanResult.AwaitingValidation
         assertEquals(1, supportCalls); assertEquals(listOf(SupportDecision.SUPPORTED), result.record.assessments.map { it.decision })
         val replayed = controller.replayExistingConceptWorkForNote("note", result.record, ConceptScanReplay.start(), 1)
@@ -77,11 +81,14 @@ class DiscoverySupportWiringTest {
         changeQueryDuringReplay = true
         assertEquals(ConceptScanReplayResult.Stale, controller.replayExistingConceptWorkForNote("note", result.record, ConceptScanReplay.start(), 1))
         assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(1f, 0f)))) { true })
-        activeSupportIdentity = supportIdentity.copy(policy = "support-v2")
+        activeSupportIdentity = supportIdentity.copy(policy = "uncertain-v2")
         assertEquals(ConceptScanReplayResult.Stale, controller.replayExistingConceptWorkForNote("note", result.record, ConceptScanReplay.start(), 1))
-        switchDuringInference = true
+        decision = SupportDecision.UNCERTAIN
+        assertEquals(EvidenceFirstNoteStep.Uncertain(setOf("p")), controller.advanceEvidenceFirstNote("note", restart = true))
+        val uncertainCheckpoint = progress.readConceptScan("note", mapOf("note" to revision))!!
+        activeSupportIdentity = supportIdentity.copy(policy = "support-v3"); switchDuringInference = true
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
-        assertEquals(2, supportCalls)
-        assertEquals(result.record, progress.readConceptScan("note", mapOf("note" to revision)))
+        assertEquals(3, supportCalls)
+        assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
     }
 }
