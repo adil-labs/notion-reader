@@ -115,4 +115,35 @@ class PendingConceptRetrievalTest {
             if (outcome is PendingNoteReplayResult.Pending) state = outcome.scan
         } while (outcome is PendingNoteReplayResult.Pending)
         assertEquals(PendingNoteReplayResult.Invalid, outcome)
+    }    @Test fun corpusReplayRequiresEveryCurrentNoteAndRetainsUncertainty() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val store = FileProposalProgressStore(root.resolve("progress"))
+        val model = EmbeddingIdentity("model", 2); val work = semanticHash("concept")
+        val concept = SupportConcept("pending:$work", work, "Seeds", "Seeds need water to germinate.")
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(concept.topicId, work, "Seeds\nSeeds need water to germinate.", model, TopicRetrievalPolicy(.5f)), listOf(1f, 0f))
+        val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
+        val sources = mapOf("a" to "r1", "b" to "r2")
+        fun record(id: String, revision: String): SemanticRecord {
+            val text = "Water helps seeds germinate in suitable conditions."
+            return SemanticRecord(id, revision, model, SemanticMetadata(id), listOf(EmbeddedPassage(
+                SemanticPassage("p$id", id, "s", "Overview", "block$id", "chunk$id", 0, text.length, text, text, 0), listOf(1f, 0f))))
+        }
+        val a = record("a", "r1"); val b = record("b", "r2"); assertTrue(index.write(a)); assertTrue(index.write(b))
+        suspend fun save(record: SemanticRecord, decision: SupportDecision) {
+            val result = scanPendingConceptNote(concept, query, record, index, verifier, 4, sources, PendingConceptNoteScan.start(), 1, store, { true }, { true }) { TopicSupportRun.Completed(decision) }
+            assertEquals(ProposalProgressWriteResult.Written, savePendingNoteResult(concept, record, sources, result, null, store) { true })
+        }
+        save(a, SupportDecision.SUPPORTED)
+        suspend fun step(state: PendingCorpusReplay, ticket: String = "scope") = replayPendingCorpus(state, ticket, concept, query, verifier, 4, sources, index, store, { true }, { true })
+        val first = step(PendingCorpusReplay.start()) as PendingCorpusReplayResult.Pending
+        assertEquals(PendingCorpusReplayResult.Stale, step(first.replay, "changed"))
+        assertEquals(PendingCorpusReplayResult.Stale, replayPendingCorpus(first.replay, "scope", concept, query, verifier, 4,
+            sources - "b", index, store, { true }, { true }))
+        assertEquals(PendingCorpusReplayResult.Stale, replayPendingCorpus(first.replay, "scope", concept, query, verifier, 4,
+            sources, index, store, { false }, { true }))
+        val missing = step(first.replay) as PendingCorpusReplayResult.Incomplete
+        assertEquals("b", missing.pageId)
+        save(b, SupportDecision.UNCERTAIN)
+        val done = step(missing.replay) as PendingCorpusReplayResult.Uncertain
+        assertEquals(mapOf("a" to setOf("pa")), done.supported)
+        assertEquals(mapOf("b" to setOf("pb")), done.uncertain)
     }}

@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#174-preserve-exact-input-support-decisions-during-replay-2026-11-02)
+[the current decision-record entry](decisions.md#175-replay-pending-concept-coverage-across-eligible-notes-2026-11-02)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

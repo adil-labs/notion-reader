@@ -145,7 +145,8 @@ class DiscoveryController(
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
         assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
-        checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
+        corpusReplay: PendingCorpusReplay? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
             (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
@@ -153,7 +154,8 @@ class DiscoveryController(
             (retrieveCursor == null || retrievePageId != null && retrieveScan == null) &&
             (retrieveScan == null || retrievePageId != null) &&
             (!checkpointPendingScan || retrieveScan != null && !replayPendingScan) &&
-            (!replayPendingScan || retrieveScan != null))
+            (!replayPendingScan || retrieveScan != null) &&
+            (corpusReplay == null || retrievePageId != null && retrieveScan == null && retrieveCursor == null && !checkpointPendingScan && !replayPendingScan))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
@@ -242,6 +244,18 @@ class DiscoveryController(
                             if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                             val embeddedQuery = try { TopicQueryEmbedding(query, vector) } catch (_: IllegalArgumentException) {
                                 return@withContext EvidenceFirstNoteStep.Incomplete
+                            }
+                            if (corpusReplay != null) {
+                                val scopeFields = listOf(ticket.epoch.toString(), ticket.cacheRevision.toString(), ticket.queryTicket,
+                                    token.reset.toString(), token.cacheRevision.toString(), indexedRevision.toString(), ticket.identity.toString())
+                                val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
+                                val corpus = replayPendingCorpus(corpusReplay, scopeTicket, pendingConcept, embeddedQuery, verifier,
+                                    ticket.epoch, sources, guardedIndex, store, ::current, ::mayWork, ticket.snapshot)
+                                if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                                if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                                if (guardedIndex.read(canonicalSemanticId(pageId)) != record || !current())
+                                    return@withContext EvidenceFirstNoteStep.Stale
+                                return@withContext EvidenceFirstNoteStep.CorpusReplay(generated, corpus, result.step)
                             }
                             if (replayPendingScan) {
                                 val saved = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)

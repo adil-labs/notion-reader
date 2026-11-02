@@ -168,3 +168,76 @@ internal suspend fun savePendingNoteResult(concept: SupportConcept, record: Sema
     return store.replacePendingNoteScan(expected, PendingNoteScanRecord(concept.workKey, id, record.revision,
         sources.toMap(), binding, null, supported, uncertain), current)
 }
+/** In-memory aggregation of independently replayed Note checkpoints, tied to one live coordinator scope. */
+internal class PendingCorpusReplay private constructor(internal val scope: String?, internal val anchor: Any?,
+    internal val offset: Int, internal val note: PendingConceptNoteScan,
+    internal val supported: Map<String, Set<String>>, internal val uncertain: Map<String, Set<String>>) {
+    companion object { fun start() = PendingCorpusReplay(null, null, 0, PendingConceptNoteScan.start(), emptyMap(), emptyMap()) }
+    internal fun advance(scope: String, anchor: Any?, offset: Int, note: PendingConceptNoteScan,
+        supported: Map<String, Set<String>>, uncertain: Map<String, Set<String>>) =
+        PendingCorpusReplay(scope, anchor, offset, note, supported, uncertain)
+}
+internal sealed interface PendingCorpusReplayResult {
+    data class Pending(val replay: PendingCorpusReplay) : PendingCorpusReplayResult
+    data class Incomplete(val pageId: String, val replay: PendingCorpusReplay) : PendingCorpusReplayResult
+    data class Complete(val supported: Map<String, Set<String>>) : PendingCorpusReplayResult
+    data class Uncertain(val supported: Map<String, Set<String>>, val uncertain: Map<String, Set<String>>) : PendingCorpusReplayResult
+    data object Stale : PendingCorpusReplayResult
+    data object Deferred : PendingCorpusReplayResult
+    data object Invalid : PendingCorpusReplayResult
+}
+
+/** One candidate or one Note per call; checkpoints and support are always replayed before aggregation. */
+internal suspend fun replayPendingCorpus(replay: PendingCorpusReplay, scopeTicket: String, concept: SupportConcept,
+    query: TopicQueryEmbedding, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
+    index: SemanticIndexStore, store: ProposalProgressStore, current: () -> Boolean, mayWork: () -> Boolean,
+    anchor: Any? = null): PendingCorpusReplayResult {
+    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+    if (!current()) return PendingCorpusReplayResult.Stale
+    if (!mayWork()) return PendingCorpusReplayResult.Deferred
+    val fields = listOf("pending-corpus-replay-v1", scopeTicket, concept.topicId, concept.workKey, concept.name,
+        concept.definition, query.query.key, verifier.toString(), epoch.toString()) +
+        query.vector.map { it.toRawBits().toString() } + sources.toSortedMap().flatMap { listOf(it.key, it.value) }
+    val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
+    if (replay.scope != null && (replay.scope != scope || replay.anchor !== anchor)) return PendingCorpusReplayResult.Stale
+    val ids = sources.keys.sorted()
+    if (ids.any { it.isBlank() || canonicalSemanticId(it) != it } || replay.offset !in 0..ids.size)
+        return PendingCorpusReplayResult.Invalid
+    if (replay.offset == ids.size) return if (replay.uncertain.isEmpty()) PendingCorpusReplayResult.Complete(replay.supported)
+        else PendingCorpusReplayResult.Uncertain(replay.supported, replay.uncertain)
+    val id = ids[replay.offset]
+    val bound = replay.advance(scope, anchor, replay.offset, replay.note, replay.supported, replay.uncertain)
+    val record = index.read(id)
+    if (!current()) return PendingCorpusReplayResult.Stale
+    if (!mayWork()) return PendingCorpusReplayResult.Deferred
+    if (record == null || record.revision != sources[id] || record.identity != query.query.embedding)
+        return PendingCorpusReplayResult.Incomplete(id, bound)
+    val saved = store.readPendingNoteScan(concept.workKey, id, sources)
+    if (!current()) return PendingCorpusReplayResult.Stale
+    if (!mayWork()) return PendingCorpusReplayResult.Deferred
+    if (saved == null || saved.cursor != null) return PendingCorpusReplayResult.Incomplete(id, bound)
+    val result = replayPendingNoteScan(saved, replay.note, concept, query, record, index, verifier, epoch, sources, store, current, mayWork)
+    if (!current()) return PendingCorpusReplayResult.Stale
+    if (!mayWork()) return PendingCorpusReplayResult.Deferred
+    if (index.read(id) != record || !current()) return PendingCorpusReplayResult.Stale
+    if (!mayWork()) return PendingCorpusReplayResult.Deferred
+    return when (result) {
+        is PendingNoteReplayResult.Pending -> PendingCorpusReplayResult.Pending(bound.advance(scope, anchor, replay.offset,
+            result.scan, replay.supported, replay.uncertain))
+        is PendingNoteReplayResult.Complete, is PendingNoteReplayResult.Uncertain -> {
+            val supported = when (result) { is PendingNoteReplayResult.Complete -> result.supported
+                is PendingNoteReplayResult.Uncertain -> result.supported; else -> error("unreachable") }
+            val uncertain = (result as? PendingNoteReplayResult.Uncertain)?.uncertain.orEmpty()
+            val accumulated = if (supported.isEmpty()) replay.supported else replay.supported + (id to supported)
+            val unknown = if (uncertain.isEmpty()) replay.uncertain else replay.uncertain + (id to uncertain)
+            val next = bound.advance(scope, anchor, replay.offset + 1, PendingConceptNoteScan.start(), accumulated, unknown)
+            if (next.offset < ids.size) PendingCorpusReplayResult.Pending(next)
+            else if (unknown.isEmpty()) PendingCorpusReplayResult.Complete(accumulated)
+            else PendingCorpusReplayResult.Uncertain(accumulated, unknown)
+        }
+        PendingNoteReplayResult.Stale -> PendingCorpusReplayResult.Stale
+        PendingNoteReplayResult.Deferred -> PendingCorpusReplayResult.Deferred
+        PendingNoteReplayResult.Incomplete -> PendingCorpusReplayResult.Incomplete(id, bound)
+        else -> PendingCorpusReplayResult.Invalid
+    }
+}

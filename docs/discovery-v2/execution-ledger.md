@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Added bounded coordinator replay of pending concept coverage across
+all eligible Notes, preserving incomplete and uncertain states. Scope guard proof,
+1,522 JVM tests and builds are recorded in §175; scheduling remains open.
+
 2026-11-02: Prevented conflicting exact-input support overwrites during replay
 while preserving mismatched-record repair. Failing-first proofs, 1,521 JVM tests
 and builds are recorded in §174.

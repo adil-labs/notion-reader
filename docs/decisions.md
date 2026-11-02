@@ -12588,3 +12588,30 @@ Still open: durable corpus-wide coverage, uncertainty resolution, process-loop
 scheduling, catalog continuity and publication, and comparative quality, device
 and human accessibility acceptance. The existing production publisher remains
 active.
+
+## 175. Replay pending concept coverage across eligible Notes (2026-11-02)
+
+The evidence-first coordinator entry can now replay completed pending-concept
+checkpoints over the current eligible source set, one candidate or Note per call.
+It accumulates supported passage IDs per Note only after each checkpoint is
+reconstructed from current source bodies and exact-input support decisions. A
+missing or partial Note checkpoint reports that Note as incomplete; uncertain
+support remains distinct from complete coverage. The continuation binds the
+source set, concept, query, verifier and coordinator/index tickets, including the
+catalog snapshot identity. It does not schedule the missing work or publish a
+topic. A source-set change invalidates this replay and its current checkpoints;
+retaining unaffected coverage incrementally remains open.
+
+The new test failed to compile before the replay existed. Removing the scope
+binding made `corpusReplayRequiresEveryCurrentNoteAndRetainsUncertainty` fail;
+the guard was restored. The test covers a missing Note, source and ticket
+changes, and uncertain evidence, while the shared-runtime integration test covers
+one-Note completed replay through the coordinator. Full JVM suite: 1,522 tests,
+zero failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. These controlled tests establish no
+real-model quality or Android performance result.
+
+Still open: incremental retention across source changes, process-loop scheduling,
+uncertainty resolution, catalog continuity and publication, and comparative
+quality, device and human accessibility acceptance. The existing production
+publisher remains active.
