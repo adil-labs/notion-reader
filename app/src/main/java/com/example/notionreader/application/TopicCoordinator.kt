@@ -102,6 +102,29 @@ internal class TopicCoordinator(
             { mayWork() && !shouldYield() }, restart, verify)
     }
 
+    suspend fun replayExistingConceptWork(ticket: TopicCatalogTicket, record: SemanticRecord,
+        sources: Map<String, String>, verifier: TopicLabelIdentity, saved: ExistingConceptScanRecord,
+        replay: ConceptScanReplay, limit: Int, verifierCurrent: () -> Boolean = { true }): ConceptScanReplayResult {
+        fun current() = isCatalogTicketCurrent(ticket) && verifierCurrent()
+        if (!current()) return ConceptScanReplayResult.Stale
+        if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
+        val matching = retrievals ?: return ConceptScanReplayResult.Incomplete
+        val pending = proposalProgress ?: return ConceptScanReplayResult.Incomplete
+        val snapshots = bulk { cache.snapshot() }
+        if (!current()) return ConceptScanReplayResult.Stale
+        if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
+        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        if (revisions.size != snapshots.size || revisions != sources) return ConceptScanReplayResult.Stale
+        val currentRecord = readRecord(canonicalSemanticId(record.pageId))
+        if (!current()) return ConceptScanReplayResult.Stale
+        if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
+        if (currentRecord != record || sources[canonicalSemanticId(record.pageId)] != record.revision)
+            return ConceptScanReplayResult.Stale
+        return replayConceptScanPage(saved, replay, ticket.snapshot, record, ticket.identity, matching.existingConceptPolicy(),
+            verifier, ticket.epoch, sources, matching.existingConceptStore(), index, pending, limit, ::current,
+            { mayWork() && !shouldYield() })
+    }
+
     suspend fun setInspected(active: Boolean) = writes.withLock {
         if (inspected == active) return@withLock
         inspected = active

@@ -32,6 +32,8 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
     val id = canonicalSemanticId(record.pageId)
     if (saved.next != null || saved.pageId != id || saved.revision != record.revision || saved.sourceRevisions != sources ||
         sources[id] != record.revision) return ConceptScanReplayResult.Stale
+    if (saved.scopeKey != existingConceptScanScope(snapshot, record, identity, policy, verifier, epoch, sources, queryTicket))
+        return ConceptScanReplayResult.Stale
     if (saved.assessments.map { it.workKey }.toSet().size != saved.assessments.size) return ConceptScanReplayResult.Invalid
     val bindingFields = listOf("concept-replay-v1", saved.scopeKey, saved.pageId, saved.revision) +
         saved.assessments.sortedBy { it.workKey }.flatMap { listOf(it.workKey, it.decision.name) }

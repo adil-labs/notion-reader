@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Wired bounded checkpoint replay through the existing coordinator and
+fixed stale verifier classification. Scheduling and publication remain open.
+Failing-first and scope proof, 1,514 JVM tests and builds are in §164.
+
 2026-11-02: Wired bounded concept checks to the existing serialized support runtime
 and versioned identity; scheduling and real quality evaluation remain open.
 Failing-first and identity-race proof, 1,514 JVM tests and builds are in §163.

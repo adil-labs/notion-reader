@@ -13,6 +13,18 @@ internal sealed interface ExistingConceptScanResult {
     data class Failure(val result: ExistingConceptEvidenceResult) : ExistingConceptScanResult
 }
 
+internal fun existingConceptScanScope(snapshot: TopicSnapshot, record: SemanticRecord, identity: EmbeddingIdentity,
+    policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>, queryTicket: String): String {
+    val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
+    val fields = listOf("existing-concept-scan-v1", snapshot.generation.toString(), passageDeltaFingerprint(record),
+        identity.toString(), policy.toString(), verifier.toString(), epoch.toString(), queryTicket) +
+        sources.toSortedMap().entries.flatMap { listOf(it.key, it.value) } + topics.flatMap { topic ->
+            listOf(topic.id, topic.createdOrder.toString(), topic.currentGeneratedLabel?.workKey.orEmpty()) +
+                topic.members.sortedBy { it.pageId }.flatMap { listOf(it.pageId, it.revision, it.passage.id) }
+        }
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+}
+
 internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: SemanticRecord, identity: EmbeddingIdentity,
     policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
     retrievals: TopicRetrievalStore, index: SemanticIndexStore, progress: ProposalProgressStore,
@@ -29,13 +41,7 @@ internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: Se
         return ExistingConceptScanResult.Stale
     val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
     if (topics.map { it.id }.toSet().size != topics.size) return ExistingConceptScanResult.Incomplete
-    val fields = listOf("existing-concept-scan-v1", snapshot.generation.toString(), passageDeltaFingerprint(record),
-        identity.toString(), policy.toString(), verifier.toString(), epoch.toString(), queryTicket) +
-        sources.toSortedMap().entries.flatMap { listOf(it.key, it.value) } + topics.flatMap { topic ->
-            listOf(topic.id, topic.createdOrder.toString(), topic.currentGeneratedLabel?.workKey.orEmpty()) +
-                topic.members.sortedBy { it.pageId }.flatMap { listOf(it.pageId, it.revision, it.passage.id) }
-        }
-    val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
+    val scope = existingConceptScanScope(snapshot, record, identity, policy, verifier, epoch, sources, queryTicket)
     if (cursor != null && (cursor.scopeKey != scope || cursor.topicOffset !in 0..topics.size ||
             cursor.topicOffset == topics.size && cursor.passage != null)) return ExistingConceptScanResult.Stale
     val offset = cursor?.topicOffset ?: 0

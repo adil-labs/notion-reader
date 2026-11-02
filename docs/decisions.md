@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[shared support runtime (§163)](#163-wire-concept-checks-to-shared-support-runtime-2026-11-02)
+[coordinator replay (§164)](#164-replay-concept-coverage-through-the-coordinator-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12308,3 +12308,27 @@ Still open: schedule bounded scan and validated replay in the existing process
 loop, aggregate and acknowledge coverage, generate concepts, preserve canonical
 continuity and publish only supported evidence. Comparative quality, Android
 performance and human accessibility acceptance remain required before activation.
+
+
+## 164. Replay concept coverage through the coordinator (2026-11-02)
+
+The existing DiscoveryController and TopicCoordinator now expose a bounded replay
+entry for completed concept checkpoints. The coordinator checks its live catalog,
+query, source and support-identity ticket, the cache inventory and the exact indexed
+record before invoking the existing cached-decision replay. The result retains
+supported and uncertain sets separately; it does not invoke native inference,
+acknowledge work or publish a topic. A query change during replay rejects the result.
+
+The integration test initially failed against the replay stub. It also exposed that
+a changed verifier identity was reported as missing cached support: replay now
+compares its shared scan scope before reading decisions and reports stale. Removing
+that early check made the test fail; restoring it passed. The test covers the path
+from shared-runtime support through coordinator replay with a fake verifier; no real
+model quality is implied. Full JVM suite: 1,514 tests, no failures/errors/skips; app
+debug assembly, Android-test Kotlin compilation and runtime-probe assembly passed.
+
+Still open: schedule these bounded operations in the existing process loop, retain
+and consume fully validated coverage safely, generate pending concepts, preserve
+canonical continuity and publish independently supported evidence. Real comparative
+quality, device performance and human accessibility gates remain open; the existing
+production publisher remains active.

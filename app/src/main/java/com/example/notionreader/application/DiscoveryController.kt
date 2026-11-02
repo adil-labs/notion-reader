@@ -126,6 +126,19 @@ class DiscoveryController(
             }
         }
 
+    internal suspend fun replayExistingConceptWorkForNote(pageId: String, saved: ExistingConceptScanRecord,
+        replay: ConceptScanReplay, limit: Int): ConceptScanReplayResult = withContext(workDispatcher) {
+        val owner = topics ?: return@withContext ConceptScanReplayResult.Incomplete
+        if (!mayContinueWork()) return@withContext ConceptScanReplayResult.Deferred
+        val ticket = owner.captureCatalogTicket() ?: return@withContext ConceptScanReplayResult.Incomplete
+        val verifier = topicSupportIdentity() ?: return@withContext ConceptScanReplayResult.Incomplete
+        val sources = runtime.validity.eligibleRevisions()
+        if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext ConceptScanReplayResult.Stale
+        val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext ConceptScanReplayResult.Incomplete
+        if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext ConceptScanReplayResult.Stale
+        owner.replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit) { topicSupportIdentity() == verifier }
+    }
+
     suspend fun refreshTopics() = withContext(workDispatcher) { topics?.refresh() }
     suspend fun setTopicsInspected(active: Boolean) = withContext(workDispatcher) { topics?.setInspected(active) }
     fun sourcePageId(id: String): String = state.value.cachedSourceIds[canonicalSemanticId(id)] ?: id

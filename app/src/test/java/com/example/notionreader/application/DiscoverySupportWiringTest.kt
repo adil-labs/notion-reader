@@ -54,14 +54,32 @@ class DiscoverySupportWiringTest {
         val queries = FileTopicRetrievalStore(root.resolve("retrieval")); val policy = TopicRetrievalPolicy(.85f)
         val query = TopicRetrievalQuery("topic", label.workKey, topicConceptQuery(label)!!, model, policy)
         assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(1f, 0f)))) { true })
-        val progress = FileProposalProgressStore(root.resolve("progress"))
+        val backing = FileProposalProgressStore(root.resolve("progress")); var changeQueryDuringReplay = false
+        val progress = object : ProposalProgressStore by backing {
+            override suspend fun readConceptScan(pageId: String, sources: Map<String, String>): ExistingConceptScanRecord? {
+                val saved = backing.readConceptScan(pageId, sources)
+                if (changeQueryDuringReplay && saved != null) {
+                    changeQueryDuringReplay = false
+                    queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(0f, 1f)))) { true }
+                }
+                return saved
+            }
+        }
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
             topicStore = graph, topicLabelRuntime = labeler, topicLabelModelAvailable = { true }, topicRetrievalStore = queries,
             proposalProgressStore = progress, topicSupportIdentity = { activeSupportIdentity })
         controller.reconcile(emptyList(), false)
         val result = controller.advanceExistingConceptWorkForNote("note", 1) as DurableConceptScanResult.AwaitingValidation
         assertEquals(1, supportCalls); assertEquals(listOf(SupportDecision.SUPPORTED), result.record.assessments.map { it.decision })
-        activeSupportIdentity = supportIdentity.copy(policy = "support-v2"); switchDuringInference = true
+        val replayed = controller.replayExistingConceptWorkForNote("note", result.record, ConceptScanReplay.start(), 1)
+            as ConceptScanReplayResult.Validated
+        assertEquals(setOf("p"), replayed.supported); assertTrue(replayed.uncertain.isEmpty()); assertEquals(1, supportCalls)
+        changeQueryDuringReplay = true
+        assertEquals(ConceptScanReplayResult.Stale, controller.replayExistingConceptWorkForNote("note", result.record, ConceptScanReplay.start(), 1))
+        assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(1f, 0f)))) { true })
+        activeSupportIdentity = supportIdentity.copy(policy = "support-v2")
+        assertEquals(ConceptScanReplayResult.Stale, controller.replayExistingConceptWorkForNote("note", result.record, ConceptScanReplay.start(), 1))
+        switchDuringInference = true
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
         assertEquals(2, supportCalls)
         assertEquals(result.record, progress.readConceptScan("note", mapOf("note" to revision)))
