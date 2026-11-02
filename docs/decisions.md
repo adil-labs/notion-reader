@@ -12615,3 +12615,28 @@ Still open: incremental retention across source changes, process-loop scheduling
 uncertainty resolution, catalog continuity and publication, and comparative
 quality, device and human accessibility acceptance. The existing production
 publisher remains active.
+
+## 176. Advance missing pending-concept Note coverage (2026-11-02)
+
+The existing Discovery controller now exposes a bounded driver for one selected,
+independently assessed pending concept. Each call advances one existing operation:
+replay corpus coverage, inspect a missing Note checkpoint, resume a revalidated
+partial scan or scan the missing Note. Finished Note checkpoints are replayed
+before they contribute to corpus coverage. The driver carries proposal and
+structural-window identity between calls and stops when a regenerated proposal
+has a different work key. It propagates incomplete, unavailable, stale and other
+non-progress outcomes instead of publishing or declaring success. The caller
+still owns scheduling, retry policy and citation assessment.
+
+The shared-runtime integration test initially failed to compile before the driver
+existed. Redirecting the missing-checkpoint transition away from scanning made
+`coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` fail; removing the
+proposal-work-key guard made the same test fail on an identity change. Both guards
+were restored. Full JVM suite: 1,522 tests, zero failures/errors/skips; debug
+assembly, Android-test Kotlin compilation and standalone runtime-probe assembly
+passed. The test uses controlled runtimes and does not measure model quality.
+
+Still open: process-owned scheduling and recovery, incremental retention across
+source changes, uncertainty resolution, catalog continuity and publication, and
+comparative quality, device and human accessibility acceptance. The existing
+production publisher remains active.

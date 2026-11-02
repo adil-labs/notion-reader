@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected corpus replay to bounded missing-Note checkpoint work and
+proposal identity checks. Transition and identity proofs, 1,522 JVM tests and
+builds are recorded in §176; process scheduling remains open.
+
 2026-11-02: Added bounded coordinator replay of pending concept coverage across
 all eligible Notes, preserving incomplete and uncertain states. Scope guard proof,
 1,522 JVM tests and builds are recorded in §175; scheduling remains open.

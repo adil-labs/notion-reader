@@ -140,13 +140,59 @@ class DiscoveryController(
         owner.replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit) { topicSupportIdentity() == verifier }
     }
 
+    /** Advance at most one existing bounded operation; the caller owns scheduling and retries. */
+    internal suspend fun advancePendingCorpusWork(work: PendingCorpusWork, maxRecords: Int = 8): PendingCorpusWorkResult {
+        val result = when (work.phase) {
+            PendingCorpusWorkPhase.CORPUS -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = work.pageId, corpusReplay = work.corpus)
+            PendingCorpusWorkPhase.REPLAY_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
+                retrieveScan = work.note, replayPendingScan = true)
+            PendingCorpusWorkPhase.SCAN_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
+                generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords,
+                explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
+                retrieveScan = work.note, checkpointPendingScan = true)
+        }
+        if (result is EvidenceFirstNoteStep.PendingReplay)
+            return PendingCorpusWorkResult.Pending(work.copy(existingReplay = result.replay))
+        if (result == EvidenceFirstNoteStep.PendingScan) return PendingCorpusWorkResult.Pending(work)
+        if (work.phase == PendingCorpusWorkPhase.REPLAY_NOTE && result == EvidenceFirstNoteStep.Incomplete)
+            return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.SCAN_NOTE, note = PendingConceptNoteScan.start()))
+        when (result) {
+            is EvidenceFirstNoteStep.CorpusReplay -> when (val replay = result.replay) {
+                is PendingCorpusReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(corpus = replay.replay, generationKey = result.generation.workKey))
+                is PendingCorpusReplayResult.Incomplete -> return PendingCorpusWorkResult.Pending(work.copy(
+                    phase = PendingCorpusWorkPhase.REPLAY_NOTE, corpus = replay.replay, target = replay.pageId, generationKey = result.generation.workKey,
+                    note = PendingConceptNoteScan.start()))
+                is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> return PendingCorpusWorkResult.Done(replay)
+                else -> Unit
+            }
+            is EvidenceFirstNoteStep.PendingNoteReplay -> when (val replay = result.replay) {
+                is PendingNoteReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(note = replay.scan))
+                is PendingNoteReplayResult.Validated -> return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.SCAN_NOTE, note = replay.scan))
+                is PendingNoteReplayResult.Complete, is PendingNoteReplayResult.Uncertain -> return PendingCorpusWorkResult.Pending(
+                    work.copy(phase = PendingCorpusWorkPhase.CORPUS, target = null, note = PendingConceptNoteScan.start()))
+                else -> Unit
+            }
+            is EvidenceFirstNoteStep.NoteRetrievalScan -> when (val scan = result.scan) {
+                is PendingConceptNoteScanResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(note = scan.scan))
+                is PendingConceptNoteScanResult.Complete, is PendingConceptNoteScanResult.Uncertain -> return PendingCorpusWorkResult.Pending(
+                    work.copy(phase = PendingCorpusWorkPhase.CORPUS, target = null, note = PendingConceptNoteScan.start()))
+                else -> Unit
+            }
+            else -> Unit
+        }
+        return PendingCorpusWorkResult.Stopped(result, work)
+    }
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
         maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
         assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
         checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
-        corpusReplay: PendingCorpusReplay? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
             (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
@@ -220,6 +266,8 @@ class DiscoveryController(
                     return@withContext EvidenceFirstNoteStep.Stale
                 when (generated) {
                     is ProposalGenerationResult.Completed -> {
+                        if (expectedGenerationKey != null && generated.workKey != expectedGenerationKey)
+                            return@withContext EvidenceFirstNoteStep.Stale
                         if (retrievePageId != null) {
                             val concept = generated.response as? DiscoveryProposalResponse.Concept ?: return@withContext EvidenceFirstNoteStep.Incomplete
                             val coverage = readPendingConceptCoverage(proposal, generated, guardedIndex, ticket.identity,

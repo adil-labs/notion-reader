@@ -126,9 +126,23 @@ class DiscoverySupportWiringTest {
         assertEquals(setOf("p"), (scanned.scan as PendingConceptNoteScanResult.Complete).supported)
         assertEquals(EvidenceFirstNoteStep.Incomplete, controller.advanceEvidenceFirstNote("note", generateIndex = 0,
             retrievePageId = "note", retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true))
-        val checkedScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
-            retrieveScan = PendingConceptNoteScan.start(), checkpointPendingScan = true) as EvidenceFirstNoteStep.NoteRetrievalScan
-        assertEquals(setOf("p"), (checkedScan.scan as PendingConceptNoteScanResult.Complete).supported)
+        var work = PendingCorpusWork.start("note", 0)
+        work = (controller.advancePendingCorpusWork(work) as PendingCorpusWorkResult.Pending).work
+        assertNotNull(work.generationKey)
+        val originalProposalIdentity = activeProposalIdentity
+        activeProposalIdentity = activeProposalIdentity.copy(policy = "changed-during-corpus")
+        val changedGeneration = controller.advancePendingCorpusWork(work) as PendingCorpusWorkResult.Stopped
+        assertEquals(EvidenceFirstNoteStep.Stale, changedGeneration.reason)
+        activeProposalIdentity = originalProposalIdentity
+        var finalCoverage: PendingCorpusReplayResult? = null
+        repeat(12) {
+            if (finalCoverage == null) when (val step = controller.advancePendingCorpusWork(work)) {
+                is PendingCorpusWorkResult.Pending -> work = step.work
+                is PendingCorpusWorkResult.Done -> finalCoverage = step.coverage
+                is PendingCorpusWorkResult.Stopped -> fail("Unexpected stop: ${step.reason}")
+            }
+        }
+        assertEquals(mapOf("note" to setOf("p")), (finalCoverage as PendingCorpusReplayResult.Complete).supported)
         val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
             retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true) as EvidenceFirstNoteStep.PendingNoteReplay
         assertEquals(setOf("p"), (restoredScan.replay as PendingNoteReplayResult.Complete).supported)
