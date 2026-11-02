@@ -217,4 +217,12 @@ class FileProposalProgressStoreTest {
         assertNull(store.readPendingNoteScan(work, "older", sources))
         assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
     }
-}
+    @Test fun exactInputSupportDecisionCannotChangeAfterItWasObserved() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(support) { true })
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(support) { true })
+        assertEquals(ProposalProgressWriteResult.Invalid, store.writeSupport(support.copy(decision = SupportDecision.UNSUPPORTED)) { true })
+        assertEquals(support, FileProposalProgressStore(dir).readSupport(support.workKey, sources))
+        var checks = 0
+        assertEquals(ProposalProgressWriteResult.Stale, store.writeSupport(support) { ++checks == 1 })
+    }}

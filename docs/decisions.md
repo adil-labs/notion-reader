@@ -12565,3 +12565,26 @@ Still open: durable corpus-wide coverage, uncertainty resolution, process-loop
 scheduling, catalog continuity and publication, and comparative quality, device
 and human accessibility acceptance. The existing production publisher remains
 active.
+
+## 174. Preserve exact-input support decisions during replay (2026-11-02)
+
+A saved support decision could previously be overwritten with a different answer
+for the same work key and assessment identity. An in-progress replay might then
+carry an earlier answer while later pages observed the replacement. The shared
+proposal-progress store now treats an identical write as idempotent and refuses
+a conflicting decision for that same identity; a different verifier or policy
+uses a different exact-input key. The store rechecks the live ticket before
+returning an idempotent result. A mismatched stored assessment can still be
+repaired after re-verification, as covered by the existing lifecycle test.
+
+`exactInputSupportDecisionCannotChangeAfterItWasObserved` failed before the
+conflict guard and again when the idempotent path lacked its second ticket check.
+An initial full run exposed the mismatched-assessment repair regression; the guard
+was narrowed and that existing test now passes. Full JVM suite: 1,521 tests,
+zero failures/errors/skips; debug assembly, Android-test Kotlin compilation and
+standalone runtime-probe assembly passed. This does not measure verifier quality.
+
+Still open: durable corpus-wide coverage, uncertainty resolution, process-loop
+scheduling, catalog continuity and publication, and comparative quality, device
+and human accessibility acceptance. The existing production publisher remains
+active.

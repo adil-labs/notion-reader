@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Prevented conflicting exact-input support overwrites during replay
+while preserving mismatched-record repair. Failing-first proofs, 1,521 JVM tests
+and builds are recorded in §174.
+
 2026-11-02: Added durable completed and uncertain Note results with full evidence
 replay before reuse. Forged-completion proof, 1,520 JVM tests and builds are
 recorded in §173; corpus coverage remains open.

@@ -262,6 +262,11 @@ class FileProposalProgressStore(private val directory: File,
         withContext(Dispatchers.IO) { lock.withLock {
             if (!valid(record)) return@withLock ProposalProgressWriteResult.Invalid
             if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+            val previous = readSupportFile(supportTarget(record.workKey))
+            if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
+            if (previous == record) return@withLock ProposalProgressWriteResult.Written
+            if (previous != null && previous.copy(decision = record.decision) == record)
+                return@withLock ProposalProgressWriteResult.Invalid
             val payload = json.encodeToString(StoredTopicSupport(assessment = record)).toByteArray(Charsets.UTF_8)
             writeAtomic(supportTarget(record.workKey), payload, stillCurrent)
         } }
