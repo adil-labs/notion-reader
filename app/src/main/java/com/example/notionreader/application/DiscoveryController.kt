@@ -234,7 +234,7 @@ class DiscoveryController(
             PendingCorpusReplayResult.Deferred -> CanonicalAdmissionResult.Deferred
             is PendingCorpusReplayResult.Complete -> {
                 if (done.coverage != checked) CanonicalAdmissionResult.Stale
-                else owner.admitCandidate(ticket, candidate, ::current)
+                else owner.admitCandidate(ticket, candidate, checked, ::current)
             }
             else -> CanonicalAdmissionResult.Incomplete
         }

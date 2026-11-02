@@ -13058,3 +13058,30 @@ The full JVM suite passed 1,532 tests with no failures, errors or skips; debug
 assembly and Android-test Kotlin compilation passed. The internal admission
 entry is not automatically scheduled, and these checks do not establish device
 behavior, model quality or human accessibility acceptance.
+
+## 194. Persist independently replayed canonical membership references (2026-11-02)
+
+Guarded admission now stores the independently replayed supported passage
+references and complete scanned-revision set alongside the canonical concept,
+without duplicating passage bodies. Storage validates source revisions, reference
+uniqueness and coverage consistency. A withdrawn matching-only source is removed
+from the stored references and marks coverage incomplete; withdrawal of any
+offered generation source still removes the concept. Regrouping retains only
+current membership references and marks changed corpus coverage incomplete.
+The saved references are not yet hydrated into the displayed topic or updated
+automatically.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Filter withdrawn matching references | `canonicalConceptEvidenceSurvivesStorageAndIsWithdrawnWithItsSources` failed. |
+
+The integration test checks a one-Note admitted concept's persisted references
+and source revisions. The full JVM suite passed 1,532 tests with no failures,
+errors or skips; debug assembly and Android-test Kotlin compilation passed.
+A large existing coroutine test exceeded the JVM method size after inline
+assertions; extracting its assertions resolved compilation without weakening them.
+
+Still open: hydration and accessible presentation, incremental update and
+scheduling, post-replacement race recovery, removal of mandatory formation, and
+quality, device and human accessibility acceptance. The production publisher
+remains active.

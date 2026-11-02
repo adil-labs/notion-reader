@@ -63,14 +63,18 @@ class FileTopicStoreTest {
         val offered = listOf(ProposalEvidenceRef("note", "r1", "p"), ProposalEvidenceRef("other", "r2", "q"))
         val assessment = TopicSupportAssessment("pending:$key", key, offered.first(), verifier, semanticHash("support"), SupportDecision.SUPPORTED)
         val concept = CanonicalConceptEvidence(key, "Seeds", "Seeds need moisture.", "Listen about seeds.",
-            generator, verifier, offered, listOf(assessment))
+            generator, verifier, offered, listOf(assessment), listOf(ProposalEvidenceRef("match", "r3", "m")),
+            mapOf("note" to "r1", "other" to "r2", "match" to "r3"), true)
         val topic = DiscoveredTopic("topic", "Seeds", passage, EmbeddedPassage(passage, listOf(1f, 0f)),
             listOf(member), 1, canonicalConcept = concept)
-        val snapshot = TopicSnapshot(topics = listOf(topic), identity = model, acceptedRevisions = mapOf("note" to "r1", "other" to "r2"))
+        val snapshot = TopicSnapshot(topics = listOf(topic), identity = model, acceptedRevisions = mapOf("note" to "r1", "other" to "r2", "match" to "r3"))
         val store = FileTopicStore(directory)
         assertEquals(TopicWriteResult.Written, store.writeDetailed(snapshot))
         assertEquals(concept, FileTopicStore(directory).read()!!.topics.single().canonicalConcept)
         assertNull(invalidateTopics(snapshot, setOf("other"), false).topics.single().canonicalConcept)
+        val withdrawnMatch = invalidateTopics(snapshot, setOf("match"), false).topics.single().canonicalConcept!!
+        assertTrue(withdrawnMatch.supported.isEmpty())
+        assertFalse(withdrawnMatch.matchingComplete)
         assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidTopic),
             store.writeDetailed(snapshot.copy(acceptedRevisions = mapOf("note" to "r1"))))
     }

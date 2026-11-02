@@ -125,7 +125,13 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                     concept.citations.map { it.evidence.passageId }.toSet().size != concept.citations.size ||
                     concept.citations.any { it.evidence !in offered || it.verifier != concept.verifier ||
                         it.topicId != "pending:${concept.workKey}" || it.conceptWorkKey != concept.workKey ||
-                        !Regex("[0-9a-f]{64}").matches(it.workKey) || it.decision != SupportDecision.SUPPORTED })
+                        !Regex("[0-9a-f]{64}").matches(it.workKey) || it.decision != SupportDecision.SUPPORTED } ||
+                    concept.scannedRevisions.any { (id, revision) -> id.isBlank() || canonicalSemanticId(id) != id ||
+                        revision.isBlank() || snapshot.acceptedRevisions[id] != revision } ||
+                    concept.matchingComplete && concept.scannedRevisions != snapshot.acceptedRevisions ||
+                    concept.supported.distinct().size != concept.supported.size || concept.supported.any {
+                        it.pageId.isBlank() || canonicalSemanticId(it.pageId) != it.pageId || it.passageId.isBlank() ||
+                            it.revision.isBlank() || concept.scannedRevisions[it.pageId] != it.revision })
                     return TopicValidationReason.InvalidTopic
             }
             if (topic.members.map { canonicalSemanticId(it.pageId) }.distinct().size != topic.members.size ||

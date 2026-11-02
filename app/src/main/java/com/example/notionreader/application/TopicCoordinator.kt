@@ -81,7 +81,7 @@ internal class TopicCoordinator(
 
     /** Atomic catalog admission; replay and independent citation checks are performed by the caller. */
     suspend fun admitCandidate(ticket: TopicCatalogTicket, candidate: PendingConceptCandidate,
-        current: () -> Boolean): CanonicalAdmissionResult = writes.withLock {
+        coverage: PendingCorpusReplayResult.Complete, current: () -> Boolean): CanonicalAdmissionResult = writes.withLock {
         if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
         if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
         if (candidate.catalogTicket != ticket || candidate.sources != latest.acceptedRevisions ||
@@ -104,8 +104,13 @@ internal class TopicCoordinator(
         if (order == Long.MAX_VALUE) return@withLock CanonicalAdmissionResult.Incomplete
         val id = java.util.UUID.randomUUID().toString()
         val member = TopicMembership(citation.pageId, record.metadata, anchor.passage, 1f, anchor.passage, citation.revision)
+        val supported = coverage.supported.toSortedMap().flatMap { (page, passages) ->
+            val revision = candidate.sources[page] ?: return@withLock CanonicalAdmissionResult.Stale
+            passages.sorted().map { ProposalEvidenceRef(page, revision, it) }
+        }
         val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
-            concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations)
+            concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations,
+            supported, candidate.sources, matchingComplete = true)
         val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order + 1,
             canonicalConcept = evidence)
         val continuity = TopicContinuity(id, order + 1, setOf(citation.pageId), setOf(topicEvidenceIdentity(anchor.passage)),

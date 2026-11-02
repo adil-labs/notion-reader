@@ -11,7 +11,9 @@ data class TopicMembership(val pageId: String, val metadata: SemanticMetadata, v
 @Serializable
 data class CanonicalConceptEvidence(val workKey: String, val name: String, val definition: String,
     val listeningDescription: String, val generator: TopicLabelIdentity, val verifier: TopicLabelIdentity,
-    val offered: List<ProposalEvidenceRef>, val citations: List<TopicSupportAssessment>)
+    val offered: List<ProposalEvidenceRef>, val citations: List<TopicSupportAssessment>,
+    val supported: List<ProposalEvidenceRef> = emptyList(), val scannedRevisions: Map<String, String> = emptyMap(),
+    val matchingComplete: Boolean = false)
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
     val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,

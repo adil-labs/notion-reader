@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Persisted revalidated membership references and source coverage
+with canonical concepts. Failing-first proof and 1,532 JVM tests are in §194;
+hydration and automatic scheduling remain open.
+
 2026-11-02: Guarded topic-file replacement after staging; stale writes preserve
 the previous catalog. The failing-first proof and 1,532 JVM tests are in §193.
 Post-replacement recovery and automatic admission remain open.

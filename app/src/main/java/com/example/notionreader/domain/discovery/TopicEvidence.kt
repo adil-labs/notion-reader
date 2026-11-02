@@ -17,7 +17,11 @@ fun retainCanonicalConcepts(previous: TopicSnapshot, next: TopicSnapshot): Topic
             ref in cited && topic.members.any { current -> current.revision == prior.revision &&
                 canonicalSemanticId(current.pageId) == ref.pageId && current.passage == prior.passage }
         }
-        return if (survives) topic.copy(canonicalConcept = concept) else topic
+        val retained = concept.copy(
+            supported = concept.supported.filter { next.acceptedRevisions[it.pageId] == it.revision },
+            scannedRevisions = concept.scannedRevisions.filter { (id, revision) -> next.acceptedRevisions[id] == revision },
+            matchingComplete = concept.matchingComplete && concept.scannedRevisions == next.acceptedRevisions)
+        return if (survives) topic.copy(canonicalConcept = retained) else topic
     }
     return next.copy(topics = next.topics.map(::retain), provisionalTopics = next.provisionalTopics.map(::retain))
 }
@@ -30,6 +34,7 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
     val affected = (snapshot.topics + snapshot.provisionalTopics).any { t -> t.members.any { canonicalSemanticId(it.pageId) in removed } ||
         t.matchingMembers.any { canonicalSemanticId(it.pageId) in removed } ||
         t.canonicalConcept?.offered.orEmpty().any { canonicalSemanticId(it.pageId) in removed } ||
+        t.canonicalConcept?.scannedRevisions.orEmpty().keys.any { canonicalSemanticId(it) in removed } ||
         canonicalSemanticId(t.anchor.passage.pageId) in removed || canonicalSemanticId(t.labelSource.pageId) in removed } ||
         snapshot.connections.any { canonicalSemanticId(it.left.pageId) in removed || canonicalSemanticId(it.right.pageId) in removed } ||
         snapshot.subjectRelationships.any { canonicalSemanticId(it.evidence.pageId) in removed } ||
@@ -68,8 +73,15 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
         }
     }
     fun withoutStaleLabels(values: List<DiscoveredTopic>) = values.map { original ->
-        val topic = if (original.canonicalConcept?.offered.orEmpty().any { !available(it.pageId) })
-            original.copy(canonicalConcept = null) else original
+        val concept = original.canonicalConcept
+        val topic = when {
+            concept == null -> original
+            concept.offered.any { !available(it.pageId) } -> original.copy(canonicalConcept = null)
+            concept.scannedRevisions.keys.any { !available(it) } -> original.copy(canonicalConcept = concept.copy(
+                supported = concept.supported.filter { available(it.pageId) },
+                scannedRevisions = concept.scannedRevisions.filterKeys(::available), matchingComplete = false))
+            else -> original
+        }
         if (topic.generatedLabel != null && topic.currentGeneratedLabel == null) topic.copy(generatedLabel = null, topicMatches = null)
         else topic.copy(topicMatches = topic.currentTopicMatches?.let { matches ->
             matches.copy(members = matches.members.filter { available(it.pageId) })

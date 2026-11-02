@@ -13,6 +13,12 @@ import org.junit.rules.TemporaryFolder
 
 class DiscoverySupportWiringTest {
     @get:Rule val files = TemporaryFolder()
+    private fun assertCanonicalMatches(topic: DiscoveredTopic, revision: String) {
+        val concept = requireNotNull(topic.canonicalConcept)
+        assertTrue(concept.matchingComplete)
+        assertEquals(listOf(ProposalEvidenceRef("note", revision, "p")), concept.supported)
+        assertEquals(mapOf("note" to revision), concept.scannedRevisions)
+    }
     @Test fun coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))
         val model = EmbeddingIdentity("model", 2); val labelIdentity = TopicLabelIdentity("a", "t", "c", "label", "s", "v", "CPU")
@@ -257,6 +263,7 @@ class DiscoverySupportWiringTest {
         assertTrue(admitted is CanonicalAdmissionResult.Admitted)
         val savedTopic = graph.snapshot.topics.single { it.canonicalConcept != null }
         assertEquals(completed.candidate.generation.workKey, savedTopic.canonicalConcept!!.workKey)
+        assertCanonicalMatches(savedTopic, revision)
         assertNotEquals("pending:${completed.candidate.generation.workKey}", savedTopic.id)
         assertEquals(2, graph.snapshot.topics.size)
         assertEquals(CanonicalAdmissionResult.Stale, controller.advanceCanonicalAdmission(completed, PendingCorpusReplay.start()))
