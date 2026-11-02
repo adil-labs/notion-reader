@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[bounded proposal generation (§166)](#166-generate-selected-evidence-first-proposals-2026-11-02)
+[pending concept support (§167)](#167-assess-pending-concept-evidence-2026-11-02)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -12388,3 +12388,28 @@ Still open: process-loop scheduling, bounded generation continuation and retry
 policy, independent support verification for generated concepts, catalog continuity
 and publication, and comparative/device/human acceptance. The existing production
 publisher remains active.
+
+
+## 167. Assess pending concept evidence (2026-11-02)
+
+The bounded Note step can now assess one selected citation of a generated concept
+using the independently versioned support runtime and the existing exact-input
+support store. It rehydrates the passage and checks the same source, catalog,
+model and policy ticket. Assessments use a pending work-key namespace, not a
+canonical topic ID. Supported, unsupported and uncertain outcomes remain distinct;
+none publishes a topic or proves the real verifier's semantic accuracy. The caller
+must cover every selected citation and separately validate complete retrieval and
+membership before canonical publication.
+
+The fake-runtime integration test failed before this connection. Replacing the
+pending support call with an unconditional supported decision made the test fail;
+the real shared-runtime call was restored. The test checks reuse of an unchanged
+assessment and preservation of an unsupported outcome without modifying the
+canonical catalog. Full JVM suite: 1,514 tests, zero failures/errors/skips; debug
+assembly, Android-test Kotlin compilation and standalone runtime-probe assembly
+passed. No actual model-quality or device result is claimed.
+
+Still open: bounded continuation and aggregation across all cited and retrieved
+passages, process-loop scheduling, durable completion, canonical continuity and
+publication, plus comparative quality, Android and human accessibility gates. The
+existing production publisher remains active.

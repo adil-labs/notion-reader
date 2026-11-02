@@ -142,8 +142,10 @@ class DiscoveryController(
 
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
-        maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
-        require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0))
+        maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
+        assessEvidenceIndex: Int? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
+            (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null))
         val owner = topics ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val store = proposalProgressStore ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext EvidenceFirstNoteStep.Deferred
@@ -207,7 +209,29 @@ class DiscoveryController(
                 if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
                     return@withContext EvidenceFirstNoteStep.Stale
                 when (generated) {
-                    is ProposalGenerationResult.Completed -> EvidenceFirstNoteStep.Generated(generated, result.step)
+                    is ProposalGenerationResult.Completed -> {
+                        if (assessEvidenceIndex == null) return@withContext EvidenceFirstNoteStep.Generated(generated, result.step)
+                        val concept = generated.response as? DiscoveryProposalResponse.Concept ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                        val evidenceId = concept.evidenceIds.getOrNull(assessEvidenceIndex) ?: return@withContext EvidenceFirstNoteStep.Incomplete
+                        val ref = proposal.evidence.singleOrNull { it.passageId == evidenceId } ?: return@withContext EvidenceFirstNoteStep.Stale
+                        // The pending ID scopes the assessment and is never a canonical catalog ID.
+                        val pendingConcept = SupportConcept("pending:${generated.workKey}", generated.workKey, concept.name, concept.definition)
+                        val candidate = TopicMatchReference(ref.pageId, ref.revision, ref.passageId, 0f)
+                        val assessed = verifyRetrievedPassage(pendingConcept, candidate, guardedIndex, ticket.identity, verifier,
+                            ticket.epoch, sources, ::current, store) { request ->
+                            runtime.verifyTopicSupport(request) { current() && mayWork() }
+                        }
+                        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+                        if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+                        if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
+                            return@withContext EvidenceFirstNoteStep.Stale
+                        when (assessed) {
+                            is SupportVerificationResult.Completed -> EvidenceFirstNoteStep.Assessed(generated, assessed.assessment,
+                                assessEvidenceIndex, result.step)
+                            SupportVerificationResult.Stale -> EvidenceFirstNoteStep.Stale
+                            else -> EvidenceFirstNoteStep.AssessmentFailure(assessed)
+                        }
+                    }
                     ProposalGenerationResult.Stale -> EvidenceFirstNoteStep.Stale
                     else -> EvidenceFirstNoteStep.GenerationFailure(generated)
                 }

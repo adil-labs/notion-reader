@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-02: Connected one generated-concept citation at a time to independent
+shared-runtime support assessment; aggregation and scheduling remain open.
+Failing-first and bypass proof, 1,514 JVM tests and builds are in §167.
+
 2026-11-02: Connected selected proposal generation to the shared local runtime;
 generated concepts remain pending and the step is not scheduled. Failing-first
 and identity-race proof, 1,514 JVM tests and builds are recorded in §166.

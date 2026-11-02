@@ -18,7 +18,8 @@ class DiscoverySupportWiringTest {
         val model = EmbeddingIdentity("model", 2); val labelIdentity = TopicLabelIdentity("a", "t", "c", "label", "s", "v", "CPU")
         val supportIdentity = labelIdentity.copy(prompt = "support", policy = "support-v1")
         val proposalIdentity = labelIdentity.copy(prompt = "proposal", policy = "proposal-v1")
-        var activeProposalIdentity = proposalIdentity; var switchProposalDuringInference = false
+        var activeProposalIdentity = proposalIdentity; var switchProposalDuringInference = false; var proposeConcept = false
+        var pendingSupportCalls = 0; var pendingDecision = SupportDecision.SUPPORTED
         var lastProposal: DiscoveryProposalRequest? = null
         var activeSupportIdentity = supportIdentity; var switchDuringInference = false
         var decision = SupportDecision.SUPPORTED
@@ -34,13 +35,20 @@ class DiscoverySupportWiringTest {
             override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun {
                 assertEquals(activeSupportIdentity, request.verifier); assertTrue("Embedding engine must release before support inference", releases > 0)
                 supportCalls++
+                if (request.topicId.startsWith("pending:")) {
+                    pendingSupportCalls++
+                    return TopicSupportRun.Completed(pendingDecision)
+                }
                 if (switchDuringInference) activeSupportIdentity = activeSupportIdentity.copy(policy = "changed-during-inference")
                 return TopicSupportRun.Completed(decision)
             }
             override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun {
                 assertEquals(activeProposalIdentity, request.identity); proposalCalls++; lastProposal = request
                 if (switchProposalDuringInference) activeProposalIdentity = activeProposalIdentity.copy(policy = "changed-during-proposal")
-                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
+                val response = if (proposeConcept) DiscoveryProposalResponse.Concept("Seed germination conditions",
+                    "Conditions that enable seeds to germinate.", "Listen to the conditions for seed germination.",
+                    listOf(request.evidence.first().passageId)) else DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE)
+                return DiscoveryProposalRun.Completed(response)
             }
             override suspend fun close() {}
         }
@@ -102,13 +110,25 @@ class DiscoverySupportWiringTest {
         assertEquals(2, proposalCalls)
         assertNull(progress.readAbstention(discoveryProposalWorkKey(lastProposal!!), mapOf("note" to revision)))
         switchProposalDuringInference = false
+        activeProposalIdentity = proposalIdentity.copy(policy = "proposal-concept-v3"); proposeConcept = true
+        val assessed = controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
+        assertEquals(SupportDecision.SUPPORTED, assessed.assessment.decision)
+        assertTrue(assessed.assessment.topicId.startsWith("pending:")); assertEquals("p", assessed.assessment.evidence.passageId)
+        assertEquals(1, pendingSupportCalls)
+        assertTrue(controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) is EvidenceFirstNoteStep.Assessed)
+        assertEquals("Unchanged support must be reused", 1, pendingSupportCalls)
+        activeSupportIdentity = supportIdentity.copy(policy = "unsupported-pending-v3"); pendingDecision = SupportDecision.UNSUPPORTED
+        val rejected = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
+        assertEquals(SupportDecision.UNSUPPORTED, rejected.assessment.decision)
+        assertEquals(2, pendingSupportCalls)
+        assertEquals(listOf("topic"), controller.state.value.topicSnapshot.topics.map { it.id })
         activeSupportIdentity = supportIdentity.copy(policy = "uncertain-v3")
         decision = SupportDecision.UNCERTAIN
         assertEquals(EvidenceFirstNoteStep.Uncertain(setOf("p")), controller.advanceEvidenceFirstNote("note", restart = true))
         val uncertainCheckpoint = progress.readConceptScan("note", mapOf("note" to revision))!!
         activeSupportIdentity = supportIdentity.copy(policy = "support-v4"); switchDuringInference = true
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
-        assertEquals(4, supportCalls)
+        assertEquals(7, supportCalls)
         assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
     }
 }
