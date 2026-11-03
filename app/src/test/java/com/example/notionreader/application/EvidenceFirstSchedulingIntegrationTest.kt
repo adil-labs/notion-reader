@@ -25,8 +25,10 @@ class EvidenceFirstSchedulingIntegrationTest {
     @Test fun connectionWorkCompletesAfterNewSourceAdmission() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true) }
     @Test fun indexedNotesAreAcceptedBeforeAnotherNoteFailsIndexing() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true) }
     @Test fun aNewlyIndexedNoteIsAcceptedBeforeTheNextNoteFails() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, newFirst = true) }
+    @Test fun aVerifiedNoteCanGenerateAProvisionalProposalWhileAnotherCannotBeIndexed() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, provisional = true) }
+    @Test fun completedIndexingReplacesProvisionalWorkWithFullCoverage() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, provisional = true, recover = true) }
     private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false,
-        incrementalCatalog: Boolean = false, unaccepted: Boolean = false, blockedIndex: Boolean = false, newFirst: Boolean = false) {
+        incrementalCatalog: Boolean = false, unaccepted: Boolean = false, blockedIndex: Boolean = false, newFirst: Boolean = false, provisional: Boolean = false, recover: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
@@ -59,12 +61,13 @@ class EvidenceFirstSchedulingIntegrationTest {
             override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(SupportDecision.SUPPORTED)
             override suspend fun close() {}
         }
+        var failIndex = blockedIndex
         val provider = object : EmbeddingProvider {
             override val identity = model
             override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) =
                 if (blockedIndex && text.isNotEmpty()) listOf(SemanticToken(1, 0, text.length)) else emptyList() }
             override suspend fun embed(text: String): List<Float> {
-                if (blockedIndex && (!newFirst || text.contains("tools", ignoreCase = true))) throw java.io.IOException("simulated indexing failure")
+                if (failIndex && ((!newFirst && !provisional) || text.contains("tools", ignoreCase = true))) throw java.io.IOException("simulated indexing failure")
                 return listOf(1f, 0f)
             }
             override fun release() {}
@@ -92,6 +95,33 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertEquals(2, controller.state.value.cachedPageIds.size)
             assertNotNull(controller.state.value.indexFailure)
             assertTrue(controller.hasPendingWork)
+            if (provisional) {
+                repeat(40) { controller.reconcile(emptyList(), true) }
+                assertTrue("The indexed source should reach proposal generation", calls > 0)
+                val provisionalStep = controller.advanceEvidenceFirstNote("note") as EvidenceFirstNoteStep.Proposals
+                val proposal = provisionalStep.window.window.proposals.single()
+                assertTrue(ProposalIncompleteReason.SOURCE_SCAN in proposal.incomplete)
+                assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in proposal.incomplete)
+                assertTrue(proposal.incomplete.any { it.blocksConceptAdmission() })
+                assertTrue("Incomplete corpus work cannot be published as a complete topic", graph.readMetadata()!!.topics.isEmpty())
+                assertNotNull(controller.state.value.indexFailure)
+                assertTrue(controller.hasPendingWork)
+                if (recover) {
+                    failIndex = false
+                    controller.requestAutomaticContinuation()
+                    repeat(160) { controller.reconcile(emptyList(), true) }
+                    assertEquals(setOf("note", "later"), graph.readMetadata()!!.acceptedRevisions.keys)
+                    assertTrue("state=${controller.state.value}; calls=$calls", graph.readMetadata()!!.topics.any { it.canonicalConcept != null })
+                    assertNull(controller.state.value.indexFailure)
+                    return
+                }
+                val beforeWithdrawal = calls
+                cache.remove("note")
+                controller = controller()
+                repeat(4) { controller.reconcile(emptyList(), false) }
+                assertFalse(graph.readMetadata()!!.acceptedRevisions.containsKey("note"))
+                assertEquals(beforeWithdrawal, calls)
+            }
             return
         }
         if (corrupt) {

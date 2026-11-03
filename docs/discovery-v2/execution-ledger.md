@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Verified indexed Notes can generate provisional proposals during an
+unrelated indexing failure; full-corpus recovery and limits are in §219.
+
 2026-11-03: The catalog can record a verified indexed subset before other cached
 Notes finish indexing; scheduler consumption remains open (§218).
 

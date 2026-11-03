@@ -356,9 +356,9 @@ internal class DiscoveryIndexing(
                 bytes = index.bytes() + (passageProgressStore?.bytes() ?: 0L) +
                     (proposalProgressStore?.bytes() ?: 0L) + (topics?.bytes() ?: 0L)) }
             if (mayIndex && !index.isPaused() && modelAvailable() && mayContinueWork() &&
-                cache.revision.value == sourceGeneration && indexed == ids.size && topics?.needsMoreWork != true) {
-                reconciliationPending = false
+                cache.revision.value == sourceGeneration && indexed == ids.size) {
                 mutable.update { it.copy(indexFailure = null) }
+                if (topics?.needsMoreWork != true) reconciliationPending = false
             }
             if (mayIndex && topics?.needsMoreWork == true) { delay(50); wake() }
         } catch (cancelled: CancellationException) { throw cancelled }

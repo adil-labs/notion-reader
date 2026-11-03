@@ -477,7 +477,8 @@ class DiscoveryController(
         wantCoverage: Boolean = false, retrievePageId: String? = null, retrieveCursor: PendingRetrievalCursor? = null,
         retrieveScan: PendingConceptNoteScan? = null, checkpointPendingScan: Boolean = false,
         replayPendingScan: Boolean = false, corpusReplay: PendingCorpusReplay? = null,
-        scopeAnchor: Any, catalogScope: String, extraCurrent: () -> Boolean = { true }): EvidenceFirstNoteStep {
+        scopeAnchor: Any, catalogScope: String, extraCurrent: () -> Boolean = { true },
+        indexedSources: Map<String, String>? = null): EvidenceFirstNoteStep {
         val token = runtime.validity.capture()
         val identity = provider.identity
         val indexedRevision = mutable.value.indexedRevision
@@ -486,7 +487,9 @@ class DiscoveryController(
         fun mayWork() = mayContinueWork() && windowContinue() && runtime.foregroundQueries.get() == 0
         if (!current()) return EvidenceFirstNoteStep.Stale
         if (!mayWork()) return EvidenceFirstNoteStep.Deferred
-        val sources = runtime.validity.eligibleRevisions()
+        val eligible = runtime.validity.eligibleRevisions()
+        val sources = indexedSources ?: eligible
+        if (sources.any { (id, revision) -> eligible[id] != revision }) return EvidenceFirstNoteStep.Stale
         val id = canonicalSemanticId(pageId)
         val record = runtime.bulkStep { index.read(id) } ?: return EvidenceFirstNoteStep.Incomplete
         if (!current() || record.identity != identity || sources[id] != record.revision) return EvidenceFirstNoteStep.Stale
@@ -500,6 +503,7 @@ class DiscoveryController(
             is PendingProposalStepResult.Ready -> {
                 val provisional = result.step.window.proposals.map { proposal ->
                     val incomplete = proposal.incomplete + ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG +
+                        (if (sources != eligible) setOf(ProposalIncompleteReason.SOURCE_SCAN) else emptySet()) +
                         if (uncertain) setOf(ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN) else emptySet()
                     val fields = listOf("unverified-catalog-v2", proposal.proposalKey) + incomplete.map { it.name }.sorted()
                     proposal.copy(proposalKey = semanticHash(fields.joinToString("") { "${it.length}:$it" }), incomplete = incomplete)
@@ -658,6 +662,18 @@ class DiscoveryController(
                 checkpointPendingScan = checkpointPendingScan, replayPendingScan = replayPendingScan, corpusReplay = corpusReplay,
                 scopeAnchor = owner, catalogScope = "unavailable")
         }
+        val eligible = runtime.validity.eligibleRevisions()
+        if (enableEvidenceFirstScheduling && ticket.snapshot.acceptedRevisions != eligible) {
+            val partial = ticket.snapshot.acceptedRevisions
+            if (partial.isEmpty() || partial.any { (id, revision) -> eligible[id] != revision }) return@withContext EvidenceFirstNoteStep.Stale
+            return@withContext provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
+                maxRecords, store, windowContinue, generateIndex = generateIndex, expectedGenerationKey = expectedGenerationKey,
+                assessEvidenceIndex = assessEvidenceIndex, wantCoverage = summarizeEvidence || retrievePageId != null,
+                retrievePageId = retrievePageId, retrieveCursor = retrieveCursor, retrieveScan = retrieveScan,
+                checkpointPendingScan = checkpointPendingScan, replayPendingScan = replayPendingScan, corpusReplay = corpusReplay,
+                scopeAnchor = ticket.snapshot, catalogScope = "partial:${ticket.epoch}:${ticket.cacheRevision}:${ticket.queryTicket}",
+                extraCurrent = { owner.isCatalogTicketCurrent(ticket) }, indexedSources = partial)
+        }
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null
         val token = runtime.validity.capture()
@@ -812,6 +828,12 @@ class DiscoveryController(
                 if (enableEvidenceFirstScheduling && topicStore?.resetPending() == true && recoverPendingReset())
                     return@withContext
                 indexing.reconcileInBackground(entries, mayIndex)
+                if (enableEvidenceFirstScheduling && mayIndex && mayContinueWork() && !state.value.paused &&
+                    runtime.foregroundQueries.get() == 0 && topics?.sourceAcceptancePending != true && state.value.indexFailure != null) {
+                    try { advancePartialEvidence() }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { evidenceWorkPending = true }
+                }
                 if (mayIndex && mayContinueWork() && !state.value.paused && runtime.foregroundQueries.get() == 0 &&
                     topics?.sourceAcceptancePending != true && state.value.indexFailure == null && (state.value.topicFailure == null || state.value.topicFailure == membershipFailure || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
                     try { advanceScheduledMembership() }
@@ -882,6 +904,29 @@ class DiscoveryController(
             IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> mutable.update { it.copy(topicFailure = membershipFailure) }
             IncrementalConnectionsResult.Deferred -> Unit
             IncrementalConnectionsResult.Failed -> mutable.update { it.copy(topicFailure = connectionFailure) }
+        }
+    }
+
+    /** Generate provisional work from indexed sources without claiming corpus coverage. */
+    private suspend fun advancePartialEvidence() = membershipSchedulerLock.withLock {
+        val owner = topics ?: return@withLock
+        val ticket = owner.captureCatalogTicket() ?: return@withLock
+        val eligible = runtime.validity.eligibleRevisions()
+        val sources = ticket.snapshot.acceptedRevisions
+        val verifier = topicSupportIdentity() ?: return@withLock
+        val generator = topicProposalIdentity() ?: return@withLock
+        if (sources.isEmpty() || sources == eligible || sources.any { (id, revision) -> eligible[id] != revision } ||
+            !owner.isCatalogTicketCurrent(ticket) || proposalProgressStore == null || !topicLabelModelAvailable()) return@withLock
+        val fields = listOf("partial-evidence-schedule-v1", ticket.epoch.toString(), ticket.cacheRevision.toString(),
+            ticket.identity.toString(), ticket.queryTicket, mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
+            sources.toSortedMap().flatMap { listOf(it.key, it.value) }
+        val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
+        when (evidenceScheduler.step(scope, sources.keys.sorted(),
+            inspect = { page, offset, replay, restart -> advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart) },
+            process = { work -> advancePendingCorpusWork(work) },
+            admit = { _, _ -> CanonicalAdmissionResult.Incomplete })) {
+            EvidenceFirstScheduleResult.Progress -> { evidenceWorkPending = true; wake.value++ }
+            EvidenceFirstScheduleResult.Deferred, EvidenceFirstScheduleResult.Blocked, EvidenceFirstScheduleResult.Idle -> evidenceWorkPending = true
         }
     }
 
@@ -978,7 +1023,7 @@ class DiscoveryController(
         runtime.embeddingMemo.clear()
         if (enableEvidenceFirstScheduling && !preserveTopicContinuity) mutable.update {
             it.copy(topicSnapshot = TopicSnapshot(), publishedTopics = emptyList(), topicsUpdated = false,
-                topicStatus = "Clearing Discovery data…", topicFailure = null)
+                topicStatus = "Clearing Discovery dataâ€¦", topicFailure = null)
         }
         runtime.generation.incrementAndGet(); membershipWorkPending = false; evidenceWorkPending = enableEvidenceFirstScheduling; membershipScheduler.retryBlocked(); evidenceScheduler.reset(); search.reset(); index.clear()
         passageProgressStore?.clear()

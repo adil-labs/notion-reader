@@ -13797,3 +13797,45 @@ require the full eligible cache and do not yet consume this subset, so an indexi
 failure can still prevent a new topic from being generated. Corpus coverage must
 remain explicitly incomplete when those schedulers are extended. The replacement
 remains disabled and the legacy production path remains.
+
+
+## 219. Generate provisional proposals when another Note cannot index (2026-11-03)
+
+After a cached Note failed indexing, the scheduler previously stopped even when
+other Notes were already verified and present in the catalog. The existing
+process-owned evidence scheduler can now use the accepted indexed subset through
+the existing provisional proposal flow while the indexing failure remains
+visible. The subset must match current cached revisions and the catalog ticket.
+Its proposals explicitly carry both incomplete source-scan and unverified
+existing-catalog reasons; admission is refused, and neither the proposal nor its
+matching results are represented as complete corpus coverage. Source withdrawal
+invalidates the work through the existing cache and catalog guards.
+
+Recovery testing found a deadlock: a resolved index error cleared only after topic
+work completed, but topic work was prevented by that error. Once all current
+Notes have successfully indexed, the index error now clears independently of
+pending topic work. The scheduler can then rescan the full current corpus and
+admit a validated topic through the normal path.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Schedule provisional work while an unrelated indexed source fails | `aVerifiedNoteCanGenerateAProvisionalProposalWhileAnotherCannotBeIndexed` failed before the new path. |
+| Mark subset proposals with incomplete source coverage | The same test failed when the `SOURCE_SCAN` reason was removed. |
+| Clear a resolved index error before topic completion | `completedIndexingReplacesProvisionalWorkWithFullCoverage` failed with the former coupled clearing rule. |
+
+Real-file-store tests use purpose-built sources and fake runtimes; they verify the
+provisional marker, no premature publication, withdrawal after recreation and
+transition to a fully indexed catalog. They do not establish model quality,
+Android lifecycle or TalkBack behavior. The JVM suite passed 1,615 tests with
+zero failures, errors or skips; debug assembly and Android-test compilation passed.
+The first full run exhausted the Windows paging file and left orphaned test
+workers; the next run hit insufficient C: temporary space in `StorageSizingTest`.
+After stopping only those orphaned workers, verification passed with two Gradle
+workers and a process-local temporary directory on D:. No machine-wide settings
+were changed.
+
+This path is limited to an actual indexing failure. It does not interleave
+proposal work with a slow, still-running indexing job, and it leaves partial
+existing-topic membership updates and user-visible provisional presentation for
+further work. The replacement remains disabled and the legacy production path
+remains. No device or quality acceptance is claimed.
