@@ -79,6 +79,95 @@ internal class TopicCoordinator(
             cache.invalidations.value.isEmpty() &&
             identity() == ticket.identity && retrievals?.queryTicket() == ticket.queryTicket
 
+    /** Undo a stale replacement, withdrawing changed sources before restoring unaffected catalog state. */
+    private suspend fun rollbackAfterStaleWrite(previous: TopicSnapshot, ticket: TopicCatalogTicket) =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+            try {
+            fun originalCurrent() = cache.revision.value == ticket.cacheRevision && cache.invalidations.value.isEmpty() &&
+                identity() == ticket.identity
+            if (originalCurrent()) {
+                val rollback = store.writeGuarded(previous, ::originalCurrent)
+                if (rollback == TopicGuardedWriteResult.Written && originalCurrent()) return@withContext
+            }
+            val revision = cache.revision.value
+            val events = cache.invalidations.value.toList()
+            val model = identity()
+            val snapshots = cache.snapshot()
+            val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+            fun sourceCurrent() = cache.revision.value == revision && cache.invalidations.value == events && identity() == model
+            if (sourceCurrent() && model == ticket.identity && revisions.size == snapshots.size) {
+                val eventIds = events.mapNotNull { it.pageId?.let(::canonicalSemanticId) }.toSet()
+                val allowed = if (events.any { it.pageId == null }) emptyMap() else revisions.filterKeys { it !in eventIds }
+                fun clean(snapshot: TopicSnapshot): TopicSnapshot {
+                    if (events.any { it.reason == CacheRemovalReason.RESET }) return TopicSnapshot()
+                    val known = snapshot.acceptedRevisions.keys + snapshot.referenceTitles.keys +
+                        (snapshot.topics + snapshot.provisionalTopics).flatMap { topic ->
+                            topic.members.map { it.pageId } + topic.canonicalConcept?.offered.orEmpty().map { it.pageId } +
+                                topic.canonicalConcept?.scannedRevisions.orEmpty().keys
+                        } + snapshot.connections.flatMap { listOf(it.left.pageId, it.right.pageId) } +
+                        snapshot.subjectRelationships.map { it.evidence.pageId }
+                    val stale = known.map(::canonicalSemanticId).filter { id ->
+                        id !in allowed || snapshot.acceptedRevisions[id]?.let { it != allowed[id] } == true
+                    }.toSet()
+                    var result = invalidateTopics(snapshot, stale, permanent = false)
+                    for (event in events) {
+                        val ids = event.pageId?.let { setOf(canonicalSemanticId(it)) } ?: known.map(::canonicalSemanticId).toSet()
+                        result = invalidateTopics(result, ids,
+                            permanent = event.reason == CacheRemovalReason.DELETED || event.reason == CacheRemovalReason.PERMISSION_DENIED)
+                    }
+                    return result.copy(formationProgress = null, formationReuse = null, sourceSignature = null,
+                        complete = false, connectionPassComplete = false)
+                }
+                var recovered = clean(previous)
+                var shown = clean(view.snapshot)
+                latest = recovered
+                epoch.incrementAndGet()
+                formationWorkspace = null
+                pendingFormation = null
+                needsMoreWork = true
+                view = view.copy(snapshot = shown, updated = inspected, status = "Discovery recovery is incomplete.")
+                changed(view)
+                checkpoint?.clear()
+                proposalProgress?.reconcile(allowed)
+                if (events.any { it.reason == CacheRemovalReason.RESET }) {
+                    labels?.clear(); retrievals?.clear()
+                } else {
+                    labels?.withdraw(recovered)
+                    val named = labels?.restore(recovered, ::sourceCurrent) ?: recovered
+                    retrievals?.withdraw(named)
+                }
+                if (sourceCurrent() && store.reconcileCatalogs(allowed, model, emptyMap()) && sourceCurrent()) {
+                    recovered = store.refreshCatalogReference(recovered)
+                    shown = store.refreshCatalogReference(shown)
+                    val saved = store.writeGuarded(recovered, ::sourceCurrent)
+                    if (saved == TopicGuardedWriteResult.Written && sourceCurrent()) {
+                        latest = recovered
+                        view = view.copy(snapshot = shown)
+                        store.pinInspection(shown)
+                        changed(view)
+                        return@withContext
+                    }
+                }
+            }
+            } catch (_: Exception) {
+                // Fall through to mandatory withdrawal if storage or cache inspection failed.
+            }
+            // If safe restoration cannot be proven, withdraw visible evidence and the replacement.
+            latest = TopicSnapshot()
+            epoch.incrementAndGet()
+            formationWorkspace = null
+            pendingFormation = null
+            needsMoreWork = true
+            view = TopicView(latest, status = "Discovery storage needs recovery.")
+            changed(view)
+            // Attempt every independent withdrawal even if another store fails.
+            try { checkpoint?.clear() } catch (_: Exception) { }
+            try { proposalProgress?.reconcile(emptyMap()) } catch (_: Exception) { }
+            try { labels?.clear() } catch (_: Exception) { }
+            try { retrievals?.clear() } catch (_: Exception) { }
+            store.clear()
+        }
+
     /** Atomic catalog admission; replay and independent citation checks are performed by the caller. */
     suspend fun admitCandidate(ticket: TopicCatalogTicket, candidate: PendingConceptCandidate,
         coverage: PendingCorpusReplayResult.Complete, current: () -> Boolean): CanonicalAdmissionResult = writes.withLock {
@@ -124,12 +213,12 @@ internal class TopicCoordinator(
         if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
         val saved = bulk { store.writeGuarded(next) { isCatalogTicketCurrent(ticket) && current() } }
         if (saved == TopicGuardedWriteResult.Stale) return@withLock CanonicalAdmissionResult.Stale
+        if (saved is TopicGuardedWriteResult.Rejected) return@withLock if (current())
+            CanonicalAdmissionResult.StorageFailure(saved.result) else CanonicalAdmissionResult.Stale
         if (!isCatalogTicketCurrent(ticket) || !current()) {
-            // The state may change after atomic replacement; do not retain newly stale evidence.
-            store.clear()
+            rollbackAfterStaleWrite(latest, ticket)
             return@withLock CanonicalAdmissionResult.Stale
         }
-        if (saved is TopicGuardedWriteResult.Rejected) return@withLock CanonicalAdmissionResult.StorageFailure(saved.result)
         latest = next
         epoch.incrementAndGet()
         formationWorkspace = null
@@ -251,11 +340,12 @@ internal class TopicCoordinator(
             if (!current()) return@withLock CanonicalMembershipUpdateResult.Stale
             val result = bulk { store.writeGuarded(next, ::current) }
             if (result == TopicGuardedWriteResult.Stale) return@withLock CanonicalMembershipUpdateResult.Stale
+            if (result is TopicGuardedWriteResult.Rejected) return@withLock if (current())
+                CanonicalMembershipUpdateResult.StorageFailure(result.result) else CanonicalMembershipUpdateResult.Stale
             if (!current()) {
-                store.clear()
+                rollbackAfterStaleWrite(latest, ticket)
                 return@withLock CanonicalMembershipUpdateResult.Stale
             }
-            if (result is TopicGuardedWriteResult.Rejected) return@withLock CanonicalMembershipUpdateResult.StorageFailure(result.result)
             latest = next
             epoch.incrementAndGet()
             formationWorkspace = null

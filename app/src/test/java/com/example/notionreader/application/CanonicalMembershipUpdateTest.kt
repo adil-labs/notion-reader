@@ -28,8 +28,8 @@ class CanonicalMembershipUpdateTest {
             return SemanticRecord(id, semanticRevision(doc), model, SemanticMetadata(id), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))
                 .also { assertTrue(index.write(it)) }
         }
-        val seed = add("seed"); val later = add("later")
-        val sources = mapOf(seed.pageId to seed.revision, later.pageId to later.revision)
+        val seed = add("seed"); val later = add("later"); val third = add("third")
+        val sources = mapOf(seed.pageId to seed.revision, later.pageId to later.revision, third.pageId to third.revision)
         val p = seed.passages.single(); val ref = ProposalEvidenceRef(seed.pageId, seed.revision, p.passage.id)
         val offered = TopicLabelEvidence(ref.passageId, ref.pageId, ref.revision, text)
         val proposal = DiscoveryProposalRequest(semanticHash("proposal"), 0, listOf(offered), generator)
@@ -40,23 +40,34 @@ class CanonicalMembershipUpdateTest {
         assertEquals(ProposalProgressWriteResult.Written, progress.writeSupport(assessment) { true })
         val query = TopicQueryEmbedding(TopicRetrievalQuery("topic", key, "${response.name}\n${response.definition}", model, TopicRetrievalPolicy(.8f)), listOf(1f, 0f))
         val concept = CanonicalConceptEvidence(key, response.name, response.definition, response.listeningDescription,
-            generator, verifier, listOf(ref), listOf(assessment), listOf(ref), mapOf("seed" to seed.revision), false,
+            generator, verifier, listOf(ref), listOf(assessment), listOf(ref), mapOf("seed" to seed.revision, "third" to third.revision), false,
             proposal.proposalKey, queryEmbedding = query)
         val member = TopicMembership("seed", seed.metadata, p.passage, 1f, p.passage, seed.revision)
         val topic = DiscoveredTopic("topic", "Seeds", p.passage, p, listOf(member), 1, canonicalConcept = concept)
         var beforeCommit: () -> Unit = {}
-        val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(topics = listOf(topic), identity = model, complete = true, acceptedRevisions = sources)
-            override suspend fun read() = snapshot
-            override suspend fun write(snapshot: TopicSnapshot): Boolean { this.snapshot = snapshot; return true }
+        var rejectWrite: (() -> Unit)? = null
+        var afterCommit: suspend () -> Unit = {}
+        val backing = FileTopicStore(root.resolve("topic-store"))
+        val initial = TopicSnapshot(topics = listOf(topic), identity = model, complete = true, acceptedRevisions = sources)
+        assertEquals(TopicWriteResult.Written, backing.writeDetailed(initial))
+        val graph = object : TopicStore by backing {
+            var snapshot = initial
+            override suspend fun write(snapshot: TopicSnapshot): Boolean {
+                val result = backing.write(snapshot); if (result) this.snapshot = snapshot; return result
+            }
+            override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult {
+                val result = backing.writeDetailed(snapshot); if (result == TopicWriteResult.Written) this.snapshot = snapshot; return result
+            }
             override suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
                 if (!current()) return TopicGuardedWriteResult.Stale
+                rejectWrite?.let { rejectWrite = null; it(); return TopicGuardedWriteResult.Rejected(TopicWriteResult.Rejected(TopicWriteFailure.IoFailure)) }
                 beforeCommit()
                 if (!current()) return TopicGuardedWriteResult.Stale
-                this.snapshot = snapshot; return TopicGuardedWriteResult.Written
+                val result = backing.writeGuarded(snapshot, current)
+                if (result == TopicGuardedWriteResult.Written) { this.snapshot = snapshot; afterCommit() }
+                return result
             }
-            override suspend fun clear() { snapshot = TopicSnapshot() }
-            override suspend fun bytes() = 0L
+            override suspend fun clear() { backing.clear(); snapshot = TopicSnapshot() }
         }
         val retrievals = TopicRetrievalCoordinator(index, queries, { model }, TopicRetrievalPolicy(.8f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val worker = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {},
@@ -76,6 +87,17 @@ class CanonicalMembershipUpdateTest {
             worker.advanceCanonicalMembershipUpdate(ticket, later, sources, verifier, scan.record, ConceptScanReplay.start(), 4) { verifierCurrent })
         assertEquals(listOf("seed"), graph.snapshot.topics.single().canonicalConcept!!.supported.map { it.pageId })
         beforeCommit = {}; verifierCurrent = true
+        rejectWrite = { verifierCurrent = false }
+        assertEquals(CanonicalMembershipUpdateResult.Stale,
+            worker.advanceCanonicalMembershipUpdate(ticket, later, sources, verifier, scan.record, ConceptScanReplay.start(), 4) { verifierCurrent })
+        assertEquals("topic", graph.snapshot.topics.single().id)
+        verifierCurrent = true
+        afterCommit = { verifierCurrent = false; afterCommit = {} }
+        assertEquals(CanonicalMembershipUpdateResult.Stale,
+            worker.advanceCanonicalMembershipUpdate(ticket, later, sources, verifier, scan.record, ConceptScanReplay.start(), 4) { verifierCurrent })
+        assertEquals("topic", graph.snapshot.topics.single().id)
+        assertEquals(listOf("seed"), graph.snapshot.topics.single().canonicalConcept!!.supported.map { it.pageId })
+        verifierCurrent = true
         val result = worker.advanceCanonicalMembershipUpdate(ticket, later, sources, verifier, scan.record, ConceptScanReplay.start(), 4)
         assertEquals(CanonicalMembershipUpdateResult.Updated, result)
         val updated = graph.snapshot.topics.single()
@@ -94,6 +116,21 @@ class CanonicalMembershipUpdateTest {
         assertEquals(CanonicalMembershipUpdateResult.Incomplete,
             worker.advanceCanonicalMembershipUpdate(currentTicket, seed, sources, verifier, uncertain.record, ConceptScanReplay.start(), 4))
         assertEquals(setOf("seed", "later"), graph.snapshot.topics.single().canonicalConcept!!.supported.map { it.pageId }.toSet())
+        val thirdScan = worker.advanceExistingConceptWork(currentTicket, third, sources, verifier, 4) {
+            TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+        } as DurableConceptScanResult.AwaitingValidation
+        afterCommit = { cache.remove("third"); afterCommit = {} }
+        assertEquals(CanonicalMembershipUpdateResult.Stale,
+            worker.advanceCanonicalMembershipUpdate(currentTicket, third, sources, verifier, thirdScan.record, ConceptScanReplay.start(), 4))
+        assertEquals("topic", graph.snapshot.topics.single().id)
+        assertEquals(setOf("seed", "later"), graph.snapshot.topics.single().canonicalConcept!!.supported.map { it.pageId }.toSet())
+        assertFalse(graph.snapshot.topics.single().canonicalConcept!!.matchingComplete)
+        assertNull(progress.readSupport(thirdScan.record.assessments.single().workKey, sources))
+        val reopened = FileTopicStore(root.resolve("topic-store")).read()!!
+        assertEquals(setOf("seed", "later"), reopened.topics.single().canonicalConcept!!.supported.map { it.pageId }.toSet())
+        assertFalse(reopened.topics.single().canonicalConcept!!.matchingComplete)
+        assertTrue(cache.invalidations.value.any { it.pageId == "third" })
+        assertTrue(root.resolve("topic-store").walkTopDown().filter { it.isFile }.none { it.readText().contains("third:p") })
         cache.remove("later")
         worker.invalidate(mapOf("seed" to seed.revision))
         val withdrawn = graph.snapshot.topics.single().canonicalConcept!!

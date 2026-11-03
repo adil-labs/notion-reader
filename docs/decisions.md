@@ -13295,3 +13295,32 @@ Automatic scheduling, incomplete-catalog operation, post-replacement recovery,
 and quality/device/human acceptance remain open. The November 3 review predates
 commit `5db58ff`: a guarded membership-update entry now exists, but is not yet
 automatically invoked.
+
+## 204. Recover unaffected catalog state after a stale replacement (2026-11-03)
+
+The November 3 review identified that the post-replacement stale path cleared
+the entire topic store. When only verifier state changes, the coordinator now
+rolls back to the previous catalog under a source/model guard. When a source is
+withdrawn during replacement, it first withdraws the source from visible state,
+clears affected pending evidence and checkpoints, reconciles dependent stores,
+and writes a source-filtered previous catalog under a fresh cache-revision guard.
+Unaffected topic IDs and references are retained, coverage is marked incomplete,
+and the invalidation event remains pending. If safe restoration or its guard
+fails, the conservative fallback withdraws visible evidence and clears derived
+stores; rejected writes no longer clear an unchanged prior catalog merely because
+the verifier also changed.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Restore unaffected catalog after a stale post-write result | `aReplayedSupportedNoteUpdatesTheExistingCanonicalTopic` failed with an empty catalog before the change. |
+| Reconcile pending evidence for the withdrawn source | The same test failed when the progress-store reconciliation was removed. |
+
+The test uses the real file topic store, causes a source deletion after replacement,
+reopens the store and checks that the deleted passage reference and its support
+record are absent while unaffected memberships remain. It also covers a rejected
+write and a verifier-only post-write race. The full JVM suite passed 1,538 tests
+without failures, errors or skips; debug assembly and Android-test compilation
+passed. This is not proof of process death at every point between the dependent
+store operations; interruption and failed-recovery cases remain open. Automatic
+scheduling, removal of the completed-catalog dependency and quality/device/human
+acceptance also remain open.

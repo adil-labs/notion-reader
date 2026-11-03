@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Recover unaffected catalog state and withdraw pending evidence after
+a stale post-replacement write. Failing-first proofs and 1,538 JVM tests are in
+§204; interruption and failed-recovery coverage remain open.
+
 2026-11-03: Allow independently verified concepts before later anchor windows,
 retaining the pending reason. Failing-first proof, 1,538 JVM tests and 22/22
 existing navigation tests are in §203; scheduling remains open.
