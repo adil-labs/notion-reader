@@ -18,10 +18,14 @@ class CanonicalMembershipSchedulerIntegrationTest {
     @Test fun canonicalMembershipUpdatesDoNotRequireCompletedFormation() = runBlocking { scenario(true) }
     @Test fun migrationPreservesAnExistingCanonicalTopicIdentity() = runBlocking { scenario(false, migrateLegacy = true) }
     @Test fun newIndexedSourceUpdatesMembershipWithoutFormation() = runBlocking { scenario(true, newSource = true) }
+    @Test fun aCompatibleLegacyCatalogMigratesWhenANewSourceWasAdded() = runBlocking { scenario(false, migrateLegacy = true, newSource = true) }
     @Test fun withdrawingASourceLeavesConnectionCoveragePending() = runBlocking { scenario(true, withdraw = true) }
     @Test fun connectionsAdvanceWhileMembershipVerifierIsUnavailable() = runBlocking { scenario(true, supportUnavailable = true) }
+    @Test fun migrationWithdrawsADeletedSourceAndPreservesTheSurvivingTopicAndFollow() = runBlocking {
+        scenario(false, migrateLegacy = true, earlyWithdrawal = true)
+    }
     private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false, newSource: Boolean = false, withdraw: Boolean = false,
-        supportUnavailable: Boolean = false) {
+        supportUnavailable: Boolean = false, earlyWithdrawal: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val progress = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
@@ -60,6 +64,11 @@ class CanonicalMembershipSchedulerIntegrationTest {
         assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(topics = listOf(topic), identity = model,
             complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = !supportUnavailable, acceptedRevisions = accepted, policyVersion = topicPolicy.version,
             sourceSignature = topicSourceSignature(model, topicPolicy, semanticMetadataHash(metadata), sources))))
+        val interests = FileDiscoveryInterestStore(root.resolve("interests"))
+        if (earlyWithdrawal) {
+            interests.write(listOf(DiscoveryInterest("follow", "seed germination", displayName = "My seeds", originTopicId = "topic")))
+            cache.remove("later")
+        }
         var calls = 0
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
@@ -72,14 +81,23 @@ class CanonicalMembershipSchedulerIntegrationTest {
             override suspend fun embed(text: String) = listOf(1f, 0f)
             override fun release() {}
         }
-        fun controller() = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+        fun controller() = DiscoveryController(cache, index, interests, provider,
             topicStore = FileTopicStore(root.resolve("topics")), topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), topicRetrievalPolicy = policy,
             proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { if (supportUnavailable) null else verifier },
             enableEvidenceFirstScheduling = incrementalCatalog || migrateLegacy)
         var controller = controller()
         controller.reconcile(emptyList(), false)
-        if (migrateLegacy) assertTrue(controller.state.value.topicSnapshot.canonicalCatalogReady)
+        if (migrateLegacy) assertTrue("state=${controller.state.value}", controller.state.value.topicSnapshot.canonicalCatalogReady)
+        if (earlyWithdrawal) {
+            val persisted = FileTopicStore(root.resolve("topics")).readMetadata()!!
+            assertEquals("topic", persisted.topics.single().id)
+            assertFalse(persisted.acceptedRevisions.containsKey("later"))
+            assertEquals("topic", interests.read().single().originTopicId)
+            assertEquals("My seeds", interests.read().single().displayName)
+            assertTrue(cache.invalidations.value.isEmpty())
+            return
+        }
         assertEquals(0, calls)
         if (supportUnavailable) {
             repeat(30) { controller.reconcile(emptyList(), true) }

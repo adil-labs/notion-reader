@@ -13619,3 +13619,29 @@ Migration when source inventories differ, reset/reinitialization, edited-citatio
 topic continuity, interrupted multi-store recovery and activation/removal of the
 legacy production branch remain open. This is not yet the requested complete
 replacement.
+
+
+## 213. Migrate catalogs after source withdrawal (2026-11-03)
+
+A completed compatible legacy catalog previously migrated only when its saved
+source revisions exactly matched the current cache, before processing withdrawals.
+An added or removed Note therefore left existing installations unable to enter the
+incremental path. Migration now follows withdrawal and acknowledgement, requires
+all remaining accepted revisions to match current sources, and uses a guarded
+catalog ticket with stale-write rollback. Newly indexed sources enter separately
+in bounded work. A surviving topic keeps its canonical ID and stored follow.
+Migration refuses incomplete formation, provisional topics, incompatible models
+and outstanding withdrawals; it does not establish continuity for a topic whose
+last supporting source has been removed.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Migration after reconciliation with a compatible source subset | `aCompatibleLegacyCatalogMigratesWhenANewSourceWasAdded` and `migrationWithdrawsADeletedSourceAndPreservesTheSurvivingTopicAndFollow` both failed with the prior implementation restored and passed with this change. |
+
+The full JVM suite passed 1,597 tests with no failures, errors or skips; debug
+assembly and Android-test compilation passed. These are real-file-store tests,
+not a process-death or device test. Reset/reinitialization, migration-specific
+post-write fault injection, edited-citation identity continuity, interruption
+recovery, and activation and removal of the legacy production path remain open.
+The replacement is still disabled; this increment does not complete the requested
+production integration.
