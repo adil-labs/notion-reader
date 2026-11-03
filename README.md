@@ -5,7 +5,7 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current decision record](docs/decisions.md#219-generate-provisional-proposals-when-another-note-cannot-index-2026-11-03)).
+Discovery refinement is in progress ([current decision record](docs/decisions.md#220-interleave-provisional-proposals-with-indexing-2026-11-03)).
 The current production formation path still uses grouping, local Gemma naming and
 embedding retrieval. The repository is implementing an evidence-first replacement
 in the same coordinator and catalog; bounded new-concept scheduling and independent

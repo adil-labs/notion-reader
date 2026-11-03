@@ -28,7 +28,8 @@ internal class DiscoveryIndexing(
     private val pause: suspend () -> Unit,
     private val wake: () -> Unit,
     private val monotonicNanos: () -> Long,
-    private val proposalProgressStore: ProposalProgressStore?
+    private val proposalProgressStore: ProposalProgressStore?,
+    private val advancePartialWork: suspend () -> Unit
 ) {
     private class BulkWorkDeferred : RuntimeException()
     private val timeEstimator = DiscoveryTimeEstimator()
@@ -258,6 +259,7 @@ internal class DiscoveryIndexing(
             if (mayIndex && !index.isPaused() && modelAvailable() && mayContinueWork() && indexedSources.size < sources.size) {
                 topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration,
                     indexComplete = false, metadata = cachedMetadata, indexedSources = indexedSources.toMap())
+                advancePartialWork()
             }
             var remainingPassages = jobs.sumOf { it.second }
             var remainingNotes = jobs.size
@@ -341,9 +343,11 @@ internal class DiscoveryIndexing(
                     passageProgressStore?.remove(id)
                     indexed++; indexedSources[id] = revision; remainingNotes--; publishWork()
                     mutable.update { it.copy(indexedRevision = it.indexedRevision + 1) }
-                    if (indexed < ids.size && mayContinueWork()) topics?.build(sourceRevisions,
-                        semanticMetadataHash(cachedMetadata), sourceGeneration, indexComplete = false,
-                        metadata = cachedMetadata, indexedSources = indexedSources.toMap())
+                    if (indexed < ids.size && mayContinueWork()) {
+                        topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration, indexComplete = false,
+                            metadata = cachedMetadata, indexedSources = indexedSources.toMap())
+                        advancePartialWork()
+                    }
                 }
                 mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size)) }
             }

@@ -117,7 +117,14 @@ class DiscoveryController(
         workDispatcher, modelAvailable, recommendationThreshold, clock)
     private val indexing = DiscoveryIndexing(cache, index, passageProgressStore, interestStore, provider,
         mutable, runtime, topics, workDispatcher, modelAvailable, ::mayContinueWork, ::pause,
-        { wake.value++ }, monotonicNanos, proposalProgressStore)
+        { wake.value++ }, monotonicNanos, proposalProgressStore, advancePartialWork = {
+            if (enableEvidenceFirstScheduling) for (step in 0 until 4) {
+                if (!mayContinueWork() || runtime.foregroundQueries.get() > 0 || topics?.sourceAcceptancePending == true) break
+                try { advancePartialEvidence() }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { evidenceWorkPending = true; break }
+            }
+        })
     private val previews = DiscoveryPreviews(mutable, retrieval)
     private val search = DiscoverySearch(runtime, retrieval, mutable, workDispatcher, modelAvailable,
         recommendationThreshold, ::recordTiming)

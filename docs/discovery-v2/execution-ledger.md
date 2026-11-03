@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Bounded provisional proposal steps run between indexing jobs;
+verified handoff and remaining partial-coverage limits are in §220.
+
 2026-11-03: Verified indexed Notes can generate provisional proposals during an
 unrelated indexing failure; full-corpus recovery and limits are in §219.
 

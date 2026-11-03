@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#219-generate-provisional-proposals-when-another-note-cannot-index-2026-11-03)
+[the current decision-record entry](decisions.md#220-interleave-provisional-proposals-with-indexing-2026-11-03)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

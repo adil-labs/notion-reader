@@ -7,6 +7,9 @@ import com.example.notionreader.domain.document.CachedDocument
 import com.example.notionreader.domain.discovery.*
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -27,8 +30,9 @@ class EvidenceFirstSchedulingIntegrationTest {
     @Test fun aNewlyIndexedNoteIsAcceptedBeforeTheNextNoteFails() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, newFirst = true) }
     @Test fun aVerifiedNoteCanGenerateAProvisionalProposalWhileAnotherCannotBeIndexed() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, provisional = true) }
     @Test fun completedIndexingReplacesProvisionalWorkWithFullCoverage() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, provisional = true, recover = true) }
+    @Test fun indexedNoteReachesProposalGenerationBeforeTheNextIndexJobFinishes() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, interleave = true) }
     private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false,
-        incrementalCatalog: Boolean = false, unaccepted: Boolean = false, blockedIndex: Boolean = false, newFirst: Boolean = false, provisional: Boolean = false, recover: Boolean = false) {
+        incrementalCatalog: Boolean = false, unaccepted: Boolean = false, blockedIndex: Boolean = false, newFirst: Boolean = false, provisional: Boolean = false, recover: Boolean = false, interleave: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
@@ -61,12 +65,15 @@ class EvidenceFirstSchedulingIntegrationTest {
             override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(SupportDecision.SUPPORTED)
             override suspend fun close() {}
         }
-        var failIndex = blockedIndex
+        var failIndex = blockedIndex && !interleave
+        val laterStarted = CompletableDeferred<Unit>()
+        val releaseLater = CompletableDeferred<Unit>()
         val provider = object : EmbeddingProvider {
             override val identity = model
             override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) =
                 if (blockedIndex && text.isNotEmpty()) listOf(SemanticToken(1, 0, text.length)) else emptyList() }
             override suspend fun embed(text: String): List<Float> {
+                if (interleave && text.contains("tools", ignoreCase = true)) { laterStarted.complete(Unit); releaseLater.await() }
                 if (failIndex && ((!newFirst && !provisional) || text.contains("tools", ignoreCase = true))) throw java.io.IOException("simulated indexing failure")
                 return listOf(1f, 0f)
             }
@@ -86,6 +93,16 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertTrue("A compatible legacy catalog must migrate before incremental work", controller.state.value.topicSnapshot.canonicalCatalogReady)
         }
         assertEquals(0, calls)
+        if (interleave) {
+            val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.currentCoroutineContext()).async { controller.reconcile(emptyList(), true) }
+            try {
+                withTimeout(10_000) { laterStarted.await() }
+                assertTrue("The verified Note must reach proposal generation before the next embedding finishes", calls > 0)
+                assertTrue(graph.readMetadata()!!.topics.isEmpty())
+                assertTrue(controller.hasPendingWork)
+            } finally { releaseLater.complete(Unit); job.await() }
+            return
+        }
         if (blockedIndex) {
             controller.reconcile(emptyList(), true)
             val saved = graph.readMetadata()!!

@@ -13839,3 +13839,30 @@ proposal work with a slow, still-running indexing job, and it leaves partial
 existing-topic membership updates and user-visible provisional presentation for
 further work. The replacement remains disabled and the legacy production path
 remains. No device or quality acceptance is claimed.
+
+
+## 220. Interleave provisional proposals with indexing (2026-11-03)
+
+The prior partial path ran only after an indexing failure. An already indexed
+Note could still wait behind a long subsequent embedding job before reaching
+proposal generation. The existing reconciliation now invokes up to four bounded
+evidence-scheduler steps after accepting an indexed subset and before the next
+index job, including after a new Note is committed. It uses the same coordinator,
+inference gate and provisional coverage rules. The handoff stops when foreground
+queries, playback/power/resource policy or cancellation prevent work. It does not
+create another worker and cannot admit a partial-corpus proposal.
+
+`indexedNoteReachesProposalGenerationBeforeTheNextIndexJobFinishes` holds the
+next embedding on a latch and verifies that the first Note reaches proposal
+generation before releasing it, while the incomplete result remains unpublished.
+It failed before this handoff and passed afterwards. The full JVM suite passed
+1,616 tests with no failures, errors or skips; debug assembly and Android-test
+compilation passed. Verification used two Gradle workers and a temporary directory
+on D: because C: had insufficient space. The test uses fake model runtimes and
+does not establish device performance, model quality or TalkBack behavior.
+
+The four-step budget is a per-handoff bound, not a guarantee that every proposal
+finishes before the next Note; when source acceptance itself needs multiple
+bounded windows, proposal work also waits for that acceptance. Partial membership
+updates and user-visible provisional presentation remain open. The replacement
+remains disabled and the legacy production path remains.
