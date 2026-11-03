@@ -25,6 +25,8 @@ class FreshCanonicalCatalogIntegrationTest {
     @Test fun withdrawalImmediatelyAfterFreshWriteCannotPublishTheEmptyCatalog() = runBlocking { scenario("stale-init") }
     @Test fun clearingAndReopeningRebuildsWithoutLosingAFollow() = runBlocking { scenario("reset") }
     @Test fun aRejectedResetCatalogReportsFailureWithoutLosingTheFollow() = runBlocking { scenario("reset-reject") }
+    @Test fun anInterruptedResetBeforeIndexClearRecoversOnRecreation() = runBlocking { scenario("interrupt-index") }
+    @Test fun anInterruptedResetBeforeCatalogCommitRecoversOnRecreation() = runBlocking { scenario("interrupt-finish") }
     private suspend fun scenario(kind: String) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
@@ -69,9 +71,22 @@ class FreshCanonicalCatalogIntegrationTest {
         }
         var acknowledgementLimit = if (kind == "unacknowledged") 0L else Long.MAX_VALUE
         var rejectReset = false
-        val topicStore = if (kind == "reset-reject") object : TopicStore by graph {
-            override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult =
-                if (rejectReset) TopicWriteResult.Rejected(TopicWriteFailure.IoFailure) else graph.writeDetailed(snapshot)
+        var interruptIndex = false
+        var interruptFinish = false
+        val controllerIndex = object : SemanticIndexStore by index {
+            override suspend fun clear() {
+                if (interruptIndex) { interruptIndex = false; throw java.io.IOException("simulated interruption") }
+                index.clear()
+            }
+        }
+        val topicStore = if (kind == "interrupt-finish") object : TopicStore by graph {
+            override suspend fun finishReset(snapshot: TopicSnapshot): TopicWriteResult {
+                if (interruptFinish) { interruptFinish = false; throw java.io.IOException("simulated interruption") }
+                return graph.finishReset(snapshot)
+            }
+        } else if (kind == "reset-reject") object : TopicStore by graph {
+            override suspend fun finishReset(snapshot: TopicSnapshot): TopicWriteResult =
+                if (rejectReset) TopicWriteResult.Rejected(TopicWriteFailure.IoFailure) else graph.finishReset(snapshot)
         } else if (kind == "stale-init") object : TopicStore by graph {
             override suspend fun initializeFresh(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
                 val result = graph.initializeFresh(snapshot, current)
@@ -79,7 +94,7 @@ class FreshCanonicalCatalogIntegrationTest {
                 return result
             }
         } else graph
-        fun controller() = DiscoveryController(cache, index, interests, provider, topicStore = topicStore, topicCheckpointStore = checkpoint,
+        fun controller() = DiscoveryController(cache, controllerIndex, interests, provider, topicStore = topicStore, topicCheckpointStore = checkpoint,
             invalidationAcknowledgementLimit = { acknowledgementLimit },
             topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicLabelStore = labels, topicRetrievalStore = queries,
             proposalProgressStore = progress, topicSupportIdentity = { identity.copy(prompt = "support") },
@@ -90,7 +105,7 @@ class FreshCanonicalCatalogIntegrationTest {
             assertNull(graph.readMetadata())
             assertTrue(cache.invalidations.value.isNotEmpty())
             acknowledgementLimit = Long.MAX_VALUE
-        } else if (kind != "clean" && kind != "withdrawal" && kind != "reset" && kind != "reset-reject") {
+        } else if (kind != "clean" && kind != "withdrawal" && kind != "reset" && kind != "reset-reject" && !kind.startsWith("interrupt-")) {
             repeat(3) { controller.reconcile(emptyList(), true) }
             assertNull("Unknown pre-existing topic state must not be replaced", graph.readMetadata())
             assertNotNull(controller.state.value.topicFailure)
@@ -105,10 +120,29 @@ class FreshCanonicalCatalogIntegrationTest {
         assertEquals(setOf("note"), saved.acceptedRevisions.keys)
         assertEquals(1, saved.topics.count { it.canonicalConcept != null })
         if (kind == "withdrawal" || kind == "unacknowledged") assertTrue(cache.invalidations.value.isEmpty())
-        if (kind == "reset" || kind == "reset-reject") {
+        if (kind == "reset" || kind == "reset-reject" || kind.startsWith("interrupt-")) {
             val topicId = saved.topics.single().id
             interests.write(listOf(DiscoveryInterest("follow", "seeds", displayName = "My seeds", originTopicId = topicId)))
             rejectReset = kind == "reset-reject"
+            interruptIndex = kind == "interrupt-index"
+            interruptFinish = kind == "interrupt-finish"
+            if (kind.startsWith("interrupt-")) {
+                assertTrue(runCatching { controller.clearIndex() }.isFailure)
+                assertEquals(TopicMetadataState.ResetPending, graph.inspectMetadata())
+                assertNull("Pending reset must hide the previous catalog", graph.readMetadata())
+                assertTrue("Interrupted reset must hide the in-memory catalog", controller.state.value.topicSnapshot.topics.isEmpty())
+                assertTrue(controller.state.value.publishedTopics.isEmpty())
+                controller = controller()
+                controller.reconcile(emptyList(), false)
+                assertTrue(index.isPaused())
+                assertTrue(index.pageIds().isEmpty())
+                assertTrue((graph.inspectMetadata() as TopicMetadataState.Available).snapshot.canonicalCatalogReady)
+                assertTrue(graph.readMetadata()!!.topics.isEmpty())
+                assertEquals(0L, labels.bytes())
+                assertEquals(0L, queries.bytes())
+                assertEquals("My seeds", interests.read().single().displayName)
+                return
+            }
             controller.clearIndex()
             assertTrue(index.isPaused())
             assertEquals(topicId, interests.read().single().originTopicId)

@@ -60,6 +60,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     private val file get() = File(directory, "topics.json")
     private val freshMarker get() = File(directory, "fresh-catalog.marker")
     private val consumedMarker get() = File(directory, "consumed-catalog.marker")
+    private val resetMarker get() = File(directory, "reset-catalog.marker")
     private val catalogs = linkedMapOf<String, ConnectionCatalogManifest>()
     private var currentCatalogKey: String? = null
     private var pinnedCatalogKey: String? = null
@@ -238,7 +239,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     }
     private fun discard() {
         catalogs.clear(); currentCatalogKey = null; pinnedCatalogKey = null
-        directory.listFiles()?.forEach { check(it.delete() || !it.exists()) { "Unable to discard corrupt topic evidence" } }
+        directory.listFiles()?.filter { it != resetMarker }?.forEach { check(it.delete() || !it.exists()) { "Unable to discard corrupt topic evidence" } }
     }
 
     private fun register(storedKey: String?, snapshot: TopicSnapshot, manifest: ConnectionCatalogManifest): String {
@@ -275,6 +276,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             semanticHash(manifest.pages.joinToString("|") { it.digest })))
 
     override suspend fun inspectMetadata(): TopicMetadataState = withContext(Dispatchers.IO) { mutex.withLock {
+        if (resetMarker.exists()) return@withLock if (resetMarker.isFile && resetMarker.length() == 0L) TopicMetadataState.ResetPending else TopicMetadataState.Unknown
         if (!file.exists()) {
             if (!allowFreshInitialization) return@withLock TopicMetadataState.Missing
             if (consumedMarker.exists()) return@withLock TopicMetadataState.Unknown
@@ -294,7 +296,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         }.getOrElse { TopicMetadataState.Unreadable }
     } }
     override suspend fun readMetadata(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
-        if (!file.isFile) return@withLock null
+        if (resetMarker.exists() || !file.isFile) return@withLock null
         runCatching {
             require(file.length() <= MAX_RECORD_BYTES)
             val (snapshot, manifest, storedKey) = decode()
@@ -312,6 +314,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     override suspend fun connectionPage(snapshot: TopicSnapshot, offset: Int, limit: Int): ConnectionCatalogPageResult =
         withContext(Dispatchers.IO) { mutex.withLock {
             require(offset >= 0 && limit in 1..100)
+            if (resetMarker.exists()) return@withLock ConnectionCatalogPageResult(emptyList(), 0, false)
             val ref = snapshot.catalogReference ?: return@withLock ConnectionCatalogPageResult(snapshot.connections.drop(offset).take(limit), snapshot.connections.size)
             val manifest = catalogs[ref.key] ?: return@withLock ConnectionCatalogPageResult(emptyList(), 0, false)
             runCatching { ConnectionCatalogPageResult(catalog.read(manifest, offset, limit), manifest.count) }
@@ -319,6 +322,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         } }
     override suspend fun findConnection(snapshot: TopicSnapshot, id: String): ConnectionCatalogPageResult =
         withContext(Dispatchers.IO) { mutex.withLock {
+            if (resetMarker.exists()) return@withLock ConnectionCatalogPageResult(emptyList(), 0, false)
             val ref = snapshot.catalogReference ?: return@withLock ConnectionCatalogPageResult(listOfNotNull(snapshot.connections.firstOrNull { it.id == id }), snapshot.connections.size)
             val manifest = catalogs[ref.key] ?: return@withLock ConnectionCatalogPageResult(emptyList(), 0, false)
             runCatching { ConnectionCatalogPageResult(listOfNotNull(catalog.find(manifest, id)), manifest.count) }
@@ -349,7 +353,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         metadata(snapshot, ref.key, manifest)
     } }
     override suspend fun read(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
-        if (!file.isFile) return@withLock null
+        if (resetMarker.exists() || !file.isFile) return@withLock null
         val result = runCatching {
             require(file.length() <= MAX_RECORD_BYTES)
             // Engine zero is derived legacy state, never a reason to execute the old algorithm.
@@ -364,7 +368,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     } }
     override suspend fun readConnections(offset: Int, limit: Int): List<NoteConnection> = withContext(Dispatchers.IO) { mutex.withLock {
         require(offset >= 0 && limit in 1..100)
-        if (!file.isFile) return@withLock emptyList()
+        if (resetMarker.exists() || !file.isFile) return@withLock emptyList()
         runCatching {
             require(file.length() <= MAX_RECORD_BYTES)
             val (snapshot, manifest) = decode()
@@ -462,11 +466,13 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             }
         } catch (_: StaleGuard) { TopicGuardedWriteResult.Stale }
     }
-    private suspend fun writeInternal(snapshot: TopicSnapshot, guard: (() -> Boolean)?, requireFresh: Boolean = false): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
+    private suspend fun writeInternal(snapshot: TopicSnapshot, guard: (() -> Boolean)?, requireFresh: Boolean = false, finishingReset: Boolean = false): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
         val staged = mutableListOf<File>()
         var committed = false
         var consumedFresh = false
         try {
+            if (resetMarker.exists() && !finishingReset) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
+            if (finishingReset && (!resetMarker.isFile || resetMarker.length() != 0L)) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
             if (requireFresh && (!allowFreshInitialization || file.exists() || consumedMarker.exists() ||
                     !freshMarker.isFile || freshMarker.length() != 0L)) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
             if (requireFresh && (!snapshot.canonicalCatalogReady || snapshot.identity == null || snapshot.complete ||
@@ -502,6 +508,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             committed = true
             catalogs[key] = manifest; currentCatalogKey = key
             retireCatalogs()
+            if (finishingReset && !resetMarker.delete() && resetMarker.exists())
+                return@withLock TopicWriteResult.Rejected(TopicWriteFailure.IoFailure)
             TopicWriteResult.Written
         } catch (_: RecordLimitExceeded) {
             TopicWriteResult.Rejected(TopicWriteFailure.RecordMemoryLimit)
@@ -524,6 +532,26 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             }
         }
     } }
+    override suspend fun resetPending(): Boolean = withContext(Dispatchers.IO) { mutex.withLock { resetMarker.exists() } }
+    override suspend fun beginReset(): Boolean = withContext(Dispatchers.IO) { mutex.withLock {
+        try {
+            if (resetMarker.exists()) return@withLock resetMarker.isFile && resetMarker.length() == 0L
+            writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, 0L) {
+                atomicSemanticWrite(resetMarker, byteArrayOf())
+            }
+            true
+        } catch (_: java.io.IOException) { false }
+        catch (_: com.example.notionreader.domain.document.StorageRefused) { false }
+    } }
+    override suspend fun finishReset(snapshot: TopicSnapshot): TopicWriteResult {
+        if (!snapshot.canonicalCatalogReady || snapshot.identity == null || snapshot.complete || snapshot.generation != 0L ||
+            snapshot.topics.isNotEmpty() || snapshot.provisionalTopics.isNotEmpty() || snapshot.continuity.isNotEmpty() ||
+            snapshot.acceptedRevisions.isNotEmpty() || snapshot.connections.isNotEmpty() || snapshot.catalogReference != null ||
+            snapshot.referenceTitles.isNotEmpty() || snapshot.subjectRelationships.isNotEmpty() || snapshot.formationProgress != null ||
+            snapshot.formationReuse != null || snapshot.connectionWork != ConnectionWork())
+            return TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidSnapshotProgress)
+        return writeInternal(snapshot, null, finishingReset = true)
+    }
     override suspend fun clear(): Unit = withContext(Dispatchers.IO) { mutex.withLock {
         discard()
     } }

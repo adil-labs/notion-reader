@@ -112,6 +112,7 @@ sealed interface TopicGuardedWriteResult {
 /** Restoration must not confuse an unreadable catalog with a new empty one. */
 sealed interface TopicMetadataState {
     data class Available(val snapshot: TopicSnapshot) : TopicMetadataState
+    data object ResetPending : TopicMetadataState
     data object Fresh : TopicMetadataState
     data object Missing : TopicMetadataState
     data object Unreadable : TopicMetadataState
@@ -120,6 +121,12 @@ sealed interface TopicMetadataState {
 interface TopicStore {
     suspend fun read(): TopicSnapshot?
     suspend fun readMetadata(): TopicSnapshot? = read()
+    /** Cheap reset-intent probe; stores without reset support report no pending intent. */
+    suspend fun resetPending(): Boolean = false
+    /** Records an explicit destructive reset before any derived store is cleared. */
+    suspend fun beginReset(): Boolean = false
+    /** Finishes a recorded reset only after all other derived stores were cleared. */
+    suspend fun finishReset(snapshot: TopicSnapshot): TopicWriteResult = TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
     /** The default cannot distinguish an absent store from a failed read. */
     suspend fun inspectMetadata(): TopicMetadataState = TopicMetadataState.Unknown
     /** Worker-only access; implementations may return a paged view with synchronous reads. */

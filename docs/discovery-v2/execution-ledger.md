@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: A durable reset intent resumes interrupted evidence-first index
+clears and protects old catalog evidence; fault proofs and limitations are in §215.
+
 2026-11-03: Compatible catalogs migrate after source reconciliation (§213).
 Explicit index clear now persists an empty ready catalog for rebuilding; migration
 and reset fault tests, verification and remaining interruption limits are in §214.

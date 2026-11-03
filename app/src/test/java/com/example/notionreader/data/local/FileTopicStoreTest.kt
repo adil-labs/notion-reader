@@ -735,4 +735,23 @@ class FileTopicStoreTest {
         assertEquals(TopicMetadataState.Unknown, store.inspectMetadata())
     }
 
+    @Test fun aPendingResetSurvivesRecreationAndRejectsOrdinaryWrites() = runBlocking {
+        val directory = File(temporary.newFolder(), "topics")
+        val store = FileTopicStore(directory)
+        val old = TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true)
+        assertTrue(store.write(old))
+        assertTrue(store.beginReset())
+        val reopened = FileTopicStore(directory)
+        assertEquals(TopicMetadataState.ResetPending, reopened.inspectMetadata())
+        assertNull(reopened.read())
+        assertNull(reopened.readMetadata())
+        assertFalse(reopened.write(old))
+        reopened.clear()
+        assertEquals(TopicMetadataState.ResetPending, FileTopicStore(directory).inspectMetadata())
+        assertTrue(reopened.finishReset(old.copy(acceptedRevisions = mapOf("source" to "revision"))) is TopicWriteResult.Rejected)
+        assertEquals(TopicMetadataState.ResetPending, reopened.inspectMetadata())
+        assertEquals(TopicWriteResult.Written, reopened.finishReset(old))
+        assertTrue(FileTopicStore(directory).inspectMetadata() is TopicMetadataState.Available)
+    }
+
 }

@@ -13672,3 +13672,35 @@ device or TalkBack. A crash after deletion and before the empty catalog write
 still fails closed and requires recovery; a failed clear is not automatically
 retried. Edited-citation continuity, interrupted multi-store recovery, new-path
 activation and complete legacy production removal remain open.
+
+
+## 215. Resume interrupted Discovery resets (2026-11-03)
+
+A reset previously deleted the topic catalog and only then wrote an empty ready
+catalog. Interruption in that interval left a missing catalog with no proof that
+it was safe to rebuild. The evidence-first path now records a zero-byte reset
+intent before clearing the index or other derived stores. While it exists, file
+store reads hide the catalog and ordinary catalog writes are refused. Clearing
+retains the intent. A successful empty-catalog commit removes it under the store
+lock only after the index, progress, labels and retrieval stores have been
+cleared. An interrupted attempt is resumed before ordinary reconciliation; the
+explicit Resume action also completes a pending reset before re-enabling work.
+Interests and follows remain untouched. Reset-in-progress also hides the prior
+in-memory publication immediately. The normal recovery check probes only the
+marker, rather than decoding the catalog on each reconciliation.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Reconcile a pending reset before ordinary work | `anInterruptedResetBeforeIndexClearRecoversOnRecreation` and `anInterruptedResetBeforeCatalogCommitRecoversOnRecreation` both failed with the recovery branch removed. |
+| Refuse ordinary writes while reset is pending | `aPendingResetSurvivesRecreationAndRejectsOrdinaryWrites` failed when that guard was removed. |
+
+The real-file-store tests simulate interruption before index clearing and before
+the final catalog commit, then recreate the controller and verify a paused empty
+index and catalog, cleared sidecars and preserved follow. They do not kill an
+Android process or prove power-loss durability; store locks remain process-local.
+A refused or malformed intent fails closed and requires the underlying storage
+problem to be resolved. The full JVM suite passed 1,604 tests without failures,
+errors or skips; debug assembly and Android-test compilation passed. No new
+TalkBack or representative-device result is claimed. Edited-citation continuity,
+remaining multi-store races, new-path activation and removal of the legacy
+production path are still open.

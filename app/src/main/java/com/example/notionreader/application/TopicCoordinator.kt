@@ -1089,7 +1089,7 @@ internal class TopicCoordinator(
         // Persist it so a recreated coordinator can resume after the user requests rebuilding.
         val empty = if (requireKnownCatalogOnRestore) TopicSnapshot(identity = identity(), canonicalCatalogReady = true,
             policyVersion = policy.version, connectionPassComplete = false) else TopicSnapshot()
-        val result = if (requireKnownCatalogOnRestore) store.writeDetailed(empty) else TopicWriteResult.Written
+        val result = if (requireKnownCatalogOnRestore) store.finishReset(empty) else TopicWriteResult.Written
         val failure = (result as? TopicWriteResult.Rejected)?.let(::persistenceFailureMessage)
         latest = if (failure == null) empty else TopicSnapshot()
         loaded = failure == null

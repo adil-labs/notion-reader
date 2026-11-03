@@ -809,6 +809,8 @@ class DiscoveryController(
         withContext(workDispatcher) {
             mutable.update { it.copy(workPending = hasPendingWork) }
             try {
+                if (enableEvidenceFirstScheduling && topicStore?.resetPending() == true && recoverPendingReset())
+                    return@withContext
                 indexing.reconcileInBackground(entries, mayIndex)
                 if (mayIndex && mayContinueWork() && !state.value.paused && runtime.foregroundQueries.get() == 0 &&
                     topics?.sourceAcceptancePending != true && state.value.indexFailure == null && (state.value.topicFailure == null || state.value.topicFailure == membershipFailure || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
@@ -951,10 +953,33 @@ class DiscoveryController(
         runtime.interruptLabeling()
         runtime.closeLabels()
     }
-    suspend fun resume() = runtime.commits.withLock { membershipScheduler.retryBlocked(); evidenceScheduler.retryBlocked(); indexing.reconciliationPending = true; index.setPaused(false); mutable.update { it.copy(paused = false) }; wake.value++ }
+    suspend fun resume() {
+        if (enableEvidenceFirstScheduling && topicStore?.resetPending() == true) {
+            recoverPendingReset()
+            if (topicStore.resetPending()) return
+        }
+        runtime.commits.withLock { membershipScheduler.retryBlocked(); evidenceScheduler.retryBlocked(); indexing.reconciliationPending = true; index.setPaused(false); mutable.update { it.copy(paused = false) }; wake.value++ }
+    }
+    private suspend fun recoverPendingReset(): Boolean = runtime.commits.withLock {
+        if (topicStore?.resetPending() != true) return@withLock false
+        clearIndexLocked(false)
+        true
+    }
     suspend fun clearIndex(preserveTopicContinuity: Boolean = false) = runtime.commits.withLock {
+        clearIndexLocked(preserveTopicContinuity)
+    }
+    private suspend fun clearIndexLocked(preserveTopicContinuity: Boolean) {
+        if (enableEvidenceFirstScheduling && !preserveTopicContinuity && topicStore != null && !topicStore.beginReset()) {
+            index.setPaused(true)
+            mutable.update { it.copy(paused = true, topicFailure = "Topic reset needs storage before it can continue.") }
+            return
+        }
         connectionProjection.clear()
         runtime.embeddingMemo.clear()
+        if (enableEvidenceFirstScheduling && !preserveTopicContinuity) mutable.update {
+            it.copy(topicSnapshot = TopicSnapshot(), publishedTopics = emptyList(), topicsUpdated = false,
+                topicStatus = "Clearing Discovery data…", topicFailure = null)
+        }
         runtime.generation.incrementAndGet(); membershipWorkPending = false; evidenceWorkPending = enableEvidenceFirstScheduling; membershipScheduler.retryBlocked(); evidenceScheduler.reset(); search.reset(); index.clear()
         passageProgressStore?.clear()
         proposalProgressStore?.clear()
