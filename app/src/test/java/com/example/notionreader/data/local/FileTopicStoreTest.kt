@@ -65,13 +65,18 @@ class FileTopicStoreTest {
         val concept = CanonicalConceptEvidence(key, "Seeds", "Seeds need moisture.", "Listen about seeds.",
             generator, verifier, offered, listOf(assessment), listOf(ProposalEvidenceRef("match", "r3", "m")),
             mapOf("note" to "r1", "other" to "r2", "match" to "r3"), true,
-            incomplete = setOf(ProposalIncompleteReason.STRUCTURE))
+            incomplete = setOf(ProposalIncompleteReason.STRUCTURE),
+            queryEmbedding = TopicQueryEmbedding(TopicRetrievalQuery("topic", key, "Seeds\nSeeds need moisture.",
+                model, TopicRetrievalPolicy(.8f)), listOf(1f, 0f)))
         val topic = DiscoveredTopic("topic", "Seeds", passage, EmbeddedPassage(passage, listOf(1f, 0f)),
             listOf(member), 1, canonicalConcept = concept)
         val snapshot = TopicSnapshot(topics = listOf(topic), identity = model, acceptedRevisions = mapOf("note" to "r1", "other" to "r2", "match" to "r3"))
         val store = FileTopicStore(directory)
         assertEquals(TopicWriteResult.Written, store.writeDetailed(snapshot))
         assertEquals(concept, FileTopicStore(directory).read()!!.topics.single().canonicalConcept)
+        val invalidQuery = concept.queryEmbedding!!.copy(query = concept.queryEmbedding.query.copy(topicId = "other"))
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidTopic),
+            store.writeDetailed(snapshot.copy(topics = listOf(topic.copy(canonicalConcept = concept.copy(queryEmbedding = invalidQuery))))))
         assertNull(invalidateTopics(snapshot, setOf("other"), false).topics.single().canonicalConcept)
         val withdrawnMatch = invalidateTopics(snapshot, setOf("match"), false).topics.single().canonicalConcept!!
         assertTrue(withdrawnMatch.supported.isEmpty())

@@ -20,7 +20,9 @@ internal fun existingConceptScanScope(snapshot: TopicSnapshot, record: SemanticR
     val fields = listOf(version, snapshot.generation.toString(), passageDeltaFingerprint(record),
         identity.toString(), policy.toString(), verifier.toString(), epoch.toString(), queryTicket) +
         sources.toSortedMap().entries.flatMap { listOf(it.key, it.value) } + topics.flatMap { topic ->
-            listOf(topic.id, topic.createdOrder.toString(), topic.currentGeneratedLabel?.workKey.orEmpty()) +
+            listOf(topic.id, topic.createdOrder.toString(), topic.currentGeneratedLabel?.workKey.orEmpty(),
+                topic.currentCanonicalProjection?.workKey.orEmpty(), topic.canonicalConcept?.queryEmbedding?.query?.key.orEmpty()) +
+                topic.canonicalConcept?.queryEmbedding?.vector.orEmpty().map { it.toRawBits().toString() } +
                 topic.members.sortedBy { it.pageId }.flatMap { listOf(it.pageId, it.revision, it.passage.id) }
         }
     return semanticHash(fields.joinToString("") { "${it.length}:$it" })

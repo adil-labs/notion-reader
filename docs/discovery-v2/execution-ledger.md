@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Connected hydrated canonical concepts to independently verified
+existing-concept scans using persisted query vectors. Failing-first proof and
+1,537 JVM tests are in §200; automatic scheduling remains open.
+
 2026-11-03: Recovered verifier-incompatible Note checkpoints by guarded rescan.
 Failing-first proofs and 1,536 JVM tests are recorded in §199; automatic
 scheduling remains open.

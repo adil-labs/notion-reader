@@ -112,7 +112,9 @@ internal class TopicCoordinator(
         val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
             concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations,
             supported, candidate.sources, matchingComplete = true, proposalKey = candidate.proposal.proposalKey,
-            incomplete = candidate.proposal.incomplete)
+            incomplete = candidate.proposal.incomplete,
+            queryEmbedding = candidate.query.copy(query = TopicRetrievalQuery(id, candidate.generation.workKey,
+                candidate.query.query.text, ticket.identity, candidate.query.query.policy)))
         val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order + 1,
             canonicalConcept = evidence)
         val continuity = TopicContinuity(id, order + 1, setOf(citation.pageId), setOf(topicEvidenceIdentity(anchor.passage)),

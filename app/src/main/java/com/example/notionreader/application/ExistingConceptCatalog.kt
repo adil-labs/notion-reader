@@ -18,6 +18,19 @@ internal suspend fun currentExistingConcept(topic: DiscoveredTopic, identity: Em
             val id = canonicalSemanticId(member.pageId)
             id.isBlank() || member.revision.isBlank() || sources[id] != member.revision
         }) return ExistingConceptCatalogResult.Stale
+    val canonical = topic.canonicalConcept
+    if (canonical != null) {
+        val projection = topic.currentCanonicalProjection ?: return ExistingConceptCatalogResult.Unavailable
+        if (canonical.offered.any { sources[it.pageId] != it.revision }) return ExistingConceptCatalogResult.Stale
+        val query = canonical.queryEmbedding ?: return ExistingConceptCatalogResult.Unavailable
+        val expected = TopicRetrievalQuery(topic.id, canonical.workKey,
+            "${projection.name.trim()}\n${projection.definition.trim()}", identity, policy)
+        if (query.query != expected || projection.name != canonical.name || projection.definition != canonical.definition)
+            return ExistingConceptCatalogResult.Unavailable
+        return if (current()) ExistingConceptCatalogResult.Ready(
+            SupportConcept(topic.id, canonical.workKey, projection.name, projection.definition), query)
+            else ExistingConceptCatalogResult.Stale
+    }
     val label = topic.currentGeneratedLabel ?: return ExistingConceptCatalogResult.Unavailable
     val text = topicConceptQuery(label) ?: return ExistingConceptCatalogResult.Unavailable
     val expected = TopicRetrievalQuery(topic.id, label.workKey, text, identity, policy)

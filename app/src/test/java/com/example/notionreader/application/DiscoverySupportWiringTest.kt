@@ -16,6 +16,8 @@ class DiscoverySupportWiringTest {
     private fun assertCanonicalMatches(topic: DiscoveredTopic, revision: String) {
         val concept = requireNotNull(topic.canonicalConcept)
         assertTrue(concept.matchingComplete)
+        assertEquals(topic.id, concept.queryEmbedding!!.query.topicId)
+        assertEquals(concept.workKey, concept.queryEmbedding!!.query.conceptWorkKey)
         assertEquals(setOf(ProposalIncompleteReason.STRUCTURE), concept.incomplete)
         assertEquals(listOf(ProposalEvidenceRef("note", revision, "p")), concept.supported)
         assertEquals(mapOf("note" to revision), concept.scannedRevisions)

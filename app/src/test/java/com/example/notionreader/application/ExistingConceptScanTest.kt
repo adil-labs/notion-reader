@@ -30,6 +30,30 @@ class ExistingConceptScanTest {
         val label = topic.currentGeneratedLabel!!
         return TopicQueryEmbedding(TopicRetrievalQuery(topic.id, label.workKey, topicConceptQuery(label)!!, identity, policy), listOf(1f, 0f))
     }
+    @Test fun savedCanonicalConceptParticipatesInIndependentExistingConceptChecks() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        val note = record("note"); assertTrue(index.write(note))
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))
+        val original = topic("canonical", 1); val label = original.currentGeneratedLabel!!
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(original.id, label.workKey, topicConceptQuery(label)!!, identity, policy), listOf(1f, 0f))
+        val concept = CanonicalConceptEvidence(label.workKey, label.text, label.definition, "Listen about seeds.",
+            verifier, verifier, emptyList(), emptyList(), queryEmbedding = query)
+        val projection = CanonicalTopicProjection(label.workKey, label.text, label.definition, "Listen about seeds.", emptyList(), emptyList())
+        val canonical = original.copy(generatedLabel = null, canonicalConcept = concept, canonicalProjection = projection)
+        val snapshot = TopicSnapshot(topics = listOf(canonical), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        val changedQuery = canonical.copy(canonicalConcept = concept.copy(queryEmbedding = query.copy(vector = listOf(0f, 1f))))
+        assertNotEquals(existingConceptScanScope(snapshot, note, identity, policy, verifier, 4, sources, "ticket"),
+            existingConceptScanScope(snapshot.copy(topics = listOf(changedQuery)), note, identity, policy, verifier, 4, sources, "ticket"))
+        var calls = 0
+        val result = scanExistingConceptPage(snapshot, note, identity, policy, verifier, 4, sources, retrievals,
+            index, progress, null, 1, { true }, { true }) { calls++; TopicSupportRun.Completed(SupportDecision.UNSUPPORTED) }
+        assertTrue(result is ExistingConceptScanResult.Page)
+        assertTrue((result as ExistingConceptScanResult.Page).supported.isEmpty())
+        assertEquals(1, calls)
+        assertEquals(ExistingConceptScanResult.Incomplete, scanExistingConceptPage(snapshot.copy(topics = listOf(canonical.copy(canonicalProjection = null))),
+            note, identity, policy, verifier, 4, sources, retrievals, index, progress, null, 1, { true }, { true }) { error("No verification") })
+    }
     @Test fun conceptPagesAdvanceWithoutTreatingSimilarityAsSupport() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val note = record("note"); index.write(note)
         val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))

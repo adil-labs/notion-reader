@@ -14,7 +14,7 @@ data class CanonicalConceptEvidence(val workKey: String, val name: String, val d
     val offered: List<ProposalEvidenceRef>, val citations: List<TopicSupportAssessment>,
     val supported: List<ProposalEvidenceRef> = emptyList(), val scannedRevisions: Map<String, String> = emptyMap(),
     val matchingComplete: Boolean = false, val proposalKey: String = "",
-    val incomplete: Set<ProposalIncompleteReason> = emptySet())
+    val incomplete: Set<ProposalIncompleteReason> = emptySet(), val queryEmbedding: TopicQueryEmbedding? = null)
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
     val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,

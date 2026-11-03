@@ -13203,3 +13203,26 @@ skips; debug assembly and Android-test Kotlin compilation passed. No semantic
 quality or device claim follows. Automatic scheduling, the completed-catalog
 dependency, post-replacement race recovery and quality/device/human gates remain
 open.
+
+## 200. Match existing canonical concepts before new proposals (2026-11-03)
+
+Admission now saves the already computed concept-query embedding under the
+canonical topic ID inside the existing topic record. After source-checked
+hydration, the existing-concept scan can use this query to retrieve candidate
+passages and still requests an independent support decision. The scan scope
+includes the canonical query key and vector, so a changed query invalidates
+continuation. The topic store validates the query's topic, model, work key and
+text. Legacy canonical records without a saved query stay unavailable for this
+scan; policy-change migration and automatic scheduling remain open.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Recognize hydrated canonical topics in existing-concept lookup | `savedCanonicalConceptParticipatesInIndependentExistingConceptChecks` failed. |
+
+The test also checks that an unsupported candidate is not assigned and that
+a vector change changes the scan scope. Topic-store tests cover query identity
+and round-trip storage. The full JVM suite passed 1,537 tests without failures,
+errors or skips; debug assembly and Android-test Kotlin compilation passed.
+This uses controlled runtimes and does not establish model quality or device
+performance. Removal of the completed-catalog dependency, process-owned
+scheduling, post-replacement race recovery and release gates remain open.

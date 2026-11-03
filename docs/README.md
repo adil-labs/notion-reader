@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#199-recover-pending-note-scans-after-verifier-changes-2026-11-03)
+[the current decision-record entry](decisions.md#200-match-existing-canonical-concepts-before-new-proposals-2026-11-03)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
