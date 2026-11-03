@@ -67,7 +67,8 @@ data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val co
     val catalogReference: ConnectionCatalogReference? = null,
     val referenceTitles: Map<String, String> = emptyMap(),
     val connectionWork: ConnectionWork = ConnectionWork(),
-    val formationReuse: FormationReuse? = null)
+    val formationReuse: FormationReuse? = null,
+    val canonicalCatalogReady: Boolean = false)
 /** Input identities and directional work are persisted together; all keys are opaque hashes. */
 @Serializable
 data class ConnectionWork(val inputs: Map<String, String> = emptyMap(),

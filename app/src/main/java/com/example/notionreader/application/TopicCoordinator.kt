@@ -67,7 +67,8 @@ internal class TopicCoordinator(
     }
     /** Captured from the sole coordinator; object identity changes on catalog or label publication. */
     suspend fun captureCatalogTicket(allowIncomplete: Boolean = false): TopicCatalogTicket? = writes.withLock {
-        if (!loaded || (!latest.complete && !allowIncomplete) || cache.invalidations.value.isNotEmpty()) return@withLock null
+        if (!loaded || cache.invalidations.value.isNotEmpty()) return@withLock null
+        if (!allowIncomplete && if (requireKnownCatalogOnRestore) !latest.canonicalCatalogReady else !latest.complete) return@withLock null
         val snapshot = latest
         val model = identity()
         if (snapshot.identity != model) return@withLock null
@@ -402,7 +403,22 @@ internal class TopicCoordinator(
         if (!loaded) {
             latest = if (requireKnownCatalogOnRestore) {
                 when (val result = restoreStep("restoreMetadata") { store.inspectMetadata() }) {
-                    is TopicMetadataState.Available -> result.snapshot
+                    is TopicMetadataState.Available -> {
+                        val snapshot = result.snapshot
+                        val model = identity()
+                        if (!snapshot.canonicalCatalogReady && snapshot.complete && snapshot.formationProgress == null &&
+                            snapshot.provisionalTopics.isEmpty() && snapshot.identity == model && snapshot.acceptedRevisions == sources &&
+                            cache.invalidations.value.isEmpty()) {
+                            val migrated = snapshot.copy(canonicalCatalogReady = true)
+                            fun current() = cache.revision.value == cacheRevision && cache.invalidations.value.isEmpty() && identity() == model
+                            if (store.writeGuarded(migrated, ::current) != TopicGuardedWriteResult.Written || !current()) {
+                                needsMoreWork = true
+                                failed("Topic catalog migration is incomplete. Retry processing.")
+                                return@withLock
+                            }
+                            migrated
+                        } else snapshot
+                    }
                     else -> {
                         // Unknown state is not proof of an empty canonical catalog. On withdrawal,
                         // remove uninspectable derived evidence and leave the invalidation pending.
@@ -564,7 +580,7 @@ internal class TopicCoordinator(
     }
 
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long) {
-        if (requireKnownCatalogOnRestore && !loaded || cache.revision.value != cacheRevision || !mayWork()) return
+        if (requireKnownCatalogOnRestore || cache.revision.value != cacheRevision || !mayWork()) return
         buildGeneration(sources, metadataVersion, cacheRevision)
     }
     /** Formation is bounded by comparisons, never by admitted source sections. */

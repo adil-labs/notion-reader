@@ -21,7 +21,9 @@ class EvidenceFirstSchedulingIntegrationTest {
     @Test fun withdrawalDiscardsUnreadableEvidenceWithoutBootstrappingAnEmptyCatalog() = runBlocking {
         scenario(false, corrupt = true, withdraw = true)
     }
-    private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false) {
+    @Test fun oneNoteCanBeAdmittedWithoutGlobalFormation() = runBlocking { scenario(true, incrementalCatalog = true) }
+    private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false,
+        incrementalCatalog: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
@@ -35,9 +37,9 @@ class EvidenceFirstSchedulingIntegrationTest {
         index.setPaused(false)
         val sources = mapOf("note" to revision); val policy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
-        assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(identity = model, complete = true,
+        assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(identity = model, complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog,
             connectionPassComplete = true, acceptedRevisions = sources, policyVersion = policy.version,
-            sourceSignature = topicSourceSignature(model, policy, semanticMetadataHash(mapOf("note" to meta)), sources))))
+            sourceSignature = if (incrementalCatalog) null else topicSourceSignature(model, policy, semanticMetadataHash(mapOf("note" to meta)), sources))))
         if (corrupt) root.resolve("topics/topics.json").writeText("{broken")
         var calls = 0; var fail = failFirst
         val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
@@ -66,6 +68,9 @@ class EvidenceFirstSchedulingIntegrationTest {
             topicProposalIdentity = { identity }, enableEvidenceFirstScheduling = true)
         var controller = controller()
         controller.reconcile(emptyList(), false)
+        if (!corrupt && !incrementalCatalog) {
+            assertTrue("A compatible legacy catalog must migrate before incremental work", controller.state.value.topicSnapshot.canonicalCatalogReady)
+        }
         assertEquals(0, calls)
         if (corrupt) {
             repeat(3) { controller.reconcile(emptyList(), true) }
@@ -95,12 +100,13 @@ class EvidenceFirstSchedulingIntegrationTest {
             repeat(80) { controller.reconcile(emptyList(), true) }
         }
         val expectedCalls = if (failFirst) 2 else 1
-        assertEquals(expectedCalls, calls)
+        assertEquals("state=${controller.state.value}", expectedCalls, calls)
         if (concept) {
             assertTrue("state=${controller.state.value}, pending=${controller.hasPendingWork}", controller.state.value.topicSnapshot.topics.any { it.canonicalConcept != null })
             val admitted = controller.state.value.topicSnapshot.topics.single { it.canonicalConcept != null }
             assertEquals(setOf("note"), admitted.matchingMembers.map { it.pageId }.toSet())
             assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(admitted))
+            if (incrementalCatalog) assertFalse("Admission must not require global formation", controller.state.value.topicSnapshot.complete)
         }
         assertFalse(controller.hasPendingWork)
         controller = controller()

@@ -862,13 +862,17 @@ class DiscoveryController(
 
     /** Reuses the process reconciliation window and the same inference and commit gates. */
     private suspend fun advanceScheduledEvidence() = membershipSchedulerLock.withLock {
-        val owner = topics ?: return@withLock
-        val ticket = owner.captureCatalogTicket() ?: return@withLock
+        fun block() {
+            evidenceWorkPending = true
+            mutable.update { it.copy(topicFailure = evidenceFailure) }
+        }
+        val owner = topics ?: return@withLock block()
+        val ticket = owner.captureCatalogTicket() ?: return@withLock block()
         val sources = runtime.validity.eligibleRevisions()
-        val verifier = topicSupportIdentity() ?: return@withLock
-        val generator = topicProposalIdentity() ?: return@withLock
+        val verifier = topicSupportIdentity() ?: return@withLock block()
+        val generator = topicProposalIdentity() ?: return@withLock block()
         if (proposalProgressStore == null || !owner.isCatalogTicketCurrent(ticket) || sources != ticket.snapshot.acceptedRevisions)
-            return@withLock
+            return@withLock block()
         val fields = listOf("evidence-schedule-v1", ticket.epoch.toString(), ticket.cacheRevision.toString(),
             ticket.identity.toString(), ticket.queryTicket, mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
             sources.toSortedMap().flatMap { listOf(it.key, it.value) }

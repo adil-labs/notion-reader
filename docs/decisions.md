@@ -13455,3 +13455,41 @@ not a complete recovery image. First-catalog initialization, interrupted cleanup
 independent source-checked catalog completeness, and removal of legacy formation
 remain open. The user requested dropping legacy code as the replacement is integrated;
 the old path remains until the replacement can safely serve that role.
+
+
+## 209. Decouple known catalogs from legacy formation (2026-11-03)
+
+The user requested removing the legacy path entirely. As a step toward that
+replacement, the gated evidence-first path no longer calls the global formation
+branch. A separately persisted canonical-catalog readiness marker identifies a
+known catalog independently of the old formation-complete flag. The file store
+rejects a readiness marker on a snapshot containing partial formation work or
+provisional topics. A complete legacy catalog whose model and source revisions
+still match can migrate the marker through a guarded write; topic identities and
+contents are retained. Existing-concept scanning and canonical membership updates
+accept a marked catalog without requiring legacy formation to complete. Missing
+model identities or unavailable catalog work remains pending and reports a
+processing failure instead of spinning through a work window.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Admit from a known catalog without completing legacy formation | `oneNoteCanBeAdmittedWithoutGlobalFormation` failed before the change. |
+| Update memberships without completing legacy formation | `canonicalMembershipUpdatesDoNotRequireCompletedFormation` failed. |
+| Reject a ready marker on partial formation work | `aPartialFormationCannotClaimTheCanonicalCatalogIsReady` failed. |
+| Mark compatible existing catalogs before replacement processing | `reconciliationRunsAndReusesAnAbstainedProposal` failed before migration was added. |
+| Stop when proposal identities are unavailable | `canonicalMembershipUpdatesDoNotRequireCompletedFormation` failed the pending-failure assertion before the fix. |
+
+The real-store integration tests use fake model responses, verify a one-Note
+admission and an existing topic's identity and membership, and recreate the
+controller and stores. They do not prove OS process death, follow migration, real
+model quality, or TalkBack speech. The JVM suite passed 1,556 tests with no
+failures, errors or skips; debug assembly and Android-test compilation passed.
+
+The marker is currently initialized by compatible-catalog migration or test
+fixtures, not by a first-install bootstrap. Updating the accepted source inventory
+without legacy formation, rebuilding independent connections, handling incomplete
+legacy migrations and post-write interruption remain open. The app still uses the
+legacy production path because the replacement cannot yet serve those cases; the
+legacy engine has not been deleted. The user requested complete removal, so the
+remaining work is to replace those responsibilities, activate the new path, and
+remove the old production branch rather than retain two competing pipelines.

@@ -593,4 +593,13 @@ class FileTopicStoreTest {
         assertTrue("Inspection must not turn corruption into a fresh catalog", file.exists())
     }
 
+    @Test fun aPartialFormationCannotClaimTheCanonicalCatalogIsReady() = runBlocking {
+        val store = FileTopicStore(temporary.newFolder())
+        val partial = TopicSnapshot(formationProgress = TopicFormationProgress("input", 0, emptyList()))
+        assertEquals(TopicWriteResult.Written, store.writeDetailed(partial))
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidSnapshotProgress),
+            store.writeDetailed(partial.copy(canonicalCatalogReady = true)))
+        assertFalse(store.readMetadata()!!.canonicalCatalogReady)
+    }
+
 }

@@ -16,7 +16,7 @@ internal sealed interface ExistingConceptScanResult {
 internal fun existingConceptScanScope(snapshot: TopicSnapshot, record: SemanticRecord, identity: EmbeddingIdentity,
     policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>, queryTicket: String): String {
     val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })
-    val version = if (snapshot.complete) "existing-concept-scan-v1" else "known-concept-scan-v1"
+    val version = if (snapshot.complete || snapshot.canonicalCatalogReady) "existing-concept-scan-v1" else "known-concept-scan-v1"
     val fields = listOf(version, snapshot.generation.toString(), passageDeltaFingerprint(record),
         identity.toString(), policy.toString(), verifier.toString(), epoch.toString(), queryTicket) +
         sources.toSortedMap().entries.flatMap { listOf(it.key, it.value) } + topics.flatMap { topic ->
@@ -39,7 +39,7 @@ internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: Se
     if (!mayWork()) return ExistingConceptScanResult.Deferred
     val queryTicket = retrievals.queryTicket() ?: return ExistingConceptScanResult.Deferred
     fun valid() = current() && retrievals.queryTicket() == queryTicket
-    if (!snapshot.complete && !allowIncompleteCatalog) return ExistingConceptScanResult.Incomplete
+    if (!snapshot.complete && !snapshot.canonicalCatalogReady && !allowIncompleteCatalog) return ExistingConceptScanResult.Incomplete
     if (snapshot.identity != identity || record.identity != identity || sources[canonicalSemanticId(record.pageId)] != record.revision)
         return ExistingConceptScanResult.Stale
     val topics = snapshot.topics.sortedWith(compareBy<DiscoveredTopic> { it.createdOrder }.thenBy { it.id })

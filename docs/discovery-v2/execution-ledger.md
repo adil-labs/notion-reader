@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: The gated replacement skips legacy formation and uses a separately
+validated canonical-catalog readiness marker. Tests and remaining work are in §209.
+
 2026-11-03: The gated replacement distinguishes missing, unreadable and valid
 catalogs and fails closed on restoration. Failing-first proofs and limits are in §208.
 

@@ -29,7 +29,7 @@ internal class CanonicalMembershipScheduler {
     ): CanonicalMembershipScheduleResult {
         val concepts = snapshot.topics.mapNotNull { it.canonicalConcept }
         if (concepts.isEmpty()) { active = null; return CanonicalMembershipScheduleResult.Idle }
-        if (!snapshot.complete || concepts.any { it.verifier != verifier }) return CanonicalMembershipScheduleResult.Blocked
+        if ((!snapshot.complete && !snapshot.canonicalCatalogReady) || concepts.any { it.verifier != verifier }) return CanonicalMembershipScheduleResult.Blocked
         val firstSource = sources.keys.minOrNull()
         val pending = sources.toSortedMap().filter { (id, revision) -> concepts.any {
             it.scannedRevisions[id] != revision || !it.matchingComplete && it.scannedRevisions == sources && id == firstSource

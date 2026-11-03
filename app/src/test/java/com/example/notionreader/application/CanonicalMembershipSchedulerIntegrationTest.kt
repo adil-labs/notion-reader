@@ -14,7 +14,10 @@ import org.junit.rules.TemporaryFolder
 
 class CanonicalMembershipSchedulerIntegrationTest {
     @get:Rule val files = TemporaryFolder()
-    @Test fun reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic() = runBlocking {
+    @Test fun reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic() = runBlocking { scenario(false) }
+    @Test fun canonicalMembershipUpdatesDoNotRequireCompletedFormation() = runBlocking { scenario(true) }
+    @Test fun migrationPreservesAnExistingCanonicalTopicIdentity() = runBlocking { scenario(false, migrateLegacy = true) }
+    private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val progress = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
@@ -50,7 +53,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         val topicPolicy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
         assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(topics = listOf(topic), identity = model,
-            complete = true, connectionPassComplete = true, acceptedRevisions = sources, policyVersion = topicPolicy.version,
+            complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = true, acceptedRevisions = sources, policyVersion = topicPolicy.version,
             sourceSignature = topicSourceSignature(model, topicPolicy, semanticMetadataHash(metadata), sources))))
         var calls = 0
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
@@ -67,9 +70,11 @@ class CanonicalMembershipSchedulerIntegrationTest {
         fun controller() = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
             topicStore = FileTopicStore(root.resolve("topics")), topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), topicRetrievalPolicy = policy,
-            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { verifier })
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { verifier },
+            enableEvidenceFirstScheduling = incrementalCatalog || migrateLegacy)
         var controller = controller()
         controller.reconcile(emptyList(), false)
+        if (migrateLegacy) assertTrue(controller.state.value.topicSnapshot.canonicalCatalogReady)
         assertEquals(0, calls)
         controller.reconcile(emptyList(), true)
         assertEquals(1, calls)
@@ -81,8 +86,12 @@ class CanonicalMembershipSchedulerIntegrationTest {
         assertEquals("topic", result.id)
         assertEquals(setOf("seed", "later"), result.matchingMembers.map { it.pageId }.toSet())
         assertEquals(TopicPublicationStatus.Established, discoveryTopicPublicationStatus(result))
+        if (incrementalCatalog) assertFalse(controller.state.value.topicSnapshot.complete)
         assertEquals(1, calls)
         controller.reconcile(emptyList(), true)
-        assertFalse(controller.hasPendingWork)
+        if (incrementalCatalog || migrateLegacy) {
+            assertTrue("Proposal work remains pending without a generator", controller.hasPendingWork)
+            assertNotNull("Unavailable proposal work must not spin as if it could advance", controller.state.value.topicFailure)
+        } else assertFalse(controller.hasPendingWork)
     }
 }

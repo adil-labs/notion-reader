@@ -75,6 +75,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     }
     private fun validationFailure(snapshot: TopicSnapshot, checkActive: () -> Unit = {}): TopicValidationReason? {
         checkActive()
+        if (snapshot.canonicalCatalogReady && (snapshot.formationProgress != null || snapshot.provisionalTopics.isNotEmpty()))
+            return TopicValidationReason.InvalidSnapshotProgress
         if (snapshot.schemaVersion != 1 || snapshot.engineVersion != SectionHierarchicalEngine.VERSION)
             return TopicValidationReason.InvalidIdentity
         val identity = snapshot.identity
