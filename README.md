@@ -5,12 +5,14 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current round](docs/decisions.md#134-native-structural-knowledge-phase-1-2026-10-26)).
-The [current Discovery plan](docs/superpowers/plans/2026-10-26-cluster-seeded-topic-retrieval.md)
-uses grouping as seed evidence, local Gemma 4 E2B names and definitions, then embedding retrieval
-across eligible indexed Notes as the sole topic pipeline, updating the catalog in place.
-Seed members never substitute for matching Notes. Matches can overlap or remain empty;
-unmatched Notes are allowed. Full LLM concept formation was rejected after low recall.
+Discovery refinement is in progress ([current decision record](docs/decisions.md#205-schedule-verified-existing-topic-updates-in-the-process-loop-2026-11-03)).
+The current production formation path still uses grouping, local Gemma naming and
+embedding retrieval. The repository is implementing an evidence-first replacement
+in the same coordinator and catalog; new-concept admission is not yet scheduled.
+For already admitted canonical concepts, the process loop now resumes bounded,
+independently verified membership updates from durable checkpoints. Seed members
+never substitute for matching Notes. Matches can overlap or remain empty, and
+unmatched Notes remain available. The earlier cluster-seeded plan is historical.
 The naming control improved useful labels to 33/39, but its 141-second generation cost,
 source grounding and device acceptance still need work. Typed label/invalidation
 contracts, native runtime and separate model-manager components are implemented. Public S25

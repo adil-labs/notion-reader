@@ -13324,3 +13324,36 @@ passed. This is not proof of process death at every point between the dependent
 store operations; interruption and failed-recovery cases remain open. Automatic
 scheduling, removal of the completed-catalog dependency and quality/device/human
 acceptance also remain open.
+
+## 205. Schedule verified existing-topic updates in the process loop (2026-11-03)
+
+The existing Discovery reconciliation loop now advances one bounded
+existing-concept membership operation for an eligible cached Note. It uses the
+existing coordinator, serialized inference runtime, durable scan checkpoints and
+guarded membership commit; it does not start a second worker. A saved scan can
+be replayed after controller and store recreation. Completed coverage is skipped,
+source or verifier changes invalidate the scheduler scope, and a blocked Note
+does not prevent other eligible Notes from being attempted. Blocked work remains
+visible as incomplete and is retried on an explicit continuation or changed
+availability. Pause, foreground queries and the existing resource checks still
+gate the path. This automatically updates already admitted canonical concepts;
+new proposal generation/admission is not scheduled, and the old formation path
+remains active and required.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Invoke the membership scheduler from reconciliation | `reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic` failed. |
+| Move past a blocked Note to another eligible Note | `boundedStepsResumeSavedScansAndDoNotRetireBlockedWork` failed before the fairness change. |
+
+The real-store JVM integration test pauses work, advances a scan, recreates the
+controller and stores, then verifies that the same topic gains the second Note
+without another support-model call. This is controller recreation, not proof of
+OS process death. The full JVM suite passed 1,540 tests with no failures, errors
+or skips; debug assembly and Android-test Kotlin compilation passed. The existing
+topic navigation accessibility class passed 22/22 on API 36 through the wrapper;
+it does not exercise a canonical scheduled journey or observe TalkBack speech.
+
+Remaining work includes new-topic orchestration, removal of the completed-catalog
+formation dependency, verifier-policy migration, post-write interruption and
+failed-recovery coverage, and comparative quality/resource and human/device gates.
+The replacement is not yet the sole production Discovery pipeline.

@@ -12,6 +12,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
@@ -48,10 +49,12 @@ class DiscoveryController(
     private val mutable = MutableStateFlow(DiscoveryState())
     private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
     fun updatePowerState(power: DiscoveryPowerState) {
+        if (mutable.value.power != power) membershipScheduler.retryBlocked()
         mutable.update { it.copy(power = power) }
         if (!mayContinueWork()) runtime.interruptLabeling()
     }
     fun updateWorkAvailability(effort: com.example.notionreader.domain.settings.DiscoveryEffort, availability: DiscoveryExecutionAvailability) {
+        if (mutable.value.effort != effort || mutable.value.executionAvailability != availability) membershipScheduler.retryBlocked()
         mutable.update { it.copy(effort = effort, executionAvailability = availability) }
         if (!mayContinueWork()) runtime.interruptLabeling()
     }
@@ -59,9 +62,13 @@ class DiscoveryController(
     val state = mutable.asStateFlow()
     val embeddingRuntime: kotlinx.coroutines.flow.StateFlow<EmbeddingRuntimeState> =
         (provider as? ObservableEmbeddingRuntime)?.runtimeState ?: MutableStateFlow(EmbeddingRuntimeState())
-    val hasPendingWork: Boolean get() = indexing.reconciliationPending || topics?.needsMoreWork == true ||
+    private val membershipScheduler = CanonicalMembershipScheduler()
+    private val membershipSchedulerLock = Mutex()
+    @Volatile private var membershipWorkPending = false
+    private val membershipFailure = "Some topic membership checks are incomplete. Retry processing."
+    val hasPendingWork: Boolean get() = indexing.reconciliationPending || topics?.needsMoreWork == true || membershipWorkPending ||
         state.value.indexedCount < state.value.cachedPageIds.size || state.value.cachedRevision != cache.revision.value
-    fun requestAutomaticContinuation() { wake.value++ }
+    fun requestAutomaticContinuation() { membershipScheduler.retryBlocked(); wake.value++ }
     suspend fun releaseTopicLabelModel() { runtime.closeLabels(); requestAutomaticContinuation() }
     private val wake = MutableStateFlow(0L)
     val revision = wake.asStateFlow()
@@ -795,10 +802,50 @@ class DiscoveryController(
     suspend fun reconcile(entries: List<ReaderIndexEntry>, mayIndex: Boolean) {
         withContext(workDispatcher) {
             mutable.update { it.copy(workPending = hasPendingWork) }
-            try { indexing.reconcileInBackground(entries, mayIndex) }
-            finally { mutable.update { it.copy(workPending = hasPendingWork) } }
+            try {
+                indexing.reconcileInBackground(entries, mayIndex)
+                if (mayIndex && mayContinueWork() && !state.value.paused && runtime.foregroundQueries.get() == 0 &&
+                    state.value.indexFailure == null && (state.value.topicFailure == null || state.value.topicFailure == membershipFailure)) {
+                    try { advanceScheduledMembership() }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) {
+                        membershipWorkPending = true
+                        mutable.update { it.copy(topicFailure = membershipFailure) }
+                    }
+                }
+            } finally { mutable.update { it.copy(workPending = hasPendingWork) } }
         }
     }
+    private suspend fun advanceScheduledMembership() = membershipSchedulerLock.withLock {
+        val owner = topics ?: return@withLock
+        val ticket = owner.captureCatalogTicket() ?: return@withLock
+        val sources = runtime.validity.eligibleRevisions()
+        if (!owner.isCatalogTicketCurrent(ticket)) return@withLock
+        val verifier = topicSupportIdentity()
+        val pending = canonicalMembershipNeedsWork(ticket.snapshot, sources, verifier)
+        if (!pending) {
+            membershipWorkPending = false
+            mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
+            return@withLock
+        }
+        if (verifier == null || proposalProgressStore == null) {
+            membershipWorkPending = true
+            mutable.update { it.copy(topicFailure = membershipFailure) }
+            return@withLock
+        }
+        mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
+        when (membershipScheduler.step(ticket.snapshot, sources, verifier,
+            scan = { page, restart -> advanceExistingConceptWorkForNote(page, 8, restart) },
+            commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) })) {
+            CanonicalMembershipScheduleResult.Idle -> membershipWorkPending = false
+            CanonicalMembershipScheduleResult.Progress -> { membershipWorkPending = true; wake.value++ }
+            CanonicalMembershipScheduleResult.Blocked -> {
+                membershipWorkPending = true
+                mutable.update { it.copy(topicFailure = membershipFailure) }
+            }
+        }
+    }
+
     suspend fun search(text: String, filters: BrowseQuery = state.value.filters) = search.search(text, filters)
 
     /** Optional numeric diagnostics must never change search behavior or expose source/query text. */
@@ -817,11 +864,11 @@ class DiscoveryController(
         runtime.interruptLabeling()
         runtime.closeLabels()
     }
-    suspend fun resume() = runtime.commits.withLock { indexing.reconciliationPending = true; index.setPaused(false); mutable.update { it.copy(paused = false) }; wake.value++ }
+    suspend fun resume() = runtime.commits.withLock { membershipScheduler.retryBlocked(); indexing.reconciliationPending = true; index.setPaused(false); mutable.update { it.copy(paused = false) }; wake.value++ }
     suspend fun clearIndex(preserveTopicContinuity: Boolean = false) = runtime.commits.withLock {
         connectionProjection.clear()
         runtime.embeddingMemo.clear()
-        runtime.generation.incrementAndGet(); search.reset(); index.clear()
+        runtime.generation.incrementAndGet(); membershipWorkPending = false; membershipScheduler.retryBlocked(); search.reset(); index.clear()
         passageProgressStore?.clear()
         proposalProgressStore?.clear()
         interests.resetRequests()

@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Enabled bounded automatic updates for existing canonical topic
+memberships in the process reconciliation loop. Failing-first proofs, 1,540 JVM
+tests and 22/22 existing navigation tests are in §205. New-topic scheduling and
+formation removal remain open.
+
 2026-11-03: Recover unaffected catalog state and withdraw pending evidence after
 a stale post-replacement write. Failing-first proofs and 1,538 JVM tests are in
 §204; interruption and failed-recovery coverage remain open.
