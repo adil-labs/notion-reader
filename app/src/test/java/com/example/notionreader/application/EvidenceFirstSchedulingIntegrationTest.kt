@@ -23,18 +23,21 @@ class EvidenceFirstSchedulingIntegrationTest {
     }
     @Test fun oneNoteCanBeAdmittedWithoutGlobalFormation() = runBlocking { scenario(true, incrementalCatalog = true) }
     @Test fun connectionWorkCompletesAfterNewSourceAdmission() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true) }
+    @Test fun indexedNotesAreAcceptedBeforeAnotherNoteFailsIndexing() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true) }
+    @Test fun aNewlyIndexedNoteIsAcceptedBeforeTheNextNoteFails() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true, blockedIndex = true, newFirst = true) }
     private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false,
-        incrementalCatalog: Boolean = false, unaccepted: Boolean = false) {
+        incrementalCatalog: Boolean = false, unaccepted: Boolean = false, blockedIndex: Boolean = false, newFirst: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
         val verifier = identity.copy(prompt = "support")
         val text = "Moisture and warmth help seeds germinate and begin growing."
         val doc = ReaderDocument.fromChunkTexts("note", "Seeds", listOf(text)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+        if (blockedIndex) cache.put(CachedDocument(ReaderDocument.fromChunkTexts("later", "Later", listOf("Garden tools require maintenance.")), null, Instant.EPOCH))
         val revision = semanticRevision(doc)
         val passage = SemanticPassage("p", "note", "s", "Seeds", "b", "c", 0, text.length, text, text, 0)
         val meta = SemanticMetadata.from(ReaderIndexEntry("note", doc.title, doc.lastEditedAt))
-        assertTrue(index.write(SemanticRecord("note", revision, model, meta, listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
+        if (!newFirst) assertTrue(index.write(SemanticRecord("note", revision, model, meta, listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
         index.setPaused(false)
         val sources = mapOf("note" to revision); val policy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
@@ -58,11 +61,18 @@ class EvidenceFirstSchedulingIntegrationTest {
         }
         val provider = object : EmbeddingProvider {
             override val identity = model
-            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
-            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) =
+                if (blockedIndex && text.isNotEmpty()) listOf(SemanticToken(1, 0, text.length)) else emptyList() }
+            override suspend fun embed(text: String): List<Float> {
+                if (blockedIndex && (!newFirst || text.contains("tools", ignoreCase = true))) throw java.io.IOException("simulated indexing failure")
+                return listOf(1f, 0f)
+            }
             override fun release() {}
         }
-        fun controller() = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+        val orderedCache = object : com.example.notionreader.domain.document.DocumentCache by cache {
+            override suspend fun snapshot() = cache.snapshot().sortedBy { if (it.document.pageId == "note") 0 else 1 }
+        }
+        fun controller() = DiscoveryController(orderedCache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
             topicStore = FileTopicStore(root.resolve("topics")), topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
             proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { verifier },
@@ -73,6 +83,17 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertTrue("A compatible legacy catalog must migrate before incremental work", controller.state.value.topicSnapshot.canonicalCatalogReady)
         }
         assertEquals(0, calls)
+        if (blockedIndex) {
+            controller.reconcile(emptyList(), true)
+            val saved = graph.readMetadata()!!
+            assertEquals(sources, saved.acceptedRevisions)
+            assertFalse(saved.complete)
+            assertFalse(saved.connectionPassComplete)
+            assertEquals(2, controller.state.value.cachedPageIds.size)
+            assertNotNull(controller.state.value.indexFailure)
+            assertTrue(controller.hasPendingWork)
+            return
+        }
         if (corrupt) {
             repeat(3) { controller.reconcile(emptyList(), true) }
             assertNotNull(controller.state.value.topicFailure)

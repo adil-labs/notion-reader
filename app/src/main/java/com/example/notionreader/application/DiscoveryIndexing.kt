@@ -143,6 +143,7 @@ internal class DiscoveryIndexing(
                 SemanticMetadata.from(metadata[id] ?: ReaderIndexEntry(id, source.document.title, source.document.lastEditedAt))
             }
             var indexed = 0
+            val indexedSources = linkedMapOf<String, String>()
             val jobs = mutableListOf<Pair<String, Int>>()
             mutable.update { it.copy(message = it.searchFailure) }
             for ((id, source) in sources) {
@@ -173,6 +174,7 @@ internal class DiscoveryIndexing(
                     // A process may die between full-record commit and checkpoint retirement.
                     passageProgressStore?.remove(id)
                     indexed++
+                    indexedSources[id] = revision
                     if (old.metadata != meta) {
                         reconciliationPending = true
                         runtime.commits.withLock {
@@ -251,6 +253,11 @@ internal class DiscoveryIndexing(
                 mutable.update { it.copy(restoringSavedDiscoveries = true) }
                 try { topics.invalidate(sources.mapValues { semanticRevision(it.value.document) }) }
                 finally { mutable.update { it.copy(restoringSavedDiscoveries = false) } }
+            }
+            val sourceRevisions = sources.mapValues { semanticRevision(it.value.document) }
+            if (mayIndex && !index.isPaused() && modelAvailable() && mayContinueWork() && indexedSources.size < sources.size) {
+                topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration,
+                    indexComplete = false, metadata = cachedMetadata, indexedSources = indexedSources.toMap())
             }
             var remainingPassages = jobs.sumOf { it.second }
             var remainingNotes = jobs.size
@@ -332,8 +339,11 @@ internal class DiscoveryIndexing(
                 }
                 if (committed == true) {
                     passageProgressStore?.remove(id)
-                    indexed++; remainingNotes--; publishWork()
+                    indexed++; indexedSources[id] = revision; remainingNotes--; publishWork()
                     mutable.update { it.copy(indexedRevision = it.indexedRevision + 1) }
+                    if (indexed < ids.size && mayContinueWork()) topics?.build(sourceRevisions,
+                        semanticMetadataHash(cachedMetadata), sourceGeneration, indexComplete = false,
+                        metadata = cachedMetadata, indexedSources = indexedSources.toMap())
                 }
                 mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size)) }
             }

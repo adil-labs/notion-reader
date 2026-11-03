@@ -13765,3 +13765,35 @@ remains; no broad activation or quality acceptance is claimed.
 The targeted `DiscoveryTopicsNavigationAccessibilityTest` wrapper passed 22/22
 on the API 36 emulator. It checks the existing semantics and navigation class; it
 does not observe TalkBack speech or prove the disabled replacement works on-device.
+
+
+## 218. Record verified partial indexing progress (2026-11-03)
+
+The evidence-first catalog previously accepted no newly indexed sources until
+every cached Note was indexed. Index reconciliation now supplies the full cached
+revision map separately from its verified indexed subset. The coordinator checks
+that every claimed subset revision belongs to the captured cache, validates each
+new record through its existing bounded, source-current guarded acceptance path,
+and records that subset with formation and connection coverage incomplete. It
+tries the handoff for already indexed records before beginning new embedding jobs
+and after each successful new record. Legacy formation does not run from these
+partial handoffs. An existing accepted source missing from a partial indexed
+inventory defers acceptance rather than silently deleting or re-accepting it.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Accept a verified subset while the full index is incomplete | `aVerifiedIndexedSubsetCanBeAcceptedWithoutClaimingFullCoverage` failed before the change. |
+| Hand off pre-indexed records before the next job | `indexedNotesAreAcceptedBeforeAnotherNoteFailsIndexing` failed when that handoff was removed. |
+| Hand off a newly committed record before the next job | `aNewlyIndexedNoteIsAcceptedBeforeTheNextNoteFails` failed when that handoff was removed. |
+
+The real-store tests use purpose-built Notes and a deliberately failing embedding
+provider. They verify incomplete status and rejection of an incompatible claimed
+revision, not a real device or semantic quality. The full JVM suite passed 1,613
+tests with no failures, errors or skips; debug assembly and Android-test
+compilation passed.
+
+This is a partial integration step: proposal and membership schedulers still
+require the full eligible cache and do not yet consume this subset, so an indexing
+failure can still prevent a new topic from being generated. Corpus coverage must
+remain explicitly incomplete when those schedulers are extended. The replacement
+remains disabled and the legacy production path remains.

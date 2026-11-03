@@ -105,4 +105,30 @@ class CanonicalSourceAcceptanceTest {
         assertFalse(coordinator.sourceAcceptancePending)
     }
 
+    @Test fun aVerifiedIndexedSubsetCanBeAcceptedWithoutClaimingFullCoverage() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
+        val text = "Seeds germinate with moisture and warmth."
+        val first = ReaderDocument.fromChunkTexts("one", "Seeds", listOf(text))
+        val second = ReaderDocument.fromChunkTexts("two", "Tools", listOf("Tools for a garden."))
+        cache.put(CachedDocument(first, null, Instant.EPOCH)); cache.put(CachedDocument(second, null, Instant.EPOCH))
+        val sources = mapOf("one" to semanticRevision(first), "two" to semanticRevision(second))
+        val p = SemanticPassage("p", "one", "s", "Seeds", "b", "c", 0, text.length, text, text, 0)
+        assertTrue(index.write(SemanticRecord("one", sources.getValue("one"), model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))))
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true)))
+        val matches = FileTopicRetrievalStore(root.resolve("matches"))
+        val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
+        val coordinator = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {},
+            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+        coordinator.invalidate(sources)
+        coordinator.build(sources, 0, cache.revision.value, indexComplete = false, indexedSources = mapOf("one" to "stale"))
+        assertTrue("An incompatible claimed revision must not enter the catalog", graph.readMetadata()!!.acceptedRevisions.isEmpty())
+        coordinator.build(sources, 0, cache.revision.value, indexComplete = false, indexedSources = mapOf("one" to sources.getValue("one")))
+        val saved = graph.readMetadata()!!
+        assertEquals(mapOf("one" to sources.getValue("one")), saved.acceptedRevisions)
+        assertFalse(saved.complete)
+        assertFalse(saved.connectionPassComplete)
+    }
+
 }

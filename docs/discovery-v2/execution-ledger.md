@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: The catalog can record a verified indexed subset before other cached
+Notes finish indexing; scheduler consumption remains open (§218).
+
 2026-11-03: Removed the obsolete three-Note status and identified the full-index
 dependency that still blocks ordinary incremental source processing (§217).
 

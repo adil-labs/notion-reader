@@ -655,11 +655,15 @@ internal class TopicCoordinator(
     }
 
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long, indexComplete: Boolean = true,
-        metadata: Map<String, SemanticMetadata>? = null) {
+        metadata: Map<String, SemanticMetadata>? = null, indexedSources: Map<String, String>? = null) {
         if (cache.revision.value != cacheRevision || !mayWork()) return
+        if (!requireKnownCatalogOnRestore && indexedSources != null) return
         if (requireKnownCatalogOnRestore) {
-            if (!indexComplete) return
-            acceptIndexedSources(sources, cacheRevision)
+            val available = if (indexComplete) sources else indexedSources ?: return
+            if (available.any { (id, revision) -> sources[id] != revision }) return
+            if (!indexComplete && latest.acceptedRevisions.any { (id, revision) -> available[id] != revision }) return
+            acceptIndexedSources(available, cacheRevision)
+            if (!indexComplete) { connectionInputs = null; return }
             val input = metadata?.takeIf { it.keys == sources.keys }?.let { ConnectionInputs(cacheRevision, sources.toMap(), it.toMap()) }
             connectionInputs = input
             if (input != null && latest.canonicalCatalogReady && latest.acceptedRevisions == sources) {
