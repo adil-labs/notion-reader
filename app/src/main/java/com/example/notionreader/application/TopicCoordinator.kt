@@ -16,6 +16,8 @@ internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val
 internal data class TopicCatalogTicket(val snapshot: TopicSnapshot, val epoch: Long, val cacheRevision: Long,
     val identity: EmbeddingIdentity, val queryTicket: String)
 
+internal enum class IncrementalConnectionsResult { Pending, Updated, Complete, Deferred, Failed }
+
 /** Shared with explicit host replay so resume diagnostics describe the shipping input identity. */
 internal fun topicSourceSignature(model: EmbeddingIdentity, policy: TopicPolicy, metadataVersion: Int,
     sources: Map<String, String>): String = semanticHash(model.toString() + policy.toString() + metadataVersion +
@@ -43,6 +45,7 @@ internal class TopicCoordinator(
     private val requireKnownCatalogOnRestore: Boolean = false
 ) {
     private class WorkPaused : RuntimeException()
+    private class ConnectionSourceUnavailable : RuntimeException()
     private val writes = Mutex()
     private var loaded = false
     @Volatile private var latest = TopicSnapshot()
@@ -65,6 +68,15 @@ internal class TopicCoordinator(
         private set
     private data class SourceAcceptance(val scope: String, val lastId: String?)
     private var sourceAcceptance: SourceAcceptance? = null
+    private data class ConnectionInputs(val cacheRevision: Long, val sources: Map<String, String>,
+        val metadata: Map<String, SemanticMetadata>)
+    @Volatile private var connectionInputs: ConnectionInputs? = null
+    private fun connectionInputHash(revision: String, metadata: SemanticMetadata): String {
+        fun optional(value: String?) = if (value == null) "0" else "1$value"
+        val fields = listOf(revision, metadata.title, optional(metadata.lastEditedAt), optional(metadata.kind),
+            optional(metadata.area), optional(metadata.project), optional(metadata.status)) + metadata.topics.sorted()
+        return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+    }
 
     private fun retainPendingWork(startEpoch: Long) = synchronized(workspaceLock) {
         if (startEpoch == epoch.get()) needsMoreWork = true
@@ -122,7 +134,8 @@ internal class TopicCoordinator(
                             permanent = event.reason == CacheRemovalReason.DELETED || event.reason == CacheRemovalReason.PERMISSION_DENIED)
                     }
                     return result.copy(formationProgress = null, formationReuse = null, sourceSignature = null,
-                        complete = false, connectionPassComplete = false)
+                        complete = false, connectionPassComplete = false,
+                        connectionWork = result.connectionWork.copy(incrementalKey = null))
                 }
                 var recovered = clean(previous)
                 var shown = clean(view.snapshot)
@@ -519,8 +532,8 @@ internal class TopicCoordinator(
             }
         }
         if (requireKnownCatalogOnRestore && (stale.isNotEmpty() || events.isNotEmpty())) {
-            next = next.copy(connectionPassComplete = false)
-            shown = shown.copy(connectionPassComplete = false)
+            next = next.copy(connectionPassComplete = false, connectionWork = next.connectionWork.copy(incrementalKey = null))
+            shown = shown.copy(connectionPassComplete = false, connectionWork = shown.connectionWork.copy(incrementalKey = null))
             needsMoreWork = true
         }
         suspend fun withdrawNames(snapshot: TopicSnapshot) {
@@ -588,10 +601,18 @@ internal class TopicCoordinator(
         restoreStep("restorePublication") { changed(view) }
     }
 
-    suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long) {
+    suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long, indexComplete: Boolean = true,
+        metadata: Map<String, SemanticMetadata>? = null) {
         if (cache.revision.value != cacheRevision || !mayWork()) return
         if (requireKnownCatalogOnRestore) {
+            if (!indexComplete) return
             acceptIndexedSources(sources, cacheRevision)
+            val input = metadata?.takeIf { it.keys == sources.keys }?.let { ConnectionInputs(cacheRevision, sources.toMap(), it.toMap()) }
+            connectionInputs = input
+            if (input != null && latest.canonicalCatalogReady && latest.acceptedRevisions == sources) {
+                val hashes = sources.mapValues { (id, revision) -> connectionInputHash(revision, input.metadata.getValue(id)) }
+                if (latest.connectionWork.inputs != hashes) needsMoreWork = true
+            }
             return
         }
         buildGeneration(sources, metadataVersion, cacheRevision)
@@ -645,7 +666,8 @@ internal class TopicCoordinator(
                 canonicalProjection = topic.canonicalProjection?.copy(members = null))
         }
         val next = snapshot.copy(topics = topics, acceptedRevisions = sources, complete = false,
-            connectionPassComplete = false, sourceSignature = null, generation = snapshot.generation + 1)
+            connectionPassComplete = false, sourceSignature = null, connectionWork = snapshot.connectionWork.copy(incrementalKey = null),
+            generation = snapshot.generation + 1)
         val result = bulk { store.writeGuarded(next, ::current) }
         if (result == TopicGuardedWriteResult.Stale) return@withLock
         if (result is TopicGuardedWriteResult.Rejected) {
@@ -658,6 +680,76 @@ internal class TopicCoordinator(
         store.pinInspection(view.snapshot)
         changed(view)
     }
+    /** Resume connection evidence independently of topic formation, after foreground topic work. */
+    suspend fun advanceIncrementalConnections(ticket: TopicCatalogTicket, sources: Map<String, String>): IncrementalConnectionsResult {
+        if (!requireKnownCatalogOnRestore || !isCatalogTicketCurrent(ticket) || ticket.snapshot.acceptedRevisions != sources)
+            return IncrementalConnectionsResult.Deferred
+        if (!mayWork() || shouldYield()) return IncrementalConnectionsResult.Deferred
+        val snapshot = ticket.snapshot
+        val observedInputs = connectionInputs
+        val capturedInputs = observedInputs?.takeIf { it.cacheRevision == ticket.cacheRevision && it.sources == sources }
+        val documents = cache.snapshot()
+        if (!isCatalogTicketCurrent(ticket) || connectionInputs != observedInputs) return IncrementalConnectionsResult.Deferred
+        val actual = documents.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        if (actual.size != documents.size || actual != sources) return IncrementalConnectionsResult.Deferred
+        val metadata = capturedInputs?.metadata ?: documents.associate {
+            canonicalSemanticId(it.document.pageId) to SemanticMetadata(it.document.title)
+        }
+        val titles = metadata.mapValues { it.value.title }
+        val inputs = sources.mapValues { (id, revision) -> connectionInputHash(revision, metadata.getValue(id)) }
+        val titleKeys = titles.mapValues { connectionTitleKey(it.value) }
+        if (snapshot.connectionPassComplete && snapshot.connectionWork.inputs == inputs &&
+            snapshot.connectionWork.titleKeys == titleKeys && snapshot.policyVersion == policy.version) {
+            needsMoreWork = false
+            return IncrementalConnectionsResult.Complete
+        }
+        val fields = listOf("incremental-connections-v2", ticket.identity.toString(), policy.toString()) +
+            sources.toSortedMap().flatMap { listOf(it.key, it.value, inputs.getValue(it.key), titles.getValue(it.key)) }
+        val key = semanticHash(fields.joinToString("") { "${it.length}:$it" })
+        val resume = snapshot.connectionWork.incrementalKey == key
+        val compatible = snapshot.identity == ticket.identity && snapshot.policyVersion == policy.version && snapshot.connectionWork.inputs.isNotEmpty()
+        val previousCounts = snapshot.connectionWork.titleKeys.values.groupingBy { it }.eachCount()
+        val currentCounts = titleKeys.values.groupingBy { it }.eachCount()
+        val changedTitles = (previousCounts.keys + currentCounts.keys).filterTo(hashSetOf()) { previousCounts[it] != currentCounts[it] }
+        val changedIds = if (resume) snapshot.connectionWork.changedIds else if (!compatible) sources.keys else
+            sources.keys.filterTo(hashSetOf()) { snapshot.connectionWork.inputs[it] != inputs[it] || titleKeys[it] in changedTitles }
+        val unfinished = if (resume) snapshot.connectionWork.unfinishedSeedIds else if (compatible && !snapshot.connectionPassComplete)
+            snapshot.connectionWork.inputs.keys.sorted().drop(snapshot.connectionCursor).filterTo(hashSetOf()) { it in sources } else emptySet()
+        val plan = ConnectionWork(inputs, titleKeys, changedIds, unfinished, key)
+        connectionCursor = if (resume) snapshot.connectionCursor else 0
+        connectionPassageCursor = if (resume) snapshot.connectionPassageCursor else 0
+        connectionTargetCursor = if (resume) snapshot.connectionTargetCursor else 0
+        val connected = try { connections(snapshot, sources, ticket.identity, ticket.epoch, ticket.cacheRevision, titles, plan, compatible, strictSources = true, expectedMetadata = capturedInputs?.metadata) }
+            catch (_: WorkPaused) { return IncrementalConnectionsResult.Deferred }
+            catch (_: ConnectionSourceUnavailable) { failed("Some indexed Notes are unavailable for connections. Retry processing."); return IncrementalConnectionsResult.Failed }
+            catch (_: java.io.IOException) { failed("Stored connections are unavailable. Retry processing."); return IncrementalConnectionsResult.Failed }
+        return writes.withLock {
+            fun current() = isCatalogTicketCurrent(ticket) && mayWork() && !shouldYield() &&
+                connectionInputs == observedInputs
+            if (!current()) return@withLock IncrementalConnectionsResult.Deferred
+            val complete = connectionCursor >= sources.size
+            val next = snapshot.copy(connections = connected, catalogReference = null, referenceTitles = titles,
+                connectionCursor = connectionCursor, connectionPassageCursor = connectionPassageCursor,
+                connectionTargetCursor = connectionTargetCursor, connectionTargetCount = sources.size,
+                connectionPassComplete = complete, policyVersion = policy.version, generation = snapshot.generation + 1,
+                connectionWork = if (complete) plan.copy(changedIds = emptySet(), unfinishedSeedIds = emptySet()) else plan)
+            val result = bulk { store.writeGuarded(next, ::current) }
+            if (result == TopicGuardedWriteResult.Stale) return@withLock IncrementalConnectionsResult.Deferred
+            if (result is TopicGuardedWriteResult.Rejected) {
+                failed(persistenceFailureMessage(result.result)); return@withLock IncrementalConnectionsResult.Failed
+            }
+            if (!current()) { rollbackAfterStaleWrite(snapshot, ticket); return@withLock IncrementalConnectionsResult.Deferred }
+            val persisted = store.readMetadata() ?: run { failed("Stored connections could not be reloaded. Retry processing."); return@withLock IncrementalConnectionsResult.Failed }
+            if (!current()) { rollbackAfterStaleWrite(snapshot, ticket); return@withLock IncrementalConnectionsResult.Deferred }
+            latest = next.copy(connections = persisted.connections, catalogReference = persisted.catalogReference)
+            needsMoreWork = !complete
+            view = if (inspected) view.copy(updated = true) else view.copy(snapshot = latest, failure = null)
+            store.pinInspection(view.snapshot)
+            changed(view)
+            if (complete) IncrementalConnectionsResult.Updated else IncrementalConnectionsResult.Pending
+        }
+    }
+
     /** Formation is bounded by comparisons, never by admitted source sections. */
     private suspend fun buildGeneration(sources: Map<String, String>, metadataVersion: Int,
         cacheRevision: Long) {
@@ -763,7 +855,7 @@ internal class TopicCoordinator(
         connectionPassageCursor = if (latest.sourceSignature == token) latest.connectionPassageCursor else 0
         connectionTargetCursor = if (latest.sourceSignature == token) latest.connectionTargetCursor else 0
         val connectionPlan = ConnectionWork(connectionInputs, connectionTitleKeys, affectedConnections, unfinishedSeeds)
-        val semantic = try { connections(sources, model, startEpoch, cacheRevision, referenceTitles, connectionPlan, compatibleConnections) }
+        val semantic = try { connections(latest, sources, model, startEpoch, cacheRevision, referenceTitles, connectionPlan, compatibleConnections) }
             catch (_: WorkPaused) { retainPendingWork(startEpoch); return }
             catch (_: java.io.IOException) {
                 if (epoch.get() != startEpoch || cache.revision.value != cacheRevision) { retainPendingWork(startEpoch); return }
@@ -848,10 +940,18 @@ internal class TopicCoordinator(
             changed(view)
         }
     }
-    private suspend fun connections(sources: Map<String, String>, model: EmbeddingIdentity,
-        startEpoch: Long, cacheRevision: Long, titles: Map<String, String>, work: ConnectionWork, compatible: Boolean): List<NoteConnection> {
+    private suspend fun connections(baseSnapshot: TopicSnapshot, sources: Map<String, String>, model: EmbeddingIdentity,
+        startEpoch: Long, cacheRevision: Long, titles: Map<String, String>, work: ConnectionWork, compatible: Boolean,
+        strictSources: Boolean = false, expectedMetadata: Map<String, SemanticMetadata>? = null): List<NoteConnection> {
         val ids = sources.keys.sorted()
+        suspend fun validRecord(id: String): SemanticRecord? {
+            val record = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision && canonicalSemanticId(it.pageId) == id &&
+                (expectedMetadata == null || expectedMetadata[id] == it.metadata) }
+            if (record == null && strictSources) throw ConnectionSourceUnavailable()
+            return record
+        }
         if (ids.size < 2) {
+            if (strictSources) ids.forEach { validRecord(it) }
             connectionCursor = ids.size; connectionPassageCursor = 0; connectionTargetCursor = 0
             return emptyList()
         }
@@ -861,9 +961,9 @@ internal class TopicCoordinator(
             if (!mayWork() || shouldYield() || epoch.get() != startEpoch || cache.revision.value != cacheRevision) throw WorkPaused()
         }
         val references = ExplicitNoteReferenceIndex(titles)
-        val previous = bulk { store.connectionCatalog(latest) }
+        val previous = bulk { store.connectionCatalog(baseSnapshot) }
         val staleInputs = sources.keys.filterTo(hashSetOf()) { id -> !compatible || work.inputs[id] == null ||
-            latest.connectionWork.inputs[id] != work.inputs[id] }
+            baseSnapshot.connectionWork.inputs[id] != work.inputs[id] }
         val base = filterConnectionCatalog(previous, ::checkActive) { pair ->
             pair.left.pageId !in staleInputs && pair.right.pageId !in staleInputs &&
                 sources[pair.left.pageId] == pair.left.revision && sources[pair.right.pageId] == pair.right.revision &&
@@ -882,7 +982,7 @@ internal class TopicCoordinator(
             checkActive()
             val seedId = ids[connectionCursor]
             val targetIndices = if (seedId in work.changedIds || seedId in work.unfinishedSeedIds) allTargets else affectedTargets
-            val seed = readRecord(seedId)?.takeIf { it.identity == model && sources[seedId] == it.revision }
+            val seed = validRecord(seedId)
             val passages = seed?.passages.orEmpty().filter {
                 it.passage.sourceBlockId != it.passage.sectionId && it.passage.excerpt.isNotBlank()
             }.sortedBy { it.passage.id }
@@ -901,7 +1001,7 @@ internal class TopicCoordinator(
                     val id = ids[targetIndex]
                     if (id == seedId) continue
                     remaining--
-                    val other = readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision } ?: continue
+                    val other = validRecord(id) ?: continue
                     val reference = bulk { references.candidate(seed, passage.passage, other, ::checkActive) }
                     if (reference != null) {
                         val prior = pairs[reference.id]
@@ -939,7 +1039,7 @@ internal class TopicCoordinator(
             needsMoreWork = false
             formationWorkspace = null
         }
-        sourceAcceptance = null; sourceAcceptancePending = false
+        sourceAcceptance = null; sourceAcceptancePending = false; connectionInputs = null
         store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null; pendingFormation = null; latest = TopicSnapshot()
         view = TopicView(); changed(view)
     }

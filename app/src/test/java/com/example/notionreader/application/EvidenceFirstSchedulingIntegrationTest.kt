@@ -22,7 +22,7 @@ class EvidenceFirstSchedulingIntegrationTest {
         scenario(false, corrupt = true, withdraw = true)
     }
     @Test fun oneNoteCanBeAdmittedWithoutGlobalFormation() = runBlocking { scenario(true, incrementalCatalog = true) }
-    @Test fun connectionWorkRemainsPendingAfterNewSourceAdmission() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true) }
+    @Test fun connectionWorkCompletesAfterNewSourceAdmission() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true) }
     private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false,
         incrementalCatalog: Boolean = false, unaccepted: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
@@ -109,15 +109,13 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(admitted))
             if (incrementalCatalog) assertFalse("Admission must not require global formation", controller.state.value.topicSnapshot.complete)
         }
-        if (unaccepted) {
-            assertTrue(controller.hasPendingWork)
-            assertNotNull("Unfinished connection work must not spin", controller.state.value.topicFailure)
-        } else assertFalse(controller.hasPendingWork)
+        if (unaccepted) assertTrue("Connection work must finish", controller.state.value.topicSnapshot.connectionPassComplete)
+        assertFalse(controller.hasPendingWork)
         controller = controller()
         controller.reconcile(emptyList(), false)
         repeat(80) { controller.reconcile(emptyList(), true) }
         assertEquals("Controller recreation must reuse the exact result", expectedCalls, calls)
-        if (unaccepted) assertTrue(controller.hasPendingWork) else assertFalse(controller.hasPendingWork)
+        assertFalse(controller.hasPendingWork)
     }
     @Test fun sourceAcceptanceIsBoundedAndDoesNotPublishPartialInventory() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
@@ -151,7 +149,62 @@ class EvidenceFirstSchedulingIntegrationTest {
         assertNull("A normal bounded continuation is not a processing failure", controller.state.value.topicFailure)
         controller.reconcile(emptyList(), true)
         assertEquals(revisions, graph.readMetadata()!!.acceptedRevisions)
-        assertFalse(graph.readMetadata()!!.connectionPassComplete)
+        assertTrue("Connection rebuilding may finish in the next bounded step", graph.readMetadata()!!.connectionPassComplete)
+    }
+
+    @Test fun independentConnectionsAreBuiltWithoutLegacyFormation() = runBlocking { connectionsScenario(true) }
+    @Test fun connectionsCanAdvanceWhenTheProposalModelIsUnavailable() = runBlocking { connectionsScenario(false) }
+    @Test fun metadataOnlyChangesRefreshConnectionEndpoints() = runBlocking { connectionsScenario(true, metadataChange = true) }
+    @Test fun emptyAndAbsentMetadataDoNotShareConnectionIdentity() = runBlocking { connectionsScenario(true, metadataChange = true, area = "") }
+    private suspend fun connectionsScenario(modelAvailable: Boolean, metadataChange: Boolean = false, area: String = "Garden") {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
+        val sources = linkedMapOf<String, String>()
+        for (id in listOf("one", "two")) {
+            val body = "Moisture and warmth support the germination of seeds."
+            val doc = ReaderDocument.fromChunkTexts(id, id, listOf(body)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+            val revision = semanticRevision(doc); sources[id] = revision
+            val p = SemanticPassage("$id:p", id, "$id:s", "Seeds", "$id:b", "$id:c", 0, body.length, body, body, 0)
+            assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(id), listOf(EmbeddedPassage(p, listOf(1f, 0f))))))
+        }
+        index.setPaused(false)
+        val graph = FileTopicStore(root.resolve("topics")); val policy = TopicPolicy()
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources,
+            connectionPassComplete = false, policyVersion = policy.version)))
+        val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
+        val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime {
+            override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
+            override suspend fun propose(request: DiscoveryProposalRequest) = DiscoveryProposalRun.Completed(
+                DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.NO_USEFUL_TOPIC))
+            override suspend fun close() {}
+        }
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
+            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override fun release() {}
+        }
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { modelAvailable },
+            topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
+            topicSupportIdentity = { if (modelAvailable) identity.copy(prompt = "support") else null },
+            topicProposalIdentity = { if (modelAvailable) identity else null },
+            enableEvidenceFirstScheduling = true)
+        controller.reconcile(emptyList(), false)
+        repeat(80) { controller.reconcile(emptyList(), true) }
+        val saved = FileTopicStore(root.resolve("topics")).read()!!
+        assertTrue("Independent connection sweep must finish", saved.connectionPassComplete)
+        assertFalse("No legacy global formation is needed", saved.complete)
+        assertEquals(setOf("one", "two"), saved.connections.single().let { setOf(it.left.pageId, it.right.pageId) })
+        if (metadataChange) {
+            val entries = listOf(ReaderIndexEntry("one", "one", area = area), ReaderIndexEntry("two", "two"))
+            repeat(80) { controller.reconcile(entries, true) }
+            val refreshed = FileTopicStore(root.resolve("topics")).read()!!.connections.single()
+            assertEquals(area, listOf(refreshed.left, refreshed.right).single { it.pageId == "one" }.metadata.area)
+        }
+        if (modelAvailable) assertFalse(controller.hasPendingWork)
+        else { assertTrue(controller.hasPendingWork); assertNotNull(controller.state.value.topicFailure) }
     }
 
 }

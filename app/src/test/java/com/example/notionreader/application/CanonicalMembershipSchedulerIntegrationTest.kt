@@ -19,7 +19,9 @@ class CanonicalMembershipSchedulerIntegrationTest {
     @Test fun migrationPreservesAnExistingCanonicalTopicIdentity() = runBlocking { scenario(false, migrateLegacy = true) }
     @Test fun newIndexedSourceUpdatesMembershipWithoutFormation() = runBlocking { scenario(true, newSource = true) }
     @Test fun withdrawingASourceLeavesConnectionCoveragePending() = runBlocking { scenario(true, withdraw = true) }
-    private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false, newSource: Boolean = false, withdraw: Boolean = false) {
+    @Test fun connectionsAdvanceWhileMembershipVerifierIsUnavailable() = runBlocking { scenario(true, supportUnavailable = true) }
+    private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false, newSource: Boolean = false, withdraw: Boolean = false,
+        supportUnavailable: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val progress = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
@@ -56,7 +58,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         val topicPolicy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
         assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(topics = listOf(topic), identity = model,
-            complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = true, acceptedRevisions = accepted, policyVersion = topicPolicy.version,
+            complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = !supportUnavailable, acceptedRevisions = accepted, policyVersion = topicPolicy.version,
             sourceSignature = topicSourceSignature(model, topicPolicy, semanticMetadataHash(metadata), sources))))
         var calls = 0
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
@@ -73,12 +75,20 @@ class CanonicalMembershipSchedulerIntegrationTest {
         fun controller() = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
             topicStore = FileTopicStore(root.resolve("topics")), topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), topicRetrievalPolicy = policy,
-            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { verifier },
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { if (supportUnavailable) null else verifier },
             enableEvidenceFirstScheduling = incrementalCatalog || migrateLegacy)
         var controller = controller()
         controller.reconcile(emptyList(), false)
         if (migrateLegacy) assertTrue(controller.state.value.topicSnapshot.canonicalCatalogReady)
         assertEquals(0, calls)
+        if (supportUnavailable) {
+            repeat(30) { controller.reconcile(emptyList(), true) }
+            assertTrue("Connections do not require a membership verifier", FileTopicStore(root.resolve("topics")).read()!!.connectionPassComplete)
+            assertTrue(controller.hasPendingWork)
+            assertNotNull(controller.state.value.topicFailure)
+            assertEquals(0, calls)
+            return
+        }
         controller.reconcile(emptyList(), true)
         assertEquals(1, calls)
         if (newSource) assertEquals(sources, controller.state.value.topicSnapshot.acceptedRevisions)

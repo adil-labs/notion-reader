@@ -73,7 +73,7 @@ data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val co
 @Serializable
 data class ConnectionWork(val inputs: Map<String, String> = emptyMap(),
     val titleKeys: Map<String, String> = emptyMap(), val changedIds: Set<String> = emptySet(),
-    val unfinishedSeedIds: Set<String> = emptySet())
+    val unfinishedSeedIds: Set<String> = emptySet(), val incrementalKey: String? = null)
 
 /** Private, versioned work state. Indices refer to canonical eligible sections/passages, never a truncated input. */
 @Serializable

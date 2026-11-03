@@ -5,10 +5,11 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current decision record](docs/decisions.md#210-accept-indexed-sources-without-formation-2026-11-03)).
+Discovery refinement is in progress ([current decision record](docs/decisions.md#211-build-connections-independently-of-formation-2026-11-03)).
 The current production formation path still uses grouping, local Gemma naming and
 embedding retrieval. The repository is implementing an evidence-first replacement
-in the same coordinator and catalog; bounded new-concept scheduling is implemented behind a disabled release gate and is not active in the app.
+in the same coordinator and catalog; bounded new-concept scheduling and independent
+connection rebuilding are implemented behind a disabled release gate and are not active in the app.
 For already admitted canonical concepts, the process loop now resumes bounded,
 independently verified membership updates from durable checkpoints. Seed members
 never substitute for matching Notes. Matches can overlap or remain empty, and

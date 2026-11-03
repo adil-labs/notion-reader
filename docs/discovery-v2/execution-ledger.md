@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: The gated replacement builds and resumes independent connections
+without formation; race proofs and limitations are recorded in §211.
+
 2026-11-03: The gated replacement accepts indexed source revisions in bounded
 windows without legacy formation; race and failure proofs are in §210.
 

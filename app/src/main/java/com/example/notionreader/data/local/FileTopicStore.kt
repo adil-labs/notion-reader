@@ -105,6 +105,19 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 return TopicValidationReason.InvalidSnapshotProgress
         }
         if (anchors.map { it.id }.distinct().size != anchors.size) return TopicValidationReason.DuplicateTopicId
+        val incremental = snapshot.connectionWork.incrementalKey
+        if (incremental != null && (!snapshot.canonicalCatalogReady || !Regex("[0-9a-f]{64}").matches(incremental) ||
+                snapshot.connectionWork.inputs.keys != snapshot.acceptedRevisions.keys ||
+                snapshot.connectionWork.titleKeys.keys != snapshot.acceptedRevisions.keys ||
+                snapshot.connectionWork.inputs.values.any { !Regex("[0-9a-f]{64}").matches(it) } ||
+                snapshot.connectionWork.titleKeys.values.any { !Regex("[0-9a-f]{64}").matches(it) } ||
+                snapshot.connectionWork.changedIds.any { it !in snapshot.acceptedRevisions } ||
+                snapshot.connectionWork.unfinishedSeedIds.any { it !in snapshot.acceptedRevisions } ||
+                snapshot.connectionTargetCount != snapshot.acceptedRevisions.size ||
+                snapshot.connectionCursor !in 0..snapshot.acceptedRevisions.size ||
+                snapshot.connectionPassComplete && (snapshot.connectionCursor != snapshot.acceptedRevisions.size ||
+                    snapshot.connectionWork.changedIds.isNotEmpty() || snapshot.connectionWork.unfinishedSeedIds.isNotEmpty())))
+            return TopicValidationReason.InvalidSnapshotProgress
         if (snapshot.connectionCursor < 0 || snapshot.connectionPassageCursor < 0 ||
             snapshot.connectionTargetCursor !in 0..snapshot.connectionTargetCount)
             return TopicValidationReason.InvalidSnapshotProgress

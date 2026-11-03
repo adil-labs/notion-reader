@@ -339,7 +339,8 @@ internal class DiscoveryIndexing(
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size), indexing = false) }
             if (mayIndex && !index.isPaused() && modelAvailable()) withContext(workDispatcher) {
-                topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration)
+                topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration,
+                    indexComplete = indexed == ids.size, metadata = cachedMetadata)
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size),
                 bytes = index.bytes() + (passageProgressStore?.bytes() ?: 0L) +

@@ -36,7 +36,7 @@ class DiscoveryController(
     private val monotonicNanos: () -> Long = System::nanoTime,
     private val passageProgressStore: SemanticIndexStore? = null,
     topicLabelRuntime: TopicLabelRuntime? = null,
-    topicLabelModelAvailable: () -> Boolean = { false },
+    private val topicLabelModelAvailable: () -> Boolean = { false },
     topicLabelStore: TopicLabelStore? = null,
     topicLabelIdentity: () -> TopicLabelIdentity? = { null },
     topicLabelUnavailableMessage: () -> String = { "Topic naming is unavailable. Install the topic naming model in Discovery settings." },
@@ -818,6 +818,11 @@ class DiscoveryController(
                         membershipWorkPending = true
                         mutable.update { it.copy(topicFailure = membershipFailure) }
                     }
+                    if (enableEvidenceFirstScheduling && membershipWorkPending && state.value.topicFailure == membershipFailure) {
+                        try { advanceConnectionsWhileMembershipBlocked() }
+                        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                        catch (_: Exception) { mutable.update { it.copy(topicFailure = connectionFailure) } }
+                    }
                     if (enableEvidenceFirstScheduling && !membershipWorkPending &&
                         (state.value.topicFailure == null || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
                         try { advanceScheduledEvidence() }
@@ -861,6 +866,23 @@ class DiscoveryController(
         }
     }
 
+    /** Connections remain independent when support inference cannot run. */
+    private suspend fun advanceConnectionsWhileMembershipBlocked() = membershipSchedulerLock.withLock {
+        val owner = topics ?: return@withLock
+        val ticket = owner.captureCatalogTicket() ?: return@withLock
+        val sources = runtime.validity.eligibleRevisions()
+        if (sources != ticket.snapshot.acceptedRevisions) return@withLock
+        when (owner.advanceIncrementalConnections(ticket, sources)) {
+            IncrementalConnectionsResult.Pending -> {
+                mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
+                wake.value++
+            }
+            IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> mutable.update { it.copy(topicFailure = membershipFailure) }
+            IncrementalConnectionsResult.Deferred -> Unit
+            IncrementalConnectionsResult.Failed -> mutable.update { it.copy(topicFailure = connectionFailure) }
+        }
+    }
+
     /** Reuses the process reconciliation window and the same inference and commit gates. */
     private suspend fun advanceScheduledEvidence() = membershipSchedulerLock.withLock {
         fun block(message: String = evidenceFailure) {
@@ -870,10 +892,18 @@ class DiscoveryController(
         val owner = topics ?: return@withLock block()
         val ticket = owner.captureCatalogTicket() ?: return@withLock block()
         val sources = runtime.validity.eligibleRevisions()
-        val verifier = topicSupportIdentity() ?: return@withLock block()
-        val generator = topicProposalIdentity() ?: return@withLock block()
-        if (proposalProgressStore == null || !owner.isCatalogTicketCurrent(ticket) || sources != ticket.snapshot.acceptedRevisions)
-            return@withLock block()
+        val verifier = topicSupportIdentity()
+        val generator = topicProposalIdentity()
+        if (!owner.isCatalogTicketCurrent(ticket) || sources != ticket.snapshot.acceptedRevisions) return@withLock block()
+        if (verifier == null || generator == null || proposalProgressStore == null || !topicLabelModelAvailable()) {
+            when (owner.advanceIncrementalConnections(ticket, sources)) {
+                IncrementalConnectionsResult.Pending -> { evidenceWorkPending = true; wake.value++ }
+                IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> block()
+                IncrementalConnectionsResult.Deferred -> { evidenceWorkPending = true; delay(10) }
+                IncrementalConnectionsResult.Failed -> block(connectionFailure)
+            }
+            return@withLock
+        }
         val fields = listOf("evidence-schedule-v1", ticket.epoch.toString(), ticket.cacheRevision.toString(),
             ticket.identity.toString(), ticket.queryTicket, mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
             sources.toSortedMap().flatMap { listOf(it.key, it.value) }
@@ -884,10 +914,14 @@ class DiscoveryController(
             process = { work -> advancePendingCorpusWork(work) },
             admit = { done, replay -> advanceCanonicalAdmission(done, replay) })) {
             EvidenceFirstScheduleResult.Idle -> {
-                if (!ticket.snapshot.connectionPassComplete) block(connectionFailure)
-                else {
-                    evidenceWorkPending = false
-                    mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
+                when (owner.advanceIncrementalConnections(ticket, sources)) {
+                    IncrementalConnectionsResult.Pending, IncrementalConnectionsResult.Updated -> { evidenceWorkPending = true; wake.value++ }
+                    IncrementalConnectionsResult.Complete -> {
+                        evidenceWorkPending = false
+                        mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
+                    }
+                    IncrementalConnectionsResult.Deferred -> { evidenceWorkPending = true; delay(10) }
+                    IncrementalConnectionsResult.Failed -> block(connectionFailure)
                 }
             }
             EvidenceFirstScheduleResult.Progress -> { evidenceWorkPending = true; wake.value++ }

@@ -602,4 +602,27 @@ class FileTopicStoreTest {
         assertFalse(store.readMetadata()!!.canonicalCatalogReady)
     }
 
+    @Test fun invalidIncrementalConnectionProgressCannotClaimCoverage() = runBlocking {
+        val store = FileTopicStore(temporary.newFolder())
+        val model = EmbeddingIdentity("model", 2)
+        val work = ConnectionWork(inputs = mapOf("note" to semanticHash("input")), titleKeys = mapOf("note" to semanticHash("title")),
+            changedIds = setOf("note"), incrementalKey = semanticHash("scope"))
+        val snapshot = TopicSnapshot(identity = model, canonicalCatalogReady = true,
+            acceptedRevisions = mapOf("note" to "r"), connectionWork = work, connectionTargetCount = 1,
+            connectionCursor = 2, connectionPassComplete = false)
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidSnapshotProgress),
+            store.writeDetailed(snapshot))
+        assertNull(store.readMetadata())
+    }
+
+    @Test fun malformedIncrementalConnectionInputKeysCannotBeTrusted() = runBlocking {
+        val store = FileTopicStore(temporary.newFolder())
+        val work = ConnectionWork(inputs = mapOf("note" to "not-a-hash"), titleKeys = mapOf("note" to semanticHash("title")),
+            changedIds = setOf("note"), incrementalKey = semanticHash("scope"))
+        val snapshot = TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true,
+            acceptedRevisions = mapOf("note" to "r"), connectionWork = work, connectionTargetCount = 1)
+        assertEquals(TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidSnapshotProgress),
+            store.writeDetailed(snapshot))
+    }
+
 }

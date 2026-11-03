@@ -13531,3 +13531,42 @@ building, topic continuity through edited citations, and the remaining full-pipe
 and device evidence remain open. The replacement is still gated; the user requested
 complete removal of the legacy production branch once these responsibilities are
 provided by the new path.
+
+
+## 211. Build connections independently of formation (2026-11-03)
+
+The gated evidence-first path now reuses the existing bounded connection sweep
+without invoking the formation engine. A separately persisted connection-work key
+and cursor allow continuation across controller/store recreation. Input identity
+includes model, policy, source revisions and full indexed metadata; metadata-only
+changes rescan affected connections. Missing indexed records or metadata that does
+not match the captured input fail the sweep rather than count as complete. Source
+withdrawal, source acceptance, and rollback clear an incompatible work key. Guarded
+writes and the existing stale-write rollback protect source evidence. Connections
+can advance when proposal or support inference is unavailable, while the blocked
+topic work remains pending. The sweep runs through the existing coordinator, with
+no additional worker or inference gate.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Build connections from a ready catalog without formation | `independentConnectionsAreBuiltWithoutLegacyFormation` failed before integration. |
+| Resume the persisted partial sweep | `aBoundedConnectionSweepResumesAfterControllerRecreation` exceeded its measured read bound with resume disabled (153 reads versus 131 with resume). |
+| Reject malformed cursor or input keys | `invalidIncrementalConnectionProgressCannotClaimCoverage` and `malformedIncrementalConnectionInputKeysCannotBeTrusted` failed before validation. |
+| Roll back a post-write withdrawal | `aWithdrawalImmediatelyAfterAConnectionWriteCannotRestoreItsEvidence` failed with rollback removed; clearing the old work key also preserves unaffected catalog state. |
+| Do not skip unreadable indexed sources | `anUnreadableIndexedSourceCannotBeReportedAsCompleteCoverage` failed when strict checking was disabled. |
+| Invalidate a sweep when metadata changes during it | `metadataChangedDuringASweepCannotCommitStaleEndpoints` failed before the guard and checks that absent indexed metadata is not accepted. |
+| Refresh endpoint metadata and distinguish null from empty | `metadataOnlyChangesRefreshConnectionEndpoints` and `emptyAndAbsentMetadataDoNotShareConnectionIdentity` failed before their fixes. |
+| Run connections when model or verifier work is blocked | `connectionsCanAdvanceWhenTheProposalModelIsUnavailable` and `connectionsAdvanceWhileMembershipVerifierIsUnavailable` failed before integration. |
+
+A real-file-store test completed a 20-Note sweep across recreation and verified
+190 distinct connections. The JVM suite passed 1,574 tests with no failures,
+errors or skips; debug assembly and Android-test compilation passed. The existing
+Discovery topic-navigation accessibility class passed 22/22 on API 36 before the
+final input-key validation change. It does not exercise the gated connection path
+or observe TalkBack speech. No representative-device or quality benchmark is
+claimed from these fixtures.
+
+The replacement remains gated. Safe first-install initialization, migration when
+inventories differ, edited-citation topic continuity, interrupted multi-store
+recovery, and end-to-end activation and removal of the legacy production branch
+remain open. The old formation engine and branch have not yet been deleted.
