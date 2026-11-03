@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#198-admit-supported-concepts-with-incomplete-structural-context-2026-11-02)
+[the current decision-record entry](decisions.md#199-recover-pending-note-scans-after-verifier-changes-2026-11-03)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

@@ -46,16 +46,9 @@ internal sealed interface PendingConceptNoteScanResult {
     data class Failure(val page: PendingConceptRetrievalPage) : PendingConceptNoteScanResult
 }
 
-/** Complete means all candidates in this Note were checked, not that the corpus was scanned. */
-internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: TopicQueryEmbedding, record: SemanticRecord,
-    index: SemanticIndexStore, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
-    scan: PendingConceptNoteScan, limit: Int, store: ProposalProgressStore, current: () -> Boolean, mayWork: () -> Boolean,
-    scopeSources: Map<String, String> = sources,
-    verify: suspend (TopicSupportRequest) -> TopicSupportRun): PendingConceptNoteScanResult {
+internal suspend fun pendingNoteScanBinding(concept: SupportConcept, query: TopicQueryEmbedding, record: SemanticRecord,
+    verifier: TopicLabelIdentity, scopeSources: Map<String, String>): String {
     val context = kotlinx.coroutines.currentCoroutineContext()
-    val noteId = canonicalSemanticId(record.pageId)
-    if (scopeSources[noteId] != record.revision || scopeSources.any { (id, revision) -> sources[id] != revision })
-        return PendingConceptNoteScanResult.Stale
     val digest = java.security.MessageDigest.getInstance("SHA-256")
     for (passage in record.passages) {
         context.ensureActive()
@@ -71,7 +64,19 @@ internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: Topi
     val fields = listOf("pending-note-scan-v2", vectors, concept.topicId, concept.workKey, concept.name, concept.definition,
         query.query.key, canonicalSemanticId(record.pageId), record.revision, passageDeltaFingerprint(record), verifier.toString()) +
         query.vector.map { it.toRawBits().toString() } + scopeSources.toSortedMap().flatMap { listOf(it.key, it.value) }
-    val binding = semanticHash(fields.joinToString("") { "${it.length}:$it" })
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+}
+
+/** Complete means all candidates in this Note were checked, not that the corpus was scanned. */
+internal suspend fun scanPendingConceptNote(concept: SupportConcept, query: TopicQueryEmbedding, record: SemanticRecord,
+    index: SemanticIndexStore, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
+    scan: PendingConceptNoteScan, limit: Int, store: ProposalProgressStore, current: () -> Boolean, mayWork: () -> Boolean,
+    scopeSources: Map<String, String> = sources,
+    verify: suspend (TopicSupportRequest) -> TopicSupportRun): PendingConceptNoteScanResult {
+    val noteId = canonicalSemanticId(record.pageId)
+    if (scopeSources[noteId] != record.revision || scopeSources.any { (id, revision) -> sources[id] != revision })
+        return PendingConceptNoteScanResult.Stale
+    val binding = pendingNoteScanBinding(concept, query, record, verifier, scopeSources)
     if (scan.binding != null && (scan.binding != binding || scan.epoch != epoch)) return PendingConceptNoteScanResult.Stale
     return when (val page = retrievePendingConceptPage(concept, query, record, index, verifier, epoch, sources,
         scan.next, limit, store, current, mayWork, verify)) {
@@ -95,6 +100,7 @@ internal sealed interface PendingNoteReplayResult {
     data class Complete(val supported: Set<String>) : PendingNoteReplayResult
     data class Uncertain(val supported: Set<String>, val uncertain: Set<String>) : PendingNoteReplayResult
     data object Invalid : PendingNoteReplayResult
+    data object Incompatible : PendingNoteReplayResult
     data object Stale : PendingNoteReplayResult
     data object Deferred : PendingNoteReplayResult
     data object Incomplete : PendingNoteReplayResult
@@ -114,6 +120,8 @@ internal suspend fun replayPendingNoteScan(saved: PendingNoteScanRecord, replay:
         saved.sourceRevisions != dependencies || dependencies.any { (page, revision) -> sources[page] != revision } || sources[id] != record.revision) return PendingNoteReplayResult.Stale
     if (store.readPendingNoteScan(saved.workKey, id, sources) != saved || !current()) return PendingNoteReplayResult.Stale
     if (!mayWork()) return PendingNoteReplayResult.Deferred
+    if (saved.binding != pendingNoteScanBinding(concept, query, record, verifier, dependencies))
+        return if (current()) PendingNoteReplayResult.Incompatible else PendingNoteReplayResult.Stale
     val result = scanPendingConceptNote(concept, query, record, index, verifier, epoch, sources, replay, 1,
         store, current, mayWork, scopeSources = dependencies) { TopicSupportRun.Unavailable }
     if (!current()) return PendingNoteReplayResult.Stale
@@ -246,7 +254,7 @@ internal suspend fun replayPendingCorpus(replay: PendingCorpusReplay, scopeTicke
         }
         PendingNoteReplayResult.Stale -> PendingCorpusReplayResult.Stale
         PendingNoteReplayResult.Deferred -> PendingCorpusReplayResult.Deferred
-        PendingNoteReplayResult.Incomplete -> PendingCorpusReplayResult.Incomplete(id, bound)
+        PendingNoteReplayResult.Incomplete, PendingNoteReplayResult.Incompatible -> PendingCorpusReplayResult.Incomplete(id, bound)
         else -> PendingCorpusReplayResult.Invalid
     }
 }

@@ -323,6 +323,8 @@ class DiscoveryController(
             }
             is EvidenceFirstNoteStep.PendingNoteReplay -> when (val replay = result.replay) {
                 is PendingNoteReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(note = replay.scan))
+                PendingNoteReplayResult.Incompatible -> return PendingCorpusWorkResult.Pending(work.copy(
+                    phase = PendingCorpusWorkPhase.SCAN_NOTE, note = PendingConceptNoteScan.start()))
                 is PendingNoteReplayResult.Validated -> return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.SCAN_NOTE, note = replay.scan))
                 is PendingNoteReplayResult.Complete, is PendingNoteReplayResult.Uncertain -> return PendingCorpusWorkResult.Pending(
                     work.copy(phase = PendingCorpusWorkPhase.CORPUS, target = null, note = PendingConceptNoteScan.start()))
@@ -392,7 +394,9 @@ class DiscoveryController(
         if (retrieveScan != null) {
             val expected = if (checkpointPendingScan) {
                 val stored = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
-                val old = if (retrieveScan.binding == null) stored?.takeIf { it.formatVersion == 1 } else PendingNoteScanRecord(pendingConcept.workKey,
+                val old = if (retrieveScan.binding == null) stored?.takeIf {
+                    it.formatVersion == 1 || it.binding != pendingNoteScanBinding(pendingConcept, embeddedQuery, target, verifier, noteDependencies)
+                } else PendingNoteScanRecord(pendingConcept.workKey,
                     targetId, target.revision, noteDependencies, retrieveScan.binding, checkNotNull(retrieveScan.next).passage,
                     retrieveScan.supported, retrieveScan.uncertain, formatVersion = 2)
                 if (stored != old) return EvidenceFirstNoteStep.Stale

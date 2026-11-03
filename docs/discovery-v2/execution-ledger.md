@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Recovered verifier-incompatible Note checkpoints by guarded rescan.
+Failing-first proofs and 1,536 JVM tests are recorded in §199; automatic
+scheduling remains open.
+
 2026-11-02: Allowed supported concepts with incomplete structural context while
 retaining the reconciliation reason. Failing-first proof, 1,536 JVM tests and
 22/22 existing navigation tests are in §198. Verifier checkpoint recovery remains open.

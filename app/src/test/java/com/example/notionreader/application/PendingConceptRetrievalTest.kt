@@ -159,9 +159,22 @@ class PendingConceptRetrievalTest {
         val missing = step(first.replay) as PendingCorpusReplayResult.Incomplete
         assertEquals("b", missing.pageId)
         save(b, SupportDecision.UNCERTAIN)
+        val changedVerifier = verifier.copy(policy = "v2")
+        val fresh = scanPendingConceptNote(concept, query, a, index, changedVerifier, 4, sources,
+            PendingConceptNoteScan.start(), 1, store, { true }, { true }) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        assertTrue(fresh is PendingConceptNoteScanResult.Complete)
+        val changed = replayPendingCorpus(PendingCorpusReplay.start(), "scope", concept, query, changedVerifier, 4,
+            sources, index, store, { true }, { true })
+        assertEquals("a", (changed as PendingCorpusReplayResult.Incomplete).pageId)
         val done = step(missing.replay) as PendingCorpusReplayResult.Uncertain
         assertEquals(mapOf("a" to setOf("pa")), done.supported)
         assertEquals(mapOf("b" to setOf("pb")), done.uncertain)
+        val oldCheckpoint = store.readPendingNoteScan(work, "a", sources)!!
+        assertEquals(ProposalProgressWriteResult.Written, savePendingNoteResult(concept, a, sources, fresh, oldCheckpoint, store) { true })
+        assertEquals(ProposalProgressWriteResult.Stale, savePendingNoteResult(concept, a, sources, fresh, oldCheckpoint, store) { true })
+        val replaced = store.readPendingNoteScan(work, "a", sources)!!
+        assertEquals(setOf("pa"), (replayPendingNoteScan(replaced, PendingConceptNoteScan.start(), concept, query, a,
+            index, changedVerifier, 4, sources, store, { true }, { true }) as PendingNoteReplayResult.Complete).supported)
     }    @Test fun unrelatedSourceChangesPreserveVerifiedNoteCoverage() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index")); val store = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val work = semanticHash("concept")

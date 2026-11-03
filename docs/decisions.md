@@ -13180,3 +13180,26 @@ fixture was returned to its original verifier to isolate this change; verifier
 checkpoint recovery remains open and must be fixed before automatic scheduling.
 Post-replacement race recovery, automatic scheduling, removal of mandatory
 formation and the quality/device/human gates also remain open.
+
+## 199. Recover pending Note scans after verifier changes (2026-11-03)
+
+A per-Note checkpoint is keyed by concept and Note while its binding also includes
+the verifier, input vectors, query and source dependencies. After a verifier
+change, replay previously classified the old checkpoint as invalid and the
+driver stopped. It now detects a different binding before replaying decisions,
+returns incomplete coverage, and restarts the Note scan under the new binding.
+The replacement uses compare-and-swap against the observed checkpoint. A forged
+checkpoint with the current binding still returns Invalid; it is not promoted or
+silently accepted.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Rebuild a checkpoint bound to a previous verifier | `corpusReplayRequiresEveryCurrentNoteAndRetainsUncertainty` and `coordinatorUsesTheSharedRuntimeAndVersionedSupportIdentity` failed before the change. |
+
+The first test also checks that an outdated compare-and-swap cannot replace the
+new checkpoint. The second exercises the bounded controller path after changing
+the verifier. The full JVM suite passed 1,536 tests with no failures, errors or
+skips; debug assembly and Android-test Kotlin compilation passed. No semantic
+quality or device claim follows. Automatic scheduling, the completed-catalog
+dependency, post-replacement race recovery and quality/device/human gates remain
+open.

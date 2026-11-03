@@ -237,7 +237,7 @@ class DiscoverySupportWiringTest {
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
         assertEquals("The cancelled attempt also reached the support runtime", 8, supportCalls)
         assertEquals(uncertainCheckpoint, progress.readConceptScan("note", mapOf("note" to revision)))
-        switchDuringInference = false; activeSupportIdentity = supportIdentity.copy(policy = "unsupported-v2")
+        switchDuringInference = false; activeSupportIdentity = supportIdentity.copy(policy = "support-v4")
         decision = SupportDecision.UNSUPPORTED; pendingDecision = SupportDecision.SUPPORTED
         assertTrue(controller.advanceEvidenceFirstNote("note", restart = true) is EvidenceFirstNoteStep.Proposals)
         var readyWork = PendingCorpusWork.start("note", 0, structureComplete = false)
