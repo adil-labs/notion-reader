@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: The gated replacement can initialize a proven fresh canonical
+catalog while protecting existing follows and derived state; see §212.
+
 2026-11-03: The gated replacement builds and resumes independent connections
 without formation; race proofs and limitations are recorded in §211.
 

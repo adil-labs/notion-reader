@@ -13570,3 +13570,52 @@ The replacement remains gated. Safe first-install initialization, migration when
 inventories differ, edited-citation topic continuity, interrupted multi-store
 recovery, and end-to-end activation and removal of the legacy production branch
 remain open. The old formation engine and branch have not yet been deleted.
+
+
+## 212. Initialize proven fresh catalogs (2026-11-03)
+
+The gated replacement can now initialize an empty canonical catalog when its
+store directory was newly created with a first-install marker. The marker is a
+zero-byte private file created during synchronized directory initialization;
+a missing catalog in an existing directory remains unknown rather than fresh.
+A catalog write consumes that marker before replacement, and a rejected or stale
+write restores it when safe. A consumed marker left by interruption is not
+considered fresh. Store instances targeting the same directory serialize writes.
+
+Before initialization, the coordinator holds the interests-store write lock and
+requires a readable interest list with no followed-topic identities, no existing
+label, retrieval or formation checkpoint data, and no proposal state except
+source-delta records. The initial catalog cannot import unverified source
+coverage. Pending withdrawals are reconciled and acknowledged only up to the
+existing other-consumer limit. Unreadable interests, orphan follows or derived
+state leave initialization incomplete and preserve the user data. The application
+creates the fresh marker for a newly created topic-store directory, but the
+replacement itself remains gated.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Consume a first-install marker before any catalog write | `aFreshCatalogMarkerSurvivesRecreationButNeverResurrectsACommittedCatalog` failed when consumption was disabled; `anyCatalogWriterConsumesAnExistingFreshMarker` covers another store instance. |
+| Create provenance before another store can write | `delayedFirstInspectionCannotRecreateAConsumedFreshMarker` failed before marker creation moved to initialization. |
+| Hold the interest lock across bootstrap | `aFollowCannotBeWrittenDuringTheBootstrapDecision` failed with the lock removed and with a separate store instance before locks were shared. Its original yield-only form did not detect the missing lock and was replaced. |
+| Refuse orphan follows or topic-derived labels | `anOrphanFollowPreventsEmptyCatalogInitialization` and `orphanLabelEvidencePreventsEmptyCatalogInitialization` failed with their guards removed. |
+| Restore an unconsumed marker after a stale write | `staleFreshInitializationRestoresTheUnconsumedMarker` failed when restoration was disabled. |
+| Refuse imported source coverage | `freshInitializationCannotImportUnverifiedSourceCoverage` failed before the check. |
+| Withdraw a catalog after a post-write source change | `withdrawalImmediatelyAfterFreshWriteCannotPublishTheEmptyCatalog` failed when the post-write guard was removed. |
+| Keep startup usable when marker creation is unavailable | `anUnavailableFreshMarkerDoesNotCrashStoreStartup` failed before the fix. |
+
+Real-file-store tests cover fresh topic admission, blocked orphan follows,
+corrupt interests, orphan label/checkpoint/proposal data, rejected writes,
+consumed markers and pending withdrawals. The JVM suite passed 1,595 tests with
+no failures, errors or skips; debug assembly and Android-test compilation passed.
+The existing Discovery topic-navigation class passed 22/22 on API 36 before the
+final marker-creation failure handling change. It does not exercise the gated
+fresh-install path or observe TalkBack speech.
+
+The marker and store locks are process-local coordination, not a multi-process
+protocol. An interruption between directory creation and marker creation, or a
+consumed marker left by interruption, fails closed and still needs explicit
+recovery. The tests recreate objects and stores, not an Android process kill.
+Migration when source inventories differ, reset/reinitialization, edited-citation
+topic continuity, interrupted multi-store recovery and activation/removal of the
+legacy production branch remain open. This is not yet the requested complete
+replacement.

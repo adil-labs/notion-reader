@@ -227,8 +227,17 @@ class FileSemanticIndexStore(private val directory: File, private val maxBytes: 
 }
 
 class FileDiscoveryInterestStore(private val directory: File) : DiscoveryInterestStore {
-    private val mutex = Mutex()
+    private companion object { val directoryMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>() }
+    private val mutex = directoryMutexes.computeIfAbsent(directory.absoluteFile.normalize().path.lowercase(java.util.Locale.ROOT)) { Mutex() }
     private val file get() = File(directory, "interests.json")
+    private fun bootstrapInterests(): List<DiscoveryInterest>? {
+        if (!file.exists()) return emptyList()
+        if (!file.isFile || file.length() > 4L * 1024 * 1024) return null
+        return runCatching { Json.decodeFromString<List<DiscoveryInterest>>(file.readText()) }.getOrNull()
+    }
+    override suspend fun readForCatalogBootstrap(): List<DiscoveryInterest>? = withContext(Dispatchers.IO) { mutex.withLock { bootstrapInterests() } }
+    override suspend fun <T> withCatalogBootstrapGuard(action: suspend (List<DiscoveryInterest>?) -> T): T =
+        withContext(Dispatchers.IO) { mutex.withLock { action(bootstrapInterests()) } }
     override suspend fun read(): List<DiscoveryInterest> = withContext(Dispatchers.IO) { mutex.withLock {
         if (!file.isFile) emptyList() else runCatching { Json.decodeFromString<List<DiscoveryInterest>>(file.readText()) }.getOrDefault(emptyList())
     } }

@@ -383,7 +383,7 @@ class ReaderApplication : Application() {
             writeGate = storageWrites,
             otherBytes = { otherDiscoveryBytes(passageProgressDirectory) })
         val topicStore = com.example.notionreader.data.local.FileTopicStore(topicDirectory,
-            writeGate = storageWrites,
+            allowFreshInitialization = true, writeGate = storageWrites,
             otherBytes = { otherDiscoveryBytes(topicDirectory) })
         val topicCheckpointStore = com.example.notionreader.data.local.FileTopicStore(topicCheckpointDirectory,
             writeGate = storageWrites,

@@ -111,7 +111,7 @@ class DiscoveryController(
                 while (runtime.foregroundQueries.get() > 0) delay(10)
                 currentCoroutineContext().ensureActive()
             }, bulkGate = runtime.bulkGate) }, proposalProgress = proposalProgressStore,
-        requireKnownCatalogOnRestore = enableEvidenceFirstScheduling) }
+        requireKnownCatalogOnRestore = enableEvidenceFirstScheduling, bootstrapInterests = interestStore) }
 
     private val interests = DiscoveryInterests(cache, interestStore, provider, mutable, runtime, retrieval,
         workDispatcher, modelAvailable, recommendationThreshold, clock)

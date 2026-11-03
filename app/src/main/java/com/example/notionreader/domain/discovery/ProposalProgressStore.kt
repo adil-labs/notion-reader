@@ -31,6 +31,8 @@ data class PendingNoteScanRecord(val workKey: String, val pageId: String, val re
 enum class ProposalProgressWriteResult { Written, Stale, Invalid, StorageRefused, IoFailure, RecordMemoryLimit }
 
 interface ProposalProgressStore {
+    /** Conservative proof that no concept, scan or support checkpoint is present. */
+    suspend fun hasOnlySourceDeltas(): Boolean = false
     suspend fun read(pageId: String, anchorOffset: Int, sources: Map<String, String>): ProposalProgressRecord?
     suspend fun write(record: ProposalProgressRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult
     suspend fun readAbstention(workKey: String, sources: Map<String, String>): ProposalAbstentionRecord?

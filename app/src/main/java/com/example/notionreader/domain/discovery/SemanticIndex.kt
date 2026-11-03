@@ -82,6 +82,10 @@ data class DiscoveryInterest(val id: String, val text: String = "", val seedPage
     init { require((text.isNotBlank()) != (seedPageId != null)) }
 }
 interface DiscoveryInterestStore {
+    /** Null means the store cannot establish whether followed-topic identities exist. */
+    suspend fun readForCatalogBootstrap(): List<DiscoveryInterest>? = null
+    /** Hold the store's write lock while deciding and committing a fresh catalog. */
+    suspend fun <T> withCatalogBootstrapGuard(action: suspend (List<DiscoveryInterest>?) -> T): T = action(null)
     suspend fun read(): List<DiscoveryInterest>
     suspend fun write(interests: List<DiscoveryInterest>)
 }

@@ -625,4 +625,114 @@ class FileTopicStoreTest {
             store.writeDetailed(snapshot))
     }
 
+    @Test fun aFreshCatalogMarkerSurvivesRecreationButNeverResurrectsACommittedCatalog() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "new-catalog")
+        val first = FileTopicStore(directory, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Fresh, first.inspectMetadata())
+        assertEquals(TopicMetadataState.Fresh, FileTopicStore(directory, allowFreshInitialization = true).inspectMetadata())
+        assertTrue(first.write(TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true)))
+        assertTrue(first.inspectMetadata() is TopicMetadataState.Available)
+        assertTrue(File(directory, "topics.json").delete())
+        assertNotEquals("A removed committed catalog must not look like first install", TopicMetadataState.Fresh,
+            FileTopicStore(directory, allowFreshInitialization = true).inspectMetadata())
+    }
+
+    @Test fun rejectedFreshCatalogWritesCanBeRetriedWithoutGuessing() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "fresh")
+        var reject = true
+        val gate = object : com.example.notionreader.domain.document.StorageWriteGate {
+            override suspend fun <T> write(category: com.example.notionreader.domain.document.StorageCategory,
+                additionalPeakBytes: Long, block: suspend () -> T): T {
+                if (reject && additionalPeakBytes > 100) throw com.example.notionreader.domain.document.StorageRefused(
+                    com.example.notionreader.domain.document.StorageFailure.CATEGORY_LIMIT)
+                return block()
+            }
+        }
+        val store = FileTopicStore(directory, writeGate = gate, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+        val snapshot = TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true)
+        assertTrue(store.initializeFresh(snapshot) { true } is TopicGuardedWriteResult.Rejected)
+        assertEquals(TopicMetadataState.Fresh, FileTopicStore(directory, writeGate = gate, allowFreshInitialization = true).inspectMetadata())
+        reject = false
+        assertEquals(TopicGuardedWriteResult.Written, store.initializeFresh(snapshot) { true })
+    }
+    @Test fun anInterruptedConsumedMarkerCannotBeMistakenForFreshState() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "fresh")
+        val store = FileTopicStore(directory, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+        assertTrue(File(directory, "fresh-catalog.marker").renameTo(File(directory, "consumed-catalog.marker")))
+        assertEquals(TopicMetadataState.Unknown, FileTopicStore(directory, allowFreshInitialization = true).inspectMetadata())
+        assertTrue(FileTopicStore(directory, allowFreshInitialization = true).initializeFresh(
+            TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true)) { true } is TopicGuardedWriteResult.Rejected)
+    }
+
+    @Test fun aRefusedFreshInitializationCanRetryInTheSameProcess() = runBlocking {
+        val root = temporary.newFolder(); var reject = true
+        val gate = object : com.example.notionreader.domain.document.StorageWriteGate {
+            override suspend fun <T> write(category: com.example.notionreader.domain.document.StorageCategory,
+                additionalPeakBytes: Long, block: suspend () -> T): T {
+                if (reject) throw com.example.notionreader.domain.document.StorageRefused(
+                    com.example.notionreader.domain.document.StorageFailure.CATEGORY_LIMIT)
+                return block()
+            }
+        }
+        val store = FileTopicStore(File(root, "fresh"), writeGate = gate, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+        val snapshot = TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true)
+        assertTrue(store.initializeFresh(snapshot) { true } is TopicGuardedWriteResult.Rejected)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+        reject = false
+        assertEquals(TopicGuardedWriteResult.Written, store.initializeFresh(snapshot) { true })
+    }
+
+    @Test fun freshInitializationCannotImportUnverifiedSourceCoverage() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "fresh")
+        val store = FileTopicStore(directory, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+        val unverified = TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true,
+            acceptedRevisions = mapOf("note" to "unverified"))
+        assertTrue(store.initializeFresh(unverified) { true } is TopicGuardedWriteResult.Rejected)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+    }
+
+    @Test fun staleFreshInitializationRestoresTheUnconsumedMarker() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "fresh")
+        val store = FileTopicStore(directory, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Fresh, store.inspectMetadata())
+        val snapshot = TopicSnapshot(identity = EmbeddingIdentity("model", 2), canonicalCatalogReady = true)
+        var checks = 0
+        assertEquals(TopicGuardedWriteResult.Stale, store.initializeFresh(snapshot) { ++checks == 1 })
+        assertFalse(File(directory, "topics.json").exists())
+        assertEquals(TopicMetadataState.Fresh, FileTopicStore(directory, allowFreshInitialization = true).inspectMetadata())
+    }
+
+    @Test fun anyCatalogWriterConsumesAnExistingFreshMarker() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "fresh")
+        assertEquals(TopicMetadataState.Fresh, FileTopicStore(directory, allowFreshInitialization = true).inspectMetadata())
+        assertTrue(FileTopicStore(directory).write(TopicSnapshot(identity = EmbeddingIdentity("model", 2))))
+        assertTrue(File(directory, "topics.json").delete())
+        assertNotEquals(TopicMetadataState.Fresh, FileTopicStore(directory, allowFreshInitialization = true).inspectMetadata())
+    }
+
+    @Test fun delayedFirstInspectionCannotRecreateAConsumedFreshMarker() = runBlocking {
+        val root = temporary.newFolder(); val directory = File(root, "fresh")
+        val first = FileTopicStore(directory, allowFreshInitialization = true)
+        assertTrue(FileTopicStore(directory).write(TopicSnapshot(identity = EmbeddingIdentity("model", 2))))
+        assertTrue(File(directory, "topics.json").delete())
+        assertNotEquals("A delayed inspector must not forget an intervening catalog write", TopicMetadataState.Fresh, first.inspectMetadata())
+    }
+
+    @Test fun anUnavailableFreshMarkerDoesNotCrashStoreStartup() = runBlocking {
+        val root = temporary.newFolder()
+        val directory = object : File(root, "fresh") {
+            override fun mkdirs(): Boolean {
+                val created = super.mkdirs()
+                if (created) File(this, "fresh-catalog.marker").mkdir()
+                return created
+            }
+        }
+        val store = FileTopicStore(directory, allowFreshInitialization = true)
+        assertEquals(TopicMetadataState.Unknown, store.inspectMetadata())
+    }
+
 }

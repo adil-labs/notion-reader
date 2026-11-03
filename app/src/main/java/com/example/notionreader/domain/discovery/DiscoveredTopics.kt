@@ -112,6 +112,7 @@ sealed interface TopicGuardedWriteResult {
 /** Restoration must not confuse an unreadable catalog with a new empty one. */
 sealed interface TopicMetadataState {
     data class Available(val snapshot: TopicSnapshot) : TopicMetadataState
+    data object Fresh : TopicMetadataState
     data object Missing : TopicMetadataState
     data object Unreadable : TopicMetadataState
     data object Unknown : TopicMetadataState
@@ -143,6 +144,9 @@ interface TopicStore {
         require(offset >= 0 && limit in 1..100)
         return read()?.connections.orEmpty().drop(offset).take(limit)
     }
+    /** Only stores that can atomically prove first-install provenance may initialize. */
+    suspend fun initializeFresh(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult =
+        TopicGuardedWriteResult.Rejected(TopicWriteResult.Rejected(TopicWriteFailure.Unknown))
     suspend fun write(snapshot: TopicSnapshot): Boolean
     suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult =
         if (write(snapshot)) TopicWriteResult.Written else TopicWriteResult.Rejected(TopicWriteFailure.Unknown)

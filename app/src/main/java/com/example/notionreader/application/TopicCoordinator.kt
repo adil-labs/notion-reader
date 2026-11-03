@@ -42,7 +42,8 @@ internal class TopicCoordinator(
     private val labels: TopicLabelCoordinator? = null,
     private val retrievals: TopicRetrievalCoordinator? = null,
     private val proposalProgress: ProposalProgressStore? = null,
-    private val requireKnownCatalogOnRestore: Boolean = false
+    private val requireKnownCatalogOnRestore: Boolean = false,
+    private val bootstrapInterests: DiscoveryInterestStore? = null
 ) {
     private class WorkPaused : RuntimeException()
     private class ConnectionSourceUnavailable : RuntimeException()
@@ -420,6 +421,41 @@ internal class TopicCoordinator(
         if (!loaded) {
             latest = if (requireKnownCatalogOnRestore) {
                 when (val result = restoreStep("restoreMetadata") { store.inspectMetadata() }) {
+                    TopicMetadataState.Fresh -> {
+                        val fresh = bootstrapInterests?.withCatalogBootstrapGuard { interests ->
+                            val progress = proposalProgress
+                            if (interests == null || interests.any { it.originTopicId != null } || checkpoint == null ||
+                                labels == null || retrievals == null || progress == null || checkpoint.bytes() != 0L ||
+                                labels.bytes() != 0L || retrievals.bytes() != 0L || !progress.hasOnlySourceDeltas() ||
+                                cache.revision.value != cacheRevision) return@withCatalogBootstrapGuard null
+                            // No catalog or topic-derived state exists. Retire any pending withdrawals
+                            // only after source deltas have been reconciled and other consumers permit it.
+                            val events = cache.invalidations.value
+                            if (events.isNotEmpty()) {
+                                val withdrawn = events.mapNotNull { it.pageId?.let(::canonicalSemanticId) }.toSet()
+                                val eligible = if (events.any { it.pageId == null }) emptyMap() else sources.filterKeys { it !in withdrawn }
+                                progress.reconcile(eligible)
+                                if (cache.revision.value != cacheRevision) return@withCatalogBootstrapGuard null
+                                events.maxOfOrNull { it.generation }?.let {
+                                    cache.acknowledgeInvalidations(minOf(it, invalidationAcknowledgementLimit()))
+                                }
+                            }
+                            val model = identity()
+                            fun current() = cache.revision.value == cacheRevision && cache.invalidations.value.isEmpty() && identity() == model
+                            if (!current()) return@withCatalogBootstrapGuard null
+                            val candidate = TopicSnapshot(identity = model, canonicalCatalogReady = true,
+                                policyVersion = policy.version, connectionPassComplete = false)
+                            if (store.initializeFresh(candidate, ::current) != TopicGuardedWriteResult.Written) return@withCatalogBootstrapGuard null
+                            if (!current()) { store.clear(); return@withCatalogBootstrapGuard null }
+                            candidate
+                        }
+                        if (fresh == null) {
+                            needsMoreWork = true
+                            failed("Topic catalog initialization needs recovery before discovery can continue.")
+                            return@withLock
+                        }
+                        fresh
+                    }
                     is TopicMetadataState.Available -> {
                         val snapshot = result.snapshot
                         val model = identity()

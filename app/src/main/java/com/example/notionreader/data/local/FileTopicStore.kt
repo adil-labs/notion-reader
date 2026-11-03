@@ -44,9 +44,13 @@ private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class FileTopicStore(private val directory: File, private val maxBytes: Long = Long.MAX_VALUE,
     private val otherBytes: suspend () -> Long = { 0L },
-    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted) : TopicStore {
-    private val mutex = Mutex()
+    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted,
+    private val allowFreshInitialization: Boolean = false) : TopicStore {
+    private val directoryKey = directory.absoluteFile.normalize().path.lowercase(java.util.Locale.ROOT)
+    private val mutex = directoryMutexes.computeIfAbsent(directoryKey) { Mutex() }
     private companion object {
+        val directoryMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+        val initializationLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
         const val MAX_RECORD_BYTES = 64L * 1024 * 1024
         // Separate from disk capacity: accommodates dense hundred-Note continuity and legacy identities.
         const val MAX_CONTINUITY_BYTES = 4 * 1024 * 1024
@@ -54,12 +58,23 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val catalog = FileConnectionCatalog(directory, json)
     private val file get() = File(directory, "topics.json")
+    private val freshMarker get() = File(directory, "fresh-catalog.marker")
+    private val consumedMarker get() = File(directory, "consumed-catalog.marker")
     private val catalogs = linkedMapOf<String, ConnectionCatalogManifest>()
     private var currentCatalogKey: String? = null
     private var pinnedCatalogKey: String? = null
     init {
         require(maxBytes > 0)
-        directory.mkdirs()
+        synchronized(initializationLocks.computeIfAbsent(directoryKey) { Any() }) {
+            val created = directory.mkdirs()
+            check(created || directory.isDirectory) { "Topic directory unavailable" }
+            // The empty marker and directory are created before any other store instance can open.
+            if (created && allowFreshInitialization) {
+                try { freshMarker.createNewFile() }
+                catch (_: java.io.IOException) { /* Missing provenance fails closed. */ }
+                catch (_: SecurityException) { /* Missing provenance fails closed. */ }
+            }
+        }
         directory.listFiles { f -> f.extension == "tmp" }?.forEach { check(it.delete()) }
         val referenced = runCatching {
             if (!file.isFile) emptySet() else {
@@ -260,7 +275,12 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             semanticHash(manifest.pages.joinToString("|") { it.digest })))
 
     override suspend fun inspectMetadata(): TopicMetadataState = withContext(Dispatchers.IO) { mutex.withLock {
-        if (!file.exists()) return@withLock TopicMetadataState.Missing
+        if (!file.exists()) {
+            if (!allowFreshInitialization) return@withLock TopicMetadataState.Missing
+            if (consumedMarker.exists()) return@withLock TopicMetadataState.Unknown
+            if (!freshMarker.exists()) return@withLock TopicMetadataState.Missing
+            return@withLock if (freshMarker.isFile && freshMarker.length() == 0L) TopicMetadataState.Fresh else TopicMetadataState.Unknown
+        }
         if (!file.isFile) return@withLock TopicMetadataState.Unreadable
         runCatching {
             require(file.length() <= MAX_RECORD_BYTES)
@@ -433,10 +453,28 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             }
         } catch (_: StaleGuard) { TopicGuardedWriteResult.Stale }
     }
-    private suspend fun writeInternal(snapshot: TopicSnapshot, guard: (() -> Boolean)?): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
+    override suspend fun initializeFresh(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
+        if (!current()) return TopicGuardedWriteResult.Stale
+        return try {
+            when (val result = writeInternal(snapshot, current, requireFresh = true)) {
+                TopicWriteResult.Written -> TopicGuardedWriteResult.Written
+                is TopicWriteResult.Rejected -> TopicGuardedWriteResult.Rejected(result)
+            }
+        } catch (_: StaleGuard) { TopicGuardedWriteResult.Stale }
+    }
+    private suspend fun writeInternal(snapshot: TopicSnapshot, guard: (() -> Boolean)?, requireFresh: Boolean = false): TopicWriteResult = withContext(Dispatchers.IO) { mutex.withLock {
         val staged = mutableListOf<File>()
         var committed = false
+        var consumedFresh = false
         try {
+            if (requireFresh && (!allowFreshInitialization || file.exists() || consumedMarker.exists() ||
+                    !freshMarker.isFile || freshMarker.length() != 0L)) return@withLock TopicWriteResult.Rejected(TopicWriteFailure.Unknown)
+            if (requireFresh && (!snapshot.canonicalCatalogReady || snapshot.identity == null || snapshot.complete ||
+                    snapshot.generation != 0L || snapshot.topics.isNotEmpty() || snapshot.provisionalTopics.isNotEmpty() ||
+                    snapshot.continuity.isNotEmpty() || snapshot.acceptedRevisions.isNotEmpty() || snapshot.connections.isNotEmpty() ||
+                    snapshot.catalogReference != null || snapshot.referenceTitles.isNotEmpty() || snapshot.subjectRelationships.isNotEmpty() ||
+                    snapshot.formationProgress != null || snapshot.formationReuse != null || snapshot.connectionWork != ConnectionWork()))
+                return@withLock TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, TopicValidationReason.InvalidSnapshotProgress)
             val context = currentCoroutineContext()
             validationFailure(snapshot) { context.ensureActive() }?.let {
                 return@withLock TopicWriteResult.Rejected(TopicWriteFailure.InvalidSnapshot, it)
@@ -451,6 +489,12 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 else reused?.value ?: stageCatalog(snapshot.connections, snapshot.identity, external, staged)
                     ?: return@withLock TopicWriteResult.Rejected(TopicWriteFailure.BudgetExceeded)
             val key = ref?.key ?: reused?.key ?: UUID.randomUUID().toString()
+            if (freshMarker.isFile && freshMarker.length() == 0L && !consumedMarker.exists()) {
+                writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, 0L) {
+                    java.nio.file.Files.move(freshMarker.toPath(), consumedMarker.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                }
+                consumedFresh = true
+            }
             if (!writeEnvelope(envelope(snapshot.copy(connections = emptyList(), catalogReference = null), manifest,
                 key) { context.ensureActive() }, external, { context.ensureActive() },
                 { if (guard != null && !guard()) throw StaleGuard() }))
@@ -467,6 +511,17 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             TopicWriteResult.Rejected(TopicWriteFailure.IoFailure)
         } finally {
             if (!committed) staged.forEach { check(it.delete() || !it.exists()) { "Unable to remove catalog staging" } }
+            if (consumedFresh) withContext(NonCancellable) {
+                if (committed) consumedMarker.delete()
+                else if (!file.exists()) {
+                    try {
+                        writeGate.write(com.example.notionreader.domain.document.StorageCategory.DISCOVERY, 0L) {
+                            java.nio.file.Files.move(consumedMarker.toPath(), freshMarker.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                        }
+                    } catch (_: java.io.IOException) { /* A consumed marker is conservative after interruption. */ }
+                    catch (_: com.example.notionreader.domain.document.StorageRefused) { /* Retry requires recovery. */ }
+                }
+            }
         }
     } }
     override suspend fun clear(): Unit = withContext(Dispatchers.IO) { mutex.withLock {

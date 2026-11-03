@@ -59,6 +59,10 @@ class FileProposalProgressStore(private val directory: File,
                 (it.name.startsWith("proposal-progress-") || it.name.startsWith("proposal-abstention-") ||
                     it.name.startsWith("proposal-support-") || it.name.startsWith("proposal-pending-note-scan-") || it.name.startsWith("proposal-concept-") || it.name.startsWith("proposal-delta-")) && it.extension == "tmp")
         }
+    override suspend fun hasOnlySourceDeltas(): Boolean = withContext(Dispatchers.IO) { lock.withLock {
+        val entries = directory.listFiles() ?: return@withLock false
+        entries.all { it.isFile && deltaName.matches(it.name) }
+    } }
     private fun validId(id: String) = id.length in 1..512 && id == canonicalSemanticId(id)
     private fun validRevision(value: String) = value.length in 1..1024
     private fun valid(record: ProposalAbstentionRecord): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
