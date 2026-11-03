@@ -13740,3 +13740,28 @@ test. The full JVM suite passed 1,609 tests with no failures, errors or skips;
 debug assembly and Android-test compilation passed. Broader continuity across
 changed concept wording or changed evidence, remaining recovery races, production
 activation and removal of the legacy production path remain open.
+
+
+## 217. Remove the obsolete three-Note status (2026-11-03)
+
+The shared Discovery presentation still told users that topics require three
+indexed Notes when an old engine-version-zero snapshot was encountered. That
+contradicts the one-Note Emerging Topic contract. The obsolete conditional was
+removed; unfinished work uses the existing neutral processing status instead.
+The new `singleIndexedNoteIsNotDescribedAsInsufficientForTopics` regression test
+failed with the old branch restored and passed after removal. The JVM suite
+passed 1,610 tests without failures, errors or skips; debug assembly and
+Android-test compilation passed.
+
+A production-readiness review found that the evidence-first source acceptance
+currently returns when the entire index is incomplete, and its scheduled work
+compares its catalog against the full eligible cache. A blocked or slow Note can
+therefore delay an already indexed Note. Correcting this needs a source-current,
+explicit partial-coverage design across indexing, catalog tickets, proposal and
+support revalidation; simply passing a subset would incorrectly claim complete
+corpus coverage. The replacement remains disabled and the legacy production path
+remains; no broad activation or quality acceptance is claimed.
+
+The targeted `DiscoveryTopicsNavigationAccessibilityTest` wrapper passed 22/22
+on the API 36 emulator. It checks the existing semantics and navigation class; it
+does not observe TalkBack speech or prove the disabled replacement works on-device.

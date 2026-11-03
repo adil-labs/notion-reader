@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Removed the obsolete three-Note status and identified the full-index
+dependency that still blocks ordinary incremental source processing (§217).
+
 2026-11-03: A regenerated canonical concept can recover its ID after a Note edit
 only with unique matching concept and surviving passage evidence; see §216.
 

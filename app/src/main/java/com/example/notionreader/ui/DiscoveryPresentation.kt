@@ -68,7 +68,6 @@ private fun discoveryProcessingDescription(state: DiscoveryState): String? = whe
             "Finding topics in ${state.indexedCount} indexed Notes (${progress.totalOpportunities} passage groups across ${progress.totalSections} sections). ${progress.comparisonsCompleted} similarity checks completed so far. Progress is saved."
         else "Checking topic evidence: ${candidates.take(progress.projectionCluster).count { it.isNotEmpty() }} of ${candidates.count { it.isNotEmpty() }} candidates; ${progress.totalSections} of ${progress.totalSections} sections finalized."
     }
-    state.indexedCount < 3 && state.topicSnapshot.engineVersion == 0 -> "Topics need at least three indexed Notes. You can still search individual Notes."
     state.topicStatus?.startsWith("Finding topics") == true -> "Updating discoveries…"
     state.topicStatus != null -> state.topicStatus
     !state.topicSnapshot.complete || (maxOf(state.indexedCount, state.cachedPageIds.size) > 1 && !state.topicSnapshot.connectionPassComplete) -> "Finding topics and connections…"

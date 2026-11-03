@@ -182,6 +182,11 @@ class DiscoveryPresentationTest {
             topicSnapshot = TopicSnapshot(complete = true, engineVersion = 1)))
         assertEquals("No supported groups yet. Search your Notes or add an interest.", ui.message)
     }
+    @Test fun singleIndexedNoteIsNotDescribedAsInsufficientForTopics() {
+        val ui = discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
+            topicSnapshot = TopicSnapshot(engineVersion = 0)))
+        assertEquals("Finding topics and connections…", ui.message)
+    }
     @Test fun backgroundFormationProgressIsVisibleWithoutReplacingTheInspectedSnapshot() {
         val progress = "Topic coverage is incomplete. 0 of 2401 sections finalized; 12 comparisons completed. Progress is saved."
         assertEquals(progress, discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
