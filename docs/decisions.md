@@ -13645,3 +13645,30 @@ post-write fault injection, edited-citation identity continuity, interruption
 recovery, and activation and removal of the legacy production path remain open.
 The replacement is still disabled; this increment does not complete the requested
 production integration.
+
+
+## 214. Rebuild a cleared canonical catalog and exercise migration faults (2026-11-03)
+
+Clearing the index removed the catalog but left a live coordinator holding an
+unready empty snapshot; recreation also treated the missing catalog as unknown.
+For the gated evidence-first path, an explicit clear now writes an empty ready
+catalog after clearing derived stores, with no accepted source coverage. Indexing
+remains paused, and a later explicit resume can rebuild from the cache. Saved
+interests and follows remain independent; their topic IDs are not claimed to be
+relinked to newly generated topics. A rejected empty-catalog write reports a
+recovery failure and leaves the missing catalog untrusted on recreation.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Persist a ready empty catalog on clear | `clearingAndReopeningRebuildsWithoutLosingAFollow` failed against the previous implementation and passes after the change. |
+| Roll back migration after a post-write withdrawal | `migrationRollsBackAWithdrawalImmediatelyAfterTheCatalogWrite` failed when the rollback call was removed. |
+| Surface the rejected reset write in controller state | `aRejectedResetCatalogReportsFailureWithoutLosingTheFollow` failed when the controller discarded the failure. |
+
+A real-store migration test also verifies a rejected write leaves the prior
+catalog and follow intact. The full JVM suite passed 1,601 tests, with zero
+failures, errors or skips; debug assembly and Android-test compilation passed.
+These tests recreate coordinators, not Android processes, and do not verify a
+device or TalkBack. A crash after deletion and before the empty catalog write
+still fails closed and requires recovery; a failed clear is not automatically
+retried. Edited-citation continuity, interrupted multi-store recovery, new-path
+activation and complete legacy production removal remain open.

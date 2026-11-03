@@ -23,6 +23,8 @@ class FreshCanonicalCatalogIntegrationTest {
     @Test fun aFreshInstallReconcilesPendingWithdrawalBeforeInitializing() = runBlocking { scenario("withdrawal") }
     @Test fun aFreshInstallWaitsForOtherConsumersBeforeAcknowledgingWithdrawal() = runBlocking { scenario("unacknowledged") }
     @Test fun withdrawalImmediatelyAfterFreshWriteCannotPublishTheEmptyCatalog() = runBlocking { scenario("stale-init") }
+    @Test fun clearingAndReopeningRebuildsWithoutLosingAFollow() = runBlocking { scenario("reset") }
+    @Test fun aRejectedResetCatalogReportsFailureWithoutLosingTheFollow() = runBlocking { scenario("reset-reject") }
     private suspend fun scenario(kind: String) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
@@ -66,24 +68,29 @@ class FreshCanonicalCatalogIntegrationTest {
             override fun release() {}
         }
         var acknowledgementLimit = if (kind == "unacknowledged") 0L else Long.MAX_VALUE
-        val topicStore = if (kind == "stale-init") object : TopicStore by graph {
+        var rejectReset = false
+        val topicStore = if (kind == "reset-reject") object : TopicStore by graph {
+            override suspend fun writeDetailed(snapshot: TopicSnapshot): TopicWriteResult =
+                if (rejectReset) TopicWriteResult.Rejected(TopicWriteFailure.IoFailure) else graph.writeDetailed(snapshot)
+        } else if (kind == "stale-init") object : TopicStore by graph {
             override suspend fun initializeFresh(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
                 val result = graph.initializeFresh(snapshot, current)
                 if (result == TopicGuardedWriteResult.Written) cache.remove("note")
                 return result
             }
         } else graph
-        val controller = DiscoveryController(cache, index, interests, provider, topicStore = topicStore, topicCheckpointStore = checkpoint,
+        fun controller() = DiscoveryController(cache, index, interests, provider, topicStore = topicStore, topicCheckpointStore = checkpoint,
             invalidationAcknowledgementLimit = { acknowledgementLimit },
             topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicLabelStore = labels, topicRetrievalStore = queries,
             proposalProgressStore = progress, topicSupportIdentity = { identity.copy(prompt = "support") },
             topicProposalIdentity = { identity }, enableEvidenceFirstScheduling = true)
+        var controller = controller()
         controller.reconcile(emptyList(), false)
         if (kind == "unacknowledged") {
             assertNull(graph.readMetadata())
             assertTrue(cache.invalidations.value.isNotEmpty())
             acknowledgementLimit = Long.MAX_VALUE
-        } else if (kind != "clean" && kind != "withdrawal") {
+        } else if (kind != "clean" && kind != "withdrawal" && kind != "reset" && kind != "reset-reject") {
             repeat(3) { controller.reconcile(emptyList(), true) }
             assertNull("Unknown pre-existing topic state must not be replaced", graph.readMetadata())
             assertNotNull(controller.state.value.topicFailure)
@@ -98,5 +105,30 @@ class FreshCanonicalCatalogIntegrationTest {
         assertEquals(setOf("note"), saved.acceptedRevisions.keys)
         assertEquals(1, saved.topics.count { it.canonicalConcept != null })
         if (kind == "withdrawal" || kind == "unacknowledged") assertTrue(cache.invalidations.value.isEmpty())
+        if (kind == "reset" || kind == "reset-reject") {
+            val topicId = saved.topics.single().id
+            interests.write(listOf(DiscoveryInterest("follow", "seeds", displayName = "My seeds", originTopicId = topicId)))
+            rejectReset = kind == "reset-reject"
+            controller.clearIndex()
+            assertTrue(index.isPaused())
+            assertEquals(topicId, interests.read().single().originTopicId)
+            if (kind == "reset-reject") {
+                assertNull(graph.readMetadata())
+                assertNotNull("A failed reset write must be visible", controller.state.value.topicFailure)
+                controller = controller()
+                controller.reconcile(emptyList(), false)
+                assertNotNull(controller.state.value.topicFailure)
+                assertEquals(topicId, interests.read().single().originTopicId)
+                return
+            }
+            assertTrue("The cleared catalog must be durably ready for rebuilding", graph.readMetadata()!!.canonicalCatalogReady)
+            assertTrue(graph.readMetadata()!!.topics.isEmpty())
+            assertTrue(index.write(SemanticRecord("note", revision, model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))))
+            index.setPaused(false)
+            controller = controller()
+            repeat(80) { controller.reconcile(emptyList(), true) }
+            assertEquals(1, graph.readMetadata()!!.topics.count { it.canonicalConcept != null })
+            assertEquals("My seeds", interests.read().single().displayName)
+        }
     }
 }

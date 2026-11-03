@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Compatible catalogs migrate after source reconciliation (§213).
+Explicit index clear now persists an empty ready catalog for rebuilding; migration
+and reset fault tests, verification and remaining interruption limits are in §214.
+
 2026-11-03: The gated replacement can initialize a proven fresh canonical
 catalog while protecting existing follows and derived state; see §212.
 

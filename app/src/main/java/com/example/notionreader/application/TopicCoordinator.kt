@@ -1084,8 +1084,18 @@ internal class TopicCoordinator(
             formationWorkspace = null
         }
         sourceAcceptance = null; sourceAcceptancePending = false; connectionInputs = null
-        store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null; pendingFormation = null; latest = TopicSnapshot()
-        view = TopicView(); changed(view)
+        store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null; pendingFormation = null
+        // An explicit index clear authorizes an empty catalog even when follows remain.
+        // Persist it so a recreated coordinator can resume after the user requests rebuilding.
+        val empty = if (requireKnownCatalogOnRestore) TopicSnapshot(identity = identity(), canonicalCatalogReady = true,
+            policyVersion = policy.version, connectionPassComplete = false) else TopicSnapshot()
+        val result = if (requireKnownCatalogOnRestore) store.writeDetailed(empty) else TopicWriteResult.Written
+        val failure = (result as? TopicWriteResult.Rejected)?.let(::persistenceFailureMessage)
+        latest = if (failure == null) empty else TopicSnapshot()
+        loaded = failure == null
+        needsMoreWork = failure != null
+        view = TopicView(latest, status = failure, failure = failure); changed(view)
+        failure
     }
     suspend fun bytes(): Long = store.bytes() + (checkpoint?.bytes() ?: 0) + (labels?.bytes() ?: 0) + (retrievals?.bytes() ?: 0)
 
