@@ -61,6 +61,10 @@ internal class TopicCoordinator(
     @Volatile private var formationWorkspace: FormationWorkspace? = null
     @Volatile var needsMoreWork: Boolean = false
         private set
+    @Volatile var sourceAcceptancePending: Boolean = false
+        private set
+    private data class SourceAcceptance(val scope: String, val lastId: String?)
+    private var sourceAcceptance: SourceAcceptance? = null
 
     private fun retainPendingWork(startEpoch: Long) = synchronized(workspaceLock) {
         if (startEpoch == epoch.get()) needsMoreWork = true
@@ -514,6 +518,11 @@ internal class TopicCoordinator(
                 shown = remove(shown, ids, permanent)
             }
         }
+        if (requireKnownCatalogOnRestore && (stale.isNotEmpty() || events.isNotEmpty())) {
+            next = next.copy(connectionPassComplete = false)
+            shown = shown.copy(connectionPassComplete = false)
+            needsMoreWork = true
+        }
         suspend fun withdrawNames(snapshot: TopicSnapshot) {
             if (events.any { it.reason == CacheRemovalReason.RESET }) {
                 labels?.clear()
@@ -580,8 +589,74 @@ internal class TopicCoordinator(
     }
 
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long) {
-        if (requireKnownCatalogOnRestore || cache.revision.value != cacheRevision || !mayWork()) return
+        if (cache.revision.value != cacheRevision || !mayWork()) return
+        if (requireKnownCatalogOnRestore) {
+            acceptIndexedSources(sources, cacheRevision)
+            return
+        }
         buildGeneration(sources, metadataVersion, cacheRevision)
+    }
+
+    /** Check newly indexed revisions in bounded windows before accepting them into the catalog. */
+    private suspend fun acceptIndexedSources(sources: Map<String, String>, cacheRevision: Long) = writes.withLock {
+        if (!loaded || !latest.canonicalCatalogReady) { sourceAcceptance = null; sourceAcceptancePending = false; return@withLock }
+        if (cache.invalidations.value.isNotEmpty()) return@withLock
+        val model = identity()
+        if (latest.identity != model) {
+            sourceAcceptance = null; sourceAcceptancePending = false
+            failed("The topic catalog needs a compatible embedding model. Retry processing."); return@withLock
+        }
+        if (cache.revision.value != cacheRevision) { sourceAcceptance = null; sourceAcceptancePending = false; return@withLock }
+        val snapshot = latest
+        val pending = sources.toSortedMap().filter { (id, revision) -> snapshot.acceptedRevisions[id] != revision }.keys.toList()
+        if (snapshot.acceptedRevisions == sources) { sourceAcceptance = null; sourceAcceptancePending = false; return@withLock }
+        // Withdrawal must be reconciled first; accepting an inventory must never resurrect it.
+        if (snapshot.acceptedRevisions.any { (id, revision) -> sources[id] != revision }) {
+            sourceAcceptancePending = false; failed("Topic sources need recovery before discovery can continue."); return@withLock
+        }
+        val queryTicket = retrievals?.queryTicket() ?: run {
+            sourceAcceptancePending = false; failed("Topic queries are unavailable. Retry processing."); return@withLock
+        }
+        val ticket = TopicCatalogTicket(snapshot, epoch.get(), cacheRevision, model, queryTicket)
+        fun current() = isCatalogTicketCurrent(ticket) && mayWork() && !shouldYield()
+        if (!current()) return@withLock
+        val fields = listOf("canonical-source-acceptance-v1", cacheRevision.toString(), ticket.epoch.toString(), model.toString()) +
+            sources.toSortedMap().flatMap { listOf(it.key, it.value) }
+        val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
+        val cursor = sourceAcceptance?.takeIf { it.scope == scope }?.lastId
+        val work = pending.filter { cursor == null || it > cursor }.take(8)
+        sourceAcceptancePending = true
+        needsMoreWork = true
+        for (id in work) {
+            val record = readRecord(id)
+            if (!current()) return@withLock
+            if (record == null || canonicalSemanticId(record.pageId) != id || record.revision != sources[id] || record.identity != model) {
+                sourceAcceptance = null; sourceAcceptancePending = false
+                failed("Some indexed Notes need recovery before discovery can continue.")
+                return@withLock
+            }
+            sourceAcceptance = SourceAcceptance(scope, id)
+        }
+        if (work.size < pending.count { cursor == null || it > cursor }) return@withLock
+        val topics = snapshot.topics.map { topic ->
+            val concept = topic.canonicalConcept
+            if (concept == null || !concept.matchingComplete || concept.scannedRevisions == sources) topic
+            else topic.copy(canonicalConcept = concept.copy(matchingComplete = false),
+                canonicalProjection = topic.canonicalProjection?.copy(members = null))
+        }
+        val next = snapshot.copy(topics = topics, acceptedRevisions = sources, complete = false,
+            connectionPassComplete = false, sourceSignature = null, generation = snapshot.generation + 1)
+        val result = bulk { store.writeGuarded(next, ::current) }
+        if (result == TopicGuardedWriteResult.Stale) return@withLock
+        if (result is TopicGuardedWriteResult.Rejected) {
+            sourceAcceptancePending = false
+            failed(persistenceFailureMessage(result.result)); return@withLock
+        }
+        if (!current()) { rollbackAfterStaleWrite(snapshot, ticket); return@withLock }
+        latest = next; epoch.incrementAndGet(); sourceAcceptance = null; sourceAcceptancePending = false
+        view = if (inspected) view.copy(updated = true) else view.copy(snapshot = next)
+        store.pinInspection(view.snapshot)
+        changed(view)
     }
     /** Formation is bounded by comparisons, never by admitted source sections. */
     private suspend fun buildGeneration(sources: Map<String, String>, metadataVersion: Int,
@@ -864,6 +939,7 @@ internal class TopicCoordinator(
             needsMoreWork = false
             formationWorkspace = null
         }
+        sourceAcceptance = null; sourceAcceptancePending = false
         store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null; pendingFormation = null; latest = TopicSnapshot()
         view = TopicView(); changed(view)
     }

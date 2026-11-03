@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#209-decouple-known-catalogs-from-legacy-formation-2026-11-03)
+[the current decision-record entry](decisions.md#210-accept-indexed-sources-without-formation-2026-11-03)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

@@ -67,6 +67,7 @@ class DiscoveryController(
     private val evidenceScheduler = EvidenceFirstScheduler()
     @Volatile private var evidenceWorkPending = enableEvidenceFirstScheduling
     private val evidenceFailure = "Some topic proposals are incomplete. Retry processing."
+    private val connectionFailure = "Note connections are incomplete. Retry processing."
     private val membershipSchedulerLock = Mutex()
     @Volatile private var membershipWorkPending = false
     private val membershipFailure = "Some topic membership checks are incomplete. Retry processing."
@@ -810,7 +811,7 @@ class DiscoveryController(
             try {
                 indexing.reconcileInBackground(entries, mayIndex)
                 if (mayIndex && mayContinueWork() && !state.value.paused && runtime.foregroundQueries.get() == 0 &&
-                    state.value.indexFailure == null && (state.value.topicFailure == null || state.value.topicFailure == membershipFailure || state.value.topicFailure == evidenceFailure)) {
+                    topics?.sourceAcceptancePending != true && state.value.indexFailure == null && (state.value.topicFailure == null || state.value.topicFailure == membershipFailure || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
                     try { advanceScheduledMembership() }
                     catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                     catch (_: Exception) {
@@ -818,7 +819,7 @@ class DiscoveryController(
                         mutable.update { it.copy(topicFailure = membershipFailure) }
                     }
                     if (enableEvidenceFirstScheduling && !membershipWorkPending &&
-                        (state.value.topicFailure == null || state.value.topicFailure == evidenceFailure)) {
+                        (state.value.topicFailure == null || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
                         try { advanceScheduledEvidence() }
                         catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                         catch (_: Exception) {
@@ -862,9 +863,9 @@ class DiscoveryController(
 
     /** Reuses the process reconciliation window and the same inference and commit gates. */
     private suspend fun advanceScheduledEvidence() = membershipSchedulerLock.withLock {
-        fun block() {
+        fun block(message: String = evidenceFailure) {
             evidenceWorkPending = true
-            mutable.update { it.copy(topicFailure = evidenceFailure) }
+            mutable.update { it.copy(topicFailure = message) }
         }
         val owner = topics ?: return@withLock block()
         val ticket = owner.captureCatalogTicket() ?: return@withLock block()
@@ -877,14 +878,17 @@ class DiscoveryController(
             ticket.identity.toString(), ticket.queryTicket, mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
             sources.toSortedMap().flatMap { listOf(it.key, it.value) }
         val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
-        mutable.update { if (it.topicFailure == evidenceFailure) it.copy(topicFailure = null) else it }
+        mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
         when (evidenceScheduler.step(scope, sources.keys.sorted(),
             inspect = { page, offset, replay, restart -> advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart) },
             process = { work -> advancePendingCorpusWork(work) },
             admit = { done, replay -> advanceCanonicalAdmission(done, replay) })) {
             EvidenceFirstScheduleResult.Idle -> {
-                evidenceWorkPending = false
-                mutable.update { if (it.topicFailure == evidenceFailure) it.copy(topicFailure = null) else it }
+                if (!ticket.snapshot.connectionPassComplete) block(connectionFailure)
+                else {
+                    evidenceWorkPending = false
+                    mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
+                }
             }
             EvidenceFirstScheduleResult.Progress -> { evidenceWorkPending = true; wake.value++ }
             EvidenceFirstScheduleResult.Blocked -> {

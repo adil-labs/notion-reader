@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: The gated replacement accepts indexed source revisions in bounded
+windows without legacy formation; race and failure proofs are in §210.
+
 2026-11-03: The gated replacement skips legacy formation and uses a separately
 validated canonical-catalog readiness marker. Tests and remaining work are in §209.
 

@@ -17,7 +17,9 @@ class CanonicalMembershipSchedulerIntegrationTest {
     @Test fun reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic() = runBlocking { scenario(false) }
     @Test fun canonicalMembershipUpdatesDoNotRequireCompletedFormation() = runBlocking { scenario(true) }
     @Test fun migrationPreservesAnExistingCanonicalTopicIdentity() = runBlocking { scenario(false, migrateLegacy = true) }
-    private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false) {
+    @Test fun newIndexedSourceUpdatesMembershipWithoutFormation() = runBlocking { scenario(true, newSource = true) }
+    @Test fun withdrawingASourceLeavesConnectionCoveragePending() = runBlocking { scenario(true, withdraw = true) }
+    private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false, newSource: Boolean = false, withdraw: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val progress = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
@@ -33,6 +35,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         val (seedDoc, seed) = add("seed"); val (laterDoc, later) = add("later")
         index.setPaused(false)
         val sources = mapOf("seed" to seed.revision, "later" to later.revision)
+        val accepted = if (newSource) mapOf("seed" to seed.revision) else sources
         val p = seed.passages.single(); val ref = ProposalEvidenceRef("seed", seed.revision, p.passage.id)
         val offered = TopicLabelEvidence(ref.passageId, ref.pageId, ref.revision, text)
         val proposal = DiscoveryProposalRequest(semanticHash("proposal"), 0, listOf(offered), generator)
@@ -44,7 +47,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         val policy = TopicRetrievalPolicy(.8f)
         val query = TopicQueryEmbedding(TopicRetrievalQuery("topic", key, "${response.name}\n${response.definition}", model, policy), listOf(1f, 0f))
         val concept = CanonicalConceptEvidence(key, response.name, response.definition, response.listeningDescription,
-            generator, verifier, listOf(ref), listOf(assessment), listOf(ref), mapOf("seed" to seed.revision), false,
+            generator, verifier, listOf(ref), listOf(assessment), listOf(ref), mapOf("seed" to seed.revision), newSource,
             proposal.proposalKey, queryEmbedding = query)
         val member = TopicMembership("seed", seed.metadata, p.passage, 1f, p.passage, seed.revision)
         val topic = DiscoveredTopic("topic", "Seeds", p.passage, p, listOf(member), 1, canonicalConcept = concept)
@@ -53,7 +56,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         val topicPolicy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
         assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(topics = listOf(topic), identity = model,
-            complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = true, acceptedRevisions = sources, policyVersion = topicPolicy.version,
+            complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = true, acceptedRevisions = accepted, policyVersion = topicPolicy.version,
             sourceSignature = topicSourceSignature(model, topicPolicy, semanticMetadataHash(metadata), sources))))
         var calls = 0
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
@@ -78,6 +81,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         assertEquals(0, calls)
         controller.reconcile(emptyList(), true)
         assertEquals(1, calls)
+        if (newSource) assertEquals(sources, controller.state.value.topicSnapshot.acceptedRevisions)
         assertNotNull(progress.readConceptScan("later", sources))
         controller = controller() // Simulate process-owned controller recreation with the same durable stores.
         controller.reconcile(emptyList(), false)
@@ -93,5 +97,11 @@ class CanonicalMembershipSchedulerIntegrationTest {
             assertTrue("Proposal work remains pending without a generator", controller.hasPendingWork)
             assertNotNull("Unavailable proposal work must not spin as if it could advance", controller.state.value.topicFailure)
         } else assertFalse(controller.hasPendingWork)
+        if (withdraw) {
+            cache.remove("later")
+            controller.reconcile(emptyList(), false)
+            assertFalse("Withdrawal requires connection reconciliation", controller.state.value.topicSnapshot.connectionPassComplete)
+            assertFalse(controller.state.value.topicSnapshot.acceptedRevisions.containsKey("later"))
+        }
     }
 }

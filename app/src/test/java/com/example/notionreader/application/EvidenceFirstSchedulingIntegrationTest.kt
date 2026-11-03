@@ -22,8 +22,9 @@ class EvidenceFirstSchedulingIntegrationTest {
         scenario(false, corrupt = true, withdraw = true)
     }
     @Test fun oneNoteCanBeAdmittedWithoutGlobalFormation() = runBlocking { scenario(true, incrementalCatalog = true) }
+    @Test fun connectionWorkRemainsPendingAfterNewSourceAdmission() = runBlocking { scenario(true, incrementalCatalog = true, unaccepted = true) }
     private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false,
-        incrementalCatalog: Boolean = false) {
+        incrementalCatalog: Boolean = false, unaccepted: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
@@ -38,7 +39,7 @@ class EvidenceFirstSchedulingIntegrationTest {
         val sources = mapOf("note" to revision); val policy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
         assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(identity = model, complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog,
-            connectionPassComplete = true, acceptedRevisions = sources, policyVersion = policy.version,
+            connectionPassComplete = true, acceptedRevisions = if (unaccepted) emptyMap() else sources, policyVersion = policy.version,
             sourceSignature = if (incrementalCatalog) null else topicSourceSignature(model, policy, semanticMetadataHash(mapOf("note" to meta)), sources))))
         if (corrupt) root.resolve("topics/topics.json").writeText("{broken")
         var calls = 0; var fail = failFirst
@@ -108,11 +109,49 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(admitted))
             if (incrementalCatalog) assertFalse("Admission must not require global formation", controller.state.value.topicSnapshot.complete)
         }
-        assertFalse(controller.hasPendingWork)
+        if (unaccepted) {
+            assertTrue(controller.hasPendingWork)
+            assertNotNull("Unfinished connection work must not spin", controller.state.value.topicFailure)
+        } else assertFalse(controller.hasPendingWork)
         controller = controller()
         controller.reconcile(emptyList(), false)
         repeat(80) { controller.reconcile(emptyList(), true) }
         assertEquals("Controller recreation must reuse the exact result", expectedCalls, calls)
-        assertFalse(controller.hasPendingWork)
+        if (unaccepted) assertTrue(controller.hasPendingWork) else assertFalse(controller.hasPendingWork)
     }
+    @Test fun sourceAcceptanceIsBoundedAndDoesNotPublishPartialInventory() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
+        val revisions = linkedMapOf<String, String>()
+        repeat(10) { n ->
+            val id = "note%02d".format(n); val body = "Evidence about seed germination number $n."
+            val doc = ReaderDocument.fromChunkTexts(id, id, listOf(body)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+            val revision = semanticRevision(doc); revisions[id] = revision
+            val p = SemanticPassage("$id:p", id, "$id:s", "Seeds", "$id:b", "$id:c", 0, body.length, body, body, 0)
+            assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(id), listOf(EmbeddedPassage(p, listOf(1f, 0f))))))
+        }
+        index.setPaused(false)
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, connectionPassComplete = true)))
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
+            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override fun release() {}
+        }
+        val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
+            topicSupportIdentity = { verifier }, topicProposalIdentity = { verifier.copy(prompt = "proposal") },
+            enableEvidenceFirstScheduling = true)
+        controller.reconcile(emptyList(), false)
+        controller.reconcile(emptyList(), true)
+        assertTrue("A bounded partial scan cannot publish a partial source inventory", graph.readMetadata()!!.acceptedRevisions.isEmpty())
+        assertNull("A normal bounded continuation is not a processing failure", controller.state.value.topicFailure)
+        controller.reconcile(emptyList(), true)
+        assertEquals(revisions, graph.readMetadata()!!.acceptedRevisions)
+        assertFalse(graph.readMetadata()!!.connectionPassComplete)
+    }
+
 }

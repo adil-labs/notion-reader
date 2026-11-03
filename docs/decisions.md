@@ -13493,3 +13493,41 @@ legacy production path because the replacement cannot yet serve those cases; the
 legacy engine has not been deleted. The user requested complete removal, so the
 remaining work is to replace those responsibilities, activate the new path, and
 remove the old production branch rather than retain two competing pipelines.
+
+
+## 210. Accept indexed sources without formation (2026-11-03)
+
+The gated replacement now checks newly indexed source revisions in windows of at
+most eight before atomically updating the canonical catalog's accepted inventory.
+It retains the existing catalog and topic identities, invalidates matching
+completeness when the source set grows, and lets the existing membership and
+proposal work proceed without global formation. The bounded cursor is process
+local; after controller recreation the checks restart from the persisted catalog.
+A cache, model, epoch or query-ticket change invalidates the write, and the
+existing stale-write rollback handles a change immediately after replacement.
+Rejected writes leave the prior catalog intact and report incomplete processing.
+
+Connection coverage becomes incomplete on source additions or withdrawal. Until
+the replacement connection work exists, finishing topic work reports that pending
+state instead of spinning or claiming all Discovery work is complete. Source
+acceptance waits for the full bounded scan before publishing the inventory, and
+ordinary proposal/membership work waits for the scan to finish.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Accept new source inventory before membership checks | `newIndexedSourceUpdatesMembershipWithoutFormation` failed before the change. |
+| Limit each source scan window to eight records | `sourceAcceptanceIsBoundedAndDoesNotPublishPartialInventory` failed when the limit was removed. |
+| Check the live ticket after the index read | `anEditedSourceCannotBeAcceptedAfterItsIndexRead` failed when the guard was removed. |
+| Roll back a stale post-write inventory | `anEditImmediatelyAfterTheWriteCannotResurrectStaleCoverage` failed when rollback was removed. |
+| Report a rejected inventory write | `aRejectedInventoryWriteLeavesThePriorCatalogIntact` failed when the failure was suppressed. |
+| Keep connection coverage incomplete after withdrawal | `withdrawingASourceLeavesConnectionCoveragePending` failed before the change. |
+| Report pending connection work after topic processing | `connectionWorkRemainsPendingAfterNewSourceAdmission` failed before the change. |
+
+The JVM suite passed 1,563 tests with no failures, errors or skips; debug assembly
+and Android-test compilation passed. The tests use real file stores and purpose-built
+sources; controller recreation is not an OS process-death test. First-install
+bootstrap, migration when source inventories differ, independent connection
+building, topic continuity through edited citations, and the remaining full-pipeline
+and device evidence remain open. The replacement is still gated; the user requested
+complete removal of the legacy production branch once these responsibilities are
+provided by the new path.
