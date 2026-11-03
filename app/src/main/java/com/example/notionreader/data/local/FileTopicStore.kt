@@ -244,6 +244,20 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         snapshot.copy(connections = preview(manifest), catalogReference = ConnectionCatalogReference(key, manifest.count, manifest.namedReferences,
             semanticHash(manifest.pages.joinToString("|") { it.digest })))
 
+    override suspend fun inspectMetadata(): TopicMetadataState = withContext(Dispatchers.IO) { mutex.withLock {
+        if (!file.exists()) return@withLock TopicMetadataState.Missing
+        if (!file.isFile) return@withLock TopicMetadataState.Unreadable
+        runCatching {
+            require(file.length() <= MAX_RECORD_BYTES)
+            val (snapshot, manifest, storedKey) = decode()
+            require(validationFailure(snapshot) == null)
+            val result = if (manifest == null) snapshot else {
+                val key = register(storedKey, snapshot, manifest)
+                metadata(snapshot, key, catalogs.getValue(key))
+            }
+            TopicMetadataState.Available(result)
+        }.getOrElse { TopicMetadataState.Unreadable }
+    } }
     override suspend fun readMetadata(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
         if (!file.isFile) return@withLock null
         runCatching {

@@ -13424,3 +13424,34 @@ amendment records user authorization to enable the implemented replacement befor
 outstanding measurements, while prohibiting representation of an incomplete
 implementation as working. Independent quality and device measurements remain
 outstanding and must be reported honestly.
+
+
+## 208. Distinguish unreadable and missing catalogs (2026-11-03)
+
+The existing nullable metadata read could discard an unreadable catalog and make
+it look like a new empty one. The topic-store boundary now offers a conservative
+inspection result: valid, missing, unreadable, or unknown. The file implementation
+validates the stored snapshot without discarding its primary file during ordinary
+inspection. Stores without an implementation report unknown instead of guessing.
+The gated evidence-first path refuses to continue when the catalog is not known;
+a missing file is not yet proof that this is a first installation. When an
+unreadable catalog coincides with a pending source withdrawal, it clears derived
+stores, retains the invalidation, and does not initialize an empty catalog.
+Legacy restoration remains unchanged while the replacement is gated.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Return unreadable instead of missing for corrupt metadata | `catalogInspectionDistinguishesMissingValidAndCorruptWithoutDiscardingEvidence` failed. |
+| Refuse to form a replacement over an unreadable catalog | `unreadableCatalogCannotBeTreatedAsAnEmptyCatalog` failed because the damaged snapshot was overwritten. |
+| Remove uninspectable topic evidence on withdrawal | `withdrawalDiscardsUnreadableEvidenceWithoutBootstrappingAnEmptyCatalog` failed. |
+
+The JVM suite passed 1,552 tests without failures, errors or skips; debug assembly
+and Android-test compilation passed. The withdrawal test recreates the controller
+and file stores, not an OS process. An initial full run found that a new restore
+guard also blocked direct legacy build tests; narrowing it to the gated path fixed
+all three regressions before the full rerun. File-store construction can retire
+unreferenced connection pages; inspection preserves the unreadable primary snapshot,
+not a complete recovery image. First-catalog initialization, interrupted cleanup,
+independent source-checked catalog completeness, and removal of legacy formation
+remain open. The user requested dropping legacy code as the replacement is integrated;
+the old path remains until the replacement can safely serve that role.

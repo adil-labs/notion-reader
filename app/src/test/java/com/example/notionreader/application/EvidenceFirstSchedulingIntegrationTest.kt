@@ -17,7 +17,11 @@ class EvidenceFirstSchedulingIntegrationTest {
     @Test fun reconciliationRunsAndReusesAnAbstainedProposal() = runBlocking { scenario(false) }
     @Test fun reconciliationAdmitsAnIndependentlySupportedConcept() = runBlocking { scenario(true) }
     @Test fun aFailedProposalCanBeRetriedAfterContinuation() = runBlocking { scenario(false, failFirst = true) }
-    private suspend fun scenario(concept: Boolean, failFirst: Boolean = false) {
+    @Test fun unreadableCatalogCannotBeTreatedAsAnEmptyCatalog() = runBlocking { scenario(false, corrupt = true) }
+    @Test fun withdrawalDiscardsUnreadableEvidenceWithoutBootstrappingAnEmptyCatalog() = runBlocking {
+        scenario(false, corrupt = true, withdraw = true)
+    }
+    private suspend fun scenario(concept: Boolean, failFirst: Boolean = false, corrupt: Boolean = false, withdraw: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
@@ -34,6 +38,7 @@ class EvidenceFirstSchedulingIntegrationTest {
         assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(identity = model, complete = true,
             connectionPassComplete = true, acceptedRevisions = sources, policyVersion = policy.version,
             sourceSignature = topicSourceSignature(model, policy, semanticMetadataHash(mapOf("note" to meta)), sources))))
+        if (corrupt) root.resolve("topics/topics.json").writeText("{broken")
         var calls = 0; var fail = failFirst
         val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
@@ -62,6 +67,25 @@ class EvidenceFirstSchedulingIntegrationTest {
         var controller = controller()
         controller.reconcile(emptyList(), false)
         assertEquals(0, calls)
+        if (corrupt) {
+            repeat(3) { controller.reconcile(emptyList(), true) }
+            assertNotNull(controller.state.value.topicFailure)
+            assertTrue(controller.hasPendingWork)
+            assertEquals(0, calls)
+            assertEquals("{broken", root.resolve("topics/topics.json").readText())
+            if (withdraw) {
+                cache.remove("note")
+                controller.reconcile(emptyList(), false)
+                assertFalse(root.resolve("topics/topics.json").exists())
+                assertTrue(cache.invalidations.value.isNotEmpty())
+                controller = controller()
+                repeat(3) { controller.reconcile(emptyList(), true) }
+                assertNotNull(controller.state.value.topicFailure)
+                assertEquals(0, calls)
+                assertFalse(root.resolve("topics/topics.json").exists())
+            }
+            return
+        }
         repeat(80) { controller.reconcile(emptyList(), true) }
         if (failFirst) {
             assertNotNull(controller.state.value.topicFailure)

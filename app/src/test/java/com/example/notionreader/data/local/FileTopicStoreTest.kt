@@ -577,4 +577,20 @@ class FileTopicStoreTest {
     @Test fun otherDerivedDataParticipatesInBudget() = runBlocking {
         assertFalse(FileTopicStore(temporary.newFolder(), 100, { 100 }).write(TopicSnapshot()))
     }
+    @Test fun catalogInspectionDistinguishesMissingValidAndCorruptWithoutDiscardingEvidence() = runBlocking {
+        val directory = temporary.newFolder()
+        val store = FileTopicStore(directory)
+        assertEquals(TopicMetadataState.Missing, store.inspectMetadata())
+        val snapshot = TopicSnapshot(generation = 3, complete = true)
+        assertTrue(store.write(snapshot))
+        val valid = store.inspectMetadata() as TopicMetadataState.Available
+        assertEquals(3L, valid.snapshot.generation)
+        val file = File(directory, "topics.json")
+        file.writeText("{broken")
+        assertEquals(TopicMetadataState.Unreadable, store.inspectMetadata())
+        assertEquals("{broken", file.readText())
+        assertEquals(TopicMetadataState.Unreadable, FileTopicStore(directory).inspectMetadata())
+        assertTrue("Inspection must not turn corruption into a fresh catalog", file.exists())
+    }
+
 }

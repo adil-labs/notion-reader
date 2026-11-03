@@ -39,7 +39,8 @@ internal class TopicCoordinator(
     private val operationTimings: (Map<String, Long>) -> Unit = {},
     private val labels: TopicLabelCoordinator? = null,
     private val retrievals: TopicRetrievalCoordinator? = null,
-    private val proposalProgress: ProposalProgressStore? = null
+    private val proposalProgress: ProposalProgressStore? = null,
+    private val requireKnownCatalogOnRestore: Boolean = false
 ) {
     private class WorkPaused : RuntimeException()
     private val writes = Mutex()
@@ -399,7 +400,22 @@ internal class TopicCoordinator(
         val restoring = !loaded
         val cacheRevision = cache.revision.value
         if (!loaded) {
-            latest = restoreStep("restoreMetadata") { store.readMetadata() } ?: TopicSnapshot()
+            latest = if (requireKnownCatalogOnRestore) {
+                when (val result = restoreStep("restoreMetadata") { store.inspectMetadata() }) {
+                    is TopicMetadataState.Available -> result.snapshot
+                    else -> {
+                        // Unknown state is not proof of an empty canonical catalog. On withdrawal,
+                        // remove uninspectable derived evidence and leave the invalidation pending.
+                        if (cache.invalidations.value.isNotEmpty()) {
+                            proposalProgress?.reconcile(emptyMap())
+                            checkpoint?.clear(); labels?.clear(); retrievals?.clear(); store.clear()
+                        }
+                        needsMoreWork = true
+                        failed("Topic catalog needs recovery before discovery can continue.")
+                        return@withLock
+                    }
+                }
+            } else restoreStep("restoreMetadata") { store.readMetadata() } ?: TopicSnapshot()
             view = TopicView(latest, status = latest.message)
             loaded = true
         }
@@ -548,7 +564,7 @@ internal class TopicCoordinator(
     }
 
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long) {
-        if (cache.revision.value != cacheRevision || !mayWork()) return
+        if (requireKnownCatalogOnRestore && !loaded || cache.revision.value != cacheRevision || !mayWork()) return
         buildGeneration(sources, metadataVersion, cacheRevision)
     }
     /** Formation is bounded by comparisons, never by admitted source sections. */

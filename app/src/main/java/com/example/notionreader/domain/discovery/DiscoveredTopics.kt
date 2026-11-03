@@ -108,9 +108,18 @@ sealed interface TopicGuardedWriteResult {
     data object Stale : TopicGuardedWriteResult
     data class Rejected(val result: TopicWriteResult.Rejected) : TopicGuardedWriteResult
 }
+/** Restoration must not confuse an unreadable catalog with a new empty one. */
+sealed interface TopicMetadataState {
+    data class Available(val snapshot: TopicSnapshot) : TopicMetadataState
+    data object Missing : TopicMetadataState
+    data object Unreadable : TopicMetadataState
+    data object Unknown : TopicMetadataState
+}
 interface TopicStore {
     suspend fun read(): TopicSnapshot?
     suspend fun readMetadata(): TopicSnapshot? = read()
+    /** The default cannot distinguish an absent store from a failed read. */
+    suspend fun inspectMetadata(): TopicMetadataState = TopicMetadataState.Unknown
     /** Worker-only access; implementations may return a paged view with synchronous reads. */
     suspend fun connectionCatalog(snapshot: TopicSnapshot): List<NoteConnection> {
         check(snapshot.catalogReference == null) { "This store must implement referenced catalog access" }

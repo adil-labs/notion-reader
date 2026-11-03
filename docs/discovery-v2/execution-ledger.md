@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: The gated replacement distinguishes missing, unreadable and valid
+catalogs and fails closed on restoration. Failing-first proofs and limits are in §208.
+
 2026-11-03: Reset now invalidates suspended proposal traversal work without
 concurrent cursor mutation. Failing-first proof and verification are in §207.
 
