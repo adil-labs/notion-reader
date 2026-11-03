@@ -13866,3 +13866,33 @@ finishes before the next Note; when source acceptance itself needs multiple
 bounded windows, proposal work also waits for that acceptance. Partial membership
 updates and user-visible provisional presentation remain open. The replacement
 remains disabled and the legacy production path remains.
+
+
+## 221. Advance verified memberships with partial indexing (2026-11-03)
+
+Existing canonical topics previously waited for all cached Notes to be indexed
+before assessing newly indexed Notes. The existing bounded membership scheduler
+now checks the accepted indexed subset against the full current cache and runs
+before provisional proposal work. Replayed support decisions still require the
+current catalog, source revision, verifier and independent support assessment.
+A partial scan records supported references but leaves `matchingComplete` false
+until the full cached inventory is covered; the existing presentation therefore
+does not show partial matching results as complete. Unsupported matches are not
+added. After indexing recovers, the normal scheduler completes the remaining
+coverage.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Process current indexed subsets | `aVerifiedMembershipCanAdvanceWhileAnotherNoteCannotBeIndexed` failed before the change. |
+| Require full cached coverage before marking matching complete | The same test failed when the full-coverage guard was removed. |
+
+Real-file-store tests also cover an unsupported decision and completion after the
+missing index becomes available. They use fake model runtimes and do not prove
+semantic quality or Android process-death behavior. The full JVM suite passed
+1,619 tests with no failures, errors or skips; debug assembly and Android-test
+compilation passed, using two Gradle workers and a temporary directory on D:.
+
+Partial supported references are persisted but not yet shown to users until full
+matching coverage is available. The replacement remains disabled; migration of
+legacy-only topics, full integration, activation and removal of the legacy
+production path remain open. No new device or TalkBack claim is made.

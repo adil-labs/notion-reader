@@ -5,9 +5,9 @@ import com.example.notionreader.domain.discovery.*
 internal enum class CanonicalMembershipScheduleResult { Idle, Progress, Blocked }
 
 internal fun canonicalMembershipNeedsWork(snapshot: TopicSnapshot, sources: Map<String, String>,
-    verifier: TopicLabelIdentity?): Boolean = snapshot.topics.mapNotNull { it.canonicalConcept }.any { concept ->
+    verifier: TopicLabelIdentity?, fullCoverage: Boolean = true): Boolean = snapshot.topics.mapNotNull { it.canonicalConcept }.any { concept ->
     verifier != null && concept.verifier != verifier ||
-        sources.isNotEmpty() && !concept.matchingComplete ||
+        fullCoverage && sources.isNotEmpty() && !concept.matchingComplete ||
         sources.any { (id, revision) -> concept.scannedRevisions[id] != revision }
 }
 
@@ -25,14 +25,15 @@ internal class CanonicalMembershipScheduler {
 
     suspend fun step(snapshot: TopicSnapshot, sources: Map<String, String>, verifier: TopicLabelIdentity,
         scan: suspend (String, Boolean) -> DurableConceptScanResult,
-        commit: suspend (String, ExistingConceptScanRecord, ConceptScanReplay, Int) -> CanonicalMembershipUpdateResult
+        commit: suspend (String, ExistingConceptScanRecord, ConceptScanReplay, Int) -> CanonicalMembershipUpdateResult,
+        fullCoverage: Boolean = true
     ): CanonicalMembershipScheduleResult {
         val concepts = snapshot.topics.mapNotNull { it.canonicalConcept }
         if (concepts.isEmpty()) { active = null; return CanonicalMembershipScheduleResult.Idle }
         if ((!snapshot.complete && !snapshot.canonicalCatalogReady) || concepts.any { it.verifier != verifier }) return CanonicalMembershipScheduleResult.Blocked
         val firstSource = sources.keys.minOrNull()
         val pending = sources.toSortedMap().filter { (id, revision) -> concepts.any {
-            it.scannedRevisions[id] != revision || !it.matchingComplete && it.scannedRevisions == sources && id == firstSource
+            it.scannedRevisions[id] != revision || fullCoverage && !it.matchingComplete && it.scannedRevisions == sources && id == firstSource
         } }.keys.toList()
         if (pending.isEmpty()) { active = null; return CanonicalMembershipScheduleResult.Idle }
         val fields = listOf("canonical-membership-schedule-v1", snapshot.generation.toString(), snapshot.identity.toString(),

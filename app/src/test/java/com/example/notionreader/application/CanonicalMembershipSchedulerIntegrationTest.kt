@@ -30,8 +30,11 @@ class CanonicalMembershipSchedulerIntegrationTest {
     @Test fun aRejectedMigrationPreservesThePreviousCatalogAndFollow() = runBlocking {
         scenario(false, migrateLegacy = true, migrationFault = "reject")
     }
+    @Test fun aVerifiedMembershipCanAdvanceWhileAnotherNoteCannotBeIndexed() = runBlocking { scenario(true, newSource = true, blockedIndex = true) }
+    @Test fun anUnsupportedPartialMatchDoesNotBecomeMembership() = runBlocking { scenario(true, newSource = true, blockedIndex = true, rejectMembership = true) }
+    @Test fun partialMembershipCoverageCompletesAfterIndexingRecovers() = runBlocking { scenario(true, newSource = true, blockedIndex = true, recoverIndex = true) }
     private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false, newSource: Boolean = false, withdraw: Boolean = false,
-        supportUnavailable: Boolean = false, earlyWithdrawal: Boolean = false, migrationFault: String? = null) {
+        supportUnavailable: Boolean = false, earlyWithdrawal: Boolean = false, migrationFault: String? = null, blockedIndex: Boolean = false, rejectMembership: Boolean = false, recoverIndex: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val progress = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
@@ -45,6 +48,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
             assertTrue(index.write(record)); return doc to record
         }
         val (seedDoc, seed) = add("seed"); val (laterDoc, later) = add("later")
+        if (blockedIndex) cache.put(CachedDocument(ReaderDocument.fromChunkTexts("missing", "Missing", listOf("Other content needs indexing.")), null, Instant.EPOCH))
         index.setPaused(false)
         val sources = mapOf("seed" to seed.revision, "later" to later.revision)
         val accepted = if (newSource) mapOf("seed" to seed.revision) else sources
@@ -91,13 +95,17 @@ class CanonicalMembershipSchedulerIntegrationTest {
         var calls = 0
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
-            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun { calls++; return TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun { calls++; return TopicSupportRun.Completed(if (rejectMembership) SupportDecision.UNSUPPORTED else SupportDecision.SUPPORTED) }
             override suspend fun close() {}
         }
+        var failMissingIndex = blockedIndex
         val provider = object : EmbeddingProvider {
             override val identity = model
-            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
-            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = if (blockedIndex && text.isNotEmpty()) listOf(SemanticToken(1, 0, text.length)) else emptyList() }
+            override suspend fun embed(text: String): List<Float> {
+                if (failMissingIndex && text.contains("Other content", ignoreCase = true)) throw java.io.IOException("simulated index failure")
+                return listOf(1f, 0f)
+            }
             override fun release() {}
         }
         fun controller() = DiscoveryController(cache, index, interests, provider,
@@ -120,6 +128,26 @@ class CanonicalMembershipSchedulerIntegrationTest {
             } else {
                 assertEquals(sources, persisted.acceptedRevisions)
                 assertNotNull(controller.state.value.topicFailure)
+            }
+            return
+        }
+        if (blockedIndex) {
+            repeat(60) { controller.reconcile(emptyList(), true) }
+            val saved = graph.readMetadata()!!.topics.single().canonicalConcept!!
+            assertEquals(later.revision, saved.scannedRevisions["later"])
+            if (rejectMembership) assertFalse(saved.supported.any { it.pageId == "later" })
+            else assertTrue(saved.supported.any { it.pageId == "later" })
+            assertFalse("Unindexed cached Notes prevent complete matching coverage", saved.matchingComplete)
+            assertNotNull(controller.state.value.indexFailure)
+            assertTrue(controller.hasPendingWork)
+            if (recoverIndex) {
+                failMissingIndex = false
+                controller.requestAutomaticContinuation()
+                repeat(100) { controller.reconcile(emptyList(), true) }
+                val completed = graph.readMetadata()!!.topics.single().canonicalConcept!!
+                assertEquals(setOf("seed", "later", "missing"), completed.scannedRevisions.keys)
+                assertTrue(completed.matchingComplete)
+                assertNull(controller.state.value.indexFailure)
             }
             return
         }

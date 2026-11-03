@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Existing canonical memberships can be independently assessed for
+indexed Notes while overall matching remains incomplete (§221).
+
 2026-11-03: Bounded provisional proposal steps run between indexing jobs;
 verified handoff and remaining partial-coverage limits are in §220.
 

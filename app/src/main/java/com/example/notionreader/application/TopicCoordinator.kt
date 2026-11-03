@@ -270,7 +270,10 @@ internal class TopicCoordinator(
         if (!current()) return DurableConceptScanResult.Stale
         if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
         val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-        if (revisions.size != snapshots.size || revisions != sources) return DurableConceptScanResult.Stale
+        if (revisions.size != snapshots.size ||
+            if (requireKnownCatalogOnRestore && ticket.snapshot.acceptedRevisions == sources)
+                sources.any { (id, revision) -> revisions[id] != revision }
+            else revisions != sources) return DurableConceptScanResult.Stale
         val currentRecord = readRecord(canonicalSemanticId(record.pageId))
         if (!current()) return DurableConceptScanResult.Stale
         if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
@@ -294,7 +297,10 @@ internal class TopicCoordinator(
         if (!current()) return ExistingConceptScanResult.Stale
         if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
         val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-        if (revisions.size != snapshots.size || revisions != sources) return ExistingConceptScanResult.Stale
+        if (revisions.size != snapshots.size ||
+            if (requireKnownCatalogOnRestore && ticket.snapshot.acceptedRevisions == sources)
+                sources.any { (id, revision) -> revisions[id] != revision }
+            else revisions != sources) return ExistingConceptScanResult.Stale
         val currentRecord = readRecord(canonicalSemanticId(record.pageId))
         if (!current()) return ExistingConceptScanResult.Stale
         if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
@@ -315,7 +321,10 @@ internal class TopicCoordinator(
         if (!current()) return ConceptScanReplayResult.Stale
         if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
         val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-        if (revisions.size != snapshots.size || revisions != sources) return ConceptScanReplayResult.Stale
+        if (revisions.size != snapshots.size ||
+            if (requireKnownCatalogOnRestore && ticket.snapshot.acceptedRevisions == sources)
+                sources.any { (id, revision) -> revisions[id] != revision }
+            else revisions != sources) return ConceptScanReplayResult.Stale
         val currentRecord = readRecord(canonicalSemanticId(record.pageId))
         if (!current()) return ConceptScanReplayResult.Stale
         if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
@@ -343,6 +352,10 @@ internal class TopicCoordinator(
             if (!current()) return@withLock CanonicalMembershipUpdateResult.Stale
             if (!mayWork() || shouldYield()) return@withLock CanonicalMembershipUpdateResult.Deferred
             if (latest.acceptedRevisions != sources) return@withLock CanonicalMembershipUpdateResult.Incomplete
+            val cached = cache.snapshot()
+            val allSources = cached.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+            if (allSources.size != cached.size || !current() || sources.any { (id, revision) -> allSources[id] != revision }) return@withLock CanonicalMembershipUpdateResult.Stale
+            val fullCoverage = allSources == sources
             val progress = proposalProgress ?: return@withLock CanonicalMembershipUpdateResult.Incomplete
             if (progress.readConceptScan(canonicalSemanticId(record.pageId), sources) != saved || !current())
                 return@withLock CanonicalMembershipUpdateResult.Stale
@@ -361,7 +374,7 @@ internal class TopicCoordinator(
                 val added = assessments.map { it.evidence }
                 val nextConcept = concept.copy(supported = (retained + added).distinct().sortedWith(
                     compareBy<ProposalEvidenceRef> { it.pageId }.thenBy { it.passageId }), scannedRevisions = scanned,
-                    matchingComplete = scanned == sources)
+                    matchingComplete = fullCoverage && scanned == sources)
                 changed += if (nextConcept == concept) topic else topic.copy(canonicalConcept = nextConcept, canonicalProjection = null)
             }
             if (changed == latest.topics) return@withLock CanonicalMembershipUpdateResult.Unchanged

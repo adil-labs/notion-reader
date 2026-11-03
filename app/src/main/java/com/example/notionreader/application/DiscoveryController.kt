@@ -120,7 +120,7 @@ class DiscoveryController(
         { wake.value++ }, monotonicNanos, proposalProgressStore, advancePartialWork = {
             if (enableEvidenceFirstScheduling) for (step in 0 until 4) {
                 if (!mayContinueWork() || runtime.foregroundQueries.get() > 0 || topics?.sourceAcceptancePending == true) break
-                try { advancePartialEvidence() }
+                try { advancePartialWork() }
                 catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                 catch (_: Exception) { evidenceWorkPending = true; break }
             }
@@ -129,13 +129,19 @@ class DiscoveryController(
     private val search = DiscoverySearch(runtime, retrieval, mutable, workDispatcher, modelAvailable,
         recommendationThreshold, ::recordTiming)
 
+    private suspend fun membershipSources(ticket: TopicCatalogTicket): Map<String, String>? {
+        val eligible = runtime.validity.eligibleRevisions()
+        val sources = if (enableEvidenceFirstScheduling) ticket.snapshot.acceptedRevisions else eligible
+        return sources.takeIf { it.all { (id, revision) -> eligible[id] == revision } }
+    }
+
     internal suspend fun advanceExistingConceptWorkForNote(pageId: String, limit: Int, restart: Boolean = false): DurableConceptScanResult =
         withContext(workDispatcher) {
             val owner = topics ?: return@withContext DurableConceptScanResult.Incomplete
             if (!mayContinueWork()) return@withContext DurableConceptScanResult.Deferred
             val ticket = owner.captureCatalogTicket() ?: return@withContext DurableConceptScanResult.Incomplete
             val verifier = topicSupportIdentity() ?: return@withContext DurableConceptScanResult.Incomplete
-            val sources = runtime.validity.eligibleRevisions()
+            val sources = membershipSources(ticket) ?: return@withContext DurableConceptScanResult.Stale
             if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext DurableConceptScanResult.Stale
             val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext DurableConceptScanResult.Incomplete
             if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext DurableConceptScanResult.Stale
@@ -153,7 +159,7 @@ class DiscoveryController(
         if (!mayContinueWork()) return@withContext ConceptScanReplayResult.Deferred
         val ticket = owner.captureCatalogTicket() ?: return@withContext ConceptScanReplayResult.Incomplete
         val verifier = topicSupportIdentity() ?: return@withContext ConceptScanReplayResult.Incomplete
-        val sources = runtime.validity.eligibleRevisions()
+        val sources = membershipSources(ticket) ?: return@withContext ConceptScanReplayResult.Stale
         if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext ConceptScanReplayResult.Stale
         val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext ConceptScanReplayResult.Incomplete
         if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext ConceptScanReplayResult.Stale
@@ -171,12 +177,12 @@ class DiscoveryController(
         val indexedRevision = mutable.value.indexedRevision
         fun current() = topicSupportIdentity() == verifier && runtime.validity.isCurrent(token) &&
             mutable.value.indexedRevision == indexedRevision
-        val sources = runtime.validity.eligibleRevisions()
+        val sources = membershipSources(ticket) ?: return@withContext CanonicalMembershipUpdateResult.Stale
         if (!current() || !owner.isCatalogTicketCurrent(ticket)) return@withContext CanonicalMembershipUpdateResult.Stale
         val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext CanonicalMembershipUpdateResult.Incomplete
         if (!current() || !owner.isCatalogTicketCurrent(ticket)) return@withContext CanonicalMembershipUpdateResult.Stale
         val result = owner.advanceCanonicalMembershipUpdate(ticket, record, sources, verifier, saved, replay, limit, ::current)
-        if (result == CanonicalMembershipUpdateResult.Updated && runtime.validity.isCurrent(token)) owner.invalidate(sources)
+        if (result == CanonicalMembershipUpdateResult.Updated && runtime.validity.isCurrent(token)) owner.invalidate(runtime.validity.eligibleRevisions())
         result
     }
 
@@ -837,7 +843,7 @@ class DiscoveryController(
                 indexing.reconcileInBackground(entries, mayIndex)
                 if (enableEvidenceFirstScheduling && mayIndex && mayContinueWork() && !state.value.paused &&
                     runtime.foregroundQueries.get() == 0 && topics?.sourceAcceptancePending != true && state.value.indexFailure != null) {
-                    try { advancePartialEvidence() }
+                    try { advancePartialWork() }
                     catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                     catch (_: Exception) { evidenceWorkPending = true }
                 }
@@ -870,10 +876,12 @@ class DiscoveryController(
     private suspend fun advanceScheduledMembership() = membershipSchedulerLock.withLock {
         val owner = topics ?: return@withLock
         val ticket = owner.captureCatalogTicket() ?: return@withLock
-        val sources = runtime.validity.eligibleRevisions()
+        val eligible = runtime.validity.eligibleRevisions()
+        val sources = membershipSources(ticket) ?: return@withLock
         if (!owner.isCatalogTicketCurrent(ticket)) return@withLock
+        val fullCoverage = sources == eligible
         val verifier = topicSupportIdentity()
-        val pending = canonicalMembershipNeedsWork(ticket.snapshot, sources, verifier)
+        val pending = canonicalMembershipNeedsWork(ticket.snapshot, sources, verifier, fullCoverage)
         if (!pending) {
             membershipWorkPending = false
             mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
@@ -887,7 +895,8 @@ class DiscoveryController(
         mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
         when (membershipScheduler.step(ticket.snapshot, sources, verifier,
             scan = { page, restart -> advanceExistingConceptWorkForNote(page, 8, restart) },
-            commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) })) {
+            commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) },
+            fullCoverage = fullCoverage)) {
             CanonicalMembershipScheduleResult.Idle -> membershipWorkPending = false
             CanonicalMembershipScheduleResult.Progress -> { membershipWorkPending = true; wake.value++ }
             CanonicalMembershipScheduleResult.Blocked -> {
@@ -912,6 +921,11 @@ class DiscoveryController(
             IncrementalConnectionsResult.Deferred -> Unit
             IncrementalConnectionsResult.Failed -> mutable.update { it.copy(topicFailure = connectionFailure) }
         }
+    }
+
+    private suspend fun advancePartialWork() {
+        advanceScheduledMembership()
+        if (!membershipWorkPending) advancePartialEvidence()
     }
 
     /** Generate provisional work from indexed sources without claiming corpus coverage. */
