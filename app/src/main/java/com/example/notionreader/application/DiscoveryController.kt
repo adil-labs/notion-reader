@@ -140,6 +140,26 @@ class DiscoveryController(
         owner.replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit) { topicSupportIdentity() == verifier }
     }
 
+    /** Commit a replayed existing-concept scan through the process-owned coordinator. */
+    internal suspend fun advanceCanonicalMembershipWork(pageId: String, saved: ExistingConceptScanRecord,
+        replay: ConceptScanReplay, limit: Int): CanonicalMembershipUpdateResult = withContext(workDispatcher) {
+        val owner = topics ?: return@withContext CanonicalMembershipUpdateResult.Incomplete
+        if (!mayContinueWork() || runtime.foregroundQueries.get() > 0) return@withContext CanonicalMembershipUpdateResult.Deferred
+        val ticket = owner.captureCatalogTicket() ?: return@withContext CanonicalMembershipUpdateResult.Incomplete
+        val verifier = topicSupportIdentity() ?: return@withContext CanonicalMembershipUpdateResult.Incomplete
+        val token = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun current() = topicSupportIdentity() == verifier && runtime.validity.isCurrent(token) &&
+            mutable.value.indexedRevision == indexedRevision
+        val sources = runtime.validity.eligibleRevisions()
+        if (!current() || !owner.isCatalogTicketCurrent(ticket)) return@withContext CanonicalMembershipUpdateResult.Stale
+        val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext CanonicalMembershipUpdateResult.Incomplete
+        if (!current() || !owner.isCatalogTicketCurrent(ticket)) return@withContext CanonicalMembershipUpdateResult.Stale
+        val result = owner.advanceCanonicalMembershipUpdate(ticket, record, sources, verifier, saved, replay, limit, ::current)
+        if (result == CanonicalMembershipUpdateResult.Updated && runtime.validity.isCurrent(token)) owner.invalidate(sources)
+        result
+    }
+
     /** Rechecks selected citations against live state; this alone does not authorize publication. */
     internal suspend fun revalidatePendingCandidate(candidate: PendingConceptCandidate): PendingConceptCoverage = withContext(workDispatcher) {
         val owner = topics ?: return@withContext PendingConceptCoverage.Unavailable

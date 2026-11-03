@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Added guarded incremental membership commits through the existing
+coordinator. Failing-first proof and 1,538 JVM tests are in §202; automatic
+scheduling and partial-catalog admission remain open.
+
 2026-11-03: Restored later support using canonical topic identity, with
 canonical rejection taking precedence. Failing-first proof and 1,537 JVM tests
 are in §201; incremental membership commits remain open.

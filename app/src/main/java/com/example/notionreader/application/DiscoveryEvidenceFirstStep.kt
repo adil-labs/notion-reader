@@ -53,6 +53,16 @@ internal sealed interface CanonicalAdmissionResult {
     data class StorageFailure(val result: com.example.notionreader.domain.discovery.TopicWriteResult.Rejected) : CanonicalAdmissionResult
 }
 
+internal sealed interface CanonicalMembershipUpdateResult {
+    data class Pending(val replay: ConceptScanReplay) : CanonicalMembershipUpdateResult
+    data object Updated : CanonicalMembershipUpdateResult
+    data object Unchanged : CanonicalMembershipUpdateResult
+    data object Stale : CanonicalMembershipUpdateResult
+    data object Deferred : CanonicalMembershipUpdateResult
+    data object Incomplete : CanonicalMembershipUpdateResult
+    data class StorageFailure(val result: com.example.notionreader.domain.discovery.TopicWriteResult.Rejected) : CanonicalMembershipUpdateResult
+}
+
 internal enum class PendingCorpusWorkPhase { CORPUS, ASSESS_CITATION, REPLAY_NOTE, SCAN_NOTE }
 internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int,
     val phase: PendingCorpusWorkPhase, val corpus: PendingCorpusReplay, val target: String?,

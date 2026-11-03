@@ -208,6 +208,65 @@ internal class TopicCoordinator(
             { mayWork() && !shouldYield() })
     }
 
+    /** Replays one bounded scan page and atomically updates only the checked Note's canonical memberships. */
+    suspend fun advanceCanonicalMembershipUpdate(ticket: TopicCatalogTicket, record: SemanticRecord,
+        sources: Map<String, String>, verifier: TopicLabelIdentity, saved: ExistingConceptScanRecord,
+        replay: ConceptScanReplay, limit: Int, verifierCurrent: () -> Boolean = { true }): CanonicalMembershipUpdateResult {
+        fun current() = isCatalogTicketCurrent(ticket) && verifierCurrent()
+        val checked = replayExistingConceptWork(ticket, record, sources, verifier, saved, replay, limit, verifierCurrent)
+        when (checked) {
+            is ConceptScanReplayResult.Pending -> return CanonicalMembershipUpdateResult.Pending(checked.replay)
+            ConceptScanReplayResult.Stale -> return CanonicalMembershipUpdateResult.Stale
+            ConceptScanReplayResult.Deferred -> return CanonicalMembershipUpdateResult.Deferred
+            is ConceptScanReplayResult.Validated -> if (checked.uncertain.isNotEmpty()) return CanonicalMembershipUpdateResult.Incomplete
+            else -> return CanonicalMembershipUpdateResult.Incomplete
+        }
+        return writes.withLock {
+            if (!current()) return@withLock CanonicalMembershipUpdateResult.Stale
+            if (!mayWork() || shouldYield()) return@withLock CanonicalMembershipUpdateResult.Deferred
+            if (latest.acceptedRevisions != sources) return@withLock CanonicalMembershipUpdateResult.Incomplete
+            val progress = proposalProgress ?: return@withLock CanonicalMembershipUpdateResult.Incomplete
+            if (progress.readConceptScan(canonicalSemanticId(record.pageId), sources) != saved || !current())
+                return@withLock CanonicalMembershipUpdateResult.Stale
+            val id = canonicalSemanticId(record.pageId)
+            val changed = mutableListOf<DiscoveredTopic>()
+            for (topic in latest.topics) {
+                val concept = topic.canonicalConcept
+                if (concept == null) { changed += topic; continue }
+                if (concept.verifier != verifier) return@withLock CanonicalMembershipUpdateResult.Incomplete
+                val assessments = saved.assessments.filter { it.topicId == topic.id }
+                if (assessments.any { it.conceptWorkKey != concept.workKey || it.verifier != verifier ||
+                        it.evidence.pageId != id || it.evidence.revision != record.revision ||
+                        it.decision != SupportDecision.SUPPORTED }) return@withLock CanonicalMembershipUpdateResult.Incomplete
+                val scanned = concept.scannedRevisions.filter { (page, revision) -> sources[page] == revision } + (id to record.revision)
+                val retained = concept.supported.filter { it.pageId != id && scanned[it.pageId] == it.revision }
+                val added = assessments.map { it.evidence }
+                val nextConcept = concept.copy(supported = (retained + added).distinct().sortedWith(
+                    compareBy<ProposalEvidenceRef> { it.pageId }.thenBy { it.passageId }), scannedRevisions = scanned,
+                    matchingComplete = scanned == sources)
+                changed += if (nextConcept == concept) topic else topic.copy(canonicalConcept = nextConcept, canonicalProjection = null)
+            }
+            if (changed == latest.topics) return@withLock CanonicalMembershipUpdateResult.Unchanged
+            val next = latest.copy(topics = changed, generation = latest.generation + 1)
+            if (!current()) return@withLock CanonicalMembershipUpdateResult.Stale
+            val result = bulk { store.writeGuarded(next, ::current) }
+            if (result == TopicGuardedWriteResult.Stale) return@withLock CanonicalMembershipUpdateResult.Stale
+            if (!current()) {
+                store.clear()
+                return@withLock CanonicalMembershipUpdateResult.Stale
+            }
+            if (result is TopicGuardedWriteResult.Rejected) return@withLock CanonicalMembershipUpdateResult.StorageFailure(result.result)
+            latest = next
+            epoch.incrementAndGet()
+            formationWorkspace = null
+            pendingFormation = null
+            view = if (inspected) view.copy(updated = true) else view.copy(snapshot = next)
+            store.pinInspection(view.snapshot)
+            changed(view)
+            CanonicalMembershipUpdateResult.Updated
+        }
+    }
+
     suspend fun setInspected(active: Boolean) = writes.withLock {
         if (inspected == active) return@withLock
         inspected = active

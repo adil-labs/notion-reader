@@ -13247,3 +13247,26 @@ assembly and Android-test Kotlin compilation passed. The controlled test does no
 prove semantic quality or production scheduling. The completed-catalog
 dependency, incremental membership commits, post-replacement race recovery and
 quality/device/human gates remain open.
+
+## 202. Commit independently checked existing-topic memberships (2026-11-03)
+
+The existing coordinator can now replay a completed existing-concept scan and
+atomically update only the checked Note's canonical memberships. The update
+preserves the topic ID and compatible unchanged references, marks coverage
+complete only when all current source revisions are accounted for, and requires
+the same verifier identity. It rejects forged/stale checkpoints and refuses to
+commit when support is uncertain. A controller entry rehydrates the result after
+commit. The entry is not yet automatically scheduled and still requires the
+current completed catalog.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Add the replayed supported references to the checked Note | `aReplayedSupportedNoteUpdatesTheExistingCanonicalTopic` failed. |
+
+The integration test also covers a stale commit guard, uncertain evidence,
+restoration as a two-Note Established topic and withdrawal of the later Note.
+The full JVM suite passed 1,538 tests with no failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. Controlled verification
+does not establish semantic quality. Automatic scheduling, partial-catalog
+admission, post-replacement race recovery, verifier migration and device/human
+acceptance remain open.
