@@ -41,6 +41,23 @@ class CanonicalTopicHydrationTest {
         assertEquals("Seed germination", restored.effectiveLabel)
         assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(restored))
         assertEquals(listOf("note"), restored.matchingMembers.map { it.pageId })
+        val laterPassage = passage.copy(id = "p2", pageId = "later", sourceBlockId = "later-block")
+        val later = SemanticRecord("later", "r2", model, SemanticMetadata("Later"), listOf(EmbeddedPassage(laterPassage, listOf(1f, 0f))))
+        assertTrue(index.write(later))
+        val sources = mapOf("note" to "r1", "later" to "r2")
+        val laterEvidence = TopicLabelEvidence("p2", "later", "r2", text)
+        val laterRequest = TopicSupportRequest("canonical", key, response.name, response.definition, laterEvidence, verifier, 0)
+        val laterSupport = (validateTopicSupport(laterRequest, SupportDecision.SUPPORTED, 0, key, sources) as TopicSupportValidation.Accepted).assessment
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(laterSupport) { true })
+        val updated = topic.copy(canonicalConcept = concept.copy(supported = listOf(ref, ProposalEvidenceRef("later", "r2", "p2")),
+            scannedRevisions = sources))
+        val established = hydrateCanonicalTopic(updated, model, sources, index, store) { true }!!
+        assertEquals(setOf("note", "later"), established.matchingMembers.map { it.pageId }.toSet())
+        assertEquals(TopicPublicationStatus.Established, discoveryTopicPublicationStatus(established))
+        val superseding = support.copy(topicId = "canonical")
+        val rejection = (validateTopicSupport(superseding, SupportDecision.UNSUPPORTED, 0, key, sources) as TopicSupportValidation.Accepted).assessment
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(rejection) { true })
+        assertNull(hydrateCanonicalTopic(updated, model, sources, index, store) { true })
         assertNull(hydrateCanonicalTopic(topic, model, mapOf("note" to "r2"), index, store) { true })
         store.clear()
         assertNull(hydrateCanonicalTopic(topic, model, mapOf("note" to "r1"), index, store) { true })

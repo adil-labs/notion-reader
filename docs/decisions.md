@@ -13226,3 +13226,24 @@ errors or skips; debug assembly and Android-test Kotlin compilation passed.
 This uses controlled runtimes and does not establish model quality or device
 performance. Removal of the completed-catalog dependency, process-owned
 scheduling, post-replacement race recovery and release gates remain open.
+
+## 201. Restore support recorded under canonical topic identity (2026-11-03)
+
+Existing-concept checks save support assessments under the canonical topic ID,
+whereas pre-admission checks use a pending ID. Hydration previously looked only
+for the pending ID, so it could not restore a later independently supported Note.
+It now accepts an exact source-bound assessment under either identity, preferring
+the canonical assessment. A canonical rejection therefore cannot be overridden
+by an older pending support result. This enables hydration of updated references;
+committing incremental membership changes and verifier-policy migration remain open.
+
+| Guard removed | Tests that noticed |
+| --- | --- |
+| Hydrate canonical-ID support | `restorationRequiresCurrentSourceAndIndependentlySavedSupport` failed before the change. |
+| Prefer canonical assessment over pending assessment | The same test failed when the lookup order was reversed. |
+
+The full JVM suite passed 1,537 tests without failures, errors or skips; debug
+assembly and Android-test Kotlin compilation passed. The controlled test does not
+prove semantic quality or production scheduling. The completed-catalog
+dependency, incremental membership commits, post-replacement race recovery and
+quality/device/human gates remain open.

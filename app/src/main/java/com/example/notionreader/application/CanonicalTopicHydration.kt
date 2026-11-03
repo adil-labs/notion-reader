@@ -47,12 +47,22 @@ internal suspend fun hydrateCanonicalTopic(topic: DiscoveredTopic, model: Embedd
         for (ref in concept.supported) {
             val (record, passage) = resolve(ref) ?: return null
             val evidence = TopicLabelEvidence(passage.id, ref.pageId, ref.revision, passage.excerpt)
-            val support = TopicSupportRequest("pending:${concept.workKey}", concept.workKey, concept.name,
-                concept.definition, evidence, concept.verifier, 0)
-            val expected = validateTopicSupport(support, SupportDecision.SUPPORTED, 0, concept.workKey, sources)
-            if (expected !is TopicSupportValidation.Accepted) return null
-            val saved = store.readSupport(expected.assessment.workKey, sources)
-            if (!current() || saved != expected.assessment) return null
+            var verified = false
+            // A canonical-ID assessment supersedes a pre-admission assessment for the same passage.
+            for (id in listOf(topic.id, "pending:${concept.workKey}")) {
+                val support = TopicSupportRequest(id, concept.workKey, concept.name,
+                    concept.definition, evidence, concept.verifier, 0)
+                val expected = validateTopicSupport(support, SupportDecision.SUPPORTED, 0, concept.workKey, sources)
+                if (expected !is TopicSupportValidation.Accepted) return null
+                val saved = store.readSupport(expected.assessment.workKey, sources)
+                if (!current()) return null
+                if (saved != null) {
+                    if (saved != expected.assessment) return null
+                    verified = true
+                    break
+                }
+            }
+            if (!verified) return null
             result += TopicMembership(ref.pageId, record.metadata, passage, 0f, passage, record.revision)
         }
         result.distinctBy { it.pageId }

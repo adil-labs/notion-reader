@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Restored later support using canonical topic identity, with
+canonical rejection taking precedence. Failing-first proof and 1,537 JVM tests
+are in §201; incremental membership commits remain open.
+
 2026-11-03: Connected hydrated canonical concepts to independently verified
 existing-concept scans using persisted query vectors. Failing-first proof and
 1,537 JVM tests are in §200; automatic scheduling remains open.
