@@ -119,7 +119,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 if (query != null && (query.topicId != topic.id || query.conceptWorkKey != concept.workKey ||
                         query.embedding != identity || query.text != "${concept.name.trim()}\n${concept.definition.trim()}"))
                     return TopicValidationReason.InvalidTopic
-                if (concept.incomplete.any { it != ProposalIncompleteReason.STRUCTURE } ||
+                if (concept.incomplete.any { it.blocksConceptAdmission() } ||
                     !Regex("[0-9a-f]{64}").matches(concept.workKey) || concept.name.isBlank() || concept.name.length > 96 ||
                     concept.definition.isBlank() || concept.definition.length > 512 || concept.listeningDescription.isBlank() ||
                     concept.listeningDescription.length > 512 || offered.size !in 1..16 ||

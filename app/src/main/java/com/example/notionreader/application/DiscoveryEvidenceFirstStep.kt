@@ -1,5 +1,7 @@
 package com.example.notionreader.application
 
+import com.example.notionreader.domain.discovery.blocksConceptAdmission
+
 internal sealed interface EvidenceFirstNoteStep {
     data object PendingScan : EvidenceFirstNoteStep
     data class PendingKnownCatalog(val scan: KnownCatalogScan) : EvidenceFirstNoteStep
@@ -97,7 +99,7 @@ internal fun pendingCorpusIsIncomplete(coverage: PendingCorpusReplayResult,
     reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>, scanPending: Boolean): Boolean {
     require(coverage is PendingCorpusReplayResult.Complete || coverage is PendingCorpusReplayResult.Uncertain)
     return coverage is PendingCorpusReplayResult.Uncertain || scanPending ||
-        reasons.any { it != com.example.notionreader.domain.discovery.ProposalIncompleteReason.STRUCTURE }
+        reasons.any { it.blocksConceptAdmission() }
 }
 /** Process-local cursor for known concepts in an explicitly incomplete catalog. */
 internal class KnownCatalogScan private constructor(internal val ticket: TopicCatalogTicket?,

@@ -89,6 +89,10 @@ internal fun TopicDetailsScreen(
                 com.example.notionreader.domain.discovery.ProposalIncompleteReason.STRUCTURE in topic.canonicalConcept!!.incomplete) {
                 Text("Some structural context is still being checked.", style = MaterialTheme.typography.bodySmall)
             }
+            if (topic.currentCanonicalProjection != null &&
+                com.example.notionreader.domain.discovery.ProposalIncompleteReason.ANCHOR_WINDOW in topic.canonicalConcept!!.incomplete) {
+                Text("More passages remain to be checked for topics.", style = MaterialTheme.typography.bodySmall)
+            }
 
             SubjectRelationshipRows(app, topic, published, visibleRelationships, titles)
 

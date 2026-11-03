@@ -13270,3 +13270,28 @@ assembly and Android-test Kotlin compilation passed. Controlled verification
 does not establish semantic quality. Automatic scheduling, partial-catalog
 admission, post-replacement race recovery, verifier migration and device/human
 acceptance remain open.
+
+## 203. Keep later anchor windows as explicit reconciliation work (2026-11-03)
+
+A supported concept from an earlier anchor window was blocked solely because
+other passages remained to be considered. `ANCHOR_WINDOW` now remains recorded
+as reconciliation work but does not invalidate the current concept's independently
+checked evidence. The detail screen discloses the remaining passages. Uncertain
+support, incomplete source or catalog coverage, and truncated evidence remain
+blocking. This does not itself schedule the remaining windows.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Permit a fully verified candidate while later anchor windows remain | `unresolvedSupportCannotBecomeCompleteCorpusWork` failed before the change. |
+
+The proposal-window test also checks the reason on an actual multi-window Note,
+and topic-store coverage checks that the reason survives persistence. The JVM
+suite passed 1,538 tests with no failures, errors or skips; debug assembly and
+Android-test compilation passed. The existing topic navigation accessibility
+class passed 22/22 on API 36 through the wrapper; it does not exercise the new
+canonical message or observe TalkBack speech.
+
+Automatic scheduling, incomplete-catalog operation, post-replacement recovery,
+and quality/device/human acceptance remain open. The November 3 review predates
+commit `5db58ff`: a guarded membership-update entry now exists, but is not yet
+automatically invoked.

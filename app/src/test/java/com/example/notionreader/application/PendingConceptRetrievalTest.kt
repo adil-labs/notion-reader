@@ -202,6 +202,8 @@ class PendingConceptRetrievalTest {
         val complete = PendingCorpusReplayResult.Complete(mapOf("a" to setOf("pa")))
         assertFalse(pendingCorpusIsIncomplete(complete, emptySet(), false))
         assertFalse(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.STRUCTURE), false))
+        assertFalse(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.ANCHOR_WINDOW), false))
+        assertTrue(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.EVIDENCE_LIMIT), false))
         assertTrue(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG), false))
         assertTrue(pendingCorpusIsIncomplete(complete, emptySet(), true))
     }}

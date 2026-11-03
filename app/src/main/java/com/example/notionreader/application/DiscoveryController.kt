@@ -240,7 +240,7 @@ class DiscoveryController(
         val ticket = candidate.catalogTicket ?: return@withContext CanonicalAdmissionResult.Incomplete
         if (candidate.proposal.incomplete != candidate.generation.incomplete ||
             done.reconciliationReasons != candidate.proposal.incomplete ||
-            candidate.proposal.incomplete.any { it != ProposalIncompleteReason.STRUCTURE })
+            candidate.proposal.incomplete.any { it.blocksConceptAdmission() })
             return@withContext CanonicalAdmissionResult.Incomplete
         val token = runtime.validity.capture()
         val indexedRevision = mutable.value.indexedRevision

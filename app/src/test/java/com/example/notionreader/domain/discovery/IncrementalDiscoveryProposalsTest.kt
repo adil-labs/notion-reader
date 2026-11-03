@@ -85,6 +85,7 @@ class IncrementalDiscoveryProposalsTest {
         val first = run(note, maxAnchors = 1)
         assertEquals(1, first.nextAnchorOffset)
         assertTrue(ProposalIncompleteReason.ANCHOR_WINDOW in first.proposals.single().incomplete)
+        assertFalse(first.proposals.single().incomplete.any { it.blocksConceptAdmission() && it != ProposalIncompleteReason.STRUCTURE })
         val second = run(note, offset = first.nextAnchorOffset!!, maxAnchors = 1)
         assertNull(second.nextAnchorOffset)
         assertEquals(setOf("a", "b"), (first.proposals + second.proposals).map { it.evidence.first().passageId }.toSet())

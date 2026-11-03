@@ -8,6 +8,9 @@ data class ProposalEvidenceRef(val pageId: String, val revision: String, val pas
 enum class ProposalReason { CHANGED_BODY, SAME_SECTION, SEMANTIC_NEIGHBOR, EXPLICIT_REFERENCE }
 @Serializable
 enum class ProposalIncompleteReason { STRUCTURE, SOURCE_SCAN, EVIDENCE_LIMIT, STALE_SOURCE, ANCHOR_WINDOW, EXISTING_CONCEPT_CATALOG, EXISTING_CONCEPT_UNCERTAIN }
+/** These reasons leave reconciliation work but do not invalidate this concept's checked evidence. */
+fun ProposalIncompleteReason.blocksConceptAdmission(): Boolean =
+    this != ProposalIncompleteReason.STRUCTURE && this != ProposalIncompleteReason.ANCHOR_WINDOW
 data class IncrementalProposal(val proposalKey: String, val evidence: List<ProposalEvidenceRef>, val reasons: Set<ProposalReason>,
     val incomplete: Set<ProposalIncompleteReason>, val policyVersion: Int = 1)
 @Serializable

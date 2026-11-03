@@ -86,7 +86,7 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
         if (candidate.catalogTicket != ticket || candidate.sources != latest.acceptedRevisions ||
             candidate.proposal.incomplete != candidate.generation.incomplete ||
-            candidate.proposal.incomplete.any { it != ProposalIncompleteReason.STRUCTURE })
+            candidate.proposal.incomplete.any { it.blocksConceptAdmission() })
             return@withLock CanonicalAdmissionResult.Incomplete
         val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
             ?: return@withLock CanonicalAdmissionResult.Incomplete

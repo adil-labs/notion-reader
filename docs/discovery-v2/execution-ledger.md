@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Allow independently verified concepts before later anchor windows,
+retaining the pending reason. Failing-first proof, 1,538 JVM tests and 22/22
+existing navigation tests are in §203; scheduling remains open.
+
 2026-11-03: Added guarded incremental membership commits through the existing
 coordinator. Failing-first proof and 1,538 JVM tests are in §202; automatic
 scheduling and partial-catalog admission remain open.
