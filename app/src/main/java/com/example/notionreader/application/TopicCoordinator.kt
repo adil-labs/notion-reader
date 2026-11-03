@@ -210,9 +210,17 @@ internal class TopicCoordinator(
             return@withLock CanonicalAdmissionResult.Incomplete
         val anchor = record.passages.singleOrNull { it.passage.id == citation.passageId && it.passage.isBodyEvidence() }
             ?: return@withLock CanonicalAdmissionResult.Incomplete
-        val order = (latest.continuity.maxOfOrNull { it.createdOrder } ?: 0L)
-        if (order == Long.MAX_VALUE) return@withLock CanonicalAdmissionResult.Incomplete
-        val id = java.util.UUID.randomUUID().toString()
+        val fingerprint = canonicalContinuityKey(concept.name, concept.definition)
+        val anchorIdentity = topicEvidenceIdentity(anchor.passage)
+        val occupied = (latest.topics + latest.provisionalTopics).map { it.id }.toSet()
+        val priorContinuity = latest.continuity.filter {
+            it.id !in occupied && it.replacementId == null && it.canonicalKey == fingerprint &&
+                citation.pageId in it.pageIds && anchorIdentity in it.sourceIds
+        }.singleOrNull()
+        val maxOrder = latest.continuity.maxOfOrNull { it.createdOrder } ?: 0L
+        if (priorContinuity == null && maxOrder == Long.MAX_VALUE) return@withLock CanonicalAdmissionResult.Incomplete
+        val order = priorContinuity?.createdOrder ?: (maxOrder + 1)
+        val id = priorContinuity?.id ?: java.util.UUID.randomUUID().toString()
         val member = TopicMembership(citation.pageId, record.metadata, anchor.passage, 1f, anchor.passage, citation.revision)
         val supported = coverage.supported.toSortedMap().flatMap { (page, passages) ->
             val revision = candidate.sources[page] ?: return@withLock CanonicalAdmissionResult.Stale
@@ -224,11 +232,12 @@ internal class TopicCoordinator(
             incomplete = candidate.proposal.incomplete,
             queryEmbedding = candidate.query.copy(query = TopicRetrievalQuery(id, candidate.generation.workKey,
                 candidate.query.query.text, ticket.identity, candidate.query.query.policy)))
-        val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order + 1,
+        val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order,
             canonicalConcept = evidence)
-        val continuity = TopicContinuity(id, order + 1, setOf(citation.pageId), setOf(topicEvidenceIdentity(anchor.passage)),
-            anchorSourceId = topicEvidenceIdentity(anchor.passage))
-        val next = latest.copy(topics = latest.topics + topic, continuity = latest.continuity + continuity,
+        val continuity = TopicContinuity(id, order, setOf(citation.pageId), setOf(anchorIdentity),
+            anchorSourceId = anchorIdentity, canonicalKey = fingerprint)
+        val next = latest.copy(topics = latest.topics + topic,
+            continuity = latest.continuity.filterNot { it.id == id } + continuity,
             generation = latest.generation + 1)
         if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
         val saved = bulk { store.writeGuarded(next) { isCatalogTicketCurrent(ticket) && current() } }

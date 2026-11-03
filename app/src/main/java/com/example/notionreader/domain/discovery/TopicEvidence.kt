@@ -26,6 +26,12 @@ fun retainCanonicalConcepts(previous: TopicSnapshot, next: TopicSnapshot): Topic
     return next.copy(topics = next.topics.map(::retain), provisionalTopics = next.provisionalTopics.map(::retain))
 }
 
+/** Opaque concept fingerprint supplements, but never substitutes for, surviving source evidence. */
+fun canonicalContinuityKey(name: String, definition: String): String {
+    val fields = listOf("canonical-continuity-v1", name.trim(), definition.trim())
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+}
+
 /** Mandatory source removal also applies to pinned snapshots. No removed text survives in continuity. */
 fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: Boolean,
     replacements: Map<String, EmbeddedPassage> = emptyMap(), retentionThreshold: Float = TopicPolicy().retention): TopicSnapshot {
@@ -45,12 +51,17 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
     val survivingSources = (snapshot.topics + snapshot.provisionalTopics).associate { topic ->
         topic.id to topic.members.filter { available(it.pageId) }.map { topicEvidenceIdentity(it.passage) }.toSet()
     }
+    val concepts = (snapshot.topics + snapshot.provisionalTopics).mapNotNull { topic ->
+        topic.canonicalConcept?.let { topic.id to canonicalContinuityKey(it.name, it.definition) }
+    }.toMap()
     val registry = snapshot.continuity.mapNotNull { continuity ->
         val pages = if (permanent) continuity.pageIds.filter(::available).toSet() else continuity.pageIds
         val sources = if (permanent && continuity.pageIds.any { !available(it) })
             continuity.sourceIds.intersect(survivingSources[continuity.id].orEmpty()) else continuity.sourceIds
         if (pages.isEmpty()) null else continuity.copy(pageIds = pages, sourceIds = sources,
-            anchorSourceId = continuity.anchorSourceId?.takeIf { it in sources })
+            anchorSourceId = continuity.anchorSourceId?.takeIf { it in sources },
+            canonicalKey = if (permanent && continuity.pageIds.any { !available(it) }) null
+                else continuity.canonicalKey ?: concepts[continuity.id])
     }
     fun removeEvidence(input: List<DiscoveredTopic>): List<DiscoveredTopic> = input.mapNotNull { topic ->
         val members = topic.members.filter { available(it.pageId) }

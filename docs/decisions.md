@@ -13704,3 +13704,39 @@ errors or skips; debug assembly and Android-test compilation passed. No new
 TalkBack or representative-device result is claimed. Edited-citation continuity,
 remaining multi-store races, new-path activation and removal of the legacy
 production path are still open.
+
+
+## 216. Preserve topic identity for an unchanged edited citation (2026-11-03)
+
+Editing a Note correctly withdrew old citations, but also removed its sole
+canonical topic. Regenerating the same concept assigned a different ID even when
+the cited passage was unchanged, leaving the user's follow disconnected. Canonical
+continuity now records an opaque, versioned fingerprint of the concept name and
+definition. When a newly verified concept is admitted, it can reuse a dormant
+identity only if the current supported anchor has the same Note and exact passage
+evidence identity, the concept fingerprint matches, the ID is not in use or
+redirected, and exactly one reservation qualifies. Label equality alone cannot
+transfer an identity. A permanent removal clears the affected reservation or
+its concept fingerprint. Follow text and aliases remain independently stored.
+
+The fingerprint is added to existing canonical reservations on withdrawal, so
+compatible pre-existing records are covered without rewriting all catalogs at
+startup. New records include it at admission. This is intentionally conservative:
+changed wording, changed cited text, an ambiguous reservation, or a changed
+anchor may produce a new identity rather than guessing a successor. Existing
+legacy-only identities without a canonical concept fingerprint are not migrated
+by this match.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Reuse the unique compatible reservation | `anUnchangedSupportingPassagePreservesTopicIdentityAcrossANoteEdit` failed before the implementation. |
+| Require concept, exact surviving evidence and an unambiguous reservation | `aDifferentConceptCannotInheritTheOldTopicIdentity`, `changedEvidenceCannotInheritTheOldTopicIdentity`, and `ambiguousContinuityCannotTransferAFollow` all failed when those three checks were removed together. |
+
+Real-file-store tests recreate the controller after withdrawal and also verify
+that a permanently deleted then re-added source cannot transfer the old follow.
+The edited-source fixture uses a purpose-built indexed passage and a fake model;
+it is not a device, semantic-quality, full-document indexing or process-death
+test. The full JVM suite passed 1,609 tests with no failures, errors or skips;
+debug assembly and Android-test compilation passed. Broader continuity across
+changed concept wording or changed evidence, remaining recovery races, production
+activation and removal of the legacy production path remain open.

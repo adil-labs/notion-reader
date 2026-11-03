@@ -43,7 +43,7 @@ data class TopicMatches(val query: TopicRetrievalQuery, val members: List<TopicM
 @Serializable
 data class TopicContinuity(val id: String, val createdOrder: Long, val pageIds: Set<String> = emptySet(),
     val sourceIds: Set<String> = emptySet(), val replacementId: String? = null,
-    val anchorSourceId: String? = null)
+    val anchorSourceId: String? = null, val canonicalKey: String? = null)
 @Serializable
 data class NoteConnection(val id: String, val left: TopicMembership, val right: TopicMembership, val score: Float,
     val independentNamedReference: Boolean = false, val evidenceKind: ConnectionEvidenceKind? = null)

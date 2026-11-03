@@ -4,6 +4,7 @@ import com.example.notionreader.data.local.*
 import com.example.notionreader.domain.ReaderDocument
 import com.example.notionreader.domain.discovery.*
 import com.example.notionreader.domain.document.CachedDocument
+import com.example.notionreader.domain.document.CacheRemovalReason
 import java.io.File
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -27,6 +28,11 @@ class FreshCanonicalCatalogIntegrationTest {
     @Test fun aRejectedResetCatalogReportsFailureWithoutLosingTheFollow() = runBlocking { scenario("reset-reject") }
     @Test fun anInterruptedResetBeforeIndexClearRecoversOnRecreation() = runBlocking { scenario("interrupt-index") }
     @Test fun anInterruptedResetBeforeCatalogCommitRecoversOnRecreation() = runBlocking { scenario("interrupt-finish") }
+    @Test fun anUnchangedSupportingPassagePreservesTopicIdentityAcrossANoteEdit() = runBlocking { scenario("edited") }
+    @Test fun aDifferentConceptCannotInheritTheOldTopicIdentity() = runBlocking { scenario("edited-concept") }
+    @Test fun changedEvidenceCannotInheritTheOldTopicIdentity() = runBlocking { scenario("edited-passage") }
+    @Test fun ambiguousContinuityCannotTransferAFollow() = runBlocking { scenario("edited-ambiguous") }
+    @Test fun aPermanentlyDeletedSourceCannotTransferItsOldFollowWhenReadded() = runBlocking { scenario("deleted") }
     private suspend fun scenario(kind: String) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
@@ -55,10 +61,11 @@ class FreshCanonicalCatalogIntegrationTest {
             assertEquals(ProposalProgressWriteResult.Written, progress.writeConcept(prior) { true })
         }
         val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
+        var proposedName = "Seed germination conditions"
         val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
             override suspend fun propose(request: DiscoveryProposalRequest) = DiscoveryProposalRun.Completed(
-                DiscoveryProposalResponse.Concept("Seed germination conditions", "Moisture and warmth support seed germination.",
+                DiscoveryProposalResponse.Concept(proposedName, "Moisture and warmth support seed germination.",
                     "Listen to conditions for seed germination.", listOf(request.evidence.first().passageId)))
             override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(SupportDecision.SUPPORTED)
             override suspend fun close() {}
@@ -105,7 +112,7 @@ class FreshCanonicalCatalogIntegrationTest {
             assertNull(graph.readMetadata())
             assertTrue(cache.invalidations.value.isNotEmpty())
             acknowledgementLimit = Long.MAX_VALUE
-        } else if (kind != "clean" && kind != "withdrawal" && kind != "reset" && kind != "reset-reject" && !kind.startsWith("interrupt-")) {
+        } else if (kind != "clean" && kind != "withdrawal" && kind != "reset" && kind != "reset-reject" && kind != "deleted" && !kind.startsWith("edited") && !kind.startsWith("interrupt-")) {
             repeat(3) { controller.reconcile(emptyList(), true) }
             assertNull("Unknown pre-existing topic state must not be replaced", graph.readMetadata())
             assertNotNull(controller.state.value.topicFailure)
@@ -120,6 +127,48 @@ class FreshCanonicalCatalogIntegrationTest {
         assertEquals(setOf("note"), saved.acceptedRevisions.keys)
         assertEquals(1, saved.topics.count { it.canonicalConcept != null })
         if (kind == "withdrawal" || kind == "unacknowledged") assertTrue(cache.invalidations.value.isEmpty())
+        if (kind == "deleted") {
+            val original = saved.topics.single { it.canonicalConcept != null }
+            interests.write(listOf(DiscoveryInterest("follow", "seeds", displayName = "My seeds", originTopicId = original.id)))
+            cache.remove("note", CacheRemovalReason.DELETED)
+            controller.reconcile(emptyList(), false)
+            assertTrue(graph.readMetadata()!!.continuity.none { it.id == original.id })
+            cache.put(CachedDocument(doc, null, Instant.EPOCH))
+            assertTrue(index.write(SemanticRecord("note", revision, model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))))
+            controller = controller()
+            repeat(80) { controller.reconcile(emptyList(), true) }
+            val regenerated = graph.readMetadata()!!.topics.single { it.canonicalConcept != null }
+            assertNotEquals(original.id, regenerated.id)
+            assertEquals(original.id, interests.read().single().originTopicId)
+            return
+        }
+        if (kind.startsWith("edited")) {
+            val original = saved.topics.single { it.canonicalConcept != null }
+            interests.write(listOf(DiscoveryInterest("follow", "seeds", displayName = "My seeds", originTopicId = original.id)))
+            if (kind == "edited-ambiguous") {
+                val duplicate = saved.continuity.single().copy(id = "duplicate", createdOrder = 2)
+                assertEquals(TopicWriteResult.Written, graph.writeDetailed(saved.copy(continuity = saved.continuity + duplicate)))
+                controller = controller()
+                controller.reconcile(emptyList(), false)
+            }
+            if (kind == "edited-concept") proposedName = "Conditions for seed sprouting"
+            val body = if (kind == "edited-passage") "$text Additional changed evidence." else text
+            val editedPassage = p.copy(excerpt = body, input = body, end = body.length)
+            val edited = ReaderDocument.fromChunkTexts("note", "Seeds", listOf(body, "An unrelated addition about garden tools."))
+            cache.put(CachedDocument(edited, null, Instant.EPOCH))
+            val newRevision = semanticRevision(edited)
+            controller.reconcile(emptyList(), false)
+            assertTrue("Old citation must be withdrawn before regeneration", graph.readMetadata()!!.topics.isEmpty())
+            assertTrue(index.write(SemanticRecord("note", newRevision, model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(editedPassage, listOf(1f, 0f))))))
+            controller = controller()
+            repeat(80) { controller.reconcile(emptyList(), true) }
+            val regenerated = graph.readMetadata()!!.topics.single { it.canonicalConcept != null }
+            if (kind == "edited") assertEquals(original.id, regenerated.id)
+            else assertNotEquals("Unsafe or ambiguous continuity must not transfer the follow", original.id, regenerated.id)
+            assertEquals(original.id, interests.read().single().originTopicId)
+            assertEquals("My seeds", interests.read().single().displayName)
+            return
+        }
         if (kind == "reset" || kind == "reset-reject" || kind.startsWith("interrupt-")) {
             val topicId = saved.topics.single().id
             interests.write(listOf(DiscoveryInterest("follow", "seeds", displayName = "My seeds", originTopicId = topicId)))

@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: A regenerated canonical concept can recover its ID after a Note edit
+only with unique matching concept and surviving passage evidence; see §216.
+
 2026-11-03: A durable reset intent resumes interrupted evidence-first index
 clears and protects old catalog evidence; fault proofs and limitations are in §215.
 
