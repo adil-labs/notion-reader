@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#205-schedule-verified-existing-topic-updates-in-the-process-loop-2026-11-03)
+[the current decision-record entry](decisions.md#206-connect-bounded-new-topic-work-behind-the-release-gate-2026-11-03)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

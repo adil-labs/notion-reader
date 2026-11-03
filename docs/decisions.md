@@ -13357,3 +13357,43 @@ Remaining work includes new-topic orchestration, removal of the completed-catalo
 formation dependency, verifier-policy migration, post-write interruption and
 failed-recovery coverage, and comparative quality/resource and human/device gates.
 The replacement is not yet the sole production Discovery pipeline.
+
+
+## 206. Connect bounded new-topic work behind the release gate (2026-11-03)
+
+A bounded process-local traversal now drives existing-concept checks, proposal
+windows, generation or abstention, citation and corpus replay, and guarded
+admission through the existing Discovery reconciliation path. It parks failed or
+incomplete Notes without starving others, retains unfinished work, retries stale
+saved scans once, and retries parked work on explicit continuation. It starts no
+worker and uses the existing stores and serialized model runtime. A recreated
+controller replays durable scan and response checkpoints from the start; its
+traversal cursor is not durable, so large traversals can repeat validation.
+
+An ordinary reconciliation used to replace an unchanged catalog snapshot with an
+equal copy. That invalidated the identity-bound replay and prevented work across
+windows from reaching admission. The coordinator now retains the same object if
+restoration is equal; source revision, epoch, model and query-ticket changes
+continue to invalidate work. The existing ticket test was updated to distinguish
+unchanged restoration from a real change.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Invoke the new-topic traversal from reconciliation | `reconciliationAdmitsAnIndependentlySupportedConcept` failed because no proposal was generated. |
+| Retain incomplete work instead of retiring an abstention | `incompleteWorkRemainsPendingAndDoesNotStarveOtherNotes` failed, reporting Idle instead of Blocked. |
+| Preserve an unchanged restored snapshot | `aTicketTracksTheProcessCatalogSourcesModelAndQueryVectors` failed the unchanged-ticket assertion before the fix. |
+| Reset the stale-scan retry allowance on explicit continuation | `retryingABlockedNoteAllowsASecondStaleScanRecovery` failed before the fix. |
+
+The real file-store integration tests use purpose-built text and fake model
+responses. They exercise an abstention, independently supported one-Note
+admission, explicit retry, and controller/store recreation; they are not an OS
+process-kill test, a quality benchmark, or real model or human evaluation. The
+JVM suite passed 1,548 tests without failures, errors or skips; debug assembly
+and Android-test Kotlin compilation passed. The existing Discovery topic-navigation accessibility class passed 22/22 on API 36 through the wrapper. It does not exercise the gated scheduler or observe TalkBack speech.
+
+The new scheduling switch defaults off and is not enabled by the app. It still
+requires a completed legacy catalog; global formation has not been removed.
+Durable traversal retirement, interruption and failed-recovery coverage, policy
+migration, real-model comparative quality and resource measurements, representative
+devices and human TalkBack observation remain open. Do not activate the replacement
+until those applicable gates are satisfied.

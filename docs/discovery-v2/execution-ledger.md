@@ -1,5 +1,10 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Connected bounded new-topic scheduling and admission to the existing
+reconciliation path behind a disabled release gate. Real-store fake-model coverage,
+restart limits and failing-first proofs are in §206. Removing the completed-catalog
+dependency and quality/device/human acceptance remain open.
+
 2026-11-03: Enabled bounded automatic updates for existing canonical topic
 memberships in the process reconciliation loop. Failing-first proofs, 1,540 JVM
 tests and 22/22 existing navigation tests are in §205. New-topic scheduling and

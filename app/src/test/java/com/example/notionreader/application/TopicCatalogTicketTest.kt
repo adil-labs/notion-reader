@@ -31,7 +31,7 @@ class TopicCatalogTicketTest {
         worker.invalidate(emptyMap())
         val restored = worker.captureCatalogTicket()!!; assertTrue(worker.isCatalogTicketCurrent(restored))
         worker.invalidate(emptyMap())
-        assertFalse("Replacing a catalog snapshot invalidates its in-flight ticket", worker.isCatalogTicketCurrent(restored))
+        assertTrue("Unchanged reconciliation must preserve an in-flight ticket", worker.isCatalogTicketCurrent(restored))
         val first = worker.captureCatalogTicket()!!
         val query = TopicRetrievalQuery("topic", semanticHash("concept"), "seed germination", model, TopicRetrievalPolicy(.8f))
         assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(1f, 0f)))) { true })

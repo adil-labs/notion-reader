@@ -518,6 +518,7 @@ internal class TopicCoordinator(
             }
         } else withdrawNames(latest)
         val restoreEpoch = epoch.get()
+        val beforeRestore = latest
         fun current() = epoch.get() == restoreEpoch && cache.revision.value == cacheRevision
         latest = labels?.restore(latest, ::current) ?: latest
         shown = labels?.restore(shown, ::current, readSaved = restoring || !inspected) ?: shown
@@ -535,7 +536,7 @@ internal class TopicCoordinator(
             }
             return snapshot.copy(topics = topics)
         }
-        latest = hydrate(latest)
+        latest = hydrate(latest).let { if (it == beforeRestore) beforeRestore else it }
         shown = hydrate(shown)
         naming = labels?.status(latest)
         namingStatus = namingMessage(naming, labels?.unavailableMessage?.invoke())
