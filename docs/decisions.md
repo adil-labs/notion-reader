@@ -13397,3 +13397,30 @@ Durable traversal retirement, interruption and failed-recovery coverage, policy
 migration, real-model comparative quality and resource measurements, representative
 devices and human TalkBack observation remain open. Do not activate the replacement
 until those applicable gates are satisfied.
+
+
+## 207. Discard in-flight traversal on reset (2026-11-03)
+
+The proposal scheduler's reset previously cleared its mutable cursor while a
+bounded operation could be suspended. The suspended operation could return a
+result from before the clear and mutate the new traversal. Reset now advances an
+atomic generation; the scheduler owns its cursor mutations and discards the
+result of an inspect, processing, or admission callback if reset occurred while
+it was suspended. Existing source and commit guards remain responsible for
+preventing stale storage writes; this change does not claim to prove every
+process-death or persistence race.
+
+| Guard removed or absent | Tests that noticed |
+| --- | --- |
+| Discard a scheduler callback result after reset | `resetDuringAnInFlightStepDiscardsItsResult` failed before the fix. |
+
+The JVM suite passed 1,549 tests with no failures, errors or skips; debug assembly
+and Android-test compilation passed. The test exercises a suspended inspect with
+an in-memory scheduler, not an Android process kill. The new scheduling path is
+still disabled because it is functionally incomplete, including its dependency
+on the legacy catalog. The statement in §206 that activation requires all quality
+and device gates overstates the latest authorized contract: the 2026-11-02 product
+amendment records user authorization to enable the implemented replacement before
+outstanding measurements, while prohibiting representation of an incomplete
+implementation as working. Independent quality and device measurements remain
+outstanding and must be reported honestly.

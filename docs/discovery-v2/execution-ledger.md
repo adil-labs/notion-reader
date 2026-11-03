@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-03: Reset now invalidates suspended proposal traversal work without
+concurrent cursor mutation. Failing-first proof and verification are in §207.
+
 2026-11-03: Connected bounded new-topic scheduling and admission to the existing
 reconciliation path behind a disabled release gate. Real-store fake-model coverage,
 restart limits and failing-first proofs are in §206. Removing the completed-catalog

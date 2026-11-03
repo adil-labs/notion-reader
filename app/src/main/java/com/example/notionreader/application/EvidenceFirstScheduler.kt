@@ -16,15 +16,19 @@ internal class EvidenceFirstScheduler {
     private var last: String? = null
     private val retry = java.util.concurrent.atomic.AtomicLong()
     private var seenRetry = 0L
+    private val resetGeneration = java.util.concurrent.atomic.AtomicLong()
+    private var seenReset = 0L
 
     fun retryBlocked() { retry.incrementAndGet() }
-    fun reset() { scope = null; pages.clear(); current = null; last = null; retryBlocked() }
+    fun reset() { resetGeneration.incrementAndGet(); retryBlocked() }
 
     suspend fun step(scopeKey: String, sourceIds: List<String>,
         inspect: suspend (String, Int, ConceptScanReplay?, Boolean) -> EvidenceFirstNoteStep,
         process: suspend (PendingCorpusWork) -> PendingCorpusWorkResult,
         admit: suspend (PendingCorpusWorkResult.Done, PendingCorpusReplay) -> CanonicalAdmissionResult
     ): EvidenceFirstScheduleResult {
+        val resetToken = resetGeneration.get()
+        if (seenReset != resetToken) { scope = null; pages.clear(); current = null; last = null; seenReset = resetToken }
         if (scope != scopeKey || pages.keys != sourceIds.toSet()) {
             scope = scopeKey; pages.clear(); sourceIds.distinct().sorted().forEach { pages[it] = Page() }
             current = null; last = null
@@ -49,7 +53,9 @@ internal class EvidenceFirstScheduler {
             return EvidenceFirstScheduleResult.Progress
         }
         page.candidate?.let { candidate ->
-            return when (val result = admit(candidate, page.admissionReplay)) {
+            val result = admit(candidate, page.admissionReplay)
+            if (resetGeneration.get() != resetToken) return EvidenceFirstScheduleResult.Deferred
+            return when (result) {
                 is CanonicalAdmissionResult.Pending -> { page.admissionReplay = result.replay; EvidenceFirstScheduleResult.Progress }
                 is CanonicalAdmissionResult.Admitted -> { reset(); EvidenceFirstScheduleResult.Progress }
                 CanonicalAdmissionResult.Deferred -> EvidenceFirstScheduleResult.Deferred
@@ -58,7 +64,9 @@ internal class EvidenceFirstScheduler {
             }
         }
         page.work?.let { work ->
-            return when (val result = process(work)) {
+            val result = process(work)
+            if (resetGeneration.get() != resetToken) return EvidenceFirstScheduleResult.Deferred
+            return when (result) {
                 is PendingCorpusWorkResult.Pending -> { page.work = result.work; EvidenceFirstScheduleResult.Progress }
                 is PendingCorpusWorkResult.Done -> { page.candidate = result; page.work = null; EvidenceFirstScheduleResult.Progress }
                 is PendingCorpusWorkResult.Abstained -> if (result.scanPending || result.reasons.any { it.blocksConceptAdmission() }) block()
@@ -73,7 +81,9 @@ internal class EvidenceFirstScheduler {
         }
         val restart = page.restart
         page.restart = false
-        return when (val result = inspect(id, page.offset, page.replay, restart)) {
+        val result = inspect(id, page.offset, page.replay, restart)
+        if (resetGeneration.get() != resetToken) return EvidenceFirstScheduleResult.Deferred
+        return when (result) {
             EvidenceFirstNoteStep.PendingScan -> EvidenceFirstScheduleResult.Progress
             is EvidenceFirstNoteStep.PendingReplay -> { page.replay = result.replay; EvidenceFirstScheduleResult.Progress }
             is EvidenceFirstNoteStep.Proposals -> {

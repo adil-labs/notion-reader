@@ -2,6 +2,8 @@ package com.example.notionreader.application
 
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -75,6 +77,22 @@ class EvidenceFirstSchedulerTest {
         assertEquals(EvidenceFirstScheduleResult.Progress, step())
         assertEquals(EvidenceFirstScheduleResult.Progress, step())
         assertEquals(EvidenceFirstScheduleResult.Idle, step())
+    }
+
+    @Test fun resetDuringAnInFlightStepDiscardsItsResult() = runBlocking {
+        val scheduler = EvidenceFirstScheduler()
+        val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        val old = async { scheduler.step("scope", listOf("note"),
+            inspect = { _, _, _, _ -> entered.complete(Unit); release.await(); ready(listOf("old")) },
+            process = { error("Reset work cannot run") }, admit = { _, _ -> error("No candidate") }) }
+        entered.await(); scheduler.reset(); release.complete(Unit)
+        assertEquals(EvidenceFirstScheduleResult.Deferred, old.await())
+        assertEquals(EvidenceFirstScheduleResult.Progress, scheduler.step("scope", listOf("note"),
+            inspect = { _, _, _, _ -> ready(emptyList()) },
+            process = { error("Old proposal must not survive reset") }, admit = { _, _ -> error("No candidate") }))
+        assertEquals(EvidenceFirstScheduleResult.Idle, scheduler.step("scope", listOf("note"),
+            inspect = { _, _, _, _ -> error("Completed") },
+            process = { error("Old proposal must not survive reset") }, admit = { _, _ -> error("No candidate") }))
     }
 
 }
