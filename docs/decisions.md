@@ -14074,3 +14074,22 @@ app launched and obtained focus on an API 36 emulator. That startup check does
 not exercise actual model inference or TalkBack speech. The cluster formation
 branch and further legacy-dependent tests remain to be removed, and model,
 representative-device and human accessibility acceptance remain open.
+
+
+## 230. Separate catalog storage version from formation (2026-11-04)
+
+Canonical topic snapshots and file envelopes previously used the cluster
+formation engine version as their storage identity, so changing that unrelated
+algorithm could make a valid canonical catalog unreadable. They now use a
+separate catalog storage constant, preserving the existing serialized value 4.
+The historical serialized field remains named `engineVersion`; formation
+checkpoints still use their own engine-version validation while that legacy path
+exists. No migration or disk-format change was introduced.
+
+A file-store test writes and reopens a canonical snapshot with the established
+storage value. Changing the formation engine version from 4 to 5 made the test
+fail before the separation and pass afterward; the engine version was restored
+to 4. The full JVM suite passed 1,616 tests with no failures, errors or skips;
+debug assembly and Android-test compilation passed. No device or TalkBack claim
+is made. The old formation branch remains to be removed, and native model,
+representative device and human accessibility acceptance remain open.

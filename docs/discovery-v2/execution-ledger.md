@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Canonical catalog storage no longer derives its persisted version
+from the clustering algorithm; the existing disk value is unchanged (§230).
+
 2026-11-04: Production no longer constructs the cluster-label overlay store;
 fresh initialization and recovery run without it (§229).
 

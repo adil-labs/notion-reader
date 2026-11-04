@@ -13,6 +13,14 @@ import org.junit.rules.TemporaryFolder
 import kotlinx.serialization.json.*
 
 class FileTopicStoreTest {
+    @Test fun canonicalCatalogStorageDoesNotDependOnFormationAlgorithmVersion() = runBlocking {
+        val directory = temporary.newFolder()
+        val snapshot = TopicSnapshot(identity = EmbeddingIdentity("model", 2), engineVersion = 4,
+            canonicalCatalogReady = true)
+        assertEquals(TopicWriteResult.Written, FileTopicStore(directory).writeDetailed(snapshot))
+        assertEquals(snapshot, FileTopicStore(directory).read())
+    }
+
     @Test fun oversizedTopicWritesStopEncodingAtTheRecordBoundAndPreservePriorEvidence() = runBlocking {
         val directory = temporary.newFolder()
         val prior = TopicSnapshot(generation = 7, connections = connections(2))

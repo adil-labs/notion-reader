@@ -52,6 +52,9 @@ data class ConnectionCatalogReference(val key: String, val count: Int, val named
     val fingerprint: String = "")
 data class ConnectionCatalogPageResult(val connections: List<NoteConnection>, val totalCount: Int,
     val available: Boolean = true)
+/** Version of the persisted catalog format, independent of topic formation algorithms. */
+const val TOPIC_CATALOG_STORAGE_VERSION = 4
+
 @Serializable
 data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val continuity: List<TopicContinuity> = emptyList(),
     val identity: EmbeddingIdentity? = null, val generation: Long = 0, val complete: Boolean = false,
@@ -59,7 +62,7 @@ data class TopicSnapshot(val topics: List<DiscoveredTopic> = emptyList(), val co
     val acceptedRevisions: Map<String, String> = emptyMap(),
     val policyVersion: Int = 0, val connectionCursor: Int = 0, val connectionPassageCursor: Int = 0, val connectionPassComplete: Boolean = false,
     val provisionalTopics: List<DiscoveredTopic> = emptyList(), val sourceSignature: String? = null,
-    val engineVersion: Int = SectionHierarchicalEngine.VERSION, val formationProgress: TopicFormationProgress? = null,
+    val engineVersion: Int = TOPIC_CATALOG_STORAGE_VERSION, val formationProgress: TopicFormationProgress? = null,
     val schemaVersion: Int = 1,
     val subjectRelationships: List<SubjectRelationship> = emptyList(),
     val connectionTargetCursor: Int = 0,

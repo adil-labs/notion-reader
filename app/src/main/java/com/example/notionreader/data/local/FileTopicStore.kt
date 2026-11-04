@@ -37,7 +37,7 @@ private data class DecodedTopics(val snapshot: TopicSnapshot,
 
 @Serializable
 private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: ConnectionCatalogManifest,
-    val schemaVersion: Int = 2, val engineVersion: Int = SectionHierarchicalEngine.VERSION,
+    val schemaVersion: Int = 2, val engineVersion: Int = TOPIC_CATALOG_STORAGE_VERSION,
     val catalogKey: String? = null, val topicGraph: StoredTopicGraph? = null)
 
 /** Store under the app's noBackupFilesDir. Budget includes the old file during atomic staging. */
@@ -93,7 +93,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         checkActive()
         if (snapshot.canonicalCatalogReady && (snapshot.formationProgress != null || snapshot.provisionalTopics.isNotEmpty()))
             return TopicValidationReason.InvalidSnapshotProgress
-        if (snapshot.schemaVersion != 1 || snapshot.engineVersion != SectionHierarchicalEngine.VERSION)
+        if (snapshot.schemaVersion != 1 || snapshot.engineVersion != TOPIC_CATALOG_STORAGE_VERSION)
             return TopicValidationReason.InvalidIdentity
         val identity = snapshot.identity
         val anchors = snapshot.topics + snapshot.provisionalTopics
@@ -192,7 +192,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     }
     private fun decode(): DecodedTopics {
         val header = readHeader()
-        require(header.engineVersion == SectionHierarchicalEngine.VERSION && header.schemaVersion in 0..2)
+        require(header.engineVersion == TOPIC_CATALOG_STORAGE_VERSION && header.schemaVersion in 0..2)
         return if (header.isEnvelope) {
             val envelope = file.inputStream().buffered().use { json.decodeFromStream<TopicStoreEnvelope>(it) }
             require(envelope.snapshot.connections.isEmpty() && catalog.valid(envelope.catalog))
