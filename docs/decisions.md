@@ -13923,3 +13923,27 @@ on the API 36 emulator after the application wiring change. These existing
 navigation and semantics tests do not execute the fresh-install model pipeline or
 observe TalkBack speech. The evidence-first scheduling test class also passed
 after removing its obsolete legacy-source-signature fixture.
+
+
+## 223. Move connection-reset race checks onto the new catalog (2026-11-04)
+
+Removing the old coordinator formation branch exposed 41 failures in the
+53-test `DiscoveryTopicsIntegrationTest` class. Many are obsolete formation
+checks, but others cover still-required reset, source withdrawal, connection
+ordering and storage behavior. The removal was not kept while those contracts
+still depended on its fixtures.
+
+The three in-flight connection page, detail and preview reset checks now seed a
+real evidence-first catalog and file-backed connection store directly, rather
+than invoking cluster formation and an in-memory topic store. They retain the
+destructive reset and unchanged-cache assertions. All three passed with the
+legacy formation call disabled, and all three failed when the reset-generation
+guard in `DiscoveryRetrieval.connectionWindow` was removed. The guard was
+restored and the tests passed.
+
+The complete JVM suite passed 1,614 tests with no failures, errors or skips;
+debug assembly and Android-test compilation passed. No production behavior was
+changed in this round. The remaining legacy-dependent tests need replacement or
+retirement according to whether they cover current contracts before the obsolete
+formation branch can be deleted. The production root continues to select the
+evidence-first path; representative device and human acceptance remain open.

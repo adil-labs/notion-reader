@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Three connection-reset race tests use the new file-backed catalog;
+remaining legacy-fixture dependencies and proof details are in §223.
+
 2026-11-04: User directs a fresh-install replacement without legacy catalog
 migration. Production root selects evidence-first scheduling; removal of the
 remaining old formation code and device/quality verification remain open (§222).

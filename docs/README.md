@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#222-enable-evidence-first-discovery-for-fresh-installs-2026-11-04)
+[the current decision-record entry](decisions.md#223-move-connection-reset-race-checks-onto-the-new-catalog-2026-11-04)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

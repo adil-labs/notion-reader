@@ -483,7 +483,26 @@ class DiscoveryTopicsIntegrationTest {
         try {
             val cache = FileDocumentCache(dir.resolve("cache"))
             val index = FileSemanticIndexStore(dir.resolve("index"))
-            val backing = Store()
+            val provider = Provider()
+            val members = mutableListOf<TopicMembership>()
+            val sources = linkedMapOf<String, String>()
+            repeat(2) { i ->
+                val id = "p$i"
+                val body = "Forest ecology explains how trees shelter wildlife and support healthy woodland habitats."
+                val document = ReaderDocument.fromChunkTexts(id, "Forest $i", listOf(body))
+                cache.put(CachedDocument(document, null, Instant.EPOCH))
+                val revision = semanticRevision(document); sources[id] = revision
+                val passage = SemanticPassage("$id:p", id, "$id:s", "Forest", "$id:b", "$id:c", 0, body.length, body, body, 0)
+                val metadata = SemanticMetadata(document.title)
+                assertTrue(index.write(SemanticRecord(id, revision, provider.identity, metadata,
+                    listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
+                members += TopicMembership(id, metadata, passage, 1f, passage, revision)
+            }
+            index.setPaused(false)
+            val backing = FileTopicStore(dir.resolve("topics"))
+            val connection = NoteConnection("connection", members[0], members[1], 1f)
+            assertTrue(backing.write(TopicSnapshot(identity = provider.identity, canonicalCatalogReady = true,
+                acceptedRevisions = sources, connections = listOf(connection), connectionPassComplete = true)))
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val store = object : TopicStore by backing {
@@ -498,14 +517,10 @@ class DiscoveryTopicsIntegrationTest {
                     return captured
                 }
             }
-            repeat(3) { i ->
-                cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$i", "Forest $i", listOf(
-                    "Forest ecology explains how trees shelter wildlife and support healthy woodland habitats.")), null, Instant.EPOCH))
-            }
             val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(dir.resolve("interests")),
-                Provider(), topicStore = store)
-            index.setPaused(false)
-            controller.reconcile(emptyList(), true)
+                provider, topicStore = store, topicRetrievalStore = FileTopicRetrievalStore(dir.resolve("matches")),
+                enableEvidenceFirstScheduling = true)
+            controller.reconcile(emptyList(), false)
             val inspected = controller.state.value.topicSnapshot
             assertTrue("The reset proof needs real connection evidence", inspected.connections.isNotEmpty())
             val id = inspected.connections.first().id
@@ -520,7 +535,7 @@ class DiscoveryTopicsIntegrationTest {
             try {
                 withTimeout(5_000) { entered.await() }
                 controller.clearIndex()
-                assertNull("The fake must preserve destructive clearing", backing.value)
+                assertTrue("Reset must remove the stored connection", backing.read()!!.connections.isEmpty())
                 assertEquals("Index clearing must leave the source cache unchanged", revision, cache.revision.value)
             } finally { release.complete(Unit) }
             assertEquals("Cleared evidence must not return from an in-flight $request read", 0, read.await())
