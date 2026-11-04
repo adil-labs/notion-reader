@@ -103,7 +103,7 @@ class FreshCanonicalCatalogIntegrationTest {
         } else graph
         fun controller() = DiscoveryController(cache, controllerIndex, interests, provider, topicStore = topicStore, topicCheckpointStore = if (kind == "checkpoint") checkpoint else null,
             invalidationAcknowledgementLimit = { acknowledgementLimit },
-            topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicLabelStore = labels, topicRetrievalStore = queries,
+            topicLabelRuntime = runtime, topicLabelModelAvailable = { true }, topicLabelStore = if (kind == "label") labels else null, topicRetrievalStore = queries,
             proposalProgressStore = progress, topicSupportIdentity = { identity.copy(prompt = "support") },
             topicProposalIdentity = { identity }, enableEvidenceFirstScheduling = true)
         var controller = controller()

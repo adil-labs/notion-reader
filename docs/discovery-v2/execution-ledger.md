@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Production no longer constructs the cluster-label overlay store;
+fresh initialization and recovery run without it (§229).
+
 2026-11-04: Fresh production initialization no longer creates or requires the
 legacy formation checkpoint; reset and recovery coverage is retained (§228).
 

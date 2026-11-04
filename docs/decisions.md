@@ -14054,3 +14054,23 @@ rebuilt app launched and its activity obtained focus on the API 36 emulator;
 that startup probe does not exercise model inference or TalkBack speech. The
 legacy formation implementation and other dependent tests still require removal;
 representative model/device and human accessibility acceptance remain open.
+
+
+## 229. Remove the legacy label overlay store from production wiring (2026-11-04)
+
+The production root still constructed a store for labels generated from old
+cluster-derived groups, although evidence-first concepts persist their own
+proposal and support records. The root no longer creates or accounts for that
+store, and fresh initialization no longer requires it. The model runtime remains
+shared by proposals and support verification. When a label store is explicitly
+supplied, a nonempty orphan store still blocks unsafe empty initialization.
+Existing-install migration remains outside the requested scope.
+
+The fresh-install scenario failed before this change when the store was absent;
+all 18 fresh-catalog scenarios passed afterward, including the supplied-orphan
+case and reset recovery. The full JVM suite passed 1,615 tests with no failures,
+errors or skips; debug assembly and Android-test compilation passed. The rebuilt
+app launched and obtained focus on an API 36 emulator. That startup check does
+not exercise actual model inference or TalkBack speech. The cluster formation
+branch and further legacy-dependent tests remain to be removed, and model,
+representative-device and human accessibility acceptance remain open.

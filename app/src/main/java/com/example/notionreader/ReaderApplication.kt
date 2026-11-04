@@ -252,7 +252,7 @@ class ReaderApplication : Application() {
     @Volatile private var protectedCacheIds: () -> Set<String> = { emptySet() }
     private fun directoryBytes(directory: File): Long = if (!directory.exists()) 0L else
         directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-labels", "discovery-topic-matches", "discovery-proposal-progress")
+    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-matches", "discovery-proposal-progress")
     private val storageBudget by lazy {
         val availability = com.example.notionreader.platform.AndroidStorageAvailability(noBackupFilesDir)
         com.example.notionreader.application.StorageBudgetCoordinator(
@@ -366,13 +366,11 @@ class ReaderApplication : Application() {
         val semanticDirectory = File(noBackupFilesDir, "semantic-index")
         val passageProgressDirectory = File(noBackupFilesDir, "semantic-passage-progress")
         val topicDirectory = File(noBackupFilesDir, "discovery-topics")
-        val labelDirectory = File(noBackupFilesDir, "discovery-topic-labels")
         val matchDirectory = File(noBackupFilesDir, "discovery-topic-matches")
         val proposalProgressDirectory = File(noBackupFilesDir, "discovery-proposal-progress")
         fun storageBytes(directory: File): Long = directoryBytes(directory)
         fun otherDiscoveryBytes(excluded: File): Long = derivedNames.asSequence()
             .map { File(noBackupFilesDir, it) }.filter { it != excluded }.sumOf(::storageBytes)
-        val topicLabels = com.example.notionreader.data.local.FileTopicLabelStore(labelDirectory, writeGate = storageWrites)
         val topicMatches = com.example.notionreader.data.local.FileTopicRetrievalStore(matchDirectory, writeGate = storageWrites)
         val proposalProgress = com.example.notionreader.data.local.FileProposalProgressStore(proposalProgressDirectory, writeGate = storageWrites)
         val semanticIndex = com.example.notionreader.data.local.FileSemanticIndexStore(semanticDirectory,
@@ -434,19 +432,13 @@ class ReaderApplication : Application() {
                 if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
             },
             topicStore = topicStore, passageProgressStore = passageProgressStore,
-            topicLabelRuntime = topicLabeler, topicLabelStore = topicLabels,
+            topicLabelRuntime = topicLabeler,
             topicRetrievalStore = topicMatches,
             proposalProgressStore = proposalProgress,
-            topicLabelIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.identity(labelBackend.provenance) },
             topicSupportIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.supportIdentity(labelBackend.provenance) },
             topicProposalIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.proposalIdentity(labelBackend.provenance) },
             enableEvidenceFirstScheduling = true,
             topicLabelModelAvailable = { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery && topicModel.state.value.installed },
-            topicLabelUnavailableMessage = {
-                if (!com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery)
-                    com.example.notionreader.data.discovery.GenerativeModelPack.pendingAcceptanceMessage
-                else "Topic naming is unavailable. Install the topic naming model in Discovery settings."
-            },
             invalidationAcknowledgementLimit = { minOf(recentNotes.processedInvalidationGeneration, structuralCoordinator.processedInvalidationGeneration) },
             mayContinueIndexing = { discoveryCoordinator.windowOpen && (discoveryForeground.value || scheduledDiscovery) &&
                 hasDiscoveryMemory() && discoveryPower.value.allows(activeEffort) &&
