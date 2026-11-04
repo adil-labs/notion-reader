@@ -14093,3 +14093,23 @@ to 4. The full JVM suite passed 1,616 tests with no failures, errors or skips;
 debug assembly and Android-test compilation passed. No device or TalkBack claim
 is made. The old formation branch remains to be removed, and native model,
 representative device and human accessibility acceptance remain open.
+
+
+## 231. Remove legacy topic catalog readers (2026-11-04)
+
+The file store continued to decode old bare snapshots and inline topic envelopes
+after the user excluded migration of former cluster-first data. It now reads
+only the current compact envelope and requires its graph and connection
+manifest. Removed the downstream inline-connection fallbacks as well. Unknown
+formats remain unreadable rather than becoming a fresh empty catalog. This does
+not migrate existing installations, which are outside the requested scope.
+
+The inline-envelope test failed against the old reader before the change. A
+separate bare-snapshot test failed when the old decode path was temporarily
+restored; its fixture had to include default version fields to represent the
+actual old format. Both pass with the legacy readers removed. Current-format
+round trips and corruption checks remain. The complete JVM suite passed 1,617
+tests without failures, errors or skips; debug assembly and Android-test
+compilation passed. No device or TalkBack claim is made. The old formation
+branch still requires removal, and native model, representative-device and
+human accessibility acceptance remain open.

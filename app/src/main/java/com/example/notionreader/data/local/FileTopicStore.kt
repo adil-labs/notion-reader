@@ -17,23 +17,13 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.NonCancellable
 
-/** Header-only decoding skips unknown payloads without constructing legacy topic memberships. */
+/** Read catalog references without materializing topic evidence. */
 @Serializable
 private data class TopicStoreHeader(val schemaVersion: Int = 0, val engineVersion: Int = 0,
-    val snapshot: TopicSnapshotMarker? = absentTopicSnapshot, val catalog: ConnectionCatalogManifest? = null,
-    val catalogKey: String? = null) {
-    // A missing key is legacy; an explicitly null key must still take strict envelope decoding.
-    val isEnvelope: Boolean get() = snapshot !== absentTopicSnapshot || catalog != null || catalogKey != null
-}
-
-/** Unknown topic fields are skipped by the streaming decoder, never materialized. */
-@Serializable
-private data class TopicSnapshotMarker(val schemaVersion: Int = 0)
-
-private val absentTopicSnapshot = TopicSnapshotMarker(-1)
+    val catalog: ConnectionCatalogManifest? = null)
 
 private data class DecodedTopics(val snapshot: TopicSnapshot,
-    val catalog: ConnectionCatalogManifest?, val catalogKey: String?)
+    val catalog: ConnectionCatalogManifest, val catalogKey: String?)
 
 @Serializable
 private data class TopicStoreEnvelope(val snapshot: TopicSnapshot, val catalog: ConnectionCatalogManifest,
@@ -81,7 +71,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             if (!file.isFile) emptySet() else {
                 require(file.length() <= MAX_RECORD_BYTES)
                 val header = readHeader()
-                if (header.isEnvelope) header.catalog?.pages.orEmpty().map { it.fileName }.toSet()
+                if (header.schemaVersion == 2) header.catalog?.pages.orEmpty().map { it.fileName }.toSet()
                 else emptySet()
             }
         }.getOrDefault(emptySet())
@@ -192,13 +182,11 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     }
     private fun decode(): DecodedTopics {
         val header = readHeader()
-        require(header.engineVersion == TOPIC_CATALOG_STORAGE_VERSION && header.schemaVersion in 0..2)
-        return if (header.isEnvelope) {
-            val envelope = file.inputStream().buffered().use { json.decodeFromStream<TopicStoreEnvelope>(it) }
-            require(envelope.snapshot.connections.isEmpty() && catalog.valid(envelope.catalog))
-            require(envelope.schemaVersion != 2 || envelope.topicGraph != null)
-            DecodedTopics(envelope.topicGraph?.restore(envelope.snapshot) ?: envelope.snapshot, envelope.catalog, envelope.catalogKey)
-        } else DecodedTopics(file.inputStream().buffered().use { json.decodeFromStream<TopicSnapshot>(it) }, null, null)
+        require(header.engineVersion == TOPIC_CATALOG_STORAGE_VERSION && header.schemaVersion == 2)
+        val envelope = file.inputStream().buffered().use { json.decodeFromStream<TopicStoreEnvelope>(it) }
+        require(envelope.snapshot.connections.isEmpty() && catalog.valid(envelope.catalog))
+        val graph = requireNotNull(envelope.topicGraph)
+        return DecodedTopics(graph.restore(envelope.snapshot), envelope.catalog, envelope.catalogKey)
     }
 
     private class RecordLimitExceeded : java.io.IOException()
@@ -288,11 +276,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             require(file.length() <= MAX_RECORD_BYTES)
             val (snapshot, manifest, storedKey) = decode()
             require(validationFailure(snapshot) == null)
-            val result = if (manifest == null) snapshot else {
-                val key = register(storedKey, snapshot, manifest)
-                metadata(snapshot, key, catalogs.getValue(key))
-            }
-            TopicMetadataState.Available(result)
+            val key = register(storedKey, snapshot, manifest)
+            TopicMetadataState.Available(metadata(snapshot, key, catalogs.getValue(key)))
         }.getOrElse { TopicMetadataState.Unreadable }
     } }
     override suspend fun readMetadata(): TopicSnapshot? = withContext(Dispatchers.IO) { mutex.withLock {
@@ -301,10 +286,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             require(file.length() <= MAX_RECORD_BYTES)
             val (snapshot, manifest, storedKey) = decode()
             require(validationFailure(snapshot) == null)
-            if (manifest == null) snapshot else {
-                val key = register(storedKey, snapshot, manifest)
-                metadata(snapshot, key, catalogs.getValue(key))
-            }
+            val key = register(storedKey, snapshot, manifest)
+            metadata(snapshot, key, catalogs.getValue(key))
         }.getOrElse { discard(); null }
     } }
     override suspend fun connectionCatalog(snapshot: TopicSnapshot): List<NoteConnection> = withContext(Dispatchers.IO) { mutex.withLock {
@@ -339,7 +322,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
     override suspend fun pinInspection(snapshot: TopicSnapshot): Boolean = withContext(Dispatchers.IO) { mutex.withLock {
         if (currentCatalogKey == null && file.isFile) {
             val (stored, manifest, storedKey) = decode()
-            if (manifest != null) register(storedKey, stored, manifest)
+            register(storedKey, stored, manifest)
         }
         val key = snapshot.catalogReference?.key
         if (key != null && key !in catalogs) return@withLock false
@@ -356,10 +339,8 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
         if (resetMarker.exists() || !file.isFile) return@withLock null
         val result = runCatching {
             require(file.length() <= MAX_RECORD_BYTES)
-            // Engine zero is derived legacy state, never a reason to execute the old algorithm.
-            // Deleting it is idempotent across interrupted upgrades and leaves all other stores alone.
             val (snapshot, manifest, storedKey) = decode()
-            val result = if (manifest == null) snapshot else snapshot.copy(connections = catalog.read(manifest))
+            val result = snapshot.copy(connections = catalog.read(manifest))
             require(validationFailure(result) == null)
             result
         }.getOrNull()
@@ -373,7 +354,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
             require(file.length() <= MAX_RECORD_BYTES)
             val (snapshot, manifest) = decode()
             require(validationFailure(snapshot) == null)
-            if (manifest == null) snapshot.connections.drop(offset).take(limit) else catalog.read(manifest, offset, limit)
+            catalog.read(manifest, offset, limit)
         }.getOrElse { discard(); emptyList() }
     } }
     override suspend fun write(snapshot: TopicSnapshot): Boolean = writeDetailed(snapshot) == TopicWriteResult.Written

@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Removed old inline and bare topic-catalog readers under the
+fresh-install direction; unknown formats remain unavailable (§231).
+
 2026-11-04: Canonical catalog storage no longer derives its persisted version
 from the clustering algorithm; the existing disk value is unchanged (§230).
 

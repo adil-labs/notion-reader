@@ -115,11 +115,15 @@ class FileTopicStoreTest {
             "schemaVersion" to JsonPrimitive(1),
             "snapshot" to Json.encodeToJsonElement(TopicSnapshot.serializer(), snapshot)))
         file.writeText(legacy.toString())
-        val upgraded = FileTopicStore(directory)
-        assertEquals("Inline legacy generations remain readable", snapshot, upgraded.read())
-        assertEquals(TopicWriteResult.Written, upgraded.writeDetailed(snapshot))
-        assertTrue(file.length() < 150_000)
-        assertEquals(snapshot, FileTopicStore(directory).read())
+        assertEquals("Old inline envelopes are not canonical catalog state", TopicMetadataState.Unreadable,
+            FileTopicStore(directory).inspectMetadata())
+    }
+
+    @Test fun aBareLegacySnapshotIsNotACanonicalCatalog() = runBlocking {
+        val directory = temporary.newFolder()
+        val snapshot = TopicSnapshot(identity = EmbeddingIdentity("bare", 2), canonicalCatalogReady = true)
+        File(directory, "topics.json").writeText(Json { encodeDefaults = true }.encodeToString(TopicSnapshot.serializer(), snapshot))
+        assertEquals(TopicMetadataState.Unreadable, FileTopicStore(directory).inspectMetadata())
     }
 
     @Test fun compactProjectionCheckpointsResumeWithoutLosingPartialMembershipEvidence() = runBlocking {
