@@ -252,7 +252,7 @@ class ReaderApplication : Application() {
     @Volatile private var protectedCacheIds: () -> Set<String> = { emptySet() }
     private fun directoryBytes(directory: File): Long = if (!directory.exists()) 0L else
         directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-checkpoint", "discovery-topic-labels", "discovery-topic-matches", "discovery-proposal-progress")
+    private val derivedNames = listOf("semantic-index", "semantic-passage-progress", "discovery-topics", "discovery-topic-labels", "discovery-topic-matches", "discovery-proposal-progress")
     private val storageBudget by lazy {
         val availability = com.example.notionreader.platform.AndroidStorageAvailability(noBackupFilesDir)
         com.example.notionreader.application.StorageBudgetCoordinator(
@@ -366,7 +366,6 @@ class ReaderApplication : Application() {
         val semanticDirectory = File(noBackupFilesDir, "semantic-index")
         val passageProgressDirectory = File(noBackupFilesDir, "semantic-passage-progress")
         val topicDirectory = File(noBackupFilesDir, "discovery-topics")
-        val topicCheckpointDirectory = File(noBackupFilesDir, "discovery-topic-checkpoint")
         val labelDirectory = File(noBackupFilesDir, "discovery-topic-labels")
         val matchDirectory = File(noBackupFilesDir, "discovery-topic-matches")
         val proposalProgressDirectory = File(noBackupFilesDir, "discovery-proposal-progress")
@@ -385,9 +384,6 @@ class ReaderApplication : Application() {
         val topicStore = com.example.notionreader.data.local.FileTopicStore(topicDirectory,
             allowFreshInitialization = true, writeGate = storageWrites,
             otherBytes = { otherDiscoveryBytes(topicDirectory) })
-        val topicCheckpointStore = com.example.notionreader.data.local.FileTopicStore(topicCheckpointDirectory,
-            writeGate = storageWrites,
-            otherBytes = { otherDiscoveryBytes(topicCheckpointDirectory) })
         val interestStore = com.example.notionreader.data.local.FileDiscoveryInterestStore(File(noBackupFilesDir, "discovery-interests"))
         val recentNotes = com.example.notionreader.application.RecentNotesController(
             com.example.notionreader.data.local.FileRecentNoteHistoryStore(File(noBackupFilesDir, "recent-note-history")), documentCache)
@@ -437,7 +433,7 @@ class ReaderApplication : Application() {
             queryTimings = { timings ->
                 if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
             },
-            topicStore = topicStore, topicCheckpointStore = topicCheckpointStore, passageProgressStore = passageProgressStore,
+            topicStore = topicStore, passageProgressStore = passageProgressStore,
             topicLabelRuntime = topicLabeler, topicLabelStore = topicLabels,
             topicRetrievalStore = topicMatches,
             proposalProgressStore = proposalProgress,

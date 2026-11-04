@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Fresh production initialization no longer creates or requires the
+legacy formation checkpoint; reset and recovery coverage is retained (§228).
+
 2026-11-04: Current independently verified memberships can appear before full
 index coverage, with an incomplete status and revision guards (§227).
 

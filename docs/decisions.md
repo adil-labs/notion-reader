@@ -14033,3 +14033,24 @@ reachable incomplete-count control. These checks do not observe TalkBack speech,
 actual model quality or a full device workflow with a real indexing failure.
 The legacy formation path and remaining dependent tests still require removal;
 representative device, model and human accessibility acceptance remain open.
+
+
+## 228. Remove the legacy formation checkpoint from production wiring (2026-11-04)
+
+The production composition root created a cluster-formation checkpoint store
+even though the fresh-install evidence-first scheduler never uses formation.
+Fresh catalog initialization also refused to run without that store. The root
+no longer constructs or accounts for the old checkpoint, and initialization
+accepts its absence. If a caller does supply a nonempty checkpoint, the existing
+unknown-state guard still refuses to initialize. Existing-install migration was
+explicitly excluded by the user; this change does not migrate or delete old data.
+
+The fresh-catalog integration scenarios now run without a checkpoint except for
+the orphan-checkpoint case. Before the change, 13 of 18 scenarios failed with
+that wiring; after it, all 18 passed, including interrupted reset recovery and
+follow continuity. The full JVM suite passed 1,615 tests without failures,
+errors or skips; debug assembly and Android-test compilation passed. The
+rebuilt app launched and its activity obtained focus on the API 36 emulator;
+that startup probe does not exercise model inference or TalkBack speech. The
+legacy formation implementation and other dependent tests still require removal;
+representative model/device and human accessibility acceptance remain open.

@@ -446,8 +446,8 @@ internal class TopicCoordinator(
                     TopicMetadataState.Fresh -> {
                         val fresh = bootstrapInterests?.withCatalogBootstrapGuard { interests ->
                             val progress = proposalProgress
-                            if (interests == null || interests.any { it.originTopicId != null } || checkpoint == null ||
-                                labels == null || retrievals == null || progress == null || checkpoint.bytes() != 0L ||
+                            if (interests == null || interests.any { it.originTopicId != null } ||
+                                labels == null || retrievals == null || progress == null || (checkpoint?.bytes() ?: 0L) != 0L ||
                                 labels.bytes() != 0L || retrievals.bytes() != 0L || !progress.hasOnlySourceDeltas() ||
                                 cache.revision.value != cacheRevision) return@withCatalogBootstrapGuard null
                             // No catalog or topic-derived state exists. Retire any pending withdrawals
