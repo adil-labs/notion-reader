@@ -13947,3 +13947,25 @@ changed in this round. The remaining legacy-dependent tests need replacement or
 retirement according to whether they cover current contracts before the obsolete
 formation branch can be deleted. The production root continues to select the
 evidence-first path; representative device and human acceptance remain open.
+
+
+## 224. Verify incremental connection coverage (2026-11-04)
+
+Three connection tests now exercise the evidence-first coordinator with cached
+source documents and file-backed stores. The 100-Note sweep checks 450 exact
+pairs, restarts, a source edit and removal; the other tests check reuse of
+unchanged pairs and recovery after a normalized-title collision disappears. The
+fixtures use purpose-built semantic records and do not measure full-document
+indexing, model quality or device performance.
+
+Each check was verified against its production guard: disabling catalog
+reconciliation failed the 100-Note withdrawal test; forcing connection
+incompatibility failed the unchanged-pair reuse test; and suppressing changed
+titles failed the title-collision test. The 100-Note test also passed with the
+legacy formation call disabled. The production guards were restored.
+
+The full JVM suite passed 1,614 tests with no failures, errors or skips; debug
+assembly and Android-test compilation passed. This round did not change product
+behavior. The old formation branch and other legacy-dependent tests remain to
+be removed or replaced; partial-corpus presentation, representative model and
+device measurements, and human TalkBack acceptance remain open.

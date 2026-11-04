@@ -102,31 +102,40 @@ class DiscoveryTopicsIntegrationTest {
             val cache = FileDocumentCache(dir.resolve("cache"))
             val index = FileSemanticIndexStore(dir.resolve("index"))
             val store = FileTopicStore(dir.resolve("topics"))
-            val checkpoint = FileTopicStore(dir.resolve("checkpoint"))
             val model = EmbeddingIdentity("hundred-note-connections", 10)
             val groups = (0 until 100).associate { "p$it" to it / 10 }.toMutableMap()
-            val sources = groups.keys.associateWith { "r1" }.toMutableMap()
-            suspend fun record(id: String) {
+            val sources = linkedMapOf<String, String>()
+            suspend fun record(id: String, edited: Boolean = false) {
                 val text = "Forest ecosystems support wildlife habitats and woodland biodiversity."
+                val document = ReaderDocument.fromChunkTexts(id, id, if (edited) listOf(text, "Edited metadata evidence.") else listOf(text))
+                cache.put(CachedDocument(document, null, Instant.EPOCH))
+                val revision = semanticRevision(document); sources[id] = revision
                 val p = SemanticPassage("$id:p", id, "$id:s", "Forest ecosystems", "$id:b", "$id:c",
                     0, text.length, text, text, 0)
-                assertTrue(index.write(SemanticRecord(id, sources.getValue(id), model, SemanticMetadata(id),
+                assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(id),
                     listOf(EmbeddedPassage(p, List(10) { if (it == groups.getValue(id)) 1f else 0f })))))
             }
             for (id in groups.keys) record(id)
             index.setPaused(false)
-            fun worker() = TopicCoordinator(cache, index, store, checkpoint, { model }, TopicPolicy(),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
+            val policy = TopicPolicy()
+            assertTrue(store.write(TopicSnapshot(identity = model, canonicalCatalogReady = true,
+                acceptedRevisions = sources.toMap(), policyVersion = policy.version)))
+            fun worker(): TopicCoordinator {
+                val retrievals = TopicRetrievalCoordinator(index, FileTopicRetrievalStore(dir.resolve("matches")),
+                    { model }, TopicRetrievalPolicy(.85f), { List(10) { if (it == 0) 1f else 0f } }, { true }, {}, kotlinx.coroutines.sync.Mutex())
+                return TopicCoordinator(cache, index, FileTopicStore(dir.resolve("topics")), null, { model }, policy,
+                    kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            }
             suspend fun complete() {
                 var coordinator = worker()
-                repeat(80) { round ->
+                repeat(100) { round ->
                     if (round % 7 == 0) coordinator = worker()
                     coordinator.invalidate(sources)
                     coordinator.build(sources, 0, cache.revision.value)
-                    if (!coordinator.needsMoreWork) {
-                        assertTrue(store.read()!!.complete)
-                        assertTrue(store.read()!!.connectionPassComplete)
-                        return
+                    val ticket = coordinator.captureCatalogTicket()
+                    if (ticket != null && ticket.snapshot.acceptedRevisions == sources) {
+                        coordinator.advanceIncrementalConnections(ticket, sources)
+                        if (store.readMetadata()!!.connectionPassComplete) return
                     }
                 }
                 fail("A bounded sweep must complete despite coordinator restarts")
@@ -138,8 +147,8 @@ class DiscoveryTopicsIntegrationTest {
             complete()
             assertEquals(450, actual().size)
             assertEquals(expected(), actual())
-            sources.remove("p99"); groups.remove("p99"); index.remove("p99")
-            groups["p0"] = 1; sources["p0"] = "r2"; record("p0")
+            cache.remove("p99"); sources.remove("p99"); groups.remove("p99"); index.remove("p99")
+            groups["p0"] = 1; record("p0", edited = true)
             val changed = worker(); changed.invalidate(sources)
             assertTrue(store.read()!!.connections.none { it.left.pageId in setOf("p0", "p99") || it.right.pageId in setOf("p0", "p99") })
             complete()
@@ -176,26 +185,36 @@ class DiscoveryTopicsIntegrationTest {
             val backing = FileSemanticIndexStore(dir.resolve("index"))
             val model = EmbeddingIdentity("incremental-connections", 2)
             val store = FileTopicStore(dir.resolve("topics"))
+            val sources = linkedMapOf<String, String>()
             var reads = 0
             val index = object : SemanticIndexStore by backing {
                 override suspend fun read(pageId: String): SemanticRecord? { reads++; return backing.read(pageId) }
             }
             suspend fun add(id: String) {
                 val text = "Forest ecology sustains diverse woodland habitats and wildlife."
+                val doc = ReaderDocument.fromChunkTexts(id, id, listOf(text))
+                cache.put(CachedDocument(doc, null, Instant.EPOCH))
+                val revision = semanticRevision(doc); sources[id] = revision
                 val passage = SemanticPassage("$id:p", id, "$id:s", "Forest ecology", "$id:b", "$id:c", 0, text.length, text, text, 0)
-                backing.write(SemanticRecord(id, "r1", model, SemanticMetadata(id), listOf(EmbeddedPassage(passage, listOf(1f, 0f)))))
+                assertTrue(backing.write(SemanticRecord(id, revision, model, SemanticMetadata(id), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
             }
             repeat(8) { add("p$it") }; backing.setPaused(false)
-            fun coordinator() = TopicCoordinator(cache, index, store, FileTopicStore(dir.resolve("checkpoint")),
-                { model }, TopicPolicy(), kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            val oldSources = (0..7).associate { "p$it" to "r1" }
-            val first = coordinator(); first.invalidate(oldSources); first.build(oldSources, 0, cache.revision.value)
+            assertTrue(store.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources.toMap())))
+            fun coordinator(): TopicCoordinator {
+                val retrievals = TopicRetrievalCoordinator(index, FileTopicRetrievalStore(dir.resolve("matches")),
+                    { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, kotlinx.coroutines.sync.Mutex())
+                return TopicCoordinator(cache, index, FileTopicStore(dir.resolve("topics")), null,
+                    { model }, TopicPolicy(), kotlinx.coroutines.sync.Mutex(), { true }, {}, {},
+                    retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            }
+            val first = coordinator(); first.invalidate(sources)
+            first.advanceIncrementalConnections(first.captureCatalogTicket()!!, sources)
             val original = store.read()!!
             assertEquals(28, original.connections.size)
             add("p8")
-            val sources = oldSources + ("p8" to "r1")
             val next = coordinator(); next.invalidate(sources); reads = 0
             next.build(sources, 0, cache.revision.value)
+            next.advanceIncrementalConnections(next.captureCatalogTicket()!!, sources)
             val result = store.read()!!
             assertTrue(result.connectionPassComplete)
             assertEquals(36, result.connections.size)
@@ -211,20 +230,29 @@ class DiscoveryTopicsIntegrationTest {
             val index = FileSemanticIndexStore(dir.resolve("index"))
             val model = EmbeddingIdentity("incremental-reference-titles", 2)
             val store = FileTopicStore(dir.resolve("topics"))
+            val sources = linkedMapOf<String, String>()
             for ((id, title) in listOf("a" to "Source", "b" to "Alpha", "c" to " alpha ")) {
                 val text = if (id == "a") "Open Alpha." else "A short target context."
+                val document = ReaderDocument.fromChunkTexts(id, title, listOf(text))
+                cache.put(CachedDocument(document, null, Instant.EPOCH))
+                val revision = semanticRevision(document); sources[id] = revision
                 val passage = SemanticPassage("$id:p", id, "$id:s", null, "$id:b", "$id:c", 0, text.length, text, text, 0)
-                index.write(SemanticRecord(id, "r1", model, SemanticMetadata(title), listOf(EmbeddedPassage(passage, listOf(1f, 0f)))))
+                assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(title), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
             }
             index.setPaused(false)
-            fun coordinator() = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            val original = listOf("a", "b", "c").associateWith { "r1" }
-            val first = coordinator(); first.invalidate(original); first.build(original, 0, cache.revision.value)
+            assertTrue(store.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources.toMap())))
+            fun coordinator(): TopicCoordinator {
+                val retrievals = TopicRetrievalCoordinator(index, FileTopicRetrievalStore(dir.resolve("matches")),
+                    { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, kotlinx.coroutines.sync.Mutex())
+                return TopicCoordinator(cache, index, FileTopicStore(dir.resolve("topics")), null, { model }, TopicPolicy(),
+                    kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            }
+            val first = coordinator(); first.invalidate(sources)
+            first.advanceIncrementalConnections(first.captureCatalogTicket()!!, sources)
             assertTrue(store.read()!!.connections.none { it.independentNamedReference })
-            index.remove("c")
-            val current = original - "c"
-            val restarted = coordinator(); restarted.invalidate(current); restarted.build(current, 0, cache.revision.value)
+            cache.remove("c"); sources.remove("c"); index.remove("c")
+            val restarted = coordinator(); restarted.invalidate(sources)
+            restarted.advanceIncrementalConnections(restarted.captureCatalogTicket()!!, sources)
             assertTrue("Removing a case/whitespace title collision must revisit the surviving target",
                 store.read()!!.connections.any { it.independentNamedReference && setOf(it.left.pageId, it.right.pageId) == setOf("a", "b") })
         } finally { dir.deleteRecursively() }
