@@ -42,9 +42,10 @@ internal suspend fun hydrateCanonicalTopic(topic: DiscoveredTopic, model: Embedd
         if (validation !is TopicSupportValidation.Accepted || validation.assessment != saved) return null
         citations += TopicMembership(saved.evidence.pageId, record.metadata, passage, 0f, passage, record.revision)
     }
-    val members = if (!concept.matchingComplete || concept.scannedRevisions != sources) null else {
+    val members = run {
         val result = mutableListOf<TopicMembership>()
         for (ref in concept.supported) {
+            if (concept.scannedRevisions[ref.pageId] != ref.revision) return null
             val (record, passage) = resolve(ref) ?: return null
             val evidence = TopicLabelEvidence(passage.id, ref.pageId, ref.revision, passage.excerpt)
             var verified = false

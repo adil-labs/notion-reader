@@ -14008,3 +14008,28 @@ debug assembly and Android-test compilation passed. No production behavior
 changed. Other formation-dependent tests and the old production branch remain
 to be removed. Partial-corpus presentation, model and device measurements, and
 human TalkBack acceptance remain open.
+
+
+## 227. Show verified matches during incomplete indexing (2026-11-04)
+
+Previously the scheduler persisted independently verified memberships while an
+unrelated Note could not be indexed, but hydration hid every matching Note until
+coverage was complete. Hydration now reconstructs current supported passages
+during partial coverage, requiring the same current source, index record and
+independently saved support as before, plus a matching scanned revision. The
+topic remains pending rather than claiming an established or empty result.
+The count explicitly says matching is incomplete; the details screen presents
+that state even when verified members are visible. Inspected ordering and source
+withdrawal continue to use the existing mechanisms.
+
+Before the change, the new hydration, controller and presentation assertions
+failed. Removing the scanned-revision guard made the hydration assertion fail;
+restoring it passed. Controller tests cover supported and unsupported matches
+while indexing fails. The complete JVM suite passed 1,615 tests without
+failures, errors or skips; debug assembly and Android-test compilation passed.
+The API 36 emulator wrapper passed the existing topic navigation class 22/22
+and the topic screen class 10/10, including a new semantics check for the
+reachable incomplete-count control. These checks do not observe TalkBack speech,
+actual model quality or a full device workflow with a real indexing failure.
+The legacy formation path and remaining dependent tests still require removal;
+representative device, model and human accessibility acceptance remain open.

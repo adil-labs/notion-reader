@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#226-move-connection-reuse-and-metadata-checks-to-the-current-path-2026-11-04)
+[the current decision-record entry](decisions.md#227-show-verified-matches-during-incomplete-indexing-2026-11-04)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

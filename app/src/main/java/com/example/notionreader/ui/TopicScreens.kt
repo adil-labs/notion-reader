@@ -235,6 +235,8 @@ internal fun topicNoteCount(topic: DiscoveredTopic): String {
     if (topic.canonicalConcept != null && topic.currentCanonicalProjection?.members == null ||
         topic.canonicalConcept == null && topic.currentTopicMatches == null) return "Matching Notes pending"
     val count = topic.matchingMembers.distinctBy { canonicalSemanticId(it.pageId) }.size
+    if (topic.canonicalConcept?.matchingComplete == false) return if (count == 0) "Matching Notes incomplete" else
+        "$count matching ${if (count == 1) "Note" else "Notes"}; matching incomplete"
     return if (count == 0) "No matching Notes" else "$count matching ${if (count == 1) "Note" else "Notes"}"
 }
 

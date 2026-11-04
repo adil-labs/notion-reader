@@ -6,7 +6,7 @@ enum class TopicPublicationStatus { Established, Emerging, Pending, NoMatches }
 
 fun discoveryTopicPublicationStatus(topic: DiscoveredTopic): TopicPublicationStatus? {
     if (!hasPublishedSubject(topic)) return null
-    if (topic.canonicalConcept != null && topic.currentCanonicalProjection?.members == null ||
+    if (topic.canonicalConcept != null && (!topic.canonicalConcept.matchingComplete || topic.currentCanonicalProjection?.members == null) ||
         topic.canonicalConcept == null && topic.currentTopicMatches == null) return TopicPublicationStatus.Pending
     return when (topic.matchingMembers.map { canonicalSemanticId(it.pageId) }.distinct().size) {
         0 -> TopicPublicationStatus.NoMatches

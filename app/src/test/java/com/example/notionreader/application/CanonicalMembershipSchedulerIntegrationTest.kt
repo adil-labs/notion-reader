@@ -94,6 +94,10 @@ class CanonicalMembershipSchedulerIntegrationTest {
             if (rejectMembership) assertFalse(saved.supported.any { it.pageId == "later" })
             else assertTrue(saved.supported.any { it.pageId == "later" })
             assertFalse("Unindexed cached Notes prevent complete matching coverage", saved.matchingComplete)
+            val visible = controller.state.value.topicSnapshot.topics.single()
+            assertEquals(if (rejectMembership) setOf("seed") else setOf("seed", "later"), visible.matchingMembers.map { it.pageId }.toSet())
+            assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(visible))
+
             assertNotNull(controller.state.value.indexFailure)
             assertTrue(controller.hasPendingWork)
             if (recoverIndex) {

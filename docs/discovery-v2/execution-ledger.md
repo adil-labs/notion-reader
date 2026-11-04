@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Current independently verified memberships can appear before full
+index coverage, with an incomplete status and revision guards (§227).
+
 2026-11-04: Moved interrupted-sweep reuse and metadata-invalidation checks to
 the incremental coordinator with failing-first evidence (§226).
 

@@ -51,6 +51,12 @@ class CanonicalTopicHydrationTest {
         assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(laterSupport) { true })
         val updated = topic.copy(canonicalConcept = concept.copy(supported = listOf(ref, ProposalEvidenceRef("later", "r2", "p2")),
             scannedRevisions = sources))
+        val partial = updated.copy(canonicalConcept = updated.canonicalConcept!!.copy(matchingComplete = false))
+        val hydratedPartial = hydrateCanonicalTopic(partial, model, sources, index, store) { true }!!
+        assertEquals(setOf("note", "later"), hydratedPartial.matchingMembers.map { it.pageId }.toSet())
+        assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(hydratedPartial))
+        assertNull("A supported passage must belong to a scanned source revision", hydrateCanonicalTopic(
+            partial.copy(canonicalConcept = partial.canonicalConcept!!.copy(scannedRevisions = mapOf("note" to "r1"))), model, sources, index, store) { true })
         val established = hydrateCanonicalTopic(updated, model, sources, index, store) { true }!!
         assertEquals(setOf("note", "later"), established.matchingMembers.map { it.pageId }.toSet())
         assertEquals(TopicPublicationStatus.Established, discoveryTopicPublicationStatus(established))

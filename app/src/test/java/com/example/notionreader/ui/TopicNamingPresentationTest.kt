@@ -47,12 +47,14 @@ class TopicNamingPresentationTest {
         val raw = topic(); val identity = TopicLabelIdentity("a", "t", "c", "p", "s", "v", "GPU")
         val key = semanticHash("concept"); val member = raw.members.single()
         val concept = CanonicalConceptEvidence(key, "Seed germination", "Seeds need moisture.",
-            "Listen to seed germination.", identity, identity, emptyList(), emptyList())
+            "Listen to seed germination.", identity, identity, emptyList(), emptyList(), matchingComplete = true)
         val projection = CanonicalTopicProjection(key, concept.name, concept.definition, concept.listeningDescription,
             listOf(member), listOf(member))
         val ready = raw.copy(canonicalConcept = concept, canonicalProjection = projection)
         assertEquals("Seed germination", topicDisplayName(ready))
         assertEquals("1 matching Note", topicNoteCount(ready))
+        assertEquals("1 matching Note; matching incomplete", topicNoteCount(ready.copy(canonicalConcept = concept.copy(matchingComplete = false))))
+        assertEquals("Matching Notes incomplete", topicNoteCount(ready.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = projection.copy(members = emptyList()))))
         assertEquals("Listen to seed germination.", topicDescription(ready))
         assertEquals("Seed germination\nSeeds need moisture.", topicFollowText(ready))
         assertEquals(listOf(member), topicNamingEvidence(ready))

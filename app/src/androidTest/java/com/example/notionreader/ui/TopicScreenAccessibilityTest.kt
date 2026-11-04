@@ -13,6 +13,24 @@ import org.junit.Test
 class TopicScreenAccessibilityTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun partialMatchingCountIsAnnouncedOnTheReachableTopic() {
+        val text = "Moisture and warmth help seeds germinate."
+        val passage = SemanticPassage("p", "n", "s", "Seeds", "b", "c", 0, text.length, text, text, 0)
+        val member = TopicMembership("n", SemanticMetadata("Seed Note"), passage, 0f, passage, "r1")
+        val identity = TopicLabelIdentity("a", "t", "c", "p", "s", "v", "CPU")
+        val concept = CanonicalConceptEvidence("key", "Seed germination", "Seeds need moisture.",
+            "Listen about seeds.", identity, identity, emptyList(), emptyList(), matchingComplete = false)
+        val topic = DiscoveredTopic("topic", "Seeds", passage, EmbeddedPassage(passage, listOf(1f)),
+            listOf(member), 0, canonicalConcept = concept,
+            canonicalProjection = CanonicalTopicProjection("key", concept.name, concept.definition,
+                concept.listeningDescription, listOf(member), listOf(member)))
+        var opened = false
+        compose.setContent { TopicNavigationRow(topic, { opened = true }) }
+        compose.onNode(hasText("1 matching Note; matching incomplete", substring = true)).assertIsReachable()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(true, opened)
+    }
+
     @Test fun followingRequiresExplicitConfirmationAndSavesTheEditedDefinition() {
         var saved = emptyList<String>()
         compose.setContent { InterestDefinitionDialog("Ecology", "forest ecology", "Follow topic", {},

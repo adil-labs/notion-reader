@@ -174,7 +174,8 @@ internal fun TopicDetailsScreen(
 
             Text("Matching Notes", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
             val members = topic.matchingMembers.distinctBy { it.pageId }
-            if (members.isEmpty()) Text(topicNoteCount(topic), style = MaterialTheme.typography.bodyMedium)
+            if (members.isEmpty() || topic.canonicalConcept?.matchingComplete == false)
+                Text(topicNoteCount(topic), style = MaterialTheme.typography.bodyMedium)
             Column(
                 modifier = Modifier.semantics { collectionInfo = CollectionInfo(minOf(members.size, visibleMembers), 1) },
                 verticalArrangement = Arrangement.spacedBy(8.dp)
