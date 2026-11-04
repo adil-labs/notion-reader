@@ -297,26 +297,38 @@ class DiscoveryTopicsIntegrationTest {
             val index = FileSemanticIndexStore(dir.resolve("index"))
             val model = EmbeddingIdentity("incremental-partial-connections", 2)
             val store = FileTopicStore(dir.resolve("topics"))
+            val sources = linkedMapOf<String, String>()
             suspend fun add(id: String) {
+                val text = "Forest ecology sustains wildlife habitats in woodland ecosystems."
+                val document = ReaderDocument.fromChunkTexts(id, id, listOf(text))
+                cache.put(CachedDocument(document, null, Instant.EPOCH))
+                val revision = semanticRevision(document); sources[id] = revision
                 val passages = (0..1).map { n ->
-                    val text = "Forest ecology sustains wildlife habitats in woodland ecosystem $n."
                     val p = SemanticPassage("$id:p$n", id, "$id:s$n", "Forest ecology", "$id:b$n", "$id:c$n", 0, text.length, text, text, n)
                     EmbeddedPassage(p, listOf(1f, 0f))
                 }
-                index.write(SemanticRecord(id, "r1", model, SemanticMetadata(id), passages))
+                assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(id), passages)))
             }
             repeat(12) { add("p" + it.toString().padStart(2, '0')) }; index.setPaused(false)
-            fun coordinator() = TopicCoordinator(cache, index, FileTopicStore(dir.resolve("topics")), null,
-                { model }, TopicPolicy(), kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            val original = (0..11).associate { "p" + it.toString().padStart(2, '0') to "r1" }
-            val first = coordinator(); first.invalidate(original); first.build(original, 0, cache.revision.value)
+            assertTrue(store.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources.toMap())))
+            fun coordinator(): TopicCoordinator {
+                val retrievals = TopicRetrievalCoordinator(index, FileTopicRetrievalStore(dir.resolve("matches")),
+                    { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, kotlinx.coroutines.sync.Mutex())
+                return TopicCoordinator(cache, index, FileTopicStore(dir.resolve("topics")), null,
+                    { model }, TopicPolicy(), kotlinx.coroutines.sync.Mutex(), { true }, {}, {},
+                    retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            }
+            val first = coordinator(); first.invalidate(sources)
+            first.advanceIncrementalConnections(first.captureCatalogTicket()!!, sources)
             assertFalse("The fixture must cross the 256-candidate window", store.read()!!.connectionPassComplete)
-            add("new")
-            val sources = original + ("new" to "r1")
-            val restarted = coordinator(); restarted.invalidate(sources); restarted.build(sources, 0, cache.revision.value)
+            add("zzz")
+            val restarted = coordinator(); restarted.invalidate(sources)
+            restarted.build(sources, 0, cache.revision.value)
+            restarted.advanceIncrementalConnections(restarted.captureCatalogTicket()!!, sources)
             val result = store.read()!!
-            assertTrue("A small delta plus the unfinished seed fits one window without replaying completed seeds", result.connectionPassComplete)
-            assertEquals(78, result.connections.size)
+            assertTrue("A small delta and unfinished seeds must fit in one window without replaying completed seeds", result.connectionPassComplete)
+            val expected = sources.keys.flatMap { left -> sources.keys.filter { it > left }.map { right -> setOf(left, right) } }.toSet()
+            assertEquals(expected, result.connections.map { setOf(it.left.pageId, it.right.pageId) }.toSet())
         } finally { dir.deleteRecursively() }
     }
 
@@ -373,19 +385,31 @@ class DiscoveryTopicsIntegrationTest {
             val index = FileSemanticIndexStore(dir.resolve("index"))
             val model = EmbeddingIdentity("incremental-connection-metadata", 2)
             val store = FileTopicStore(dir.resolve("topics"))
+            val sources = linkedMapOf<String, String>()
+            val metadata = linkedMapOf<String, SemanticMetadata>()
             for (id in listOf("a", "b")) {
                 val text = "Forest ecology sustains wildlife habitats and protects woodland ecosystems."
+                val document = ReaderDocument.fromChunkTexts(id, id, listOf(text))
+                cache.put(CachedDocument(document, null, Instant.EPOCH))
+                val revision = semanticRevision(document); sources[id] = revision; metadata[id] = SemanticMetadata(id)
                 val p = SemanticPassage("$id:p", id, "$id:s", "Forest ecology", "$id:b", "$id:c", 0, text.length, text, text, 0)
-                index.write(SemanticRecord(id, "r1", model, SemanticMetadata(id), listOf(EmbeddedPassage(p, listOf(1f, 0f)))))
+                assertTrue(index.write(SemanticRecord(id, revision, model, metadata.getValue(id), listOf(EmbeddedPassage(p, listOf(1f, 0f))))))
             }
             index.setPaused(false)
-            fun coordinator() = TopicCoordinator(cache, index, store, null, { model }, TopicPolicy(),
-                kotlinx.coroutines.sync.Mutex(), { true }, {}, {})
-            val sources = mapOf("a" to "r1", "b" to "r1")
-            val first = coordinator(); first.invalidate(sources); first.build(sources, 0, cache.revision.value)
+            assertTrue(store.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources.toMap())))
+            fun coordinator(): TopicCoordinator {
+                val retrievals = TopicRetrievalCoordinator(index, FileTopicRetrievalStore(dir.resolve("matches")),
+                    { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, kotlinx.coroutines.sync.Mutex())
+                return TopicCoordinator(cache, index, FileTopicStore(dir.resolve("topics")), null, { model }, TopicPolicy(),
+                    kotlinx.coroutines.sync.Mutex(), { true }, {}, {}, retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            }
+            val first = coordinator(); first.invalidate(sources); first.build(sources, 0, cache.revision.value, metadata = metadata)
+            first.advanceIncrementalConnections(first.captureCatalogTicket()!!, sources)
             assertEquals(1, store.read()!!.connections.size)
-            index.write(index.read("b")!!.copy(metadata = SemanticMetadata("Renamed target")))
-            val restarted = coordinator(); restarted.invalidate(sources); restarted.build(sources, 1, cache.revision.value)
+            metadata["b"] = SemanticMetadata("Renamed target")
+            index.write(index.read("b")!!.copy(metadata = metadata.getValue("b")))
+            val restarted = coordinator(); restarted.invalidate(sources); restarted.build(sources, 1, cache.revision.value, metadata = metadata)
+            restarted.advanceIncrementalConnections(restarted.captureCatalogTicket()!!, sources)
             val pair = store.read()!!.connections.single()
             assertEquals("Current metadata replaces equal-score stale evidence", "Renamed target",
                 listOf(pair.left, pair.right).single { it.pageId == "b" }.metadata.title)

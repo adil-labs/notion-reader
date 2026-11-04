@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Moved interrupted-sweep reuse and metadata-invalidation checks to
+the incremental coordinator with failing-first evidence (§226).
+
 2026-11-04: Verified that adding a Note during an incremental connection sweep
 retains unfinished pairs; the separate legacy performance check remains (§225).
 

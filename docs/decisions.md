@@ -13987,3 +13987,24 @@ passed 1,615 tests without failures, errors or skips; debug assembly and
 Android-test compilation passed. No production behavior changed. The legacy
 formation branch and further dependent checks remain, as do actual model/device
 quality measurements and human TalkBack acceptance.
+
+
+## 226. Move connection reuse and metadata checks to the current path (2026-11-04)
+
+The one-window reuse assertion that remained on the formation fixture in §225
+now runs against the evidence-first coordinator and file-backed source and
+connection stores. It retains the exact connection set as well as the bounded
+work assertion. Forcing incompatible connection state caused the expected
+one-window assertion to fail; restoring compatibility made it pass.
+
+The metadata-only update test also uses the current coordinator and cached
+source revisions. Suppressing metadata from the connection input identity
+failed its stale-title assertion (old title `b` instead of `Renamed target`);
+restoring the identity made it pass. Both tests retain purpose-built vectors
+and do not establish native model quality or device performance.
+
+The complete JVM suite passed 1,615 tests without failures, errors or skips;
+debug assembly and Android-test compilation passed. No production behavior
+changed. Other formation-dependent tests and the old production branch remain
+to be removed. Partial-corpus presentation, model and device measurements, and
+human TalkBack acceptance remain open.
