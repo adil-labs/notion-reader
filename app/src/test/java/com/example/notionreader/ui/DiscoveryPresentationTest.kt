@@ -187,31 +187,12 @@ class DiscoveryPresentationTest {
             topicSnapshot = TopicSnapshot(engineVersion = 0)))
         assertEquals("Finding topics and connections…", ui.message)
     }
-    @Test fun backgroundFormationProgressIsVisibleWithoutReplacingTheInspectedSnapshot() {
-        val progress = "Topic coverage is incomplete. 0 of 2401 sections finalized; 12 comparisons completed. Progress is saved."
-        assertEquals(progress, discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
-            topicStatus = progress, topicSnapshot = TopicSnapshot())).message)
-    }
-    @Test fun incompleteGroupingReportsEligibleSectionsAndActualWorkWithoutClaimingCompletion() {
-        val ui = discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 51,
-            topicSnapshot = TopicSnapshot(engineVersion = 1, formationProgress = TopicFormationProgress(
-                "signature", 750, listOf(listOf(0)), comparisonsCompleted = 14_000_000, totalOpportunities = 4218))))
-        assertEquals("Finding topics in 51 indexed Notes (4218 passage groups across 750 sections). 14000000 similarity checks completed so far. Progress is saved.", ui.message)
-    }
-    @Test fun evidenceProgressCountsCandidatesRatherThanEmptyClusterSlots() {
-        val ui = discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
-            topicSnapshot = TopicSnapshot(engineVersion = 1, formationProgress = TopicFormationProgress(
-                "signature", 3, listOf(emptyList(), listOf(0, 1, 2), emptyList()),
-                groupingComplete = true, projectionCluster = 2))))
-        assertEquals("Checking topic evidence: 1 of 1 candidates; 3 of 3 sections finalized.", ui.message)
-    }
-    @Test fun evidenceProgressIncludesBroadAndFocusedCandidateGroups() {
-        val ui = discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
-            topicSnapshot = TopicSnapshot(engineVersion = 1, formationProgress = TopicFormationProgress(
-                "signature", 2, listOf(listOf(0, 1), emptyList()),
-                groupingComplete = true, projectionCluster = 2,
-                candidateGroups = listOf(listOf(0, 1), listOf(0), listOf(1))))))
-        assertEquals("Checking topic evidence: 2 of 3 candidates; 2 of 2 sections finalized.", ui.message)
+    @Test fun currentDiscoveryStatusIsNotReplacedByOldFormationProgress() {
+        val ui = discoveryProgress(DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false,
+            indexedCount = 1, topicStatus = "Verifying supporting evidence…",
+            topicSnapshot = TopicSnapshot(formationProgress = TopicFormationProgress(
+                "obsolete", 3, listOf(listOf(0)), comparisonsCompleted = 10))))
+        assertEquals("Verifying supporting evidence…", ui.message)
     }
     @Test fun namedQueueOriginsDistinguishRecentSessionsWhileSingleNotesKeepTheirTitle() {
         fun entry(origin: String) = HistoryEntry("s", "Current Note", null, "Paused", false, false, 1, origin)

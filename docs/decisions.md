@@ -14113,3 +14113,20 @@ tests without failures, errors or skips; debug assembly and Android-test
 compilation passed. No device or TalkBack claim is made. The old formation
 branch still requires removal, and native model, representative-device and
 human accessibility acceptance remain open.
+
+
+## 232. Remove cluster formation status presentation (2026-11-04)
+
+Discovery status no longer derives messages from cluster counts, similarity
+comparisons or formation projection progress. The current coordinator status
+is shown instead. Four presentation tests for obsolete formation progress were
+retired and replaced with a check that a current evidence-verification message
+is not displaced by old formation state; that check failed before the branch
+was removed and passed afterward. Accessibility assertions were not removed.
+
+The full JVM suite passed 1,614 tests with no failures, errors or skips, three
+fewer than §231 because four obsolete tests were replaced by one. Debug assembly
+and Android-test compilation passed. The API 36 emulator accessibility wrapper
+passed the Discovery screen class 11/11. It does not establish TalkBack speech,
+native model quality or representative-device acceptance. The cluster-first
+coordinator branch and remaining dependent checks still require removal.

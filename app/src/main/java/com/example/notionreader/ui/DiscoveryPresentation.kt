@@ -61,14 +61,6 @@ private fun discoveryProcessingDescription(state: DiscoveryState): String? = whe
     state.indexing -> "Preparing cached Notes…"
     state.topicStatus?.contains("next eligible foreground") == true -> "Discovery continues automatically when processing is available."
     state.topicStatus?.startsWith("Topic coverage is incomplete.") == true -> state.topicStatus
-    state.topicSnapshot.engineVersion > 0 && state.topicSnapshot.formationProgress != null -> {
-        val progress = state.topicSnapshot.formationProgress
-        val candidates = progress.candidateGroups.ifEmpty { progress.clusters }
-        if (!progress.groupingComplete)
-            "Finding topics in ${state.indexedCount} indexed Notes (${progress.totalOpportunities} passage groups across ${progress.totalSections} sections). ${progress.comparisonsCompleted} similarity checks completed so far. Progress is saved."
-        else "Checking topic evidence: ${candidates.take(progress.projectionCluster).count { it.isNotEmpty() }} of ${candidates.count { it.isNotEmpty() }} candidates; ${progress.totalSections} of ${progress.totalSections} sections finalized."
-    }
-    state.topicStatus?.startsWith("Finding topics") == true -> "Updating discoveries…"
     state.topicStatus != null -> state.topicStatus
     !state.topicSnapshot.complete || (maxOf(state.indexedCount, state.cachedPageIds.size) > 1 && !state.topicSnapshot.connectionPassComplete) -> "Finding topics and connections…"
     state.workPending && state.topicSnapshot.complete -> "Updating discoveries…"

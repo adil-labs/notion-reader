@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Discovery status no longer formats cluster formation checkpoints;
+current processing messages take precedence (§232).
+
 2026-11-04: Removed old inline and bare topic-catalog readers under the
 fresh-install direction; unknown formats remain unavailable (§231).
 
