@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#224-verify-incremental-connection-coverage-2026-11-04)
+[the current decision-record entry](decisions.md#225-check-unfinished-connection-work-after-a-source-addition-2026-11-04)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

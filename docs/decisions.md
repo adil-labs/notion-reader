@@ -13969,3 +13969,21 @@ assembly and Android-test compilation passed. This round did not change product
 behavior. The old formation branch and other legacy-dependent tests remain to
 be removed or replaced; partial-corpus presentation, representative model and
 device measurements, and human TalkBack acceptance remain open.
+
+
+## 225. Check unfinished connection work after a source addition (2026-11-04)
+
+A file-backed evidence-first test now interrupts a bounded connection sweep,
+adds a Note, recreates the coordinator and checks every one of the 210 expected
+pairs after recovery. The first, smaller fixture passed even with unfinished
+seed recovery disabled, so it was enlarged before accepting the check. With the
+production unfinished-seed plan replaced by an empty set, the resulting pair
+set assertion failed; restoring the plan made it pass.
+
+The older formation-backed test also asserts a one-window reuse bound. The new
+test proves completeness, not that performance bound, so the old assertion was
+retained until an equivalent current-path check exists. The full JVM suite
+passed 1,615 tests without failures, errors or skips; debug assembly and
+Android-test compilation passed. No production behavior changed. The legacy
+formation branch and further dependent checks remain, as do actual model/device
+quality measurements and human TalkBack acceptance.

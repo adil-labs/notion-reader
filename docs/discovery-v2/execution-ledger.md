@@ -1,5 +1,8 @@
 # Generative Discovery execution ledger
 
+2026-11-04: Verified that adding a Note during an incremental connection sweep
+retains unfinished pairs; the separate legacy performance check remains (§225).
+
 2026-11-04: The 100-Note connection sweep, unchanged-pair reuse and title
 collision recovery now exercise the incremental coordinator (§224).
 
