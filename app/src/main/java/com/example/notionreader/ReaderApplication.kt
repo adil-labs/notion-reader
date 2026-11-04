@@ -444,6 +444,7 @@ class ReaderApplication : Application() {
             topicLabelIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.identity(labelBackend.provenance) },
             topicSupportIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.supportIdentity(labelBackend.provenance) },
             topicProposalIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.proposalIdentity(labelBackend.provenance) },
+            enableEvidenceFirstScheduling = true,
             topicLabelModelAvailable = { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery && topicModel.state.value.installed },
             topicLabelUnavailableMessage = {
                 if (!com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery)

@@ -1,5 +1,9 @@
 # Generative Discovery execution ledger
 
+2026-11-04: User directs a fresh-install replacement without legacy catalog
+migration. Production root selects evidence-first scheduling; removal of the
+remaining old formation code and device/quality verification remain open (§222).
+
 2026-11-03: Existing canonical memberships can be independently assessed for
 indexed Notes while overall matching remains incomplete (§221).
 

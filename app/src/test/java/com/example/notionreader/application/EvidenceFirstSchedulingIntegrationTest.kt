@@ -47,9 +47,8 @@ class EvidenceFirstSchedulingIntegrationTest {
         index.setPaused(false)
         val sources = mapOf("note" to revision); val policy = TopicPolicy()
         val graph = FileTopicStore(root.resolve("topics"))
-        assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(identity = model, complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog,
-            connectionPassComplete = true, acceptedRevisions = if (unaccepted) emptyMap() else sources, policyVersion = policy.version,
-            sourceSignature = if (incrementalCatalog) null else topicSourceSignature(model, policy, semanticMetadataHash(mapOf("note" to meta)), sources))))
+        assertEquals(TopicWriteResult.Written, graph.writeDetailed(TopicSnapshot(identity = model, complete = false, canonicalCatalogReady = true,
+            connectionPassComplete = true, acceptedRevisions = if (unaccepted) emptyMap() else sources, policyVersion = policy.version)))
         if (corrupt) root.resolve("topics/topics.json").writeText("{broken")
         var calls = 0; var fail = failFirst
         val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
@@ -89,9 +88,6 @@ class EvidenceFirstSchedulingIntegrationTest {
             topicProposalIdentity = { identity }, enableEvidenceFirstScheduling = true)
         var controller = controller()
         controller.reconcile(emptyList(), false)
-        if (!corrupt && !incrementalCatalog) {
-            assertTrue("A compatible legacy catalog must migrate before incremental work", controller.state.value.topicSnapshot.canonicalCatalogReady)
-        }
         assertEquals(0, calls)
         if (interleave) {
             val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.currentCoroutineContext()).async { controller.reconcile(emptyList(), true) }

@@ -5,30 +5,11 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current decision record](docs/decisions.md#221-advance-verified-memberships-with-partial-indexing-2026-11-03)).
-The current production formation path still uses grouping, local Gemma naming and
-embedding retrieval. The repository is implementing an evidence-first replacement
-in the same coordinator and catalog; bounded new-concept scheduling and independent
-connection rebuilding and fresh-catalog initialization are implemented behind a disabled release gate and are not active in the app.
-For already admitted canonical concepts, the process loop now resumes bounded,
-independently verified membership updates from durable checkpoints. Seed members
-never substitute for matching Notes. Matches can overlap or remain empty, and
-unmatched Notes remain available. The earlier cluster-seeded plan is historical.
-The naming control improved useful labels to 33/39, but its 141-second generation cost,
-source grounding and device acceptance still need work. Typed label/invalidation
-contracts, native runtime and separate model-manager components are implemented. Public S25
-generation/cancellation smoke passed. Shared scheduling, atomic label sidecars and reuse
-validation are integrated through the existing topic coordinator and controller. Saved concepts,
-query vectors and complete matches restore without inference. Source/reset cleanup covers their
-derived records, and inspected updates wait for Refresh. Older name-only metadata becomes pending.
-Topic cards, details, relationship navigation and listening-preview titles now use the same
-generated name or explicit alias; unnamed groups show neutral pending text. Original cluster
-wording remains internal evidence only. The process root now constructs the optional generator,
-model manager and label store; settings offers explicit download/cancel/delete, its own network
-policy and measured model-file bytes. Derived labels and model files have separate storage accounting.
-Bounded device-memory sampling supplements lifecycle signals. Native naming and concept-based
-matching are enabled by explicit user instruction. Fresh semantic and representative resource
-acceptance remain outstanding measurements; there is no second generated-topic list or debug-only topic engine.
+Discovery refinement is in progress ([current decision record](docs/decisions.md#222-enable-evidence-first-discovery-for-fresh-installs-2026-11-04)). The application composition root selects the evidence-first scheduler for fresh installations. It uses the existing process-owned coordinator, local proposal and support runtimes, and canonical topic catalog. New concepts and memberships require current evidence and independent support checks; similarity retrieves candidates but does not establish membership. A single supported Note can be an Emerging topic, and unmatched Notes remain available.
+
+Indexing, proposal work and independent connections use bounded processing with foreground and playback priority. Partial coverage remains incomplete, and inspected updates wait for Refresh. Explicit interests, reading and listening remain independent. The user has directed that former cluster-first catalog migration is unnecessary for this fresh-install replacement. The obsolete formation implementation is still present in the repository for existing tests and must be removed from production source as the integration is cleaned up.
+
+The production selection is an implementation change, not proof of release quality. Representative device, resource, semantic and human TalkBack acceptance remain outstanding. Optional model acquisition remains explicit.
 Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
 radio-selected Automatic vs custom maximums, separate model file reporting, truthful consequences and
 accessible expandable policy explanations with discoverable shared larger-limit preferences.

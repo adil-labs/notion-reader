@@ -614,29 +614,6 @@ internal class TopicCoordinator(
                 cache.acknowledgeInvalidations(minOf(it, invalidationAcknowledgementLimit()))
             }
         } else withdrawNames(latest)
-        // Migrate the known legacy catalog only after stale sources and pending withdrawals
-        // have been removed. Newly indexed sources are accepted separately in bounded work.
-        if (requireKnownCatalogOnRestore && !latest.canonicalCatalogReady && latest.complete &&
-            latest.formationProgress == null && latest.provisionalTopics.isEmpty() && latest.identity == identity() &&
-            latest.acceptedRevisions.all { (id, revision) -> sources[id] == revision } && cache.invalidations.value.isEmpty()) {
-            val previous = latest
-            val queryTicket = retrievals?.queryTicket()
-            if (queryTicket == null) {
-                needsMoreWork = true; failed("Topic catalog migration needs available queries. Retry processing."); return@withLock
-            }
-            val ticket = TopicCatalogTicket(previous, epoch.get(), cacheRevision, identity(), queryTicket)
-            fun current() = isCatalogTicketCurrent(ticket)
-            val migrated = previous.copy(canonicalCatalogReady = true)
-            val saved = store.writeGuarded(migrated, ::current)
-            if (saved != TopicGuardedWriteResult.Written) {
-                needsMoreWork = true; failed("Topic catalog migration is incomplete. Retry processing."); return@withLock
-            }
-            if (!current()) { rollbackAfterStaleWrite(previous, ticket); return@withLock }
-            latest = migrated
-            epoch.incrementAndGet()
-            if (!inspected) { shown = migrated; view = view.copy(snapshot = migrated) }
-            changed(view)
-        }
         val restoreEpoch = epoch.get()
         val beforeRestore = latest
         fun current() = epoch.get() == restoreEpoch && cache.revision.value == cacheRevision

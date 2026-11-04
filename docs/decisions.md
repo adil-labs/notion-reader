@@ -13896,3 +13896,30 @@ Partial supported references are persisted but not yet shown to users until full
 matching coverage is available. The replacement remains disabled; migration of
 legacy-only topics, full integration, activation and removal of the legacy
 production path remain open. No new device or TalkBack claim is made.
+
+
+## 222. Enable evidence-first Discovery for fresh installs (2026-11-04)
+
+The user clarified that the app can be treated as freshly installed and legacy
+Discovery catalog migration is unnecessary. The repository-owned governing
+contracts and agent guide now record that direction. The application composition
+root selects the existing evidence-first scheduler and fresh-catalog initialization.
+The unfinished legacy catalog migration branch was removed; five tests whose
+sole purpose was that migration were retired. Existing source, membership,
+withdrawal, reset and failure tests remain.
+
+The JVM suite passed 1,614 tests with no failures, errors or skips; debug assembly
+and Android-test compilation passed. The suite count is five lower because the
+user explicitly removed the migration requirement. The fresh-install integration
+tests exercise real file stores with fake model runtimes; they do not establish
+actual model quality or device acceptance. The root selection is now enabled in
+source, but the obsolete formation branch and compatibility code still exist in
+production source for older tests and need removal. Partial-corpus publication,
+representative model/device measurements and human TalkBack acceptance remain
+open. Existing installations are outside the requested migration scope.
+
+The targeted `DiscoveryTopicsNavigationAccessibilityTest` wrapper passed 22/22
+on the API 36 emulator after the application wiring change. These existing
+navigation and semantics tests do not execute the fresh-install model pipeline or
+observe TalkBack speech. The evidence-first scheduling test class also passed
+after removing its obsolete legacy-source-signature fixture.

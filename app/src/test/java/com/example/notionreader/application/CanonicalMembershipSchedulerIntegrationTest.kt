@@ -16,25 +16,14 @@ class CanonicalMembershipSchedulerIntegrationTest {
     @get:Rule val files = TemporaryFolder()
     @Test fun reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic() = runBlocking { scenario(false) }
     @Test fun canonicalMembershipUpdatesDoNotRequireCompletedFormation() = runBlocking { scenario(true) }
-    @Test fun migrationPreservesAnExistingCanonicalTopicIdentity() = runBlocking { scenario(false, migrateLegacy = true) }
     @Test fun newIndexedSourceUpdatesMembershipWithoutFormation() = runBlocking { scenario(true, newSource = true) }
-    @Test fun aCompatibleLegacyCatalogMigratesWhenANewSourceWasAdded() = runBlocking { scenario(false, migrateLegacy = true, newSource = true) }
     @Test fun withdrawingASourceLeavesConnectionCoveragePending() = runBlocking { scenario(true, withdraw = true) }
     @Test fun connectionsAdvanceWhileMembershipVerifierIsUnavailable() = runBlocking { scenario(true, supportUnavailable = true) }
-    @Test fun migrationWithdrawsADeletedSourceAndPreservesTheSurvivingTopicAndFollow() = runBlocking {
-        scenario(false, migrateLegacy = true, earlyWithdrawal = true)
-    }
-    @Test fun migrationRollsBackAWithdrawalImmediatelyAfterTheCatalogWrite() = runBlocking {
-        scenario(false, migrateLegacy = true, migrationFault = "withdraw")
-    }
-    @Test fun aRejectedMigrationPreservesThePreviousCatalogAndFollow() = runBlocking {
-        scenario(false, migrateLegacy = true, migrationFault = "reject")
-    }
     @Test fun aVerifiedMembershipCanAdvanceWhileAnotherNoteCannotBeIndexed() = runBlocking { scenario(true, newSource = true, blockedIndex = true) }
     @Test fun anUnsupportedPartialMatchDoesNotBecomeMembership() = runBlocking { scenario(true, newSource = true, blockedIndex = true, rejectMembership = true) }
     @Test fun partialMembershipCoverageCompletesAfterIndexingRecovers() = runBlocking { scenario(true, newSource = true, blockedIndex = true, recoverIndex = true) }
-    private suspend fun scenario(incrementalCatalog: Boolean, migrateLegacy: Boolean = false, newSource: Boolean = false, withdraw: Boolean = false,
-        supportUnavailable: Boolean = false, earlyWithdrawal: Boolean = false, migrationFault: String? = null, blockedIndex: Boolean = false, rejectMembership: Boolean = false, recoverIndex: Boolean = false) {
+    private suspend fun scenario(incrementalCatalog: Boolean, newSource: Boolean = false, withdraw: Boolean = false,
+        supportUnavailable: Boolean = false, blockedIndex: Boolean = false, rejectMembership: Boolean = false, recoverIndex: Boolean = false) {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val progress = FileProposalProgressStore(root.resolve("progress"))
         val model = EmbeddingIdentity("model", 2); val verifier = TopicLabelIdentity("a", "t", "template", "support", "schema", "v1", "CPU")
@@ -75,23 +64,6 @@ class CanonicalMembershipSchedulerIntegrationTest {
             complete = !incrementalCatalog, canonicalCatalogReady = incrementalCatalog, connectionPassComplete = !supportUnavailable, acceptedRevisions = accepted, policyVersion = topicPolicy.version,
             sourceSignature = topicSourceSignature(model, topicPolicy, semanticMetadataHash(metadata), sources))))
         val interests = FileDiscoveryInterestStore(root.resolve("interests"))
-        if (earlyWithdrawal || migrationFault != null) {
-            interests.write(listOf(DiscoveryInterest("follow", "seed germination", displayName = "My seeds", originTopicId = "topic")))
-            if (earlyWithdrawal) cache.remove("later")
-        }
-        var migrationAttempted = false
-        val migratingStore = object : TopicStore by graph {
-            override suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
-                if (migrationFault != null && snapshot.canonicalCatalogReady && !migrationAttempted) {
-                    migrationAttempted = true
-                    if (migrationFault == "reject") return TopicGuardedWriteResult.Rejected(TopicWriteResult.Rejected(TopicWriteFailure.IoFailure))
-                    val result = graph.writeGuarded(snapshot, current)
-                    if (result == TopicGuardedWriteResult.Written) cache.remove("later")
-                    return result
-                }
-                return graph.writeGuarded(snapshot, current)
-            }
-        }
         var calls = 0
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
@@ -109,28 +81,12 @@ class CanonicalMembershipSchedulerIntegrationTest {
             override fun release() {}
         }
         fun controller() = DiscoveryController(cache, index, interests, provider,
-            topicStore = migratingStore, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
+            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), topicRetrievalPolicy = policy,
             proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { if (supportUnavailable) null else verifier },
-            enableEvidenceFirstScheduling = incrementalCatalog || migrateLegacy)
+            enableEvidenceFirstScheduling = incrementalCatalog)
         var controller = controller()
         controller.reconcile(emptyList(), false)
-        if (migrationFault != null) {
-            assertTrue(migrationAttempted)
-            val persisted = FileTopicStore(root.resolve("topics")).readMetadata()!!
-            assertFalse(persisted.canonicalCatalogReady)
-            assertEquals("topic", persisted.topics.single().id)
-            assertEquals("topic", interests.read().single().originTopicId)
-            assertEquals("My seeds", interests.read().single().displayName)
-            if (migrationFault == "withdraw") {
-                assertFalse(persisted.acceptedRevisions.containsKey("later"))
-                assertTrue(cache.invalidations.value.isNotEmpty())
-            } else {
-                assertEquals(sources, persisted.acceptedRevisions)
-                assertNotNull(controller.state.value.topicFailure)
-            }
-            return
-        }
         if (blockedIndex) {
             repeat(60) { controller.reconcile(emptyList(), true) }
             val saved = graph.readMetadata()!!.topics.single().canonicalConcept!!
@@ -149,16 +105,6 @@ class CanonicalMembershipSchedulerIntegrationTest {
                 assertTrue(completed.matchingComplete)
                 assertNull(controller.state.value.indexFailure)
             }
-            return
-        }
-        if (migrateLegacy) assertTrue("state=${controller.state.value}", controller.state.value.topicSnapshot.canonicalCatalogReady)
-        if (earlyWithdrawal) {
-            val persisted = FileTopicStore(root.resolve("topics")).readMetadata()!!
-            assertEquals("topic", persisted.topics.single().id)
-            assertFalse(persisted.acceptedRevisions.containsKey("later"))
-            assertEquals("topic", interests.read().single().originTopicId)
-            assertEquals("My seeds", interests.read().single().displayName)
-            assertTrue(cache.invalidations.value.isEmpty())
             return
         }
         assertEquals(0, calls)
@@ -184,7 +130,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         if (incrementalCatalog) assertFalse(controller.state.value.topicSnapshot.complete)
         assertEquals(1, calls)
         controller.reconcile(emptyList(), true)
-        if (incrementalCatalog || migrateLegacy) {
+        if (incrementalCatalog) {
             assertTrue("Proposal work remains pending without a generator", controller.hasPendingWork)
             assertNotNull("Unavailable proposal work must not spin as if it could advance", controller.state.value.topicFailure)
         } else assertFalse(controller.hasPendingWork)

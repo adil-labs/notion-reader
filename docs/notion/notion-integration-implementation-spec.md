@@ -867,3 +867,8 @@ Preserve canonical identity only through genuine evidence continuity, along with
 
 Present topic name, short listening description, supporting Note count, validated Emerging or Established status and accessible why-this-topic evidence. Distinguish processing, incomplete, unavailable, recovery and no-match states; preserve inspected ordering and focus until Refresh while withdrawing unavailable evidence immediately. Direct implementation and production activation are authorized; neither constitutes quality or release acceptance. Compare the replacement with the existing pipeline on identical frozen public, consented or purpose-built sources, retaining missed topics, false memberships, abstentions and failures. Keep existing numerical semantic, representative device, resource, cancellation, playback, privacy and accessibility gates; independent human quality and TalkBack observations remain distinct from agent review and automated tests.
 
+
+
+# Fresh-install Discovery replacement
+
+User direction, 2026-11-04: assume a fresh app installation for the evidence-first Discovery replacement. Migration or preservation of derived Discovery records from the former cluster-first pipeline is not required. Remove the legacy production formation and migration paths; any retained formation implementation is an offline evaluation oracle only. This does not weaken source withdrawal, reset, privacy, existing listening and queue behavior, or the evidence-first coverage and verification rules for data created by the new path. Production activation is authorized when the implemented path is ready.
