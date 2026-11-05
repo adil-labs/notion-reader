@@ -28,6 +28,8 @@ private data class TopicCatalogRow(val key: String, val topic: DiscoveredTopic? 
 internal fun DiscoveryTopicsScreen(app: ReaderApp) {
     val controller = app.discovery ?: return
     val state by controller.state.collectAsState()
+    val topicModel = app.discoveryTopicModel?.state?.collectAsState()?.value
+    val presentationState = withTopicModelStatus(state, topicModel)
     val nav by app.navigator.state.collectAsState()
     val published = state.publishedTopics
     val rows = remember(published, state.topicSnapshot.subjectRelationships, state.cachedTitles) {
@@ -71,11 +73,11 @@ internal fun DiscoveryTopicsScreen(app: ReaderApp) {
                     nav.focusTarget?.takeIf { target -> rows.none { it.key == target } },
                     nav.focusTarget, app::focusHandled).semantics { heading() },
                     style = MaterialTheme.typography.titleLarge)
-                if (!discoveryStatus(state).incomplete && published.none { it.status == TopicPublicationStatus.Established } &&
+                if (!discoveryStatus(presentationState).incomplete && published.none { it.status == TopicPublicationStatus.Established } &&
                     rows.none { it.key == "major" })
                     Text("No supported topics to show yet. Search and individual connections remain available.",
                         style = MaterialTheme.typography.bodyMedium)
-                TopicProgressNotice(state) { controller.refreshTopics() }
+                TopicProgressNotice(presentationState) { controller.refreshTopics() }
             }
         }
         items(rows, key = { it.key }, contentType = { if (it.topic != null) "topic" else "heading" }) { row ->

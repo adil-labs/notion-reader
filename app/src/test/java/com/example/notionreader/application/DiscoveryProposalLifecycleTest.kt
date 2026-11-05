@@ -100,11 +100,13 @@ class DiscoveryProposalLifecycleTest {
         val progressStore = FileProposalProgressStore(root.resolve("proposals"))
         assertEquals(ProposalProgressWriteResult.Written, progressStore.write(progress(sources.getValue("one"), sources.getValue("two"))) { true })
         val realTopics = FileTopicStore(root.resolve("topics"))
+        assertTrue(realTopics.write(TopicSnapshot(identity = provider.identity, canonicalCatalogReady = true,
+            acceptedRevisions = sources)))
         var inject = true
         val topics = object : TopicStore by realTopics {
-            override suspend fun readMetadata(): TopicSnapshot? {
+            override suspend fun inspectMetadata(): TopicMetadataState {
                 if (inject) { inject = false; cache.remove("two"); cache.put(CachedDocument(two, null, Instant.EPOCH)) }
-                return realTopics.readMetadata()
+                return realTopics.inspectMetadata()
             }
         }
         val controller = DiscoveryController(cache, FileSemanticIndexStore(root.resolve("index")),

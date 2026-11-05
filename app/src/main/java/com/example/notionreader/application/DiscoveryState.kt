@@ -58,6 +58,8 @@ enum class DiscoveryIndexingAction { Pause, Resume }
 enum class DiscoveryCoverageStatus { Checking, Ready }
 enum class TopicNamingStatus { Pending, Running, Ready, Unavailable }
 
+enum class DiscoveryTopicBlock { ModelUnavailable }
+
 data class DiscoveryState(
     val cacheStatus: DiscoveryCacheStatus = DiscoveryCacheStatus.Checking,
     val query: String = "", val filters: BrowseQuery = BrowseQuery.Default,
@@ -71,6 +73,7 @@ data class DiscoveryState(
     val searchCompleted: Boolean = false,
     val bytes: Long = 0, val message: String? = null,
     val indexFailure: String? = null, val topicFailure: String? = null,
+    val topicBlock: DiscoveryTopicBlock? = null,
     val topicSnapshot: TopicSnapshot = TopicSnapshot(), val topicsUpdated: Boolean = false,
     val publishedTopics: List<PublishedTopic> = emptyList(),
     val topicStatus: String? = null, val previewLabel: String = "Discovery recommendations",

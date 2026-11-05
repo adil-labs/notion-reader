@@ -1521,6 +1521,8 @@ Guided listening is a secondary preview of at most five recommended Notes, exclu
 
 Discovery settings expose model download size, source, license, network choice, download cancellation/retry/deletion, indexing coverage/progress/pause/resume, index clear/rebuild, and derived storage use. Clearing the index pauses rebuilding until explicit resume. Model deletion clears vectors and excerpts. Loading, unavailable model, incomplete index, empty results, errors and storage-budget exhaustion are distinct accessible states. A topic/checkpoint validation rejection or I/O error must show an accurate recovery description and must not be called storage full. Keep the prior valid discoveries accessible; do not clear the source cache or silently raise storage limits to hide failure.
 
+Interrupted or paused model downloads retain compatible partial data for an explicit retry, including after an app restart. Use Pause while a download is running and Resume when saved progress is available; show the saved amount and total. Deleting the model also removes its partial download. A partial model is never usable until the complete artifact passes its published integrity check. If the server cannot safely resume, restart that artifact rather than combine incompatible bytes.
+
 Recommendation rows are source-linked, keyboard-operable list items. Background updates do not move focus, reorder the currently inspected list, or repeatedly announce counts. Back reverses visual navigation and restores a real focus target. No graph is required to operate Discovery.
 
 # Automatic topics: formation, publication and acceptance

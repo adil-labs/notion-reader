@@ -17,13 +17,8 @@ class TopicCatalogTicketTest {
     @Test fun aTicketTracksTheProcessCatalogSourcesModelAndQueryVectors() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))
         var model = EmbeddingIdentity("model", 2)
-        val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(identity = model, complete = true, connectionPassComplete = true)
-            override suspend fun read() = snapshot
-            override suspend fun write(snapshot: TopicSnapshot): Boolean { this.snapshot = snapshot; return true }
-            override suspend fun clear() { snapshot = TopicSnapshot() }
-            override suspend fun bytes() = 0L
-        }
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, connectionPassComplete = true)))
         val queries = FileTopicRetrievalStore(root.resolve("retrieval")); val retrievals = TopicRetrievalCoordinator(index, queries,
             { model }, TopicRetrievalPolicy(.8f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val worker = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {}, retrievals = retrievals)
@@ -54,24 +49,31 @@ class TopicCatalogTicketTest {
         val p = SemanticPassage("p", "note", "section", "Summary", "block", "chunk", 0, text.length, text, text, 0)
         val embedded = EmbeddedPassage(p, listOf(1f, 0f)); val metadata = SemanticMetadata("Seed germination")
         val record = SemanticRecord("note", revision, model, metadata, listOf(embedded)); assertTrue(index.write(record))
-        val raw = DiscoveredTopic("topic", "seed", p, embedded, listOf(TopicMembership("note", metadata, p, 1f, p, revision)), 1)
-        val verifier = TopicLabelIdentity("a", "t", "c", "p", "s", "v", "CPU")
-        val request = topicLabelRequest(raw, verifier, 0)!!
-        val label = (validateTopicLabel(request, "Seed germination", request.evidence.map { it.passageId }, request.groupFingerprint, 0,
-            "Conditions that allow seeds to germinate and sprout.") as TopicLabelValidation.Accepted).label
-        val topic = raw.copy(generatedLabel = label)
-        val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(topics = listOf(topic), identity = model, complete = true, connectionPassComplete = true)
-            override suspend fun read() = snapshot
-            override suspend fun write(snapshot: TopicSnapshot): Boolean { this.snapshot = snapshot; return true }
-            override suspend fun clear() { snapshot = TopicSnapshot() }
-            override suspend fun bytes() = 0L
-        }
-        val queries = FileTopicRetrievalStore(root.resolve("retrieval")); val policy = TopicRetrievalPolicy(.8f)
-        val query = TopicRetrievalQuery(topic.id, label.workKey, topicConceptQuery(label)!!, model, policy)
+        val verifier = TopicLabelIdentity("a", "t", "c", "support", "s", "v", "CPU")
+        val generator = verifier.copy(prompt = "proposal")
+        val evidence = TopicLabelEvidence("p", "note", revision, text)
+        val proposal = DiscoveryProposalRequest(semanticHash("proposal"), 0, listOf(evidence), generator)
+        val response = DiscoveryProposalResponse.Concept("Seed germination", "Conditions that allow seeds to germinate and sprout.",
+            "Listen to seed germination.", listOf("p"))
+        val key = (validateDiscoveryProposal(proposal, response, 0, sources) as DiscoveryProposalValidation.Accepted).workKey
+        val request = TopicSupportRequest("pending:$key", key, response.name, response.definition, evidence, verifier, 0)
+        val assessment = (validateTopicSupport(request, SupportDecision.SUPPORTED, 0, key, sources) as TopicSupportValidation.Accepted).assessment
+        val progress = FileProposalProgressStore(root.resolve("progress"))
+        assertEquals(ProposalProgressWriteResult.Written, progress.writeSupport(assessment) { true })
+        val ref = ProposalEvidenceRef("note", revision, "p")
+        val policy = TopicRetrievalPolicy(.8f)
+        val query = TopicRetrievalQuery("topic", key, "${response.name}\n${response.definition}", model, policy)
+        val concept = CanonicalConceptEvidence(key, response.name, response.definition, response.listeningDescription,
+            generator, verifier, listOf(ref), listOf(assessment), listOf(ref), sources, true, proposal.proposalKey,
+            queryEmbedding = TopicQueryEmbedding(query, listOf(1f, 0f)))
+        val topic = DiscoveredTopic("topic", "seed", p, embedded, listOf(TopicMembership("note", metadata, p, 1f, p, revision)), 1,
+            canonicalConcept = concept)
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(topics = listOf(topic), identity = model, canonicalCatalogReady = true,
+            acceptedRevisions = sources, connectionPassComplete = true)))
+        val queries = FileTopicRetrievalStore(root.resolve("retrieval"))
         assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(1f, 0f)))) { true })
         val retrievals = TopicRetrievalCoordinator(index, queries, { model }, policy, { listOf(1f, 0f) }, { true }, {}, Mutex())
-        val progress = FileProposalProgressStore(root.resolve("progress"))
         val worker = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {}, retrievals = retrievals, proposalProgress = progress)
         worker.invalidate(sources); val ticket = worker.captureCatalogTicket()!!; var calls = 0
         val result = worker.advanceExistingConceptWork(ticket, record, sources, verifier, 1) {
@@ -95,13 +97,9 @@ class TopicCatalogTicketTest {
         val p = SemanticPassage("p", "note", "section", "Summary", "block", "chunk", 0, text.length, text, text, 0)
         val record = SemanticRecord("note", revision, model, SemanticMetadata("Title"), listOf(EmbeddedPassage(p, listOf(1f, 0f))))
         index.write(record)
-        val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(identity = model, complete = true, connectionPassComplete = true)
-            override suspend fun read() = snapshot
-            override suspend fun write(snapshot: TopicSnapshot): Boolean { this.snapshot = snapshot; return true }
-            override suspend fun clear() { snapshot = TopicSnapshot() }
-            override suspend fun bytes() = 0L
-        }
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true,
+            acceptedRevisions = mapOf("note" to revision), connectionPassComplete = true)))
         val queries = FileTopicRetrievalStore(root.resolve("retrieval")); val retrievals = TopicRetrievalCoordinator(index, queries,
             { model }, TopicRetrievalPolicy(.8f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val worker = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {}, retrievals = retrievals)
@@ -124,13 +122,8 @@ class TopicCatalogTicketTest {
     @Test fun resetAndMemoryReleaseInvalidateTicketsWithoutChangingTheScreen() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache")); val index = FileSemanticIndexStore(root.resolve("index"))
         val model = EmbeddingIdentity("model", 2)
-        val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(identity = model, complete = true, connectionPassComplete = true)
-            override suspend fun read() = snapshot
-            override suspend fun write(snapshot: TopicSnapshot): Boolean { this.snapshot = snapshot; return true }
-            override suspend fun clear() { snapshot = TopicSnapshot() }
-            override suspend fun bytes() = 0L
-        }
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, connectionPassComplete = true)))
         val queries = FileTopicRetrievalStore(root.resolve("retrieval")); val retrievals = TopicRetrievalCoordinator(index, queries,
             { model }, TopicRetrievalPolicy(.8f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val worker = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {}, retrievals = retrievals)

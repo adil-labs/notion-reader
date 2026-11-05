@@ -5,9 +5,9 @@ Discover searches cached Notes by meaning with optional local embeddings, explic
 interests, related Notes and guided listening. Manual reading and hands-free
 playback remain available without a model.
 
-Discovery refinement is in progress ([current decision record](docs/decisions.md#232-remove-cluster-formation-status-presentation-2026-11-04)). The application composition root selects the evidence-first scheduler for fresh installations. It uses the existing process-owned coordinator, local proposal and support runtimes, and canonical topic catalog. New concepts and memberships require current evidence and independent support checks; similarity retrieves candidates but does not establish membership. A single supported Note can be an Emerging topic, and unmatched Notes remain available.
+Discovery refinement is in progress ([current decision record](docs/decisions.md#238-keep-bounded-progress-inside-the-work-window-2026-11-06)). The process-owned Discovery coordinator uses evidence-first scheduling for fresh installations. It uses the existing process-owned coordinator, local proposal and support runtimes, and canonical topic catalog. New concepts and memberships require current evidence and independent support checks; similarity retrieves candidates but does not establish membership. A single supported Note can be an Emerging topic, and unmatched Notes remain available.
 
-Indexing, proposal work and independent connections use bounded processing with foreground and playback priority. Verified matching Notes can be shown while coverage is incomplete, with an explicit incomplete count; inspected updates wait for Refresh. Explicit interests, reading and listening remain independent. The user has directed that former cluster-first catalog migration is unnecessary for this fresh-install replacement. The obsolete formation implementation is still present in the repository for existing tests and must be removed from production source as the integration is cleaned up.
+Indexing, proposal work and independent connections use bounded processing with foreground and playback priority. Verified matching Notes can be shown while coverage is incomplete, with an explicit incomplete count; inspected updates wait for Refresh. Explicit interests, reading and listening remain independent. The user has directed that former cluster-first catalog migration is unnecessary for this fresh-install replacement. The coordinator formation branch and scheduler selector have been removed, and the full JVM unit test suite passes with all 1,634 tests green.
 
 The production selection is an implementation change, not proof of release quality. Representative device, resource, semantic and human TalkBack acceptance remain outstanding. Optional model acquisition remains explicit.
 Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
@@ -471,6 +471,11 @@ Discover's Set up Discovery) installs the text-only EmbeddingGemma 2 INT4 pack (
 use the published official LiteRT-community bundle, including its authoritative SentencePiece tokenizer with pinned revisions and verified checksums; Wi-Fi-only is the default. LiteRT-LM inference
 runs locally. Note content and queries are not sent to an embedding service, and model binaries
 are not bundled in the APK. Bundled SentencePiece tokenization with UTF-16 source offsets and 768-dimensional sentence embeddings replace incompatible derived data while preserving explicit interests and listening state. Browse and listening work without the model.
+
+New topic generation additionally requires the explicitly downloaded Gemma 4 E2B topic
+discovery model. A missing topic model is explained in Discovery; compatible search and
+connections remain available. Interrupted or cancelled model downloads retain compatible
+partial data for an explicit resume, and the complete artifact is verified before use.
 
 The published LiteRT bundle and official clustering prefix are verified on the API36
 x86_64 emulator and Samsung S25 (SM-S931B/API37): real inference and the public

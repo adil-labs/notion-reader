@@ -6,6 +6,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryPresentationTest {
+    @Test fun missingTopicModelIsExplainedEvenWhileConnectionsAreProcessing() {
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false,
+            cachedPageIds = setOf("a", "b"), indexedCount = 2, workPending = true,
+            topicNaming = TopicNamingStatus.Unavailable)
+        val status = discoveryStatus(state)
+        assertEquals("Download the topic discovery model in Settings to find new topics.", status.message)
+        assertTrue(status.manageAvailable)
+    }
+    @Test fun downloadingTheTopicModelNeverClaimsTopicsAreBeingFound() {
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false,
+            cachedPageIds = setOf("a", "b"), indexedCount = 2, workPending = true)
+        val model = DiscoveryModelState(downloading = true, downloadedBytes = 100, totalBytes = 200)
+        val ui = discoveryStatus(withTopicModelStatus(state, model))
+        assertEquals("Downloading the topic model. New topics will be found after it is ready.", ui.message)
+        assertTrue(ui.manageAvailable)
+        assertFalse(discoveryStatus(withTopicModelStatus(state, model.copy(installed = true, downloading = false))).message.orEmpty().contains("Downloading"))
+    }
+    @Test fun interruptedTopicDownloadIsNotDescribedAsAUserPause() {
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, workPending = true)
+        val model = DiscoveryModelState(downloadedBytes = 100, totalBytes = 200,
+            message = "Model download failed or could not be verified. Retry the download.")
+        assertEquals("Topic model download needs attention. Open Discovery settings to retry.",
+            discoveryStatus(withTopicModelStatus(state, model)).message)
+    }
     @Test fun unavailableNamingIsVisibleEvenWhenGroupingAndEmbeddingAreComplete() {
         val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false, indexedCount = 1,
             topicSnapshot = TopicSnapshot(complete = true, connectionPassComplete = true), workPending = false,

@@ -85,7 +85,7 @@ class EvidenceFirstSchedulingIntegrationTest {
             topicStore = FileTopicStore(root.resolve("topics")), topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
             proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { verifier },
-            topicProposalIdentity = { identity }, enableEvidenceFirstScheduling = true)
+            topicProposalIdentity = { identity })
         var controller = controller()
         controller.reconcile(emptyList(), false)
         assertEquals(0, calls)
@@ -206,7 +206,7 @@ class EvidenceFirstSchedulingIntegrationTest {
             topicStore = graph, topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
             proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
             topicSupportIdentity = { verifier }, topicProposalIdentity = { verifier.copy(prompt = "proposal") },
-            enableEvidenceFirstScheduling = true)
+            )
         controller.reconcile(emptyList(), false)
         controller.reconcile(emptyList(), true)
         assertTrue("A bounded partial scan cannot publish a partial source inventory", graph.readMetadata()!!.acceptedRevisions.isEmpty())
@@ -218,9 +218,11 @@ class EvidenceFirstSchedulingIntegrationTest {
 
     @Test fun independentConnectionsAreBuiltWithoutLegacyFormation() = runBlocking { connectionsScenario(true) }
     @Test fun connectionsCanAdvanceWhenTheProposalModelIsUnavailable() = runBlocking { connectionsScenario(false) }
+    @Test fun boundedProgressDoesNotWakeAndCancelItsOwnActiveWindow() = runBlocking { connectionsScenario(false, windowActive = true) }
     @Test fun metadataOnlyChangesRefreshConnectionEndpoints() = runBlocking { connectionsScenario(true, metadataChange = true) }
     @Test fun emptyAndAbsentMetadataDoNotShareConnectionIdentity() = runBlocking { connectionsScenario(true, metadataChange = true, area = "") }
-    private suspend fun connectionsScenario(modelAvailable: Boolean, metadataChange: Boolean = false, area: String = "Garden") {
+    private suspend fun connectionsScenario(modelAvailable: Boolean, metadataChange: Boolean = false, area: String = "Garden", windowActive: Boolean = false) {
+        var available = modelAvailable
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
         val sources = linkedMapOf<String, String>()
@@ -249,14 +251,25 @@ class EvidenceFirstSchedulingIntegrationTest {
             override fun release() {}
         }
         val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
-            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { modelAvailable },
+            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { available },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
             proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
-            topicSupportIdentity = { if (modelAvailable) identity.copy(prompt = "support") else null },
-            topicProposalIdentity = { if (modelAvailable) identity else null },
-            enableEvidenceFirstScheduling = true)
+            topicSupportIdentity = { if (available) identity.copy(prompt = "support") else null },
+            topicProposalIdentity = { if (available) identity else null },
+            )
         controller.reconcile(emptyList(), false)
-        repeat(80) { controller.reconcile(emptyList(), true) }
+        if (windowActive) {
+            val coordinator = DiscoveryWorkCoordinator(System::currentTimeMillis) {
+                controller.reconcile(emptyList(), true)
+                discoveryWindowResult(true, controller.state.value, true, controller.hasPendingWork)
+            }
+            assertEquals(DiscoveryWindowResult.DEFERRED, coordinator.runWindow(15_000))
+        } else repeat(80) { controller.reconcile(emptyList(), true) }
+        if (windowActive) {
+            assertEquals("Internal bounded progress must not cancel its current window", 0L, controller.revision.value)
+            controller.requestAutomaticContinuation()
+            assertEquals("An external wake must still be delivered", 1L, controller.revision.value)
+        }
         val saved = FileTopicStore(root.resolve("topics")).read()!!
         assertTrue("Independent connection sweep must finish", saved.connectionPassComplete)
         assertFalse("No legacy global formation is needed", saved.complete)
@@ -268,7 +281,15 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertEquals(area, listOf(refreshed.left, refreshed.right).single { it.pageId == "one" }.metadata.area)
         }
         if (modelAvailable) assertFalse(controller.hasPendingWork)
-        else { assertTrue(controller.hasPendingWork); assertNotNull(controller.state.value.topicFailure) }
+        else {
+            assertTrue(controller.hasPendingWork)
+            assertEquals(DiscoveryTopicBlock.ModelUnavailable, controller.state.value.topicBlock)
+            available = true
+            repeat(80) { controller.reconcile(emptyList(), true) }
+            assertNull("Installing the model must clear the setup message", controller.state.value.topicFailure)
+            assertNull("Installing the model must unblock topic work", controller.state.value.topicBlock)
+            assertFalse("Topic work must resume when the model becomes available", controller.hasPendingWork)
+        }
     }
 
 }

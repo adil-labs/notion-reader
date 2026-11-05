@@ -4,8 +4,6 @@ import com.example.notionreader.domain.discovery.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -24,24 +22,17 @@ class LocalDiscoveryModelManager(
     private val onInstalled: suspend () -> Unit = {},
     private val onDeleted: suspend () -> Unit = {},
     private val artifacts: List<ModelArtifact> = Artifacts,
-    private val open: (String) -> InputStream = ::openModelUrl,
+    private val open: ((String) -> InputStream)? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val repository: String = GemmaModelPack.repository,
     private val revision: String = Revision,
     private val description: String = GemmaModelPack.description,
-    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted
+    private val writeGate: com.example.notionreader.domain.document.StorageWriteGate = com.example.notionreader.domain.document.StorageWriteGate.Unrestricted,
+    private val openRange: ((String, Long, Long) -> Pair<InputStream, Boolean>)? = null
 ) : DiscoveryModelManager {
     companion object {
         const val Revision = GemmaModelPack.revision
         val Artifacts get() = GemmaModelPack.artifacts
-        private fun openModelUrl(url: String): InputStream {
-            val connection = URI(url).toURL().openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000; connection.readTimeout = 15000
-            val input = connection.inputStream
-            return object : java.io.FilterInputStream(input) {
-                override fun close() { try { super.close() } finally { connection.disconnect() } }
-            }
-        }
     }
     val modelDirectory: File get() = File(directory, "current")
     private val mutex = Mutex()
@@ -54,6 +45,11 @@ class LocalDiscoveryModelManager(
     private fun ownedBytes(): Long = listOf("current", "staging", "previous").sumOf { name ->
         File(directory, name).walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
+    private val downloadIdentity: String get() = semanticHash(
+        listOf(repository, revision).plus(artifacts.flatMap { listOf(it.path, it.remotePath, it.bytes.toString(), it.sha256) })
+            .joinToString("") { "${it.length}:$it" })
+    private fun compatibleStaging(staging: File): Boolean =
+        File(staging, ".download-id").let { it.isFile && it.readText() == downloadIdentity }
 
     /** Called from the process worker, not the UI thread; integrity is checked after process death. */
     suspend fun checkInstalled() = withContext(ioDispatcher) { mutex.withLock {
@@ -65,9 +61,11 @@ class LocalDiscoveryModelManager(
         }
         mutable.update { it.copy(installed = valid) }
         if (valid && previous.exists()) check(previous.deleteRecursively())
-        // No download can own staging while startup validation owns this mutex.
-        File(directory, "staging").deleteRecursively()
-        mutable.update { it.copy(storageBytes = ownedBytes()) }
+        // Only a staging generation for this exact immutable pack may survive a restart.
+        val staging = File(directory, "staging")
+        if (staging.exists() && !compatibleStaging(staging)) staging.deleteRecursively()
+        val partial = if (compatibleStaging(staging)) artifacts.sumOf { File(staging, it.path).length().coerceIn(0, it.bytes) } else 0L
+        mutable.update { it.copy(storageBytes = ownedBytes(), downloadedBytes = partial) }
     } }
 
     override fun setWifiOnly(wifiOnly: Boolean) { mutable.update { it.copy(wifiOnly = wifiOnly) } }
@@ -81,34 +79,64 @@ class LocalDiscoveryModelManager(
                 mutable.update { it.copy(downloading = true, message = null, downloadedBytes = 0) }
                 val staging = File(directory, "staging")
                 try {
-                    staging.deleteRecursively(); check(staging.mkdirs())
-                    writeGate.write(com.example.notionreader.domain.document.StorageCategory.MODEL, artifacts.sumOf { it.bytes } + 4096) { }
-                    var downloaded = 0L
+                    if (staging.exists() && !compatibleStaging(staging)) check(staging.deleteRecursively())
+                    if (!staging.exists()) {
+                        writeGate.write(com.example.notionreader.domain.document.StorageCategory.MODEL, 4096) {
+                            check(staging.mkdirs()); File(staging, ".download-id").writeText(downloadIdentity)
+                        }
+                    }
+                    val retained = artifacts.sumOf { artifact -> File(staging, artifact.path).length().coerceIn(0, artifact.bytes) }
+                    writeGate.write(com.example.notionreader.domain.document.StorageCategory.MODEL, artifacts.sumOf { it.bytes } - retained + 4096) { }
+                    var downloaded = retained
+                    mutable.update { it.copy(downloadedBytes = downloaded, storageBytes = ownedBytes()) }
                     for (artifact in artifacts) {
                         require(artifact.path == File(artifact.path).name)
                         require(artifact.remotePath.split('/').none { it == ".." || it.isEmpty() })
                         val url = "https://huggingface.co/$repository/resolve/$revision/${artifact.remotePath}"
                         val target = File(staging, artifact.path)
-                        open(url).use { input -> FileOutputStream(target).use { output ->
+                        if (target.length() > artifact.bytes) { downloaded -= artifact.bytes; check(target.delete()) }
+                        if (target.isFile && target.length() == artifact.bytes) {
+                            if (digest(target) == artifact.sha256) continue
+                            downloaded -= target.length(); check(target.delete())
+                        }
+                        val offset = target.length()
+                        val response = when {
+                            openRange != null -> openRange.invoke(url, offset, artifact.bytes).let { ModelRangeResponse(it.first, it.second) }
+                            open != null -> ModelRangeResponse(open.invoke(url), false)
+                            else -> openModelRange(url, offset, artifact.bytes)
+                        }
+                        if (!response.append) downloaded -= offset
+                        response.input.use { input -> FileOutputStream(target, response.append).use { output ->
                             val buffer = ByteArray(1024*1024)
-                            var count = 0L
+                            var count = if (response.append) offset else 0L
+                            var buffered = 0
                             while (true) {
                                 currentCoroutineContext().ensureActive()
                                 check(!state.value.wifiOnly || unmetered()) { "Network policy changed" }
-                                val read = input.read(buffer)
-                                if (read < 0) break
-                                count += read; require(count <= artifact.bytes) { "Unexpected artifact size" }
-                                writeGate.write(com.example.notionreader.domain.document.StorageCategory.MODEL, read.toLong() + 4096) {
-                                    output.write(buffer, 0, read)
+                                val read = input.read(buffer, buffered, buffer.size - buffered)
+                                if (read > 0) {
+                                    count += read; require(count <= artifact.bytes) { "Unexpected artifact size" }
+                                    buffered += read
                                 }
-                                downloaded += read
-                                mutable.update { it.copy(downloadedBytes = downloaded, storageBytes = ownedBytes()) }
+                                if (buffered == buffer.size || (read < 0 && buffered > 0)) {
+                                    writeGate.write(com.example.notionreader.domain.document.StorageCategory.MODEL, buffered.toLong() + 4096) {
+                                        output.write(buffer, 0, buffered)
+                                    }
+                                    downloaded += buffered
+                                    buffered = 0
+                                    mutable.update { it.copy(downloadedBytes = downloaded, storageBytes = ownedBytes()) }
+                                }
+                                if (read < 0) break
                             }
                             output.fd.sync()
                         } }
-                        require(target.length() == artifact.bytes && digest(target) == artifact.sha256) { "Model integrity check failed" }
+                        if (target.length() == artifact.bytes && digest(target) != artifact.sha256) {
+                            check(target.delete()); error("Model integrity check failed")
+                        }
+                        require(target.length() == artifact.bytes) { "Incomplete model download" }
                     }
                     currentCoroutineContext().ensureActive()
+                    check(File(staging, ".download-id").delete())
                     File(staging, "installed").writeText(revision)
                     val previous = File(directory, "previous")
                     check(!previous.exists() || previous.deleteRecursively())
@@ -124,11 +152,15 @@ class LocalDiscoveryModelManager(
                     mutable.update { it.copy(installed = true, downloading = false) }
                     onInstalled()
                 } catch (cancelled: CancellationException) {
-                    mutable.update { it.copy(message = "Model download cancelled.") }; throw cancelled
+                    mutable.update { it.copy(message = if (it.downloadedBytes > 0) "Download paused. Your progress is saved." else "Download paused. Resume when ready.") }; throw cancelled
                 } catch (_: com.example.notionreader.domain.document.StorageRefused) {
                     mutable.update { it.copy(message = "Not enough safe device storage for the model download. Free space and retry.") }
                 } catch (_: Exception) { mutable.update { it.copy(installed = false, message = "Model download failed or could not be verified. Retry the download.") } }
-                finally { staging.deleteRecursively(); mutable.update { it.copy(downloading = false, storageBytes = ownedBytes()) } }
+                finally {
+                    val partial = if (compatibleStaging(staging)) artifacts.sumOf { File(staging, it.path).length().coerceIn(0, it.bytes) } else 0L
+                    mutable.update { it.copy(downloading = false, storageBytes = ownedBytes(),
+                        downloadedBytes = if (it.installed) it.downloadedBytes else partial) }
+                }
             }
         }
     }

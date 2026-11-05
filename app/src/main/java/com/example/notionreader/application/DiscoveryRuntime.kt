@@ -43,42 +43,41 @@ internal class DiscoveryRuntime(cache: DocumentCache, private val provider: Embe
         action: suspend () -> T): T {
         if (!labelModelAvailable()) return unavailable
         val token = validity.capture()
-        return bulkStep {
-            inference.withLock {
-                if (!mayWork() || !validity.isCurrent(token)) return@withLock cancelled
-                if (!labelModelAvailable()) return@withLock unavailable
-                provider.release()
-                val result = coroutineScope {
-                    val task = async(start = CoroutineStart.LAZY) { action() }
-                    activeLabel.set(task)
-                    val watcher = launch {
-                        while (!task.isCompleted) {
-                            if (!mayWork() || !validity.isCurrent(token) || !labelModelAvailable() || foregroundQueries.get() > 0)
-                                task.cancel()
-                            delay(50)
-                        }
-                    }
-                    try {
-                        // Cover a query/policy change that raced registration of the lazy job.
-                        if (foregroundQueries.get() > 0 || !mayWork() || !validity.isCurrent(token) || !labelModelAvailable()) task.cancel()
-                        else task.start()
-                        try { task.await() }
-                        catch (_: CancellationException) {
-                            currentCoroutineContext().ensureActive()
-                            cancelled
-                        }
-                    } finally {
-                        withContext(NonCancellable) {
-                            // await() can throw before a cancelled child's native cleanup finishes.
-                            task.join()
-                            watcher.cancelAndJoin()
-                            activeLabel.compareAndSet(task, null)
-                        }
+        while (foregroundQueries.get() > 0) delay(10)
+        return inference.withLock {
+            if (!mayWork() || !validity.isCurrent(token)) return@withLock cancelled
+            if (!labelModelAvailable()) return@withLock unavailable
+            provider.release()
+            val result = coroutineScope {
+                val task = async(start = CoroutineStart.LAZY) { action() }
+                activeLabel.set(task)
+                val watcher = launch {
+                    while (!task.isCompleted) {
+                        if (!mayWork() || !validity.isCurrent(token) || !labelModelAvailable() || foregroundQueries.get() > 0)
+                            task.cancel()
+                        delay(50)
                     }
                 }
-                if (!validity.isCurrent(token) || !mayWork()) cancelled
-                else if (!labelModelAvailable()) unavailable else result
+                try {
+                    // Cover a query/policy change that raced registration of the lazy job.
+                    if (foregroundQueries.get() > 0 || !mayWork() || !validity.isCurrent(token) || !labelModelAvailable()) task.cancel()
+                    else task.start()
+                    try { task.await() }
+                    catch (_: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        cancelled
+                    }
+                } finally {
+                    withContext(NonCancellable) {
+                        // await() can throw before a cancelled child's native cleanup finishes.
+                        task.join()
+                        watcher.cancelAndJoin()
+                        activeLabel.compareAndSet(task, null)
+                    }
+                }
             }
+            if (!validity.isCurrent(token) || !mayWork()) cancelled
+            else if (!labelModelAvailable()) unavailable else result
         }
     }
 

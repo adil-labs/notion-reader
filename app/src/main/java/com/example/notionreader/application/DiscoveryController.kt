@@ -31,7 +31,6 @@ class DiscoveryController(
     private val topicPolicy: TopicPolicy = TopicPolicy(),
     private val mayContinueIndexing: () -> Boolean = { true },
     private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
-    private val formationWorkBudget: Int = 250_000,
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val monotonicNanos: () -> Long = System::nanoTime,
     private val passageProgressStore: SemanticIndexStore? = null,
@@ -44,8 +43,7 @@ class DiscoveryController(
     private val topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
     private val proposalProgressStore: ProposalProgressStore? = null,
     private val topicSupportIdentity: () -> TopicLabelIdentity? = { null },
-    private val topicProposalIdentity: () -> TopicLabelIdentity? = { null },
-    private val enableEvidenceFirstScheduling: Boolean = false
+    private val topicProposalIdentity: () -> TopicLabelIdentity? = { null }
 ) {
     private val mutable = MutableStateFlow(DiscoveryState())
     private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
@@ -65,7 +63,7 @@ class DiscoveryController(
         (provider as? ObservableEmbeddingRuntime)?.runtimeState ?: MutableStateFlow(EmbeddingRuntimeState())
     private val membershipScheduler = CanonicalMembershipScheduler()
     private val evidenceScheduler = EvidenceFirstScheduler()
-    @Volatile private var evidenceWorkPending = enableEvidenceFirstScheduling
+    @Volatile private var evidenceWorkPending = topicStore != null
     private val evidenceFailure = "Some topic proposals are incomplete. Retry processing."
     private val connectionFailure = "Note connections are incomplete. Retry processing."
     private val membershipSchedulerLock = Mutex()
@@ -75,6 +73,7 @@ class DiscoveryController(
         state.value.indexedCount < state.value.cachedPageIds.size || state.value.cachedRevision != cache.revision.value
     fun requestAutomaticContinuation() { membershipScheduler.retryBlocked(); evidenceScheduler.retryBlocked(); wake.value++ }
     suspend fun releaseTopicLabelModel() { runtime.closeLabels(); requestAutomaticContinuation() }
+    suspend fun closeLabels() { runtime.closeLabels() }
     private val wake = MutableStateFlow(0L)
     val revision = wake.asStateFlow()
     private val retrieval = DiscoveryRetrieval(cache, index, provider, topicStore, runtime.validity, workDispatcher, ::recordTiming)
@@ -96,7 +95,6 @@ class DiscoveryController(
                 topicNaming = view.naming, workPending = hasPendingWork)
         } },
         invalidationAcknowledgementLimit = invalidationAcknowledgementLimit,
-        formationWorkBudget = formationWorkBudget,
         shouldYield = { runtime.foregroundQueries.get() > 0 }, operationTimings = ::recordTiming,
         labels = topicLabelStore?.let { labelStore -> TopicLabelCoordinator(labelStore, topicLabelIdentity,
             topicLabelModelAvailable, { request -> runtime.labelTopic(request, ::mayContinueWork) }, ::mayContinueWork,
@@ -111,14 +109,14 @@ class DiscoveryController(
                 while (runtime.foregroundQueries.get() > 0) delay(10)
                 currentCoroutineContext().ensureActive()
             }, bulkGate = runtime.bulkGate) }, proposalProgress = proposalProgressStore,
-        requireKnownCatalogOnRestore = enableEvidenceFirstScheduling, bootstrapInterests = interestStore) }
+        bootstrapInterests = interestStore) }
 
     private val interests = DiscoveryInterests(cache, interestStore, provider, mutable, runtime, retrieval,
         workDispatcher, modelAvailable, recommendationThreshold, clock)
     private val indexing = DiscoveryIndexing(cache, index, passageProgressStore, interestStore, provider,
         mutable, runtime, topics, workDispatcher, modelAvailable, ::mayContinueWork, ::pause,
-        { wake.value++ }, monotonicNanos, proposalProgressStore, advancePartialWork = {
-            if (enableEvidenceFirstScheduling) for (step in 0 until 4) {
+        monotonicNanos, proposalProgressStore, advancePartialWork = {
+            if (topicStore != null) for (step in 0 until 4) {
                 if (!mayContinueWork() || runtime.foregroundQueries.get() > 0 || topics?.sourceAcceptancePending == true) break
                 try { advancePartialWork() }
                 catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -131,7 +129,7 @@ class DiscoveryController(
 
     private suspend fun membershipSources(ticket: TopicCatalogTicket): Map<String, String>? {
         val eligible = runtime.validity.eligibleRevisions()
-        val sources = if (enableEvidenceFirstScheduling) ticket.snapshot.acceptedRevisions else eligible
+        val sources = ticket.snapshot.acceptedRevisions
         return sources.takeIf { it.all { (id, revision) -> eligible[id] == revision } }
     }
 
@@ -676,7 +674,7 @@ class DiscoveryController(
                 scopeAnchor = owner, catalogScope = "unavailable")
         }
         val eligible = runtime.validity.eligibleRevisions()
-        if (enableEvidenceFirstScheduling && ticket.snapshot.acceptedRevisions != eligible) {
+        if (ticket.snapshot.acceptedRevisions != eligible) {
             val partial = ticket.snapshot.acceptedRevisions
             if (partial.isEmpty() || partial.any { (id, revision) -> eligible[id] != revision }) return@withContext EvidenceFirstNoteStep.Stale
             return@withContext provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
@@ -838,10 +836,10 @@ class DiscoveryController(
         withContext(workDispatcher) {
             mutable.update { it.copy(workPending = hasPendingWork) }
             try {
-                if (enableEvidenceFirstScheduling && topicStore?.resetPending() == true && recoverPendingReset())
+                if (topicStore?.resetPending() == true && recoverPendingReset())
                     return@withContext
                 indexing.reconcileInBackground(entries, mayIndex)
-                if (enableEvidenceFirstScheduling && mayIndex && mayContinueWork() && !state.value.paused &&
+                if (topicStore != null && mayIndex && mayContinueWork() && !state.value.paused &&
                     runtime.foregroundQueries.get() == 0 && topics?.sourceAcceptancePending != true && state.value.indexFailure != null) {
                     try { advancePartialWork() }
                     catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -855,12 +853,12 @@ class DiscoveryController(
                         membershipWorkPending = true
                         mutable.update { it.copy(topicFailure = membershipFailure) }
                     }
-                    if (enableEvidenceFirstScheduling && membershipWorkPending && state.value.topicFailure == membershipFailure) {
+                    if (membershipWorkPending && state.value.topicFailure == membershipFailure) {
                         try { advanceConnectionsWhileMembershipBlocked() }
                         catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                         catch (_: Exception) { mutable.update { it.copy(topicFailure = connectionFailure) } }
                     }
-                    if (enableEvidenceFirstScheduling && !membershipWorkPending &&
+                    if (topicStore != null && !membershipWorkPending &&
                         (state.value.topicFailure == null || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
                         try { advanceScheduledEvidence() }
                         catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -898,7 +896,7 @@ class DiscoveryController(
             commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) },
             fullCoverage = fullCoverage)) {
             CanonicalMembershipScheduleResult.Idle -> membershipWorkPending = false
-            CanonicalMembershipScheduleResult.Progress -> { membershipWorkPending = true; wake.value++ }
+            CanonicalMembershipScheduleResult.Progress -> membershipWorkPending = true
             CanonicalMembershipScheduleResult.Blocked -> {
                 membershipWorkPending = true
                 mutable.update { it.copy(topicFailure = membershipFailure) }
@@ -915,7 +913,6 @@ class DiscoveryController(
         when (owner.advanceIncrementalConnections(ticket, sources)) {
             IncrementalConnectionsResult.Pending -> {
                 mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
-                wake.value++
             }
             IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> mutable.update { it.copy(topicFailure = membershipFailure) }
             IncrementalConnectionsResult.Deferred -> Unit
@@ -946,7 +943,7 @@ class DiscoveryController(
             inspect = { page, offset, replay, restart -> advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart) },
             process = { work -> advancePendingCorpusWork(work) },
             admit = { _, _ -> CanonicalAdmissionResult.Incomplete })) {
-            EvidenceFirstScheduleResult.Progress -> { evidenceWorkPending = true; wake.value++ }
+            EvidenceFirstScheduleResult.Progress -> evidenceWorkPending = true
             EvidenceFirstScheduleResult.Deferred, EvidenceFirstScheduleResult.Blocked, EvidenceFirstScheduleResult.Idle -> evidenceWorkPending = true
         }
     }
@@ -964,26 +961,36 @@ class DiscoveryController(
         val generator = topicProposalIdentity()
         if (!owner.isCatalogTicketCurrent(ticket) || sources != ticket.snapshot.acceptedRevisions) return@withLock block()
         if (verifier == null || generator == null || proposalProgressStore == null || !topicLabelModelAvailable()) {
+            val missingModel = !topicLabelModelAvailable()
+            fun unavailable() {
+                if (missingModel) {
+                    evidenceWorkPending = true
+                    mutable.update { it.copy(topicBlock = DiscoveryTopicBlock.ModelUnavailable, topicFailure = null) }
+                } else block()
+            }
             when (owner.advanceIncrementalConnections(ticket, sources)) {
-                IncrementalConnectionsResult.Pending -> { evidenceWorkPending = true; wake.value++ }
-                IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> block()
-                IncrementalConnectionsResult.Deferred -> { evidenceWorkPending = true; delay(10) }
+                IncrementalConnectionsResult.Pending -> {
+                    evidenceWorkPending = true
+                    mutable.update { it.copy(topicBlock = null, topicFailure = if (it.topicFailure == evidenceFailure) null else it.topicFailure) }
+                }
+                IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> unavailable()
+                IncrementalConnectionsResult.Deferred -> { unavailable(); delay(10) }
                 IncrementalConnectionsResult.Failed -> block(connectionFailure)
             }
             return@withLock
         }
-        val fields = listOf("evidence-schedule-v1", ticket.epoch.toString(), ticket.cacheRevision.toString(),
-            ticket.identity.toString(), ticket.queryTicket, mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
+        val fields = listOf("evidence-schedule-v1", ticket.cacheRevision.toString(),
+            ticket.identity.toString(), mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
             sources.toSortedMap().flatMap { listOf(it.key, it.value) }
         val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
-        mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
+        mutable.update { it.copy(topicBlock = null, topicFailure = if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) null else it.topicFailure) }
         when (evidenceScheduler.step(scope, sources.keys.sorted(),
             inspect = { page, offset, replay, restart -> advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart) },
             process = { work -> advancePendingCorpusWork(work) },
             admit = { done, replay -> advanceCanonicalAdmission(done, replay) })) {
             EvidenceFirstScheduleResult.Idle -> {
                 when (owner.advanceIncrementalConnections(ticket, sources)) {
-                    IncrementalConnectionsResult.Pending, IncrementalConnectionsResult.Updated -> { evidenceWorkPending = true; wake.value++ }
+                    IncrementalConnectionsResult.Pending, IncrementalConnectionsResult.Updated -> evidenceWorkPending = true
                     IncrementalConnectionsResult.Complete -> {
                         evidenceWorkPending = false
                         mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
@@ -992,10 +999,15 @@ class DiscoveryController(
                     IncrementalConnectionsResult.Failed -> block(connectionFailure)
                 }
             }
-            EvidenceFirstScheduleResult.Progress -> { evidenceWorkPending = true; wake.value++ }
+            EvidenceFirstScheduleResult.Progress -> evidenceWorkPending = true
             EvidenceFirstScheduleResult.Blocked -> {
                 evidenceWorkPending = true
-                mutable.update { it.copy(topicFailure = evidenceFailure) }
+                when (owner.advanceIncrementalConnections(ticket, sources)) {
+                    IncrementalConnectionsResult.Pending -> mutable.update { if (it.topicFailure == evidenceFailure) it.copy(topicFailure = null) else it }
+                    IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> block()
+                    IncrementalConnectionsResult.Deferred -> { mutable.update { it.copy(topicFailure = evidenceFailure) }; delay(10) }
+                    IncrementalConnectionsResult.Failed -> block(connectionFailure)
+                }
             }
             EvidenceFirstScheduleResult.Deferred -> { evidenceWorkPending = true; delay(10) }
         }
@@ -1020,7 +1032,7 @@ class DiscoveryController(
         runtime.closeLabels()
     }
     suspend fun resume() {
-        if (enableEvidenceFirstScheduling && topicStore?.resetPending() == true) {
+        if (topicStore?.resetPending() == true) {
             recoverPendingReset()
             if (topicStore.resetPending()) return
         }
@@ -1035,25 +1047,25 @@ class DiscoveryController(
         clearIndexLocked(preserveTopicContinuity)
     }
     private suspend fun clearIndexLocked(preserveTopicContinuity: Boolean) {
-        if (enableEvidenceFirstScheduling && !preserveTopicContinuity && topicStore != null && !topicStore.beginReset()) {
+        if (!preserveTopicContinuity && topicStore != null && !topicStore.beginReset()) {
             index.setPaused(true)
             mutable.update { it.copy(paused = true, topicFailure = "Topic reset needs storage before it can continue.") }
             return
         }
         connectionProjection.clear()
         runtime.embeddingMemo.clear()
-        if (enableEvidenceFirstScheduling && !preserveTopicContinuity) mutable.update {
+        if (!preserveTopicContinuity) mutable.update {
             it.copy(topicSnapshot = TopicSnapshot(), publishedTopics = emptyList(), topicsUpdated = false,
                 topicStatus = "Clearing Discovery data…", topicFailure = null)
         }
-        runtime.generation.incrementAndGet(); membershipWorkPending = false; evidenceWorkPending = enableEvidenceFirstScheduling; membershipScheduler.retryBlocked(); evidenceScheduler.reset(); search.reset(); index.clear()
+        runtime.generation.incrementAndGet(); membershipWorkPending = false; evidenceWorkPending = topicStore != null; membershipScheduler.retryBlocked(); evidenceScheduler.reset(); search.reset(); index.clear()
         passageProgressStore?.clear()
         proposalProgressStore?.clear()
         interests.resetRequests()
         val topicClearFailure = if (preserveTopicContinuity) { topics?.invalidate(emptyMap()); null } else topics?.clear()
         mutable.update { it.copy(relatedPageId = null, results = emptyList(), related = emptyList(), recommendations = emptyList(), older = emptyList(),
             interestMatch = InterestMatchState(), indexedRevision = it.indexedRevision + 1,
-            preview = emptyList(), indexedCount = 0, indexCoverage = DiscoveryCoverageStatus.Ready, embeddingWork = null, paused = true, indexFailure = null, topicFailure = topicClearFailure, searching = false,
+            preview = emptyList(), indexedCount = 0, indexCoverage = DiscoveryCoverageStatus.Ready, embeddingWork = null, paused = true, indexFailure = null, topicFailure = topicClearFailure, topicBlock = null, searching = false,
             searchFailure = null, searchCompleted = false, message = null, bytes = index.bytes()) }
         wake.value++
     }

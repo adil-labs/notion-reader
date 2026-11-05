@@ -78,8 +78,9 @@ class DiscoverySupportWiringTest {
             "Conditions that allow seeds to germinate and sprout.") as TopicLabelValidation.Accepted).label
         var rejectGraphWrites = false
         val graph = object : TopicStore {
-            var snapshot = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = true, connectionPassComplete = true, acceptedRevisions = mapOf("note" to revision))
+            var snapshot = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = true, connectionPassComplete = true, acceptedRevisions = mapOf("note" to revision), canonicalCatalogReady = true)
             override suspend fun read() = snapshot
+            override suspend fun inspectMetadata() = TopicMetadataState.Available(snapshot)
             override suspend fun write(snapshot: TopicSnapshot): Boolean { if (rejectGraphWrites) return false; this.snapshot = snapshot; return true }
             override suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
                 if (!current()) return TopicGuardedWriteResult.Stale
@@ -354,8 +355,10 @@ class DiscoverySupportWiringTest {
         val request = topicLabelRequest(raw, verifier, 0)!!
         val label = (validateTopicLabel(request, "Seed germination", request.evidence.map { it.passageId }, request.groupFingerprint, 0,
             "Conditions that allow seeds to germinate and sprout.") as TopicLabelValidation.Accepted).label
+        val graphSnapshot = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = false)
         val graph = object : TopicStore {
-            override suspend fun read() = TopicSnapshot(topics = listOf(raw.copy(generatedLabel = label)), identity = model, complete = false)
+            override suspend fun read() = graphSnapshot
+            override suspend fun inspectMetadata() = TopicMetadataState.Available(graphSnapshot)
             override suspend fun write(snapshot: TopicSnapshot) = true
             override suspend fun clear() {}
             override suspend fun bytes() = 0L

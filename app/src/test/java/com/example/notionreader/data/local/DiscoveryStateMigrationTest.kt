@@ -17,7 +17,7 @@ import org.junit.rules.TemporaryFolder
 class DiscoveryStateMigrationTest {
     @get:Rule val temporary = TemporaryFolder()
     private val model = EmbeddingIdentity("upgrade-model", 2)
-    @Test fun anUpgradeReusesEligibleEmbeddingsAndKeepsConfirmedInterests() = runBlocking {
+    @Test fun aFreshCatalogReusesEligibleEmbeddingsAndKeepsConfirmedInterests() = runBlocking {
         val root = temporary.newFolder()
         val cache = FileDocumentCache(File(root, "cache"))
         val index = FileSemanticIndexStore(File(root, "index"))
@@ -40,15 +40,17 @@ class DiscoveryStateMigrationTest {
         assertTrue(index.write(existing)); index.setPaused(false)
         val confirmed = DiscoveryInterest("interest", "atomic updates", displayName = "My confirmed interest", originTopicId = "old-topic")
         interests.write(listOf(confirmed))
-        File(topicDirectory, "topics.json").writeText("""{"engineVersion":0,"generation":12,"complete":true}""")
-        val controller = DiscoveryController(cache, index, interests, provider, topicStore = FileTopicStore(topicDirectory))
+        val topics = FileTopicStore(topicDirectory)
+        assertTrue(topics.write(TopicSnapshot(identity = model, canonicalCatalogReady = true,
+            acceptedRevisions = mapOf("a" to semanticRevision(document)))))
+        val controller = DiscoveryController(cache, index, interests, provider, topicStore = topics)
         controller.reconcile(emptyList(), true)
         assertEquals(existing, index.read("a"))
         assertEquals(listOf(confirmed), interests.read())
         assertEquals(document, cache.snapshot().single().document)
-        assertTrue(controller.state.value.topicSnapshot.complete)
+        assertTrue(controller.state.value.topicSnapshot.canonicalCatalogReady)
         assertEquals(setOf("a"), controller.state.value.topicSnapshot.acceptedRevisions.keys)
-        assertEquals(SectionHierarchicalEngine.VERSION, controller.state.value.topicSnapshot.engineVersion)
+        assertEquals(TOPIC_CATALOG_STORAGE_VERSION, controller.state.value.topicSnapshot.engineVersion)
     }
     private fun record(id: String, axis: Int = 0): SemanticRecord {
         val text = "Database transactions protect atomic changes and recover committed records after interruption."

@@ -62,6 +62,8 @@ private fun preparedDiscovery(state: DiscoveryState, controller: DiscoveryContro
 internal fun TopicPreviews(app: ReaderApp) {
     val controller = app.discovery ?: return
     val state by controller.state.collectAsState()
+    val topicModel = app.discoveryTopicModel?.state?.collectAsState()?.value
+    val presentationState = withTopicModelStatus(state, topicModel)
     val nav by app.navigator.state.collectAsState()
     val prepared = preparedDiscovery(state, controller, previewConnections = true)
     val published = prepared.topics
@@ -76,9 +78,9 @@ internal fun TopicPreviews(app: ReaderApp) {
             (target.startsWith("topic:") && topics.none { "topic:${it.id}" == target }) ||
             (target.startsWith("connection:") && connections.none { "connection:${it.id}" == target })
     }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-    if (!discoveryStatus(state).incomplete && topics.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
+    if (!discoveryStatus(presentationState).incomplete && topics.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
         style = MaterialTheme.typography.bodyMedium)
-    TopicProgressNotice(state) { controller.refreshTopics() }
+    TopicProgressNotice(presentationState) { controller.refreshTopics() }
     Column(Modifier.semantics { collectionInfo = CollectionInfo(minOf(3, established.size), 1) },
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         established.take(3).forEach { topic -> key(topic.id) {

@@ -16,6 +16,48 @@ import org.junit.rules.TemporaryFolder
 
 class IncrementalConnectionsIntegrationTest {
     @get:Rule val files = TemporaryFolder()
+    @Test fun blockedProposalInferenceDoesNotStarveIndependentConnections() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
+        val sources = linkedMapOf<String, String>()
+        for ((id, title, text) in listOf(Triple("one", "Seeds", "Seeds need moisture and warmth. See Tools."),
+                Triple("two", "Tools", "Tools help prepare a garden for planting."))) {
+            val doc = ReaderDocument.fromChunkTexts(id, title, listOf(text)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+            val revision = semanticRevision(doc); sources[id] = revision
+            val passage = SemanticPassage("$id:p", id, "$id:s", title, "$id:b", "$id:c", 0, text.length, text, text, 0)
+            assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(title), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
+        }
+        index.setPaused(false)
+        val graph = FileTopicStore(root.resolve("topics")); val policy = TopicPolicy()
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources,
+            connectionPassComplete = false, policyVersion = policy.version)))
+        val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
+        var attempts = 0
+        val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
+            override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("Legacy naming is not used")
+            override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun { attempts++; return DiscoveryProposalRun.Unavailable }
+            override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+            override suspend fun close() {}
+        }
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
+            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override fun release() {}
+        }
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
+            topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
+            topicSupportIdentity = { identity.copy(prompt = "support") }, topicProposalIdentity = { identity })
+        repeat(100) { controller.reconcile(emptyList(), true) }
+        assertTrue("The fixture must reach blocked proposal inference", attempts > 0)
+        val saved = graph.read()!!
+        assertTrue("Independent connection work must finish despite blocked proposals", saved.connectionPassComplete)
+        assertTrue(saved.connections.any { it.independentNamedReference })
+        assertTrue("Proposal processing must remain honestly pending", controller.hasPendingWork)
+        assertNotNull(controller.state.value.topicFailure)
+    }
+
     @Test fun aBoundedConnectionSweepResumesAfterControllerRecreation() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
@@ -38,7 +80,7 @@ class IncrementalConnectionsIntegrationTest {
             val matches = FileTopicRetrievalStore(root.resolve("matches"))
             val retrievals = TopicRetrievalCoordinator(observed, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
             return TopicCoordinator(cache, observed, FileTopicStore(root.resolve("topics")), null, { model }, policy, Mutex(), { true }, {}, {},
-                retrievals = retrievals, requireKnownCatalogOnRestore = true)
+                retrievals = retrievals)
         }
         var worker = coordinator(); worker.invalidate(sources)
         assertEquals(IncrementalConnectionsResult.Pending, worker.advanceIncrementalConnections(worker.captureCatalogTicket()!!, sources))
@@ -58,6 +100,45 @@ class IncrementalConnectionsIntegrationTest {
         assertEquals(190, result.connections.map { it.id }.toSet().size)
         assertFalse(result.complete)
     }
+    @Test fun anUnreadableConnectionWriteCannotReplaceTheInspectedSnapshot() = runBlocking {
+        val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
+        val sources = linkedMapOf<String, String>(); val members = mutableListOf<TopicMembership>()
+        for (id in listOf("one", "two")) {
+            val text = "Moisture and warmth support the germination of seeds."
+            val doc = ReaderDocument.fromChunkTexts(id, id, listOf(text)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
+            val revision = semanticRevision(doc); sources[id] = revision
+            val passage = SemanticPassage("$id:p", id, "$id:s", "Seeds", "$id:b", "$id:c", 0, text.length, text, text, 0)
+            assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata(id), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
+            members += TopicMembership(id, SemanticMetadata(id), passage, .8f, passage, revision)
+        }
+        val backing = FileTopicStore(root.resolve("topics")); val policy = TopicPolicy()
+        assertTrue(backing.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources,
+            connections = listOf(NoteConnection("prior", members[0], members[1], .8f)),
+            connectionPassComplete = false, policyVersion = policy.version)))
+        var unreadable = false
+        val graph = object : TopicStore by backing {
+            override suspend fun writeGuarded(snapshot: TopicSnapshot, current: () -> Boolean): TopicGuardedWriteResult {
+                val result = backing.writeGuarded(snapshot, current)
+                if (result == TopicGuardedWriteResult.Written) unreadable = true
+                return result
+            }
+            override suspend fun readMetadata(): TopicSnapshot? = if (unreadable) null else backing.readMetadata()
+        }
+        val retrievals = TopicRetrievalCoordinator(index, FileTopicRetrievalStore(root.resolve("matches")), { model },
+            TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
+        var shown = TopicView()
+        val worker = TopicCoordinator(cache, index, graph, null, { model }, policy, Mutex(), { true }, {}, { shown = it },
+            retrievals = retrievals)
+        worker.invalidate(sources); worker.setInspected(true)
+        val previous = shown.snapshot
+        assertEquals("prior", previous.connections.single().id)
+        assertEquals(IncrementalConnectionsResult.Failed, worker.advanceIncrementalConnections(worker.captureCatalogTicket()!!, sources))
+        assertTrue(unreadable)
+        assertEquals(previous, shown.snapshot)
+        assertTrue(shown.status.orEmpty().contains("could not be reloaded"))
+    }
+
     @Test fun aWithdrawalImmediatelyAfterAConnectionWriteCannotRestoreItsEvidence() = runBlocking {
         val root = files.newFolder(); val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index")); val model = EmbeddingIdentity("model", 2)
@@ -87,7 +168,7 @@ class IncrementalConnectionsIntegrationTest {
         val matches = FileTopicRetrievalStore(root.resolve("matches"))
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val worker = TopicCoordinator(cache, index, graph, null, { model }, policy, Mutex(), { true }, {}, {},
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         worker.invalidate(sources)
         assertEquals(IncrementalConnectionsResult.Deferred, worker.advanceIncrementalConnections(worker.captureCatalogTicket()!!, sources))
         assertTrue(withdrawn)
@@ -118,7 +199,7 @@ class IncrementalConnectionsIntegrationTest {
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         var view = TopicView()
         val worker = TopicCoordinator(cache, index, graph, null, { model }, policy, Mutex(), { true }, {}, { view = it },
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         worker.invalidate(sources)
         assertEquals(IncrementalConnectionsResult.Failed, worker.advanceIncrementalConnections(worker.captureCatalogTicket()!!, sources))
         assertFalse(graph.readMetadata()!!.connectionPassComplete)
@@ -150,7 +231,7 @@ class IncrementalConnectionsIntegrationTest {
         val matches = FileTopicRetrievalStore(root.resolve("matches"))
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val worker = TopicCoordinator(cache, index, graph, null, { model }, policy, Mutex(), { true }, {}, {},
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         worker.invalidate(sources)
         val ticket = worker.captureCatalogTicket()!!
         val sweep = async { worker.advanceIncrementalConnections(ticket, sources) }

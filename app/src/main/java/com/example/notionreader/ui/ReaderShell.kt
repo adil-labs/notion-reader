@@ -211,6 +211,7 @@ fun ReaderShell(
                                     topicModel = topicModel,
                                     topicNamingActivationMessage = app.topicNamingActivationMessage,
                                     downloadProgress = discoveryModelDownloadProgress(model),
+                                    partialModelBytes = model?.downloadedBytes ?: 0,
                                     modelInstalled = model?.installed ?: false,
                                     downloading = model?.downloading ?: false,
                                     wifiOnly = model?.wifiOnly ?: true,

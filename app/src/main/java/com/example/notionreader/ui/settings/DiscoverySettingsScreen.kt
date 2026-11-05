@@ -12,6 +12,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -45,7 +46,8 @@ data class DiscoverySettingsUi(
     val discoveryBytes: Long? = null,
     val modelBytes: Long? = null,
     val topicModel: com.example.notionreader.domain.discovery.DiscoveryModelState? = null,
-    val topicNamingActivationMessage: String? = null
+    val topicNamingActivationMessage: String? = null,
+    val partialModelBytes: Long = 0
 )
 
 @Composable
@@ -94,6 +96,8 @@ fun DiscoverySettingsScreen(
             Text("Embeddings run on this device. Only cached Notes are indexed.")
         }
         state.downloadProgress?.let { Text(it) }
+        if (!state.downloading && !state.modelInstalled && state.partialModelBytes > 0)
+            Text("Saved download: ${formatStorageBytes(state.partialModelBytes)}")
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = state.wifiOnly,
@@ -104,32 +108,42 @@ fun DiscoverySettingsScreen(
             Text("Download using Wi-Fi only")
         }
         if (state.downloading) {
-            Button(onClick = onCancelDownload) { Text("Cancel download") }
+            Button(onClick = onCancelDownload) { Text("Pause model download") }
         } else if (!state.modelInstalled) {
-            Button(onClick = onDownload, enabled = state.downloadAllowed) { Text("Download model") }
+            Button(onClick = onDownload, enabled = state.downloadAllowed) { Text(if (state.partialModelBytes > 0) "Resume model download" else "Download model") }
         }
 
         state.topicModel?.let { model ->
-            Text("Topic naming model", Modifier.semantics { heading() })
+            Text("Topic discovery model", Modifier.semantics { heading() })
             Text(model.description)
-            Text("Optional local naming for existing groups. Reading, playback and search remain available without this model.")
+            Text("Required to find and check new topics on this device. Reading, playback, search and connections remain available without it.")
             state.topicNamingActivationMessage?.let { Text(it) }
             Text("Topic model files: ${model.storageBytes?.let(::formatStorageBytes) ?: "Checking usage…"}")
-            Text("Download size: ${formatStorageBytes(model.totalBytes)}")
+            when {
+                model.downloading -> {
+                    Text("Downloading: ${formatStorageBytes(model.downloadedBytes)} of ${formatStorageBytes(model.totalBytes)}")
+                    if (model.totalBytes > 0) LinearProgressIndicator(
+                        progress = { (model.downloadedBytes.toFloat() / model.totalBytes).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Topic model download progress" })
+                    Button(onClick = onTopicModelCancel) { Text("Pause topic model download") }
+                }
+                model.installed -> {
+                    Text("Topic model ready")
+                    Button(onClick = onTopicModelDelete) { Text("Delete topic discovery model") }
+                }
+                else -> {
+                    if (model.downloadedBytes > 0)
+                        Text("Saved: ${formatStorageBytes(model.downloadedBytes)} of ${formatStorageBytes(model.totalBytes)}")
+                    else Text("Download size: ${formatStorageBytes(model.totalBytes)}")
+                    Button(onClick = onTopicModelDownload) { Text(if (model.downloadedBytes > 0) "Resume topic model download" else "Download topic discovery model") }
+                }
+            }
             model.message?.let { Text(it) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!model.installed) Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = model.wifiOnly, onCheckedChange = onTopicModelWifiOnlyChange,
                     modifier = Modifier.semantics { contentDescription = "Topic model download using Wi-Fi only" })
                 Spacer(Modifier.width(8.dp))
                 Text("Topic model download using Wi-Fi only")
-            }
-            when {
-                model.downloading -> {
-                    Text("Topic model download: ${formatStorageBytes(model.downloadedBytes)} of ${formatStorageBytes(model.totalBytes)}")
-                    Button(onClick = onTopicModelCancel) { Text("Cancel topic model download") }
-                }
-                model.installed -> Button(onClick = onTopicModelDelete) { Text("Delete topic naming model") }
-                else -> Button(onClick = onTopicModelDownload) { Text("Download topic naming model") }
             }
         }
 
@@ -155,10 +169,10 @@ fun DiscoverySettingsScreen(
             when {
                 npu.downloading -> {
                     Text("NPU model: ${npu.downloadedBytes / 1_000_000} of ${npu.totalBytes / 1_000_000} MB")
-                    Button(onClick = onNpuCancel) { Text("Cancel NPU download") }
+                    Button(onClick = onNpuCancel) { Text("Pause NPU download") }
                 }
                 npu.installed -> Button(onClick = onNpuDelete) { Text("Delete NPU model") }
-                else -> Button(onClick = onNpuDownload, enabled = state.modelInstalled) { Text("Download NPU model · 188 MB") }
+                else -> Button(onClick = onNpuDownload, enabled = state.modelInstalled) { Text(if (npu.downloadedBytes > 0) "Resume NPU model download" else "Download NPU model · 188 MB") }
             }
         }
         Text("Automatic compares supported backends using public samples and chooses the faster validated option. Unavailable accelerators fall back to CPU. Selecting a backend does not download models.")

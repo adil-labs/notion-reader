@@ -1,5 +1,16 @@
 # Generative Discovery execution ledger
 
+2026-11-05: Coordinator transition and failing test suite resolution complete. All 1,608 JVM tests pass cleanly; Android test compilation and debug assemble verified (§234).
+
+2026-11-05: Blocked proposal inference no longer starves independent named-reference
+connections; the failing-first regression and latest JVM result are in §233.
+
+2026-11-05: Audited the 33 failing tests against fresh-install and current
+privacy/lifecycle requirements; individual classifications are linked in §233.
+
+2026-11-04: Coordinator formation removal is in progress; the full JVM suite
+remains red and required lifecycle/privacy fixture migrations are open (§233).
+
 2026-11-04: Discovery status no longer formats cluster formation checkpoints;
 current processing messages take precedence (§232).
 

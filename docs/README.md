@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#232-remove-cluster-formation-status-presentation-2026-11-04)
+[the current decision-record entry](decisions.md#238-keep-bounded-progress-inside-the-work-window-2026-11-06)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority

@@ -7,7 +7,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.yield
 import java.util.concurrent.atomic.AtomicLong
 
 internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val updated: Boolean = false,
@@ -36,13 +35,11 @@ internal class TopicCoordinator(
     private val waitForQueries: suspend () -> Unit,
     private val changed: (TopicView) -> Unit,
     private val invalidationAcknowledgementLimit: () -> Long = { Long.MAX_VALUE },
-    private val formationWorkBudget: Int = 250_000,
     private val shouldYield: () -> Boolean = { false },
     private val operationTimings: (Map<String, Long>) -> Unit = {},
     private val labels: TopicLabelCoordinator? = null,
     private val retrievals: TopicRetrievalCoordinator? = null,
     private val proposalProgress: ProposalProgressStore? = null,
-    private val requireKnownCatalogOnRestore: Boolean = false,
     private val bootstrapInterests: DiscoveryInterestStore? = null
 ) {
     private class WorkPaused : RuntimeException()
@@ -58,11 +55,7 @@ internal class TopicCoordinator(
     private var connectionCursor = 0
     private var connectionPassageCursor = 0
     private var connectionTargetCursor = 0
-    @Volatile private var pendingFormation: TopicSnapshot? = null
-    private class FormationWorkspace(val token: String, val cacheRevision: Long, val epoch: Long,
-        val records: List<SemanticRecord>, val engine: SectionHierarchicalEngine)
     private val workspaceLock = Any()
-    @Volatile private var formationWorkspace: FormationWorkspace? = null
     @Volatile var needsMoreWork: Boolean = false
         private set
     @Volatile var sourceAcceptancePending: Boolean = false
@@ -79,13 +72,10 @@ internal class TopicCoordinator(
         return semanticHash(fields.joinToString("") { "${it.length}:$it" })
     }
 
-    private fun retainPendingWork(startEpoch: Long) = synchronized(workspaceLock) {
-        if (startEpoch == epoch.get()) needsMoreWork = true
-    }
     /** Captured from the sole coordinator; object identity changes on catalog or label publication. */
     suspend fun captureCatalogTicket(allowIncomplete: Boolean = false): TopicCatalogTicket? = writes.withLock {
         if (!loaded || cache.invalidations.value.isNotEmpty()) return@withLock null
-        if (!allowIncomplete && if (requireKnownCatalogOnRestore) !latest.canonicalCatalogReady else !latest.complete) return@withLock null
+        if (!allowIncomplete && !latest.canonicalCatalogReady) return@withLock null
         val snapshot = latest
         val model = identity()
         if (snapshot.identity != model) return@withLock null
@@ -142,8 +132,6 @@ internal class TopicCoordinator(
                 var shown = clean(view.snapshot)
                 latest = recovered
                 epoch.incrementAndGet()
-                formationWorkspace = null
-                pendingFormation = null
                 needsMoreWork = true
                 view = view.copy(snapshot = shown, updated = inspected, status = "Discovery recovery is incomplete.")
                 changed(view)
@@ -175,8 +163,6 @@ internal class TopicCoordinator(
             // If safe restoration cannot be proven, withdraw visible evidence and the replacement.
             latest = TopicSnapshot()
             epoch.incrementAndGet()
-            formationWorkspace = null
-            pendingFormation = null
             needsMoreWork = true
             view = TopicView(latest, status = "Discovery storage needs recovery.")
             changed(view)
@@ -232,8 +218,11 @@ internal class TopicCoordinator(
             incomplete = candidate.proposal.incomplete,
             queryEmbedding = candidate.query.copy(query = TopicRetrievalQuery(id, candidate.generation.workKey,
                 candidate.query.query.text, ticket.identity, candidate.query.query.policy)))
+        val projection = CanonicalTopicProjection(candidate.generation.workKey, concept.name,
+            concept.definition, concept.listeningDescription,
+            listOf(member), listOf(member))
         val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order,
-            canonicalConcept = evidence)
+            canonicalConcept = evidence, canonicalProjection = projection)
         val continuity = TopicContinuity(id, order, setOf(citation.pageId), setOf(anchorIdentity),
             anchorSourceId = anchorIdentity, canonicalKey = fingerprint)
         val next = latest.copy(topics = latest.topics + topic,
@@ -242,17 +231,31 @@ internal class TopicCoordinator(
         if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
         val saved = bulk { store.writeGuarded(next) { isCatalogTicketCurrent(ticket) && current() } }
         if (saved == TopicGuardedWriteResult.Stale) return@withLock CanonicalAdmissionResult.Stale
-        if (saved is TopicGuardedWriteResult.Rejected) return@withLock if (current())
-            CanonicalAdmissionResult.StorageFailure(saved.result) else CanonicalAdmissionResult.Stale
+        if (saved is TopicGuardedWriteResult.Rejected) {
+            if (!current()) return@withLock CanonicalAdmissionResult.Stale
+            failed(persistenceFailureMessage(saved.result))
+            return@withLock CanonicalAdmissionResult.StorageFailure(saved.result)
+        }
         if (!isCatalogTicketCurrent(ticket) || !current()) {
             rollbackAfterStaleWrite(latest, ticket)
             return@withLock CanonicalAdmissionResult.Stale
         }
-        latest = next
+        val persisted = store.readMetadata()
+        if (!isCatalogTicketCurrent(ticket) || !current()) {
+            rollbackAfterStaleWrite(latest, ticket)
+            return@withLock CanonicalAdmissionResult.Stale
+        }
+        if (persisted == null || persisted.generation != next.generation ||
+            persisted.identity != next.identity || persisted.acceptedRevisions != next.acceptedRevisions ||
+            persisted.topics.map { it.copy(canonicalProjection = null) } !=
+                next.topics.map { it.copy(canonicalProjection = null) } || persisted.continuity != next.continuity) {
+            rollbackAfterStaleWrite(latest, ticket)
+            failed("Stored concepts could not be reloaded. Retry processing.")
+            return@withLock CanonicalAdmissionResult.StorageFailure(TopicWriteResult.Rejected(TopicWriteFailure.IoFailure))
+        }
+        latest = next.copy(connections = persisted.connections, catalogReference = persisted.catalogReference)
         epoch.incrementAndGet()
-        formationWorkspace = null
-        pendingFormation = null
-        view = if (inspected) view.copy(updated = true) else view.copy(snapshot = next)
+        view = if (inspected) view.copy(updated = true) else view.copy(snapshot = latest)
         store.pinInspection(view.snapshot)
         changed(view)
         CanonicalAdmissionResult.Admitted(id)
@@ -271,7 +274,7 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
         val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
         if (revisions.size != snapshots.size ||
-            if (requireKnownCatalogOnRestore && ticket.snapshot.acceptedRevisions == sources)
+            if (ticket.snapshot.acceptedRevisions == sources)
                 sources.any { (id, revision) -> revisions[id] != revision }
             else revisions != sources) return DurableConceptScanResult.Stale
         val currentRecord = readRecord(canonicalSemanticId(record.pageId))
@@ -298,7 +301,7 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
         val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
         if (revisions.size != snapshots.size ||
-            if (requireKnownCatalogOnRestore && ticket.snapshot.acceptedRevisions == sources)
+            if (ticket.snapshot.acceptedRevisions == sources)
                 sources.any { (id, revision) -> revisions[id] != revision }
             else revisions != sources) return ExistingConceptScanResult.Stale
         val currentRecord = readRecord(canonicalSemanticId(record.pageId))
@@ -322,7 +325,7 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
         val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
         if (revisions.size != snapshots.size ||
-            if (requireKnownCatalogOnRestore && ticket.snapshot.acceptedRevisions == sources)
+            if (ticket.snapshot.acceptedRevisions == sources)
                 sources.any { (id, revision) -> revisions[id] != revision }
             else revisions != sources) return ConceptScanReplayResult.Stale
         val currentRecord = readRecord(canonicalSemanticId(record.pageId))
@@ -390,8 +393,6 @@ internal class TopicCoordinator(
             }
             latest = next
             epoch.incrementAndGet()
-            formationWorkspace = null
-            pendingFormation = null
             view = if (inspected) view.copy(updated = true) else view.copy(snapshot = next)
             store.pinInspection(view.snapshot)
             changed(view)
@@ -441,8 +442,7 @@ internal class TopicCoordinator(
         val restoring = !loaded
         val cacheRevision = cache.revision.value
         if (!loaded) {
-            latest = if (requireKnownCatalogOnRestore) {
-                when (val result = restoreStep("restoreMetadata") { store.inspectMetadata() }) {
+            latest = when (val result = restoreStep("restoreMetadata") { store.inspectMetadata() }) {
                     TopicMetadataState.Fresh -> {
                         val fresh = bootstrapInterests?.withCatalogBootstrapGuard { interests ->
                             val progress = proposalProgress
@@ -491,7 +491,6 @@ internal class TopicCoordinator(
                         return@withLock
                     }
                 }
-            } else restoreStep("restoreMetadata") { store.readMetadata() } ?: TopicSnapshot()
             view = TopicView(latest, status = latest.message)
             loaded = true
         }
@@ -574,7 +573,7 @@ internal class TopicCoordinator(
                 shown = remove(shown, ids, permanent)
             }
         }
-        if (requireKnownCatalogOnRestore && (stale.isNotEmpty() || events.isNotEmpty())) {
+        if (stale.isNotEmpty() || events.isNotEmpty()) {
             next = next.copy(connectionPassComplete = false, connectionWork = next.connectionWork.copy(incrementalKey = null))
             shown = shown.copy(connectionPassComplete = false, connectionWork = shown.connectionWork.copy(incrementalKey = null))
             needsMoreWork = true
@@ -592,8 +591,6 @@ internal class TopicCoordinator(
         }
         if (next != latest || events.isNotEmpty()) {
             epoch.incrementAndGet()
-            formationWorkspace = null
-            pendingFormation = null
             checkpoint?.clear()
             // Withdraw immediately even when a storage error prevents acknowledgement.
             latest = next
@@ -647,22 +644,17 @@ internal class TopicCoordinator(
     suspend fun build(sources: Map<String, String>, metadataVersion: Int, cacheRevision: Long, indexComplete: Boolean = true,
         metadata: Map<String, SemanticMetadata>? = null, indexedSources: Map<String, String>? = null) {
         if (cache.revision.value != cacheRevision || !mayWork()) return
-        if (!requireKnownCatalogOnRestore && indexedSources != null) return
-        if (requireKnownCatalogOnRestore) {
-            val available = if (indexComplete) sources else indexedSources ?: return
-            if (available.any { (id, revision) -> sources[id] != revision }) return
-            if (!indexComplete && latest.acceptedRevisions.any { (id, revision) -> available[id] != revision }) return
-            acceptIndexedSources(available, cacheRevision)
-            if (!indexComplete) { connectionInputs = null; return }
-            val input = metadata?.takeIf { it.keys == sources.keys }?.let { ConnectionInputs(cacheRevision, sources.toMap(), it.toMap()) }
-            connectionInputs = input
-            if (input != null && latest.canonicalCatalogReady && latest.acceptedRevisions == sources) {
-                val hashes = sources.mapValues { (id, revision) -> connectionInputHash(revision, input.metadata.getValue(id)) }
-                if (latest.connectionWork.inputs != hashes) needsMoreWork = true
-            }
-            return
+        val available = if (indexComplete) sources else indexedSources ?: return
+        if (available.any { (id, revision) -> sources[id] != revision }) return
+        if (!indexComplete && latest.acceptedRevisions.any { (id, revision) -> available[id] != revision }) return
+        acceptIndexedSources(available, cacheRevision)
+        if (!indexComplete) { connectionInputs = null; return }
+        val input = metadata?.takeIf { it.keys == sources.keys }?.let { ConnectionInputs(cacheRevision, sources.toMap(), it.toMap()) }
+        connectionInputs = input
+        if (input != null && latest.canonicalCatalogReady && latest.acceptedRevisions == sources) {
+            val hashes = sources.mapValues { (id, revision) -> connectionInputHash(revision, input.metadata.getValue(id)) }
+            if (latest.connectionWork.inputs != hashes) needsMoreWork = true
         }
-        buildGeneration(sources, metadataVersion, cacheRevision)
     }
 
     /** Check newly indexed revisions in bounded windows before accepting them into the catalog. */
@@ -729,7 +721,7 @@ internal class TopicCoordinator(
     }
     /** Resume connection evidence independently of topic formation, after foreground topic work. */
     suspend fun advanceIncrementalConnections(ticket: TopicCatalogTicket, sources: Map<String, String>): IncrementalConnectionsResult {
-        if (!requireKnownCatalogOnRestore || !isCatalogTicketCurrent(ticket) || ticket.snapshot.acceptedRevisions != sources)
+        if (!isCatalogTicketCurrent(ticket) || ticket.snapshot.acceptedRevisions != sources)
             return IncrementalConnectionsResult.Deferred
         if (!mayWork() || shouldYield()) return IncrementalConnectionsResult.Deferred
         val snapshot = ticket.snapshot
@@ -797,196 +789,6 @@ internal class TopicCoordinator(
         }
     }
 
-    /** Formation is bounded by comparisons, never by admitted source sections. */
-    private suspend fun buildGeneration(sources: Map<String, String>, metadataVersion: Int,
-        cacheRevision: Long) {
-        val model = identity()
-        val token = topicSourceSignature(model, policy, metadataVersion, sources)
-        if (latest.sourceSignature == token && latest.complete && latest.connectionPassComplete) {
-            formationWorkspace = null
-            needsMoreWork = false
-            labelGeneration(cacheRevision)
-            return
-        }
-        val startEpoch = epoch.get()
-        val context = currentCoroutineContext()
-        val resume = (pendingFormation ?: checkpoint?.read())?.takeIf { it.sourceSignature == token && it.identity == model &&
-            it.policyVersion == policy.version && it.engineVersion == SectionHierarchicalEngine.VERSION &&
-            (it.formationProgress != null || it.complete) }?.let { withContinuityAnchors(it, latest) }
-        var referenceTitles = if (latest.sourceSignature == token) latest.referenceTitles else emptyMap()
-        var connectionInputs = if (latest.sourceSignature == token) latest.connectionWork.inputs else emptyMap()
-        var connectionTitleKeys = if (latest.sourceSignature == token) latest.connectionWork.titleKeys else emptyMap()
-        val grouped = if (latest.sourceSignature == token && latest.complete && latest.engineVersion == SectionHierarchicalEngine.VERSION) latest
-        else if (resume?.complete == true) resume
-        else {
-            val prepared = formationWorkspace?.takeIf {
-                it.token == token && it.cacheRevision == cacheRevision && it.epoch == startEpoch
-            } ?: run {
-                formationWorkspace = null
-                val records = mutableListOf<SemanticRecord>()
-                for (id in index.pageIds().sorted()) {
-                    context.ensureActive(); waitForQueries()
-                    if (startEpoch != epoch.get() || index.isPaused() || !mayWork()) return
-                    readRecord(id)?.takeIf { it.identity == model && sources[id] == it.revision }?.let { records += it }
-                }
-                val next = FormationWorkspace(token, cacheRevision, startEpoch, records.toList(),
-                    SectionHierarchicalEngine(model, distanceThreshold = policy.formationDistance,
-                        membershipThreshold = policy.membership, workQuantum = formationWorkBudget))
-                synchronized(workspaceLock) {
-                    if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) return
-                    formationWorkspace = next
-                }
-                next
-            }
-            val records = prepared.records
-            referenceTitles = records.associate { canonicalSemanticId(it.pageId) to it.metadata.title }
-            connectionInputs = records.associate { canonicalSemanticId(it.pageId) to semanticHash(it.revision + it.metadata.toString()) }
-            connectionTitleKeys = referenceTitles.mapValues { connectionTitleKey(it.value) }
-            changed(view.copy(status = "Finding topics in all indexed cached Notes…", failure = null))
-            try {
-                bulk { prepared.engine.stepPrepared(records, resume ?: latest, policy,
-                    shouldYield = { !mayWork() || shouldYield() }, checkActive = {
-                    context.ensureActive()
-                    if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) throw WorkPaused()
-                }) }.copy(sourceSignature = token, connectionWork = ConnectionWork(connectionInputs, connectionTitleKeys))
-            } catch (_: WorkPaused) {
-                // Keep the last durable quantum. A policy pause must not cancel the service collector.
-                retainPendingWork(startEpoch)
-                return
-            }
-        }
-        if (!grouped.complete || latest.sourceSignature != token || !latest.complete) {
-            writes.withLock {
-                // Orderly window/policy pauses retain completed work; changed source/model/reset state cannot.
-                context.ensureActive()
-                if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) return
-                val result = bulk {
-                    // Query priority can delay this commit; recheck source/model validity after that wait.
-                    context.ensureActive()
-                    if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) return@bulk null
-                    checkpoint?.writeDetailed(grouped)
-                }
-                if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model) return
-                if (result is TopicWriteResult.Rejected) {
-                    needsMoreWork = false
-                    failed(persistenceFailureMessage(result, checkpoint = true)); return
-                }
-                needsMoreWork = true
-                pendingFormation = grouped
-                if (!grouped.complete) changed(view.copy(status = grouped.message, failure = null))
-            }
-            if (!grouped.complete) { yield(); return }
-        }
-        formationWorkspace = null
-        connectionInputs = grouped.connectionWork.inputs
-        connectionTitleKeys = grouped.connectionWork.titleKeys
-        val compatibleConnections = latest.identity == model && latest.policyVersion == policy.version &&
-            latest.engineVersion == SectionHierarchicalEngine.VERSION && latest.connectionWork.inputs.isNotEmpty()
-        val priorTitleCounts = latest.connectionWork.titleKeys.values.groupingBy { it }.eachCount()
-        val currentTitleCounts = connectionTitleKeys.values.groupingBy { it }.eachCount()
-        val changedTitleCounts = (priorTitleCounts.keys + currentTitleCounts.keys).filterTo(hashSetOf()) { title ->
-            priorTitleCounts[title] != currentTitleCounts[title]
-        }
-        val sameConnectionSweep = latest.sourceSignature == token
-        val affectedConnections = if (!compatibleConnections) sources.keys
-            else if (sameConnectionSweep) latest.connectionWork.changedIds else
-            sources.keys.filterTo(hashSetOf()) { id -> latest.connectionWork.inputs[id] != connectionInputs[id] ||
-                connectionTitleKeys[id] in changedTitleCounts }
-        // Completed directional seeds remain complete for unchanged targets. Only the
-        // partial seed and later seeds need their old target work after a source delta.
-        val unfinishedSeeds = if (sameConnectionSweep) latest.connectionWork.unfinishedSeedIds
-            else if (compatibleConnections && !latest.connectionPassComplete)
-                latest.connectionWork.inputs.keys.sorted().drop(latest.connectionCursor).filterTo(hashSetOf()) { it in sources }
-            else emptySet()
-        connectionCursor = if (latest.sourceSignature == token) latest.connectionCursor else 0
-        connectionPassageCursor = if (latest.sourceSignature == token) latest.connectionPassageCursor else 0
-        connectionTargetCursor = if (latest.sourceSignature == token) latest.connectionTargetCursor else 0
-        val connectionPlan = ConnectionWork(connectionInputs, connectionTitleKeys, affectedConnections, unfinishedSeeds)
-        val semantic = try { connections(latest, sources, model, startEpoch, cacheRevision, referenceTitles, connectionPlan, compatibleConnections) }
-            catch (_: WorkPaused) { retainPendingWork(startEpoch); return }
-            catch (_: java.io.IOException) {
-                if (epoch.get() != startEpoch || cache.revision.value != cacheRevision) { retainPendingWork(startEpoch); return }
-                needsMoreWork = false
-                failed("Stored connections are unavailable. Retry processing."); return
-            }
-        val connected = semantic
-        val result = retainCanonicalConcepts(latest, grouped).copy(connections = connected, catalogReference = null, referenceTitles = referenceTitles,
-            connectionCursor = connectionCursor, connectionPassageCursor = connectionPassageCursor,
-            connectionTargetCursor = connectionTargetCursor,
-            connectionTargetCount = sources.size,
-            connectionPassComplete = connectionCursor >= sources.size, generation = latest.generation + 1,
-            sourceSignature = token, connectionWork = if (connectionCursor >= sources.size)
-                connectionPlan.copy(changedIds = emptySet(), unfinishedSeedIds = emptySet()) else connectionPlan)
-        writes.withLock {
-            if (startEpoch != epoch.get() || cache.revision.value != cacheRevision || identity() != model || index.isPaused() || !mayWork()) return
-            val saved = bulk { store.writeDetailed(result) }
-            if (saved is TopicWriteResult.Rejected) {
-                needsMoreWork = false; failed(persistenceFailureMessage(saved)); return
-            }
-            checkpoint?.clear()
-            val initial = view.snapshot.generation == 0L && view.snapshot.topics.isEmpty()
-            // Re-open committed storage rather than retaining a chain of every prior merge batch.
-            val committed = bulk { store.readMetadata() }
-            if (committed == null) {
-                needsMoreWork = false
-                failed("Stored discoveries could not be reloaded. Retry processing.")
-                return
-            }
-            latest = committed
-            pendingFormation = null
-            needsMoreWork = !result.connectionPassComplete
-            val visibleChange = view.snapshot.topics != latest.topics || view.snapshot.connections != latest.connections ||
-                view.snapshot.catalogReference?.fingerprint != latest.catalogReference?.fingerprint ||
-                view.snapshot.complete != latest.complete || view.snapshot.connectionPassComplete != latest.connectionPassComplete
-            view = if (initial || !inspected) TopicView(latest, status = result.message)
-                else view.copy(updated = visibleChange, status = result.message, failure = null)
-            store.pinInspection(view.snapshot)
-            changed(view)
-        }
-        labelGeneration(cacheRevision)
-    }
-
-    /** Native inference never holds writes: source withdrawal must remain immediate. */
-    private suspend fun labelGeneration(cacheRevision: Long) {
-        val labeler = labels ?: return
-        val startEpoch = epoch.get()
-        val model = identity()
-        val base = latest
-        if (!base.complete) return
-        fun current() = startEpoch == epoch.get() && cache.revision.value == cacheRevision && identity() == model &&
-            latest.sourceSignature == base.sourceSignature && latest.generation == base.generation
-        suspend fun publish(snapshot: TopicSnapshot) = writes.withLock {
-            if (!current()) return@withLock
-            latest = snapshot
-            val changedNames = view.snapshot.topics != snapshot.topics
-            view = if (inspected) view.copy(updated = view.updated || changedNames, status = "Naming topics…", failure = null, naming = TopicNamingStatus.Running)
-                else TopicView(snapshot, status = "Naming topics…", naming = TopicNamingStatus.Running)
-            changed(view)
-        }
-        if (labeler.status(base) == TopicNamingStatus.Pending) {
-            needsMoreWork = true
-            publish(base)
-        }
-        val result = labeler.process(base, startEpoch, ::current, ::publish)
-        if (!current() || result.stale) return
-        val matches = retrievals?.process(result.snapshot, base.acceptedRevisions, ::current)
-        writes.withLock {
-            if (!current() || result.stale || matches?.stale == true) return@withLock
-            latest = matches?.snapshot ?: result.snapshot
-            needsMoreWork = !latest.connectionPassComplete || result.pending || matches?.pending == true
-            naming = when {
-                result.unavailable -> TopicNamingStatus.Unavailable
-                result.pending -> TopicNamingStatus.Pending
-                else -> TopicNamingStatus.Ready
-            }
-            val failure = result.failure ?: matches?.failure
-            namingStatus = failure ?: if (matches?.pending == true) "Matching Notes to topics…" else namingMessage(naming, labeler.unavailableMessage())
-            view = if (inspected) view.copy(updated = view.updated || view.snapshot.topics != latest.topics,
-                status = namingStatus ?: latest.message, failure = failure, naming = naming)
-                else TopicView(latest, status = namingStatus ?: latest.message, failure = failure, naming = naming)
-            changed(view)
-        }
-    }
     private suspend fun connections(baseSnapshot: TopicSnapshot, sources: Map<String, String>, model: EmbeddingIdentity,
         startEpoch: Long, cacheRevision: Long, titles: Map<String, String>, work: ConnectionWork, compatible: Boolean,
         strictSources: Boolean = false, expectedMetadata: Map<String, SemanticMetadata>? = null): List<NoteConnection> {
@@ -1084,15 +886,14 @@ internal class TopicCoordinator(
         synchronized(workspaceLock) {
             epoch.incrementAndGet()
             needsMoreWork = false
-            formationWorkspace = null
         }
         sourceAcceptance = null; sourceAcceptancePending = false; connectionInputs = null
-        store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null; pendingFormation = null
+        store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null
         // An explicit index clear authorizes an empty catalog even when follows remain.
         // Persist it so a recreated coordinator can resume after the user requests rebuilding.
-        val empty = if (requireKnownCatalogOnRestore) TopicSnapshot(identity = identity(), canonicalCatalogReady = true,
-            policyVersion = policy.version, connectionPassComplete = false) else TopicSnapshot()
-        val result = if (requireKnownCatalogOnRestore) store.finishReset(empty) else TopicWriteResult.Written
+        val empty = TopicSnapshot(identity = identity(), canonicalCatalogReady = true,
+            policyVersion = policy.version, connectionPassComplete = false)
+        val result = store.finishReset(empty)
         val failure = (result as? TopicWriteResult.Rejected)?.let(::persistenceFailureMessage)
         latest = if (failure == null) empty else TopicSnapshot()
         loaded = failure == null
@@ -1105,8 +906,6 @@ internal class TopicCoordinator(
     /** Drop the sole retained generation. In-flight locals observe the epoch change and unwind cooperatively. */
     fun releaseMemory() = synchronized(workspaceLock) {
         epoch.incrementAndGet()
-        formationWorkspace = null
-        if (checkpoint != null) pendingFormation = null
     }
 }
 

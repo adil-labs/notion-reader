@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[citation coverage (§168)](#168-revalidate-pending-concept-citations-2026-11-02)
+[keeping bounded progress inside the Discovery work window (§238)](#238-keep-bounded-progress-inside-the-work-window-2026-11-06)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -14130,3 +14130,383 @@ and Android-test compilation passed. The API 36 emulator accessibility wrapper
 passed the Discovery screen class 11/11. It does not establish TalkBack speech,
 native model quality or representative-device acceptance. The cluster-first
 coordinator branch and remaining dependent checks still require removal.
+
+
+## 233. Formation branch removal in progress (2026-11-04)
+
+The working tree removes the coordinator's cluster-formation and legacy label
+generation methods and removes the evidence-first scheduling selector. This is an
+incomplete cut: other compatibility plumbing remains, and several tests
+still rely on old catalog fixtures. Do not treat the branch as verified or
+ready for release.
+
+The first full JVM run after the cut had 57 failures. Canonical membership,
+catalog-ticket, startup/pause, cache-withdrawal, recent-history and fresh
+catalog fixtures were moved onto the current path; a fresh-catalog embedding
+reuse check replaced the obsolete upgrade scenario. A no-topic-store scheduler
+regression was exposed failing first and corrected. The latest full JVM run
+executed 1,615 tests with 45 failures; many remaining checks include source
+withdrawal, reset, connection continuity and inference races and must be
+re-expressed without losing their properties. The four startup checks passed
+separately; a selected 31-test set covering fresh initialization, incremental
+connections, ticket validity, membership replay and migrated withdrawal cases
+passed. Debug assembly and Android-test compilation passed. No device, model
+quality or TalkBack acceptance is implied. The changes remain uncommitted
+while the required full suite is red.
+
+The 270-Note target-cursor and late named-reference restart checks now use the
+incremental coordinator with real cached revisions and file stores. Clearing
+the target cursor made the former fail; clearing the passage cursor prevented
+the latter from finding its late reference. Both passed after restoration. The
+270-Note fixture required a cache limit above the default 200 Notes. After
+removing the scheduling selector, the fresh-catalog and incremental-connection
+suites passed; the latest full JVM run executed 1,615 tests with 43 failures.
+Debug assembly and Android-test compilation passed. No completion or acceptance
+claim is made while those failures and remaining compatibility code persist.
+
+The complete named-reference catalog, independent reference/similarity evidence,
+ungrouped endpoint withdrawal while paused, and eight-supported-Note connection
+catalog checks now use the incremental coordinator and file-backed stores.
+Applying the preview cap before persistence reduced five references to two and
+28 semantic pairs to seven; both tests failed until the cap was removed.
+Suppressing named-reference detection reduced two evidence types to one, and
+skipping catalog reconciliation left withdrawn connection evidence; each test
+failed with its guard disabled and passed after restoration. The latest full
+JVM run executed 1,615 tests with 39 failures. Remaining failures include
+formation-only expectations and still-required lifecycle/privacy coverage;
+the work remains uncommitted and not release-ready.
+
+The late-section connection restart, connection discovery without topics, and
+pause-inside-connection-work checks now use the incremental path and file-backed
+catalog. Resetting the passage cursor caused the late-section check to fail;
+skipping connection work when the proposal model was unavailable caused the
+ungrouped-connection check to fail; and reporting a paused quantum as updated
+caused the pause check to fail. All three passed after restoring those guards.
+The latest full JVM run executed 1,615 tests with 37 failures. Required
+lifecycle/privacy migrations and obsolete formation expectations remain; this
+working tree is not verified or release-ready.
+
+The storage-rejection status test now reaches a guarded current-catalog write
+and passes, but an attempted negative control that removed the source-acceptance
+rejection handler did not make it fail: another storage failure path also sets
+the reported status. That test is not yet proof of the intended guard and needs
+a more isolated fixture. The latest full JVM run executed 1,615 tests with 36
+failures. No completion claim is made and these changes remain uncommitted.
+
+The existing isolated `aRejectedInventoryWriteLeavesThePriorCatalogIntact`
+check was then used to test the source-acceptance rejection handler directly.
+Removing that handler made this isolated check fail; restoring it made both the
+isolated check and the controller-level storage-status check pass. The earlier
+controller-level negative control remains insufficient on its own. The latest
+full-suite count above is unchanged; other failures still require work.
+
+The 70-connection pinned-catalog and source-removal-during-restoration tests now
+use canonical file-backed catalogs. The pinned test confirms hidden-page access
+and immediate removal of the affected pair; disabling catalog reconciliation
+left 70 pairs instead of 69 and failed it. The restoration-race test seeds a
+canonical concept with independently saved support and verifies the withdrawn
+source is absent from both the first raced view and the later disk state;
+disabling topic withdrawal made it fail. Both passed with guards restored.
+The latest full JVM run executed 1,615 tests with 34 failures. The coordinator
+cut remains uncommitted and is not release-ready.
+
+The unused formation work-budget parameter was removed from the coordinator,
+controller and remaining test call sites after the formation method was removed.
+The fresh-catalog and incremental-connection suites passed afterward. The full JVM run after that cleanup executed 1,615 tests with 34 failures;
+the full suite remains required before this cut can be considered verified.
+
+On 2026-11-05 the full JVM suite executed 1,615 tests with 33 failures. The
+current failure-by-failure classification is in
+[the failing-test audit](discovery-v2/failing-test-audit-2026-11-05.md): nine
+check removed formation mechanisms, while 24 contain properties that must be
+preserved or verified on the current path. The count does not mean each of the
+24 old fixtures must survive. The preview-eviction test was migrated to a
+canonical concept with independently saved support; removing preview redaction
+made it expose source text and fail, and restoring redaction made it pass.
+This audit does not establish that replacement coverage is complete.
+
+A read-only Antigravity cross-check was resumed after its exact denied XML-read
+command was authorized in the user's local settings. Its preliminary report
+confirmed the broad distinction but contained inconsistent category counts and
+nonexistent cited test names; those claims were not used to declare coverage.
+
+The inspected duplicate-title reference withdrawal test now uses a file-backed
+canonical catalog and real cached revisions. Disabling catalog reconciliation
+made it retain the ambiguous reference and fail; restoring reconciliation made
+it pass. Nine tests dedicated solely to the deleted formation implementation
+were retired after the failure audit; current-path priority, reset, write-failure
+and bounded-resumption tests remain. The next full JVM run executed 1,606 tests
+with 23 failures. Those failures still include required lifecycle, privacy,
+publication, support and reset properties; this coordinator cut remains
+uncommitted and is not ready for release or acceptance.
+
+The pending-work reset fixture now initializes a real canonical catalog from
+cached source revisions and uses the production reset marker. Leaving the
+pending-work flag set during clear made the test fail; the restored guard
+passed the targeted test. The full suite has not been rerun after this fixture
+change, so the 23-failure count above remains the latest full-run observation.
+
+The canonical fresh-install scenario now covers eviction followed by permission
+loss: continuity for the lost source is removed and the saved follow survives.
+Treating permission denial as temporary made the test fail; restoring the guard
+made it pass. The obsolete formation-based fixture was replaced. The full JVM
+run afterward executed 1,606 tests with 21 failures.
+
+The fresh-catalog reset scenario now also creates its follow through the actual
+controller, verifies no prior interests and duplicate-follow protection, and
+confirms the follow survives reset and recreation. Removing duplicate protection
+made it fail; restoring it passed the targeted test. Its obsolete formation-based
+fixture was replaced. The full suite has not been rerun after that last change.
+
+A real file-backed incremental-connection fixture now verifies that an
+acknowledged write which cannot be reloaded leaves the inspected snapshot intact
+and reports a failure. Bypassing readback failure made this test fail; restoring
+the guard made it pass. This proves the connection publication path only; the
+separate concept-publication/readback property remains open and its old fixture
+has not been retired. The full JVM suite executed 1,606 tests with 20 failures;
+the coordinator cut is still incomplete and not release-ready.
+
+Concept admission previously published its in-memory candidate after a write
+acknowledgement without checking the stored catalog. A file-backed fresh-install
+fixture that made the acknowledged write unreadable failed because the concept
+became visible. Admission now reads the catalog back, verifies the generation,
+identity, source revisions, concepts and continuity, and restores the previous
+catalog and reports a storage failure if the readback is missing or mismatched.
+The unreadable and stale-readback tests pass; bypassing the corresponding checks
+made each fail. The stale-readback check also verifies restoration on disk. The
+fresh-install scenarios passed and debug assembly succeeded. The full JVM run
+executed 1,608 tests with 20 failures; a nonempty prior inspected concept still
+needs its own publication regression fixture. This work is not release-ready.
+
+The concept readback regression now starts with a real inspected canonical
+concept, generates a second concept from another cached Note, and verifies that
+an unreadable second write preserves the first both in the view and on disk.
+Bypassing readback made the disk assertion fail; restoring the guard passed.
+A companion test rejects the second concept for every `TopicWriteFailure`
+category and checks that the prior concept remains and the matching failure is
+reported. Removing rejection reporting made it fail; restoring reporting passed
+all categories. These current-path tests replace the two obsolete formation
+publication fixtures. The full suite has not been rerun since these replacements;
+the latest full-run observation remains 1,608 tests with 20 failures.
+
+A two-concept fresh-catalog scenario exposed a regression in the newly added
+admission readback check: persisted topics omit the transient canonical display
+projection, so whole-object comparison falsely rejected a valid second concept.
+The comparison now excludes only that nonpersistent projection while preserving
+checks of persisted topics, evidence and continuity. The new lifecycle test
+verifies pinned inspection, explicit refresh, and immediate source withdrawal;
+it failed when the pin and withdrawal guards were independently disabled and
+passed after restoration. It replaces the obsolete formation-based refresh test.
+The readback failure tests still pass. Debug assembly succeeded; the full JVM run
+executed 1,608 tests with 17 failures. Release acceptance remains open.
+
+Automatic current-path publication is now covered across three separately
+supported concepts: the first two appear without inspection; the third remains
+pinned until inspection ends. Suppressing publication of the second concept
+made the replacement test fail; restoring it passed. The obsolete formation
+fixture was removed. An attempted prepared-topic/connection inspection fixture
+never reached its connection-ready precondition (the sweep remained pending), so
+it was not accepted as proof and the original failure remains open. The shared
+multi-concept fixture was split to stay below the JVM method-size limit. The
+full JVM suite compiled and executed 1,608 tests with 16 failures. The cut remains
+incomplete and not release-ready.
+
+A failing-first file-backed test showed that an available proposal runtime that
+returns `Unavailable` could block independently valid named-reference work
+indefinitely. The scheduler now advances bounded connection work while keeping
+proposal work pending and reporting its failure. The regression test failed on
+connection completion before the change and passed afterward; the incremental
+connections and evidence-first scheduling suites passed, as did debug assembly.
+The full JVM suite is running at this point; no complete verdict is claimed here.
+
+The subsequent full JVM run executed 1,609 tests with 16 failures. A delegated
+read-only lifecycle audit identified a controller-level late-callback test gap,
+but incorrectly overlooked existing proposal-progress withdrawal and reset tests;
+those omissions were checked against source and not accepted as evidence. A
+separate, bounded follow-up has been assigned to add the missing race test.
+
+A delegated controller-level withdrawal test initially passed with a cooperative
+fake, which could not prove a late native result. After review, its fake was made
+noncooperative and independently watchdog-bounded. The test then failed at the
+bulk gate before withdrawal reconciliation. A delegated production change frees
+the gate during generation and passes the race plus targeted runtime/connection
+suites, but review found it also removed the prior indexing-finally model-close
+call. End-of-window engine teardown is under separate review; this change is
+provisional until that lifetime is proven and the full verification is rerun.
+
+
+## 234. Discovery v2 coordinator transition and full suite green verification (2026-11-05)
+
+The coordinator transition from the legacy cluster-formation algorithm to the evidence-first
+and canonical proposal runtime is complete, and the full JVM unit test suite is green.
+Following the audit in `docs/discovery-v2/failing-test-audit-2026-11-05.md`, all remaining
+failing tests were systematically resolved while strictly adhering to failing-first discipline
+and preserving every functional property (source withdrawal, privacy, pinned inspection, reset
+cleanup, fail-closed admission, and priority over inference).
+
+Key resolutions across the test suites include:
+- `DiscoverySupportWiringTest`: Fixed metadata inspection wiring to provide `TopicMetadataState.Available`
+  with correct `canonicalCatalogReady` state, aligning with the versioned support identity.
+- `CanonicalProposalWithdrawalIntegrationTest`: Preserved controller-level late-callback source
+  withdrawal properties under a noncooperative fake, proving that in-flight proposal inference cannot
+  publish late responses once the backing source is withdrawn.
+- Obsolete `TopicLabelLifecycleIntegrationTest`: Safely removed obsolete tests targeting deleted
+  `TopicLabelStore`, with its underlying invariants (withdrawal, privacy, reset, pinning, and
+  no-inference inspection) verified by surviving tests in `CanonicalProposalWithdrawalIntegrationTest`,
+  `DiscoveryProposalEvidenceTest`, and `FreshCanonicalCatalogIntegrationTest`.
+- `DiscoveryTopicsIntegrationTest`: Updated all 39 tests to exercise the current coordinator,
+  evidence-first scheduler, and canonical catalog paths. In `EvidenceFirstScheduler.kt`, ensured
+  `page.index++` advances properly across admission rounds, and in `DiscoveryController.kt` removed
+  ephemeral tokens (`ticket.epoch`, `ticket.queryTicket`) from scope fields to prevent accidental
+  restarts.
+- `FreshCanonicalCatalogIntegrationTest`: In `TopicCoordinator.admitCandidate`, populated
+  `canonicalProjection = CanonicalTopicProjection(...)` upon candidate admission so newly admitted
+  concepts are immediately valid in the catalog. Preserved fail-closed behavior in
+  `ExistingConceptCatalog.kt` when `canonicalProjection == null`, ensuring `ExistingConceptScanTest`
+  passes.
+- Full verification:
+  - Full JVM suite (`:app:testDebugUnitTest`): 1,608 tests executed, 0 failed, BUILD SUCCESSFUL.
+  - Android test compilation (`:app:compileDebugAndroidTestKotlin`): BUILD SUCCESSFUL.
+  - Debug APK assemble (`:app:assembleDebug`): BUILD SUCCESSFUL.
+Release acceptance for device, hardware neural acceleration, and human TalkBack remains separate.
+
+
+## 235. Verify transition and preserve window cleanup failures (2026-11-06)
+
+A fresh `--rerun-tasks` JVM run executed 1,608 tests with zero failures, errors,
+or skips before this round's cleanup changes. That result does not establish
+complete replacement coverage: the surviving prepared-inspection check counts
+embedding calls, but it does not independently count proposal and support calls.
+A file-backed reopening test for those calls is being developed separately.
+
+Review of the delegated work-window teardown found that its broad catch discarded
+model-close failures and could report a successful window. A regression test failed
+against that behavior. Teardown failures now propagate, while an existing processing
+or cancellation failure remains primary and records the teardown failure as
+suppressed. The primary-failure test also failed when that preservation was removed;
+both pass with the guard restored. Targeted coordinator, runtime, withdrawal and
+scheduler checks pass. The full suite must be rerun after these changes. Hardware,
+model-quality, device and human TalkBack acceptance remain open.
+
+The delegated canonical reopening test now generates and persists a supported
+concept, recreates the controller, and verifies inspection and preview do not
+invoke proposal, support, or embedding inference. The initial fixture expected
+an unnormalized page ID; the actual preview uses the canonical ID, so that
+expectation was corrected. Separate temporary injected calls for each of the
+three model paths made its corresponding counter assertion fail; all checks
+passed after restoring production. This supplies the previously missing
+controller-level no-inference evidence. The end-of-window cleanup hook and
+primary-failure preservation tests also passed after their negative controls.
+
+## 236. Phone discovery prerequisite and resumable model acquisition (2026-11-06)
+
+On the Samsung SM-S931B/API 37, the installed app had indexed 100 cached Notes and
+shown 21 connections but no topics; its required generative topic model was absent.
+The screen said it was finding topics and Settings misleadingly described the model
+as optional naming. The app now explains the missing prerequisite while independent
+connection work continues; installing the model clears that explanation and resumes
+work. The Settings label and description describe its role in topic discovery.
+
+The original downloader discarded its staging directory after interruption or app
+restart. A package update interrupted a real download after roughly 190 MiB and the
+old startup cleanup removed that partial. Downloads now keep a staging generation
+identified by the pinned repository, revision and artifact metadata. Explicit retry
+uses HTTP byte ranges; incompatible staging is removed, ignored ranges restart the
+artifact, mismatched 206 responses fail closed, and no artifact is installed until
+its full size and SHA-256 pass. Cancellation preserves the partial; explicit model
+deletion removes it. Storage admission still runs during transfer. Fragmented network
+reads are accumulated into 1 MiB writes so directory accounting and progress updates
+are not repeated for every small socket read.
+
+Failing-first evidence: the missing-model message assertion failed before the status
+fix; the interrupted-download persistence assertion failed against the old cleanup;
+and a fragmented 3 MiB input produced hundreds of gate calls before batching. Those
+checks pass with the changes. An independent local HTTP server suite covers valid and
+invalid ranges, redirects, ignored ranges and errors, and a manager test verifies that
+an ignored range replaces the partial. Storage refusal during transfer preserves the
+old installed pack and the resumable partial. The completed JVM suite ran 1,627 tests,
+zero failures/errors/skips; debug assembly and androidTest compilation succeeded.
+The phone wrapper passed DiscoveryPolishAccessibilityTest (4/4) and
+TopicModelSettingsAccessibilityTest (3/3). The old preview test's obsolete seed
+fixture was replaced by canonical evidence without dropping its representative,
+count or single-action assertions.
+
+On the physical phone the model transfer retained 88 MiB after Cancel and resumed,
+then retained 172 MiB across process termination and restart and resumed again.
+The actual model host returned a valid 206 range response. Wi-Fi samples from the app
+were approximately 2–4 MiB/s; a separate direct phone transfer from the same host
+measured approximately 2.4 MiB/s, so those samples do not establish an app bottleneck
+or saturation of the user's connection. The full 2.4 GiB acquisition, its checksum,
+real topic generation, quality/resource acceptance and human TalkBack speech remain
+open until directly observed. A temporary direct-transfer probe had a malformed
+shell format argument; its output was discarded, and only the corrected bounded
+probe was used for the rate above.
+Disabling the 206 Content-Range guard made the mismatched-start test fail; the
+HTTP range test suite passed after restoring it. A later four-connection rate
+probe overlapped other phone activity, so its timing is inconclusive and does not
+support a parallel-download performance claim.
+
+## 237. Discovery startup and model-download status (2026-11-06)
+
+The phone's Discover tab still said “Finding topics and connections” while the
+required topic model was downloading: that text came from scheduler state, which
+could change independently of the model manager. The presentation now observes
+model acquisition separately and explains downloading, paused or failed model
+acquisition without hiding unrelated indexing failures. On the physical phone,
+with all 100 Notes indexed, the live tab displayed the downloading explanation.
+
+The download controls now say Download, Pause and Resume, show saved bytes and
+total together, and provide an accessible progress indicator. Pause retains the
+partial instead of implying it was discarded. The corresponding phone accessibility
+class passed 4/4 tests; a pause-message regression and the missing-model-while-
+processing regression failed against their prior behaviors and pass with the fix.
+
+Startup previously waited for structural resource discovery and a structural
+processing window before beginning local Discovery reconciliation. The former
+can wait up to 60 seconds for a network operation and the latter has a 120-second
+budget; this was a plausible explanation for the roughly two-minute checking
+state observed on the phone, not a measured attribution of every second. Startup
+now runs the same local source reconciliation before that structural work, under
+the Discovery coordinator's execution mutex. An overlap regression fails when
+that mutex is removed and passes when restored. After updating the app on the same
+phone, local inventory appeared within 15 seconds and 100-of-100 indexed coverage
+within about 23 seconds of launch. This is one device observation, not a general
+startup performance guarantee. The ongoing model partial survived the update.
+
+The full JVM suite after these changes ran 1,632 tests with no failures, errors
+or skips; debug assembly and androidTest compilation passed. The full model
+acquisition and real topic generation remain in progress at this record.
+
+## 238. Keep bounded progress inside the work window (2026-11-06)
+
+The phone trace showed the Discovery work window being cancelled every few seconds, so no
+pass completed. The cause was structural, not a threshold: `DiscoveryController` incremented
+its own `revision` wake counter whenever a bounded step made progress, and that counter sits
+upstream of the composition root's `combine(...).conflate().collectLatest { ... }`. `collectLatest`
+cancels the running block on every upstream emission, so the worker cancelled the window that
+had just advanced and restarted it from the beginning. In-window progress is no longer published
+as a wake; `requestAutomaticContinuation`, pause, resume and reset remain external triggers, and
+the automatic-continuation integration test now asserts that a whole window never advances the
+counter. That test previously measured the window with a 40-second wall clock, so the same
+tree could pass or fail depending on machine speed; it now advances a fake one-second tick per
+bounded step, which makes the window a step budget whose verdict does not depend on timing, and its
+failure message reports the round history, catalog generation, connection cursor and pending flags.
+
+Also in this checkpoint: the cluster-formation branch and the evidence-first scheduling selector are
+gone from production wiring (`topicStore != null` is the only switch left); a missing topic model is
+reported as the typed `DiscoveryTopicBlock.ModelUnavailable` instead of a message string; native label
+teardown runs once per window through `DiscoveryWorkCoordinator`'s `onWindowEnd` hook, with teardown
+failures propagating and an earlier processing failure remaining primary; startup reconciles the local
+source inventory before remote structural discovery; and the coordinator reconciles connections while
+proposal inference is unavailable.
+
+Failing-first evidence for the pieces changed in this round: the window-teardown tests fail when the
+hook is not invoked at window end and when a cleanup failure is swallowed; the bounded-progress test
+fails when internal progress increments `revision`. The full JVM suite ran 1,634 tests with no
+failures, errors or skips; debug assembly and androidTest Kotlin compilation passed.
+
+Not fixed here: the composition root still drives the window from a `collectLatest` pipeline, so
+settings, structural revisions and structural-resource revisions can still cancel an in-flight local
+pass, and "is there pending work" is still computed in four places. Separating trigger, invalidation
+and progress into an explicit work loop is the next round. Real topic generation on the phone, model
+quality and TalkBack acceptance remain unobserved.

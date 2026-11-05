@@ -16,6 +16,19 @@ data class DiscoveryStatusUi(
     val incomplete: Boolean = true
 )
 
+/** The model can be downloading while independent connection work remains active. */
+internal fun withTopicModelStatus(state: DiscoveryState, model: DiscoveryModelState?): DiscoveryState {
+    if (model == null) return state
+    if (model.installed) return state
+    val message = when {
+        model.downloading -> "Downloading the topic model. New topics will be found after it is ready."
+        model.message != null && !model.message.startsWith("Download paused.") -> "Topic model download needs attention. Open Discovery settings to retry."
+        model.downloadedBytes > 0 -> "Topic model download paused. Resume it in Settings to find new topics."
+        else -> "Download the topic discovery model in Settings to find new topics."
+    }
+    return state.copy(topicNaming = TopicNamingStatus.Unavailable, topicStatus = message)
+}
+
 /** Every destination derives status, coverage and controls from the same process-owned snapshot. */
 internal fun discoveryStatus(state: DiscoveryState): DiscoveryStatusUi {
     val status = state.processingStatus
@@ -59,6 +72,8 @@ internal fun discoveryProgress(state: DiscoveryState): DiscoveryProgressUi =
 
 private fun discoveryProcessingDescription(state: DiscoveryState): String? = when {
     state.indexing -> "Preparing cached Notes…"
+    state.topicNaming == TopicNamingStatus.Unavailable -> state.topicStatus
+        ?: "Download the topic discovery model in Settings to find new topics."
     state.topicStatus?.contains("next eligible foreground") == true -> "Discovery continues automatically when processing is available."
     state.topicStatus?.startsWith("Topic coverage is incomplete.") == true -> state.topicStatus
     state.topicStatus != null -> state.topicStatus

@@ -48,7 +48,7 @@ class CanonicalMembershipUpdateTest {
         var rejectWrite: (() -> Unit)? = null
         var afterCommit: suspend () -> Unit = {}
         val backing = FileTopicStore(root.resolve("topic-store"))
-        val initial = TopicSnapshot(topics = listOf(topic), identity = model, complete = true, acceptedRevisions = sources)
+        val initial = TopicSnapshot(topics = listOf(topic), identity = model, canonicalCatalogReady = true, acceptedRevisions = sources)
         assertEquals(TopicWriteResult.Written, backing.writeDetailed(initial))
         val graph = object : TopicStore by backing {
             var snapshot = initial

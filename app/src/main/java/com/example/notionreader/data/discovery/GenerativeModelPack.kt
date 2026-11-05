@@ -20,7 +20,7 @@ object GenerativeModelPack {
     const val metadataSha256 = "00603838ac80fadd374ff3d7b6108cfa765bf1a76adfb9df95b3387d0d7e386f"
     const val contextTokens = 2048
     const val outputTokens = 512
-    const val description = "Gemma 4 E2B · 2.41 GiB download · local topic labeling · Apache-2.0"
+    const val description = "Gemma 4 E2B · 2.41 GiB download · local topic discovery · Apache-2.0"
     internal const val schema = """{"type":"object","additionalProperties":false,"required":["topics"],"properties":{"topics":{"type":"array","minItems":1,"maxItems":1,"items":{"type":"object","additionalProperties":false,"required":["label","definition","passage_ids"],"properties":{"label":{"type":"string","minLength":1,"maxLength":96},"definition":{"type":"string","minLength":1,"maxLength":512},"passage_ids":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"string"}}}}}}}"""
     fun identity(backend: String) = TopicLabelIdentity(artifact.sha256, tokenizerSha256,
         "bundled-metadata:$metadataSha256", semanticHash(TopicLabelInstruction), semanticHash(schema),

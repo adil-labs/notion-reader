@@ -42,6 +42,8 @@ internal fun DiscoveryContent(app: ReaderApp, onOpenNote: (String) -> Unit) {
     val browse by app.browse.state.collectAsState()
     val navigation by app.navigator.state.collectAsState()
     val model = app.discoveryModel?.state?.collectAsState()?.value
+    val topicModel = app.discoveryTopicModel?.state?.collectAsState()?.value
+    val presentationState = withTopicModelStatus(state, topicModel)
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf(state.query) }
     var selectedFacet by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -67,7 +69,7 @@ internal fun DiscoveryContent(app: ReaderApp, onOpenNote: (String) -> Unit) {
         onEditSeed = { app.navigator.open(ReaderDestination.DiscoverySeeds, fromFocusId = "discovery_interest:$it", subjectId = it) },
         onRelated = { scope.launch { app.openRelatedNotes(it, "discovery_related:$it") } },
 
-        onManageDiscovery = if (!discoveryStatus(state).manageAvailable) null else ({
+        onManageDiscovery = if (!discoveryStatus(presentationState).manageAvailable) null else ({
             app.navigator.open(ReaderDestination.SettingsDiscovery, "discovery_settings") }),
         topicsContent = { TopicPreviews(app) },
         onViewInterests = { app.openInterests("discover_interests") },

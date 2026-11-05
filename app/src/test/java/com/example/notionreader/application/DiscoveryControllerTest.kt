@@ -17,6 +17,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryControllerTest {
+    @Test fun indexingWithoutATopicCatalogDoesNotScheduleTopicWork() = runBlocking {
+        val directory = Files.createTempDirectory("index-without-topics").toFile()
+        try {
+            val index = FileSemanticIndexStore(directory.resolve("index")); index.setPaused(false)
+            val controller = DiscoveryController(FileDocumentCache(directory.resolve("cache")), index,
+                FileDiscoveryInterestStore(directory.resolve("interests")), Provider())
+            controller.reconcile(emptyList(), true)
+            assertFalse("No topic catalog means no topic work", controller.hasPendingWork)
+            assertNull(controller.state.value.topicFailure)
+            controller.clearIndex()
+            controller.reconcile(emptyList(), true)
+            assertFalse("Clearing the index cannot schedule a nonexistent topic worker", controller.hasPendingWork)
+            assertNull(controller.state.value.topicFailure)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun aCachedSeedWaitingForIndexingDoesNotAskTheUserToDownloadItAgain() = runBlocking {
         val directory = Files.createTempDirectory("interest-seed-readiness").toFile()
         try {

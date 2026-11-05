@@ -167,12 +167,13 @@ class ReaderApplication : Application() {
             hasDiscoveryMemory(force = true)
             scheduledDiscovery = true
             try {
-                structuralDiscoveryPending = true
-                discoverStructuralResources()
-                if (hasStructuralWork()) {
-                    runStructuralWindow()
-                }
-                val discoveryResult = discoveryCoordinator.runWindow(120_000)
+                val discoveryResult = com.example.notionreader.application.discoveryBeforeStructuralWork(
+                    discovery = { discoveryCoordinator.runWindow(120_000) },
+                    structural = {
+                        structuralDiscoveryPending = true
+                        discoverStructuralResources()
+                        if (hasStructuralWork()) runStructuralWindow()
+                    })
                 if ((hasStructuralWork() || structuralDiscoveryPending) && structuralScheduler.isEligible()) {
                     com.example.notionreader.application.DiscoveryWindowResult.PENDING
                 } else {
@@ -437,7 +438,6 @@ class ReaderApplication : Application() {
             proposalProgressStore = proposalProgress,
             topicSupportIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.supportIdentity(labelBackend.provenance) },
             topicProposalIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.proposalIdentity(labelBackend.provenance) },
-            enableEvidenceFirstScheduling = true,
             topicLabelModelAvailable = { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery && topicModel.state.value.installed },
             invalidationAcknowledgementLimit = { minOf(recentNotes.processedInvalidationGeneration, structuralCoordinator.processedInvalidationGeneration) },
             mayContinueIndexing = { discoveryCoordinator.windowOpen && (discoveryForeground.value || scheduledDiscovery) &&
@@ -509,7 +509,8 @@ class ReaderApplication : Application() {
         }
         verifyDiscoveryModel = { discoveryModel.checkInstalled(); npuModel?.checkInstalled(); topicModel.checkInstalled() }
         discoveryCoordinator = com.example.notionreader.application.DiscoveryWorkCoordinator(
-            android.os.SystemClock::elapsedRealtime) {
+            android.os.SystemClock::elapsedRealtime,
+            onWindowEnd = { discovery.closeLabels() }) {
             activeEffort = settingsRepository.readCurrentSettings().discoveryEffort
             storageBudget.refresh()
             discovery.updateWorkAvailability(activeEffort, when {
@@ -529,6 +530,9 @@ class ReaderApplication : Application() {
         }
         discoveryWork = {
             discoveryModel.checkInstalled()
+            // Inventory must not wait behind remote structural discovery or its processing window.
+            // Reconciliation without indexing still performs normal source-withdrawal checks.
+            discoveryCoordinator.prepareInventory { discovery.reconcile(app.browse.state.value.entries, false) }
             topicModel.checkInstalled()
             discoveryScope.launch {
                 discoveryScheduler.completions().map { infos -> infos.map { it.id to it.state } }.distinctUntilChanged().collect { infos ->
@@ -542,7 +546,10 @@ class ReaderApplication : Application() {
                 discoveryForeground,
                 app.session.state.map { it.isPlaying }.distinctUntilChanged(),
                 combine(discovery.revision, app.settings, structuralCoordinator.workRevision, structuralResourceRevision) { revision, settings, structuralRevision, resourceRevision -> Triple(revision, settings, structuralRevision to resourceRevision) }
-            ) { _, entries, foreground, playing, _ -> Triple(entries, foreground, playing) }
+            ) { cacheRevision, entries, foreground, playing, signal ->
+                if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "input cacheRevision=$cacheRevision entries=${entries.size} foreground=$foreground playing=$playing wake=${signal.first} structuralRevision=${signal.third.first} resourceRevision=${signal.third.second}")
+                Triple(entries, foreground, playing)
+            }
             val constraints = combine(discoveryResourcesAvailable, discoveryPower) { resources, power -> resources to power }
             combine(inputs, discoveryModel.state.map { it.installed }.distinctUntilChanged(), constraints) { input, installed, limits ->
                 val (entries, foreground, playing) = input
@@ -553,15 +560,29 @@ class ReaderApplication : Application() {
             }.conflate().collectLatest { (work, structuralEligible, power) ->
                 val (entries, eligible, installed) = work
                 structuralTicket()
-                if (structuralEligible) discoverStructuralResources()
+                com.example.notionreader.application.discoveryBeforeStructuralWork(discovery = {
+                    if (installed) {
+                        val started = android.os.SystemClock.elapsedRealtime()
+                        var finished = false
+                        try { discoveryCoordinator.runWindow(120_000); finished = true }
+                        finally { if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "discoveryWindowMillis=${android.os.SystemClock.elapsedRealtime() - started} completed=$finished") }
+                    }
+                }, structural = {
+                if (structuralEligible) {
+                    val started = android.os.SystemClock.elapsedRealtime()
+                    var finished = false
+                    try { discoverStructuralResources(); finished = true }
+                    finally { if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "structuralDiscoveryMillis=${android.os.SystemClock.elapsedRealtime() - started} completed=$finished") }
+                }
                 if (structuralEligible && hasStructuralWork()) {
                     // Coalesce a burst of durable Browse requests before starting HTTP.
                     kotlinx.coroutines.delay(250)
-                    runStructuralWindow()
+                    val started = android.os.SystemClock.elapsedRealtime()
+                    var finished = false
+                    try { runStructuralWindow(); finished = true }
+                    finally { if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "structuralWindowMillis=${android.os.SystemClock.elapsedRealtime() - started} completed=$finished") }
                 }
-                if (installed) {
-                    discoveryCoordinator.runWindow(120_000)
-                }
+                })
                 val structuralPending = hasStructuralWork() || structuralDiscoveryPending
                 val hasAnyPending = discovery.hasPendingWork || structuralPending
                 if (!structuralPending && (!installed || discovery.state.value.paused)) discoveryScheduler.cancel()

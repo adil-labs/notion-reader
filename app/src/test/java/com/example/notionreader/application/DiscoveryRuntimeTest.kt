@@ -152,4 +152,47 @@ class DiscoveryRuntimeTest {
         models.nativeStopped.complete(Unit); models.finish.complete(Unit); advanceUntilIdle()
         assertFalse(labels.await() is TopicLabelRun.Completed)
     }
+
+    @Test fun closeLabelsWaitsForNativeTerminalBeforeClosingEngine() = runTest {
+        val models = Models().apply { delayed = true }
+        val runtime = DiscoveryRuntime(FileDocumentCache(files.newFolder()), models.provider, models.labeler)
+        val proposal = DiscoveryProposalRequest("proposal", 0, request.evidence, identity)
+        val work = async { runtime.proposeTopic(proposal) { true } }; runCurrent()
+        assertTrue("Proposal must start native work", models.entered.isCompleted)
+        assertTrue(models.nativeRunning)
+
+        val teardown = async { runtime.closeLabels() }
+        runCurrent()
+        assertTrue("Teardown must signal cancellation to active label task", models.cancellationSeen.isCompleted)
+        assertTrue("Native work must still be running before nativeStopped released", models.nativeRunning)
+        assertTrue("closeLabels must wait and not have finished closing yet", teardown.isActive)
+
+        models.nativeStopped.complete(Unit)
+        models.finish.complete(Unit)
+        advanceUntilIdle()
+
+        teardown.await()
+        assertEquals(DiscoveryProposalRun.Cancelled, work.await())
+        assertFalse("Native engine must no longer be live after closeLabels", models.labelLive)
+        assertFalse("Native must not be running", models.nativeRunning)
+    }
+
+    @Test fun independentBulkStepDoesNotBlockBehindActiveNativeInference() = runTest {
+        val models = Models().apply { delayed = true }
+        val runtime = DiscoveryRuntime(FileDocumentCache(files.newFolder()), models.provider, models.labeler)
+        val proposal = DiscoveryProposalRequest("proposal", 0, request.evidence, identity)
+        val work = async { runtime.proposeTopic(proposal) { true } }; runCurrent()
+        assertTrue("Proposal must start native work", models.entered.isCompleted)
+        assertTrue(models.nativeRunning)
+
+        val bulkResult = async { runtime.bulkStep { "bulk-complete" } }
+        runCurrent()
+        assertTrue("Independent bulkStep must complete immediately without waiting for native inference", bulkResult.isCompleted)
+        assertEquals("bulk-complete", bulkResult.await())
+
+        models.nativeStopped.complete(Unit)
+        models.finish.complete(Unit)
+        advanceUntilIdle()
+        work.await()
+    }
 }

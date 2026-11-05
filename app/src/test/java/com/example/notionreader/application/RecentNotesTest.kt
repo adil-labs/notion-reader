@@ -32,9 +32,11 @@ class RecentNotesTest {
                 override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
                 override suspend fun embed(text: String) = listOf(1f, 0f)
             }
+            val topics = com.example.notionreader.data.local.FileTopicStore(root.resolve("topics"))
+            assertTrue(topics.write(TopicSnapshot(identity = provider.identity, canonicalCatalogReady = true)))
             val discovery = DiscoveryController(cache, com.example.notionreader.data.local.FileSemanticIndexStore(root.resolve("index")),
                 com.example.notionreader.data.local.FileDiscoveryInterestStore(root.resolve("interests")), provider,
-                topicStore = com.example.notionreader.data.local.FileTopicStore(root.resolve("topics")),
+                topicStore = topics,
                 invalidationAcknowledgementLimit = { recent.processedInvalidationGeneration })
             discovery.reconcile(emptyList(), false)
             assertTrue("The unprocessed removal must remain durable", disk.invalidations.value.isNotEmpty())

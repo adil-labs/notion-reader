@@ -26,7 +26,6 @@ internal class DiscoveryIndexing(
     private val modelAvailable: () -> Boolean,
     private val mayContinueWork: () -> Boolean,
     private val pause: suspend () -> Unit,
-    private val wake: () -> Unit,
     private val monotonicNanos: () -> Long,
     private val proposalProgressStore: ProposalProgressStore?,
     private val advancePartialWork: suspend () -> Unit
@@ -44,16 +43,17 @@ internal class DiscoveryIndexing(
         val epoch = runtime.generation.get()
         try {
             var sourceGeneration = cache.revision.value
-            var snapshots = runtime.bulkStep { cache.snapshot() }
+            var snapshots = cache.snapshot()
             while (sourceGeneration != cache.revision.value) {
                 currentCoroutineContext().ensureActive()
                 sourceGeneration = cache.revision.value
-                snapshots = runtime.bulkStep { cache.snapshot() }
+                snapshots = cache.snapshot()
             }
             val sources = snapshots.associateBy { canonicalSemanticId(it.document.pageId) }
             if (state.value.cachedRevision != sourceGeneration) {
                 reconciliationPending = true
                 runtime.embeddingMemo.clear()
+                runtime.interruptLabeling()
                 mutable.update { it.copy(embeddingWork = null, indexCoverage = DiscoveryCoverageStatus.Checking) }
             }
             runtime.validity.remember(sourceGeneration, sources.mapValues { semanticRevision(it.value.document) })
@@ -364,7 +364,7 @@ internal class DiscoveryIndexing(
                 mutable.update { it.copy(indexFailure = null) }
                 if (topics?.needsMoreWork != true) reconciliationPending = false
             }
-            if (mayIndex && topics?.needsMoreWork == true) { delay(50); wake() }
+            if (mayIndex && topics?.needsMoreWork == true) delay(50)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: BulkWorkDeferred) { /* Policy deferral is not an index failure. */ }
         catch (_: Exception) { mutable.update {
@@ -374,7 +374,7 @@ internal class DiscoveryIndexing(
                 it.copy(cacheStatus = DiscoveryCacheStatus.Failed(message), message = message)
             } else it.copy(message = "Discovery index unavailable. Rebuild the index to retry.", indexFailure = "Discovery index unavailable. Rebuild the index to retry.")
         } }
-        finally { runtime.closeLabels(); mutable.update { it.copy(indexing = false) } }
+        finally { mutable.update { it.copy(indexing = false) } }
     }
 
 }

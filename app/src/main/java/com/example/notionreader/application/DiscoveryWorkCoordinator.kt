@@ -14,6 +14,7 @@ internal fun discoveryWindowResult(modelInstalled: Boolean, state: DiscoveryStat
     state.paused -> DiscoveryWindowResult.PAUSED
     !eligible -> DiscoveryWindowResult.DEFERRED
     state.processingFailure != null -> DiscoveryWindowResult.DEFERRED
+    state.topicBlock != null -> DiscoveryWindowResult.DEFERRED
     hasPendingWork -> DiscoveryWindowResult.PENDING
     else -> DiscoveryWindowResult.COMPLETE
 }
@@ -21,16 +22,21 @@ internal fun discoveryWindowResult(modelInstalled: Boolean, state: DiscoveryStat
 /** Serializes foreground and scheduled windows; the step retains durable domain progress. */
 class DiscoveryWorkCoordinator(
     private val monotonicMillis: () -> Long,
+    private val onWindowEnd: suspend () -> Unit = {},
     private val step: suspend () -> DiscoveryWindowResult
 ) {
     private val execution = Mutex()
     @Volatile private var deadline: Long? = null
     val windowOpen: Boolean get() = deadline?.let { monotonicMillis() < it } == true
 
+    /** Publish local cache inventory before potentially slow structural network work. */
+    suspend fun prepareInventory(action: suspend () -> Unit) = execution.withLock { action() }
+
     suspend fun runWindow(maximumMillis: Long): DiscoveryWindowResult {
         require(maximumMillis > 0)
         return execution.withLock {
             deadline = monotonicMillis() + maximumMillis
+            var primaryFailure: Throwable? = null
             try {
                 while (true) {
                     currentCoroutineContext().ensureActive()
@@ -40,7 +46,21 @@ class DiscoveryWorkCoordinator(
                     yield()
                 }
                 @Suppress("UNREACHABLE_CODE") DiscoveryWindowResult.PENDING
-            } finally { deadline = null }
+            } catch (failure: Throwable) {
+                primaryFailure = failure
+                throw failure
+            } finally {
+                deadline = null
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        onWindowEnd()
+                    } catch (cleanupFailure: Throwable) {
+                        val original = primaryFailure
+                        if (original == null) throw cleanupFailure
+                        if (original !== cleanupFailure) original.addSuppressed(cleanupFailure)
+                    }
+                }
+            }
         }
     }
 }

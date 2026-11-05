@@ -38,7 +38,7 @@ class CanonicalSourceAcceptanceTest {
         val matches = FileTopicRetrievalStore(root.resolve("matches"))
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val coordinator = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {},
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         val before = cache.revision.value
         coordinator.invalidate(mapOf("note" to revision))
         coordinator.build(mapOf("note" to revision), 0, before)
@@ -70,7 +70,7 @@ class CanonicalSourceAcceptanceTest {
         val matches = FileTopicRetrievalStore(root.resolve("matches"))
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val coordinator = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {},
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         val before = cache.revision.value
         coordinator.invalidate(mapOf("note" to revision))
         coordinator.build(mapOf("note" to revision), 0, before)
@@ -96,7 +96,7 @@ class CanonicalSourceAcceptanceTest {
         val matches = FileTopicRetrievalStore(root.resolve("matches"))
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val coordinator = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, { view = it },
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         val sourceRevision = cache.revision.value
         coordinator.invalidate(mapOf("note" to revision))
         coordinator.build(mapOf("note" to revision), 0, sourceRevision)
@@ -120,7 +120,7 @@ class CanonicalSourceAcceptanceTest {
         val matches = FileTopicRetrievalStore(root.resolve("matches"))
         val retrievals = TopicRetrievalCoordinator(index, matches, { model }, TopicRetrievalPolicy(.85f), { listOf(1f, 0f) }, { true }, {}, Mutex())
         val coordinator = TopicCoordinator(cache, index, graph, null, { model }, TopicPolicy(), Mutex(), { true }, {}, {},
-            retrievals = retrievals, requireKnownCatalogOnRestore = true)
+            retrievals = retrievals)
         coordinator.invalidate(sources)
         coordinator.build(sources, 0, cache.revision.value, indexComplete = false, indexedSources = mapOf("one" to "stale"))
         assertTrue("An incompatible claimed revision must not enter the catalog", graph.readMetadata()!!.acceptedRevisions.isEmpty())

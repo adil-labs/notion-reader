@@ -57,7 +57,12 @@ internal class EvidenceFirstScheduler {
             if (resetGeneration.get() != resetToken) return EvidenceFirstScheduleResult.Deferred
             return when (result) {
                 is CanonicalAdmissionResult.Pending -> { page.admissionReplay = result.replay; EvidenceFirstScheduleResult.Progress }
-                is CanonicalAdmissionResult.Admitted -> { reset(); EvidenceFirstScheduleResult.Progress }
+                is CanonicalAdmissionResult.Admitted -> {
+                    page.candidate = null
+                    page.admissionReplay = PendingCorpusReplay.start()
+                    page.index++
+                    EvidenceFirstScheduleResult.Progress
+                }
                 CanonicalAdmissionResult.Deferred -> EvidenceFirstScheduleResult.Deferred
                 CanonicalAdmissionResult.Stale -> stale()
                 else -> block()

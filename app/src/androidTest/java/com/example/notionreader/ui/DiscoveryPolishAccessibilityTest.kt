@@ -42,12 +42,17 @@ class DiscoveryPolishAccessibilityTest {
     @Test fun aTopicPreviewHasOneRepresentativeAndOneNavigationAction() {
         val p = SemanticPassage("p", "a", "s", "Ecology", "b", "c", 0, 4, "Roots", "Roots", 0)
         val members = (1..4).map { TopicMembership("n$it", SemanticMetadata("Representative $it"), p.copy(pageId = "n$it"), .9f, p) }
-        val topic = DiscoveredTopic("stable", "Forest ecology", p, EmbeddedPassage(p, listOf(1f)), members, 1)
+        val identity = TopicLabelIdentity("a", "t", "c", "p", "s", "v", "CPU")
+        val concept = CanonicalConceptEvidence("key", "Forest ecology", "Forest relationships.",
+            "Listen about forests.", identity, identity, emptyList(), emptyList(), matchingComplete = true)
+        val topic = DiscoveredTopic("stable", "Forest ecology", p, EmbeddedPassage(p, listOf(1f)), members, 1,
+            canonicalConcept = concept, canonicalProjection = CanonicalTopicProjection("key", concept.name,
+                concept.definition, concept.listeningDescription, members, members))
         var opened = 0
         compose.setContent { TopicNavigationRow(topic, { opened++ }) }
         compose.onNodeWithText("Representative 1").assertExists()
         compose.onNodeWithText("Representative 2").assertDoesNotExist()
-        compose.onNodeWithText("4 available Notes").assertIsReachable()
+        compose.onNodeWithText("4 matching Notes").assertIsReachable()
         compose.onAllNodes(hasClickAction()).assertCountEquals(1)
         compose.onNodeWithText("Forest ecology").performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(1, opened)

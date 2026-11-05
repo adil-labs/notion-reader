@@ -14,7 +14,7 @@ import org.junit.rules.TemporaryFolder
 
 class CanonicalMembershipSchedulerIntegrationTest {
     @get:Rule val files = TemporaryFolder()
-    @Test fun reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic() = runBlocking { scenario(false) }
+    @Test fun reconciliationAutomaticallyUpdatesAnExistingCanonicalTopic() = runBlocking { scenario(true) }
     @Test fun canonicalMembershipUpdatesDoNotRequireCompletedFormation() = runBlocking { scenario(true) }
     @Test fun newIndexedSourceUpdatesMembershipWithoutFormation() = runBlocking { scenario(true, newSource = true) }
     @Test fun withdrawingASourceLeavesConnectionCoveragePending() = runBlocking { scenario(true, withdraw = true) }
@@ -83,8 +83,7 @@ class CanonicalMembershipSchedulerIntegrationTest {
         fun controller() = DiscoveryController(cache, index, interests, provider,
             topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), topicRetrievalPolicy = policy,
-            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { if (supportUnavailable) null else verifier },
-            enableEvidenceFirstScheduling = incrementalCatalog)
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")), topicSupportIdentity = { if (supportUnavailable) null else verifier })
         var controller = controller()
         controller.reconcile(emptyList(), false)
         if (blockedIndex) {
