@@ -13,8 +13,13 @@ concurrency:
 jobs:
   verify:
     name: Build & Verify (JVM Suite)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # tools/build-discovery-tokenizer.ps1 requires Windows host tools and an MSVC Rust target.
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        shell: pwsh
 
     steps:
       - name: Checkout Repository
@@ -26,17 +31,27 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        run: |
+          sdkmanager --install "platforms;android-37" "build-tools;37.0.0" "cmake;3.22.1" "ndk;29.0.13846066"
+          if ($LASTEXITCODE -ne 0) { throw "Android SDK dependency installation failed" }
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,aarch64-linux-android,x86_64-linux-android
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
       - name: Run JVM Unit Tests
-        run: ./gradlew :app:testDebugUnitTest
+        run: .\gradlew.bat :app:testDebugUnitTest --stacktrace
 
       - name: Compile Instrumented Tests
-        run: ./gradlew :app:compileDebugAndroidTestKotlin
+        run: .\gradlew.bat :app:compileDebugAndroidTestKotlin --stacktrace
 
       - name: Assemble Debug APK
-        run: ./gradlew :app:assembleDebug
+        run: .\gradlew.bat :app:assembleDebug --stacktrace
