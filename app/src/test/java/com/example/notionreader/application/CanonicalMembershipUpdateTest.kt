@@ -110,8 +110,14 @@ class CanonicalMembershipUpdateTest {
         assertEquals(TopicPublicationStatus.Established, discoveryTopicPublicationStatus(restored))
         assertEquals(setOf("seed", "later"), restored.matchingMembers.map { it.pageId }.toSet())
         val currentTicket = worker.captureCatalogTicket()!!
+        // Deliberately install uncertainty; an unchanged pending citation now correctly
+        // reuses its prior decision instead of calling the supplied verifier again.
+        val uncertainRequest = pending.copy(topicId = "topic", sourceEpoch = currentTicket.epoch)
+        val uncertainAssessment = (validateTopicSupport(uncertainRequest, SupportDecision.UNCERTAIN,
+            currentTicket.epoch, key, sources) as TopicSupportValidation.Accepted).assessment
+        assertEquals(ProposalProgressWriteResult.Written, progress.writeSupport(uncertainAssessment) { true })
         val uncertain = worker.advanceExistingConceptWork(currentTicket, seed, sources, verifier, 4) {
-            TopicSupportRun.Completed(SupportDecision.UNCERTAIN)
+            error("The durable uncertain assessment must be reused")
         } as DurableConceptScanResult.AwaitingValidation
         assertEquals(CanonicalMembershipUpdateResult.Incomplete,
             worker.advanceCanonicalMembershipUpdate(currentTicket, seed, sources, verifier, uncertain.record, ConceptScanReplay.start(), 4))

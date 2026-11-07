@@ -43,8 +43,21 @@ class DiscoveryController(
     private val topicRetrievalPolicy: TopicRetrievalPolicy = TopicRetrievalPolicy(.85f),
     private val proposalProgressStore: ProposalProgressStore? = null,
     private val topicSupportIdentity: () -> TopicLabelIdentity? = { null },
-    private val topicProposalIdentity: () -> TopicLabelIdentity? = { null }
+    private val topicProposalIdentity: () -> TopicLabelIdentity? = { null },
+    private val workDiagnostics: ((Map<String, Long>) -> Unit)? = null,
+    private val diagnosticLog: (String, String) -> Unit = { _, _ -> }
 ) {
+    private val workDiagnosticContext = workDiagnostics?.let { DiscoveryWorkDiagnostics(it, monotonicNanos) }
+        ?: kotlin.coroutines.EmptyCoroutineContext
+    private suspend fun <T> measureWork(name: String, operation: suspend () -> T): T {
+        val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics] ?: return operation()
+        return diagnostics.timed(name, operation)
+    }
+    private var firstWorkStartedNanos: Long? = null
+    private var firstNewTopicReported = false
+    private fun logDiag(tag: String, msg: String) {
+        try { diagnosticLog(tag, msg) } catch (_: Exception) {}
+    }
     private val mutable = MutableStateFlow(DiscoveryState())
     private val runtime = DiscoveryRuntime(cache, provider, topicLabelRuntime, topicLabelModelAvailable)
     fun updatePowerState(power: DiscoveryPowerState) {
@@ -63,12 +76,20 @@ class DiscoveryController(
         (provider as? ObservableEmbeddingRuntime)?.runtimeState ?: MutableStateFlow(EmbeddingRuntimeState())
     private val membershipScheduler = CanonicalMembershipScheduler()
     private val evidenceScheduler = EvidenceFirstScheduler()
-    @Volatile private var evidenceWorkPending = topicStore != null
-    private val evidenceFailure = "Some topic proposals are incomplete. Retry processing."
-    private val connectionFailure = "Note connections are incomplete. Retry processing."
     private val membershipSchedulerLock = Mutex()
     @Volatile private var membershipWorkPending = false
-    private val membershipFailure = "Some topic membership checks are incomplete. Retry processing."
+    @Volatile private var evidenceWorkPending = topicStore != null
+
+    private fun isRetriableScheduling(state: DiscoveryState): Boolean =
+        state.canRetryTopicScheduling()
+
+    private fun setSchedulingFailure(current: DiscoveryState, failure: DiscoverySchedulingFailure): DiscoveryState {
+        return current.withSchedulingFailure(failure)
+    }
+
+    private fun clearSchedulingFailure(current: DiscoveryState): DiscoveryState {
+        return current.withoutSchedulingFailure()
+    }
     val hasPendingWork: Boolean get() = indexing.reconciliationPending || topics?.needsMoreWork == true || membershipWorkPending || evidenceWorkPending ||
         state.value.indexedCount < state.value.cachedPageIds.size || state.value.cachedRevision != cache.revision.value
     fun requestAutomaticContinuation() { membershipScheduler.retryBlocked(); evidenceScheduler.retryBlocked(); wake.value++ }
@@ -91,7 +112,9 @@ class DiscoveryController(
                     discoveryTopicPublicationStatus(topic)?.let { status -> PublishedTopic(topic, status) }
                 }
             it.copy(topicSnapshot = view.snapshot, publishedTopics = published,
-                topicsUpdated = view.updated, topicStatus = view.status, topicFailure = view.failure,
+                topicsUpdated = view.updated, topicStatus = view.status,
+                topicFailure = view.failure ?: it.topicFailure?.takeIf { _ -> it.topicFailureSource == TopicFailureSource.Scheduling },
+                topicFailureSource = if (view.failure != null) TopicFailureSource.Coordinator else it.topicFailureSource?.takeIf { source -> source == TopicFailureSource.Scheduling },
                 topicNaming = view.naming, workPending = hasPendingWork)
         } },
         invalidationAcknowledgementLimit = invalidationAcknowledgementLimit,
@@ -109,7 +132,7 @@ class DiscoveryController(
                 while (runtime.foregroundQueries.get() > 0) delay(10)
                 currentCoroutineContext().ensureActive()
             }, bulkGate = runtime.bulkGate) }, proposalProgress = proposalProgressStore,
-        bootstrapInterests = interestStore) }
+        bootstrapInterests = interestStore, diagnosticLog = ::logDiag) }
 
     private val interests = DiscoveryInterests(cache, interestStore, provider, mutable, runtime, retrieval,
         workDispatcher, modelAvailable, recommendationThreshold, clock)
@@ -250,40 +273,64 @@ class DiscoveryController(
         val guardedIndex = object : SemanticIndexStore by index {
             override suspend fun read(pageId: String): SemanticRecord? = runtime.bulkStep { index.read(pageId) }
         }
-        replayPendingCorpus(replay, scope,
+        measureWork("corpusReplayNanos") { replayPendingCorpus(replay, scope,
             SupportConcept("pending:${candidate.generation.workKey}", candidate.generation.workKey, concept.name, concept.definition),
             candidate.query, candidate.verifier, ticket.epoch, sources, guardedIndex, store, ::current, ::mayWork,
-            ticket.snapshot, dependencies)
+            ticket.snapshot, dependencies) }
     }
 
     /** Revalidate before handing a completed concept to the sole catalog owner. */
     internal suspend fun advanceCanonicalAdmission(done: PendingCorpusWorkResult.Done,
         replay: PendingCorpusReplay): CanonicalAdmissionResult = withContext(workDispatcher) {
         val candidate = done.candidate
-        val owner = topics ?: return@withContext CanonicalAdmissionResult.Incomplete
-        val ticket = candidate.catalogTicket ?: return@withContext CanonicalAdmissionResult.Incomplete
+        val owner = topics ?: return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "topics is null") }
+        val ticket = candidate.catalogTicket ?: return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "candidate.catalogTicket is null") }
         if (candidate.proposal.incomplete != candidate.generation.incomplete ||
             done.reconciliationReasons != candidate.proposal.incomplete ||
             candidate.proposal.incomplete.any { it.blocksConceptAdmission() })
-            return@withContext CanonicalAdmissionResult.Incomplete
+            return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "incomplete reasons mismatch: prop=${candidate.proposal.incomplete} gen=${candidate.generation.incomplete} done=${done.reconciliationReasons}") }
         val token = runtime.validity.capture()
         val indexedRevision = mutable.value.indexedRevision
         fun current() = owner.isCatalogTicketCurrent(ticket) && runtime.validity.isCurrent(token) &&
             mutable.value.indexedRevision == indexedRevision && topicProposalIdentity() == candidate.generator &&
             topicSupportIdentity() == candidate.verifier
-        if (!current()) return@withContext CanonicalAdmissionResult.Stale
-        val checked = revalidatePendingCandidateCorpus(candidate, replay)
-        if (!current()) return@withContext CanonicalAdmissionResult.Stale
-        when (checked) {
+        if (!current()) return@withContext CanonicalAdmissionResult.Stale.also { logDiag("CanonicalAdmission", "current() false before checked: ticket=${owner.isCatalogTicketCurrent(ticket)} token=${runtime.validity.isCurrent(token)} idxRev=${mutable.value.indexedRevision == indexedRevision} prop=${topicProposalIdentity() == candidate.generator} supp=${topicSupportIdentity() == candidate.verifier}") }
+        if (!mayContinueWork() || runtime.foregroundQueries.get() != 0)
+            return@withContext CanonicalAdmissionResult.Deferred
+        val checked = if (done.verified?.invoke(done) == true &&
+            runtime.validity.eligibleRevisions() == candidate.sources) {
+            when (val citations = revalidatePendingCandidate(candidate)) {
+                PendingConceptCoverage.Stale -> PendingCorpusReplayResult.Stale
+                is PendingConceptCoverage.Complete ->
+                    if (citations.assessments.all { it.decision == SupportDecision.SUPPORTED }) done.coverage
+                    else PendingCorpusReplayResult.Invalid
+                else -> PendingCorpusReplayResult.Invalid
+            }
+        } else revalidatePendingCandidateCorpus(candidate, replay)
+        logDiag("CanonicalAdmission", "checked=${checked::class.simpleName}")
+        if (!current()) return@withContext CanonicalAdmissionResult.Stale.also { logDiag("CanonicalAdmission", "current() false after checked") }
+        val outcome = when (checked) {
             is PendingCorpusReplayResult.Pending -> CanonicalAdmissionResult.Pending(checked.replay)
             PendingCorpusReplayResult.Stale -> CanonicalAdmissionResult.Stale
             PendingCorpusReplayResult.Deferred -> CanonicalAdmissionResult.Deferred
             is PendingCorpusReplayResult.Complete -> {
-                if (done.coverage != checked) CanonicalAdmissionResult.Stale
+                if (done.coverage != checked) CanonicalAdmissionResult.Stale.also { logDiag("CanonicalAdmission", "coverage mismatch") }
                 else owner.admitCandidate(ticket, candidate, checked, ::current)
             }
-            else -> CanonicalAdmissionResult.Incomplete
+            is PendingCorpusReplayResult.Incomplete -> {
+                if (done.coverage != checked &&
+                    (done.coverage !is PendingCorpusReplayResult.Incomplete ||
+                        done.coverage.pageId != checked.pageId)) {
+                    CanonicalAdmissionResult.Stale.also { logDiag("CanonicalAdmission", "coverage mismatch (Incomplete)") }
+                } else if (candidate.citations.isNotEmpty() &&
+                    candidate.citations.all { it.decision == SupportDecision.SUPPORTED }) {
+                    owner.admitCandidate(ticket, candidate, checked, ::current)
+                } else CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "citations not all supported: ${candidate.citations.map { it.decision }}") }
+            }
+            else -> CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "checked unexpected: $checked") }
         }
+        logDiag("CanonicalAdmission", "outcome=${outcome::class.simpleName}")
+        outcome
     }
 
     /** Runs bounded existing steps inside the caller's process-owned work window. */
@@ -307,6 +354,14 @@ class DiscoveryController(
     /** Advance at most one existing bounded operation; the caller owns scheduling and retries. */
     internal suspend fun advancePendingCorpusWork(work: PendingCorpusWork, maxRecords: Int = 8,
         windowContinue: () -> Boolean = { true }): PendingCorpusWorkResult {
+        val validity = runtime.validity.capture()
+        val indexedRevision = mutable.value.indexedRevision
+        fun completed(coverage: PendingCorpusReplayResult, candidate: PendingConceptCandidate,
+            reasons: Set<ProposalIncompleteReason>) =
+            PendingCorpusWorkResult.Done(coverage, candidate, reasons) { done ->
+                done.coverage === coverage && done.candidate === candidate &&
+                    runtime.validity.isCurrent(validity) && mutable.value.indexedRevision == indexedRevision
+            }
         val result = when (work.phase) {
             PendingCorpusWorkPhase.CORPUS -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
@@ -324,6 +379,7 @@ class DiscoveryController(
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
                 retrieveScan = work.note, checkpointPendingScan = true)
         }
+        logDiag("PendingCorpus", "advancePendingCorpusWork start: phase=${work.phase} citation=${work.citationIndex} corpusOffset=${work.corpus.offset} stepResult=${result::class.simpleName}")
         if (result is EvidenceFirstNoteStep.PendingKnownCatalog)
             return PendingCorpusWorkResult.Pending(work.copy(knownCatalogScan = result.scan))
         if (result is EvidenceFirstNoteStep.PendingReplay)
@@ -353,15 +409,27 @@ class DiscoveryController(
             }
             is EvidenceFirstNoteStep.CorpusReplay -> when (val replay = result.replay) {
                 is PendingCorpusReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(corpus = replay.replay, generationKey = result.candidate.generation.workKey))
-                is PendingCorpusReplayResult.Incomplete -> return PendingCorpusWorkResult.Pending(work.copy(
-                    phase = PendingCorpusWorkPhase.REPLAY_NOTE, corpus = replay.replay, target = replay.pageId, generationKey = result.candidate.generation.workKey,
-                    note = PendingConceptNoteScan.start()))
+                is PendingCorpusReplayResult.Incomplete -> {
+                    val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
+                        ?: return PendingCorpusWorkResult.Stopped(result, work)
+                    if (result.candidate.catalogTicket != null &&
+                        result.candidate.citations.isNotEmpty() &&
+                        result.candidate.citations.all { it.decision == SupportDecision.SUPPORTED } &&
+                        result.candidate.citations.none { it.evidence.pageId == replay.pageId } &&
+                        !result.window.scanPending &&
+                        !proposal.incomplete.any { it.blocksConceptAdmission() }) {
+                        return completed(replay, result.candidate, proposal.incomplete)
+                    }
+                    return PendingCorpusWorkResult.Pending(work.copy(
+                        phase = PendingCorpusWorkPhase.REPLAY_NOTE, corpus = replay.replay, target = replay.pageId, generationKey = result.candidate.generation.workKey,
+                        note = PendingConceptNoteScan.start()))
+                }
                 is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> {
                     val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
                         ?: return PendingCorpusWorkResult.Stopped(result, work)
                     return if (pendingCorpusIsIncomplete(replay, proposal.incomplete, result.window.scanPending))
                         PendingCorpusWorkResult.Incomplete(replay, result.candidate, proposal.incomplete, result.window.scanPending)
-                    else PendingCorpusWorkResult.Done(replay, result.candidate, proposal.incomplete)
+                    else completed(replay, result.candidate, proposal.incomplete)
                 }
                 else -> Unit
             }
@@ -414,8 +482,10 @@ class DiscoveryController(
             return EvidenceFirstNoteStep.Incomplete
         }
         if (corpusReplay != null) {
-            val corpus = replayPendingCorpus(corpusReplay, scopeTicket, pendingConcept, embeddedQuery, verifier,
-                epoch, sources, guardedIndex, store, current, mayWork, scopeAnchor, proposalDependencies)
+            val corpus = measureWork("corpusReplayNanos") {
+                replayPendingCorpus(corpusReplay, scopeTicket, pendingConcept, embeddedQuery, verifier,
+                    epoch, sources, guardedIndex, store, current, mayWork, scopeAnchor, proposalDependencies)
+            }
             if (!current()) return EvidenceFirstNoteStep.Stale
             if (!mayWork()) return EvidenceFirstNoteStep.Deferred
             if (guardedIndex.read(canonicalSemanticId(originPageId)) != record || !current())
@@ -833,42 +903,62 @@ class DiscoveryController(
         previews.connectionPreview(connectionId, snapshot, expectedCacheRevision)
 
     suspend fun reconcile(entries: List<ReaderIndexEntry>, mayIndex: Boolean) {
-        withContext(workDispatcher) {
+        withContext(workDispatcher + workDiagnosticContext) {
+            if (workDiagnostics != null && mayIndex && firstWorkStartedNanos == null)
+                firstWorkStartedNanos = monotonicNanos()
             mutable.update { it.copy(workPending = hasPendingWork) }
             try {
                 if (topicStore?.resetPending() == true && recoverPendingReset())
                     return@withContext
                 indexing.reconcileInBackground(entries, mayIndex)
-                if (topicStore != null && mayIndex && mayContinueWork() && !state.value.paused &&
-                    runtime.foregroundQueries.get() == 0 && topics?.sourceAcceptancePending != true && state.value.indexFailure != null) {
-                    try { advancePartialWork() }
-                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (_: Exception) { evidenceWorkPending = true }
-                }
-                if (mayIndex && mayContinueWork() && !state.value.paused && runtime.foregroundQueries.get() == 0 &&
-                    topics?.sourceAcceptancePending != true && state.value.indexFailure == null && (state.value.topicFailure == null || state.value.topicFailure == membershipFailure || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
-                    try { advanceScheduledMembership() }
-                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (_: Exception) {
-                        membershipWorkPending = true
-                        mutable.update { it.copy(topicFailure = membershipFailure) }
-                    }
-                    if (membershipWorkPending && state.value.topicFailure == membershipFailure) {
-                        try { advanceConnectionsWhileMembershipBlocked() }
-                        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                        catch (_: Exception) { mutable.update { it.copy(topicFailure = connectionFailure) } }
-                    }
-                    if (topicStore != null && !membershipWorkPending &&
-                        (state.value.topicFailure == null || state.value.topicFailure == evidenceFailure || state.value.topicFailure == connectionFailure)) {
-                        try { advanceScheduledEvidence() }
-                        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                        catch (_: Exception) {
-                            evidenceWorkPending = true
-                            mutable.update { it.copy(topicFailure = evidenceFailure) }
-                        }
-                    }
-                }
+                advanceDomainWork(mayIndex)
             } finally { mutable.update { it.copy(workPending = hasPendingWork) } }
+        }
+    }
+
+    private suspend fun advanceDomainWork(mayIndex: Boolean) {
+        if (!mayIndex || !mayContinueWork() || state.value.paused ||
+            runtime.foregroundQueries.get() > 0 || topics?.sourceAcceptancePending == true) {
+            reportWork(mapOf("domainDeferred" to 1L, "mayIndex" to if (mayIndex) 1L else 0L,
+                "sourceAcceptancePending" to if (topics?.sourceAcceptancePending == true) 1L else 0L))
+            return
+        }
+
+        if (topicStore != null && state.value.indexFailure != null) {
+            try { advancePartialWork() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true }
+            catch (_: Exception) { evidenceWorkPending = true }
+            return
+        }
+
+        if (state.value.indexFailure != null || !isRetriableScheduling(state.value)) {
+            return
+        }
+
+        try { advanceScheduledMembership() }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: DiscoveryEligibilityChanged) { membershipWorkPending = true; return }
+        catch (_: Exception) {
+            membershipWorkPending = true
+            mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
+        }
+
+        if (membershipWorkPending && state.value.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) {
+            try { advanceConnectionsWhileMembershipBlocked() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true; return }
+            catch (_: Exception) { mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ConnectionsIncomplete) } }
+        }
+
+        if (topicStore != null && !membershipWorkPending && isRetriableScheduling(state.value)) {
+            try { advanceScheduledEvidence() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true; return }
+            catch (_: Exception) {
+                evidenceWorkPending = true
+                mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ProposalsIncomplete) }
+            }
         }
     }
     private suspend fun advanceScheduledMembership() = membershipSchedulerLock.withLock {
@@ -882,24 +972,27 @@ class DiscoveryController(
         val pending = canonicalMembershipNeedsWork(ticket.snapshot, sources, verifier, fullCoverage)
         if (!pending) {
             membershipWorkPending = false
-            mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
+            mutable.update { if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) clearSchedulingFailure(it) else it }
             return@withLock
         }
         if (verifier == null || proposalProgressStore == null) {
             membershipWorkPending = true
-            mutable.update { it.copy(topicFailure = membershipFailure) }
+            mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
             return@withLock
         }
-        mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
-        when (membershipScheduler.step(ticket.snapshot, sources, verifier,
+        mutable.update { if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) clearSchedulingFailure(it) else it }
+        val result = membershipScheduler.step(ticket.snapshot, sources, verifier,
             scan = { page, restart -> advanceExistingConceptWorkForNote(page, 8, restart) },
             commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) },
-            fullCoverage = fullCoverage)) {
+            fullCoverage = fullCoverage)
+        logDiag("EvidenceScheduler", "membership result=${result.name}")
+        when (result) {
             CanonicalMembershipScheduleResult.Idle -> membershipWorkPending = false
-            CanonicalMembershipScheduleResult.Progress -> membershipWorkPending = true
+            CanonicalMembershipScheduleResult.Progress,
+            CanonicalMembershipScheduleResult.Deferred -> membershipWorkPending = true
             CanonicalMembershipScheduleResult.Blocked -> {
                 membershipWorkPending = true
-                mutable.update { it.copy(topicFailure = membershipFailure) }
+                mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
             }
         }
     }
@@ -912,11 +1005,11 @@ class DiscoveryController(
         if (sources != ticket.snapshot.acceptedRevisions) return@withLock
         when (owner.advanceIncrementalConnections(ticket, sources)) {
             IncrementalConnectionsResult.Pending -> {
-                mutable.update { if (it.topicFailure == membershipFailure) it.copy(topicFailure = null) else it }
+                mutable.update { if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) clearSchedulingFailure(it) else it }
             }
-            IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> mutable.update { it.copy(topicFailure = membershipFailure) }
+            IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
             IncrementalConnectionsResult.Deferred -> Unit
-            IncrementalConnectionsResult.Failed -> mutable.update { it.copy(topicFailure = connectionFailure) }
+            IncrementalConnectionsResult.Failed -> mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ConnectionsIncomplete) }
         }
     }
 
@@ -950,9 +1043,9 @@ class DiscoveryController(
 
     /** Reuses the process reconciliation window and the same inference and commit gates. */
     private suspend fun advanceScheduledEvidence() = membershipSchedulerLock.withLock {
-        fun block(message: String = evidenceFailure) {
+        fun block(failure: DiscoverySchedulingFailure = DiscoverySchedulingFailure.ProposalsIncomplete) {
             evidenceWorkPending = true
-            mutable.update { it.copy(topicFailure = message) }
+            mutable.update { setSchedulingFailure(it, failure) }
         }
         val owner = topics ?: return@withLock block()
         val ticket = owner.captureCatalogTicket() ?: return@withLock block()
@@ -965,17 +1058,20 @@ class DiscoveryController(
             fun unavailable() {
                 if (missingModel) {
                     evidenceWorkPending = true
-                    mutable.update { it.copy(topicBlock = DiscoveryTopicBlock.ModelUnavailable, topicFailure = null) }
+                    mutable.update { clearSchedulingFailure(it).copy(topicBlock = DiscoveryTopicBlock.ModelUnavailable) }
                 } else block()
             }
             when (owner.advanceIncrementalConnections(ticket, sources)) {
                 IncrementalConnectionsResult.Pending -> {
                     evidenceWorkPending = true
-                    mutable.update { it.copy(topicBlock = null, topicFailure = if (it.topicFailure == evidenceFailure) null else it.topicFailure) }
+                    mutable.update { current ->
+                        (if (current.schedulingFailure == DiscoverySchedulingFailure.ProposalsIncomplete) clearSchedulingFailure(current) else current)
+                            .copy(topicBlock = null)
+                    }
                 }
                 IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> unavailable()
                 IncrementalConnectionsResult.Deferred -> { unavailable(); delay(10) }
-                IncrementalConnectionsResult.Failed -> block(connectionFailure)
+                IncrementalConnectionsResult.Failed -> block(DiscoverySchedulingFailure.ConnectionsIncomplete)
             }
             return@withLock
         }
@@ -983,30 +1079,97 @@ class DiscoveryController(
             ticket.identity.toString(), mutable.value.indexedRevision.toString(), verifier.toString(), generator.toString()) +
             sources.toSortedMap().flatMap { listOf(it.key, it.value) }
         val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
-        mutable.update { it.copy(topicBlock = null, topicFailure = if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) null else it.topicFailure) }
-        when (evidenceScheduler.step(scope, sources.keys.sorted(),
-            inspect = { page, offset, replay, restart -> advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart) },
-            process = { work -> advancePendingCorpusWork(work) },
-            admit = { done, replay -> advanceCanonicalAdmission(done, replay) })) {
+        mutable.update { clearSchedulingFailure(it.copy(topicBlock = null)) }
+        val result = evidenceScheduler.step(scope, sources.keys.sorted(),
+            inspect = { page, offset, replay, restart ->
+                advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart).also {
+                    logDiag("EvidenceScheduler", "inspect offset=$offset restart=$restart result=${it::class.simpleName}" +
+                        if (it is EvidenceFirstNoteStep.Proposals)
+                            " proposals=${it.window.window.proposals.size} scanPending=${it.window.scanPending}"
+                        else "")
+                    reportWork(mapOf("evidenceInspect" to when (it) {
+                        EvidenceFirstNoteStep.PendingScan -> 1L
+                        is EvidenceFirstNoteStep.PendingReplay -> 2L
+                        is EvidenceFirstNoteStep.Proposals -> if (it.window.scanPending) 3L else 4L
+                        EvidenceFirstNoteStep.Deferred -> 5L
+                        EvidenceFirstNoteStep.Stale -> 6L
+                        else -> 7L
+                    }))
+                }
+            },
+            process = { work ->
+                val started = System.nanoTime()
+                advancePendingCorpusWork(work).also {
+                if (it is PendingCorpusWorkResult.Stopped)
+                    logDiag("EvidenceScheduler", "proposal stopped reason=${it.reason::class.simpleName}")
+                val nextCorpusOffset = (it as? PendingCorpusWorkResult.Pending)?.work?.corpus?.offset
+                val elapsedMillis = (System.nanoTime() - started) / 1_000_000
+                logDiag("EvidenceScheduler", "process phase=${work.phase} result=${it::class.simpleName} corpusOffset=${work.corpus.offset} nextCorpusOffset=$nextCorpusOffset elapsedMs=$elapsedMillis")
+                reportWork(mapOf("evidenceProcess" to when (it) {
+                is PendingCorpusWorkResult.Pending -> 1L
+                is PendingCorpusWorkResult.Done -> 2L
+                is PendingCorpusWorkResult.Abstained -> 3L
+                is PendingCorpusWorkResult.Incomplete -> 4L
+                is PendingCorpusWorkResult.Stopped -> {
+                    reportWork(mapOf("evidenceStop" to when (val reason = it.reason) {
+                        EvidenceFirstNoteStep.Stale -> 1L
+                        EvidenceFirstNoteStep.Deferred -> 2L
+                        EvidenceFirstNoteStep.Incomplete -> 3L
+                        is EvidenceFirstNoteStep.GenerationFailure -> when (reason.result) {
+                            ProposalGenerationResult.Stale -> 10L
+                            ProposalGenerationResult.Invalid -> 11L
+                            ProposalGenerationResult.Unavailable -> 12L
+                            ProposalGenerationResult.Cancelled -> 13L
+                            is ProposalGenerationResult.Failed -> 20L + reason.result.reason.ordinal
+                            is ProposalGenerationResult.StorageFailure -> 30L
+                            else -> 31L
+                        }
+                        is EvidenceFirstNoteStep.ScanFailure -> 40L
+                        is EvidenceFirstNoteStep.ProposalFailure -> 41L
+                        is EvidenceFirstNoteStep.AssessmentFailure -> 42L
+                        is EvidenceFirstNoteStep.RetrievalFailure -> 43L
+                        else -> 99L
+                    }))
+                    5L
+                }
+            })) } },
+            admit = { done, replay ->
+                val wasPresent = mutable.value.topicSnapshot.topics.any { it.canonicalConcept?.workKey == done.candidate.generation.workKey }
+                measureWork("canonicalAdmissionNanos") { advanceCanonicalAdmission(done, replay) }.also {
+                    if (it is CanonicalAdmissionResult.Admitted && !wasPresent) {
+                        reportWork(mapOf("topicsAdmitted" to 1L))
+                        if (!firstNewTopicReported && mutable.value.publishedTopics.any { published -> published.topic.id == it.topicId }) {
+                            firstWorkStartedNanos?.let { started ->
+                                reportWork(mapOf("firstPublishedTopicNanos" to (monotonicNanos() - started).coerceAtLeast(0)))
+                            }
+                            firstNewTopicReported = true
+                        }
+                    }
+                    logDiag("EvidenceScheduler", "admit replayOffset=${replay.offset} result=${it::class.simpleName}")
+                }
+            }, generation = ticket.snapshot.generation)
+        logDiag("EvidenceScheduler", "stepResult: ${result.name}")
+        reportWork(mapOf("evidenceScheduler" to result.ordinal.toLong()))
+        when (result) {
             EvidenceFirstScheduleResult.Idle -> {
                 when (owner.advanceIncrementalConnections(ticket, sources)) {
                     IncrementalConnectionsResult.Pending, IncrementalConnectionsResult.Updated -> evidenceWorkPending = true
                     IncrementalConnectionsResult.Complete -> {
                         evidenceWorkPending = false
-                        mutable.update { if (it.topicFailure == evidenceFailure || it.topicFailure == connectionFailure) it.copy(topicFailure = null) else it }
+                        mutable.update { clearSchedulingFailure(it) }
                     }
                     IncrementalConnectionsResult.Deferred -> { evidenceWorkPending = true; delay(10) }
-                    IncrementalConnectionsResult.Failed -> block(connectionFailure)
+                    IncrementalConnectionsResult.Failed -> block(DiscoverySchedulingFailure.ConnectionsIncomplete)
                 }
             }
             EvidenceFirstScheduleResult.Progress -> evidenceWorkPending = true
             EvidenceFirstScheduleResult.Blocked -> {
                 evidenceWorkPending = true
                 when (owner.advanceIncrementalConnections(ticket, sources)) {
-                    IncrementalConnectionsResult.Pending -> mutable.update { if (it.topicFailure == evidenceFailure) it.copy(topicFailure = null) else it }
+                    IncrementalConnectionsResult.Pending -> mutable.update { if (it.schedulingFailure == DiscoverySchedulingFailure.ProposalsIncomplete) clearSchedulingFailure(it) else it }
                     IncrementalConnectionsResult.Updated, IncrementalConnectionsResult.Complete -> block()
-                    IncrementalConnectionsResult.Deferred -> { mutable.update { it.copy(topicFailure = evidenceFailure) }; delay(10) }
-                    IncrementalConnectionsResult.Failed -> block(connectionFailure)
+                    IncrementalConnectionsResult.Deferred -> { mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ProposalsIncomplete) }; delay(10) }
+                    IncrementalConnectionsResult.Failed -> block(DiscoverySchedulingFailure.ConnectionsIncomplete)
                 }
             }
             EvidenceFirstScheduleResult.Deferred -> { evidenceWorkPending = true; delay(10) }
@@ -1020,6 +1183,10 @@ class DiscoveryController(
         try { queryTimings(timing) } catch (_: Exception) { /* Diagnostic observer only. */ }
     }
 
+    private fun reportWork(timing: Map<String, Long>) {
+        try { workDiagnostics?.invoke(timing) } catch (_: Exception) { /* Diagnostics do not control work. */ }
+    }
+
     suspend fun relatedNotes(pageId: String) = search.relatedNotes(pageId)
 
     suspend fun refreshRecommendations() = interests.refreshRecommendations()
@@ -1030,6 +1197,10 @@ class DiscoveryController(
         runtime.commits.withLock { index.setPaused(true); mutable.update { it.copy(paused = true) }; wake.value++ }
         runtime.interruptLabeling()
         runtime.closeLabels()
+    }
+    fun invalidateSources() {
+        runtime.validity.invalidate()
+        indexing.markSourcesForReconciliation()
     }
     suspend fun resume() {
         if (topicStore?.resetPending() == true) {
@@ -1049,14 +1220,14 @@ class DiscoveryController(
     private suspend fun clearIndexLocked(preserveTopicContinuity: Boolean) {
         if (!preserveTopicContinuity && topicStore != null && !topicStore.beginReset()) {
             index.setPaused(true)
-            mutable.update { it.copy(paused = true, topicFailure = "Topic reset needs storage before it can continue.") }
+            mutable.update { it.copy(paused = true, topicFailure = "Topic reset needs storage before it can continue.", topicFailureSource = TopicFailureSource.Coordinator) }
             return
         }
         connectionProjection.clear()
         runtime.embeddingMemo.clear()
         if (!preserveTopicContinuity) mutable.update {
             it.copy(topicSnapshot = TopicSnapshot(), publishedTopics = emptyList(), topicsUpdated = false,
-                topicStatus = "Clearing Discovery data…", topicFailure = null)
+                topicStatus = "Clearing Discovery data…", topicFailure = null, topicFailureSource = null, schedulingFailure = null)
         }
         runtime.generation.incrementAndGet(); membershipWorkPending = false; evidenceWorkPending = topicStore != null; membershipScheduler.retryBlocked(); evidenceScheduler.reset(); search.reset(); index.clear()
         passageProgressStore?.clear()
@@ -1065,7 +1236,7 @@ class DiscoveryController(
         val topicClearFailure = if (preserveTopicContinuity) { topics?.invalidate(emptyMap()); null } else topics?.clear()
         mutable.update { it.copy(relatedPageId = null, results = emptyList(), related = emptyList(), recommendations = emptyList(), older = emptyList(),
             interestMatch = InterestMatchState(), indexedRevision = it.indexedRevision + 1,
-            preview = emptyList(), indexedCount = 0, indexCoverage = DiscoveryCoverageStatus.Ready, embeddingWork = null, paused = true, indexFailure = null, topicFailure = topicClearFailure, topicBlock = null, searching = false,
+            preview = emptyList(), indexedCount = 0, indexCoverage = DiscoveryCoverageStatus.Ready, embeddingWork = null, paused = true, indexFailure = null, topicFailure = topicClearFailure, topicFailureSource = topicClearFailure?.let { TopicFailureSource.Coordinator }, schedulingFailure = null, topicBlock = null, searching = false,
             searchFailure = null, searchCompleted = false, message = null, bytes = index.bytes()) }
         wake.value++
     }

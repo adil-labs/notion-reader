@@ -84,7 +84,8 @@ internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int
 internal sealed interface PendingCorpusWorkResult {
     data class Pending(val work: PendingCorpusWork) : PendingCorpusWorkResult
     data class Done(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate,
-        val reconciliationReasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason> = emptySet()) : PendingCorpusWorkResult
+        val reconciliationReasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason> = emptySet(),
+        val verified: ((Done) -> Boolean)? = null) : PendingCorpusWorkResult
     data class Incomplete(val coverage: PendingCorpusReplayResult, val candidate: PendingConceptCandidate,
         val reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>,
         val scanPending: Boolean) : PendingCorpusWorkResult

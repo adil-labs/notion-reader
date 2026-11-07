@@ -19,7 +19,7 @@ import org.junit.Test
 
 class DiscoveryTopicsIntegrationTest {
     private fun conceptController(directory: java.io.File, cache: FileDocumentCache, index: FileSemanticIndexStore,
-        provider: EmbeddingProvider): DiscoveryController {
+        provider: EmbeddingProvider, diagnostic: (String, String) -> Unit = { _, _ -> }): DiscoveryController {
         val identity = TopicLabelIdentity("fixture", "tokens", "template", "prompt", "schema", "policy", "fixture")
         val generator = object : TopicLabelRuntime, TopicSupportRuntime, DiscoveryProposalRuntime {
             override suspend fun label(request: TopicLabelRequest) = TopicLabelRun.Completed(TopicLabelCandidate(
@@ -36,7 +36,7 @@ class DiscoveryTopicsIntegrationTest {
             topicLabelIdentity = { identity }, topicSupportIdentity = { identity }, topicProposalIdentity = { identity },
             topicLabelStore = FileTopicLabelStore(directory.resolve("labels")),
             topicRetrievalStore = FileTopicRetrievalStore(directory.resolve("matches")),
-            proposalProgressStore = FileProposalProgressStore(directory.resolve("progress")))
+            proposalProgressStore = FileProposalProgressStore(directory.resolve("progress")), diagnosticLog = diagnostic)
     }
     @Test fun aHundredNoteConnectionSweepResumesAndReconcilesMovesAndRemovalsExactly() = runBlocking {
         val dir = Files.createTempDirectory("hundred-note-connections").toFile()
@@ -412,12 +412,18 @@ class DiscoveryTopicsIntegrationTest {
             val index = FileSemanticIndexStore(dir.resolve("index")); index.setPaused(false)
             repeat(3) { n -> cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p$n", "Forest $n", listOf(
                 "Forest ecology sustains diverse wildlife habitats and woodland ecosystems.")), null, Instant.EPOCH)) }
-            val controller = conceptController(dir, cache, index, Provider())
+            val diagnostics = ArrayDeque<String>()
+            val controller = conceptController(dir, cache, index, Provider()) { tag, message ->
+                val outcome = message.substringBefore(" elapsedMs=")
+                if (tag in setOf("EvidenceScheduler", "CanonicalAdmission") && outcome !in diagnostics) {
+                    diagnostics.addLast(outcome)
+                }
+            }
             controller.setTopicsInspected(true)
             controller.reconcile(emptyList(), true)
             assertTrue(controller.hasPendingWork)
             repeat(200) { if (controller.hasPendingWork) controller.reconcile(emptyList(), true) }
-            assertFalse(controller.hasPendingWork)
+            assertFalse("Background work still pending: ${controller.state.value.topicFailure}; $diagnostics", controller.hasPendingWork)
             assertTrue(controller.state.value.topicsUpdated)
             assertFalse("Inspected coverage stays pinned until Refresh", controller.state.value.topicSnapshot.connectionPassComplete)
             controller.updateWorkAvailability(com.example.notionreader.domain.settings.DiscoveryEffort.BALANCED,

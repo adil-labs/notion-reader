@@ -79,9 +79,7 @@ class PendingConceptRetrievalTest {
         assertEquals(setOf("a"), done.supported); assertEquals(setOf("b"), done.uncertain)
         assertEquals(ProposalProgressWriteResult.Written, savePendingNoteResult(concept, record, mapOf("note" to "r1"), done, null, store) { true })
         val checkpoint = store.readPendingNoteScan(work, "note", mapOf("note" to "r1"))!!
-        val firstReplay = replayPendingNoteScan(checkpoint, PendingConceptNoteScan.start(), concept, query, record, index, verifier, 4,
-            mapOf("note" to "r1"), store, { true }, { true }) as PendingNoteReplayResult.Pending
-        val replayed = replayPendingNoteScan(checkpoint, firstReplay.scan, concept, query, record, index, verifier, 4,
+        val replayed = replayPendingNoteScan(checkpoint, PendingConceptNoteScan.start(), concept, query, record, index, verifier, 4,
             mapOf("note" to "r1"), store, { true }, { true }) as PendingNoteReplayResult.Uncertain
         assertEquals(setOf("a"), replayed.supported); assertEquals(setOf("b"), replayed.uncertain)
     }
@@ -203,7 +201,8 @@ class PendingConceptRetrievalTest {
         assertFalse(pendingCorpusIsIncomplete(complete, emptySet(), false))
         assertFalse(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.STRUCTURE), false))
         assertFalse(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.ANCHOR_WINDOW), false))
-        assertTrue(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.EVIDENCE_LIMIT), false))
+        assertFalse("A full proposal bundle does not invalidate independently checked corpus support",
+            pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.EVIDENCE_LIMIT), false))
         assertTrue(pendingCorpusIsIncomplete(complete, setOf(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG), false))
         assertTrue(pendingCorpusIsIncomplete(complete, emptySet(), true))
     }}

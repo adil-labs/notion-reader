@@ -8,6 +8,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class EvidenceFirstSchedulerTest {
+    private fun completed(key: String): PendingCorpusWorkResult.Done {
+        val model = EmbeddingIdentity("model", 2)
+        val verifier = TopicLabelIdentity("a", "t", "template", "p", "s", "policy", "CPU")
+        val response = DiscoveryProposalResponse.Concept("Subject $key", "Definition $key", "Listen $key", listOf("p"))
+        val generation = ProposalGenerationResult.Completed(response, key, emptySet())
+        val query = TopicQueryEmbedding(TopicRetrievalQuery("pending:$key", semanticHash(key), "Subject $key", model,
+            TopicRetrievalPolicy(.8f)), listOf(1f, 0f))
+        return PendingCorpusWorkResult.Done(PendingCorpusReplayResult.Complete(emptyMap()),
+            PendingConceptCandidate(proposal(key), generation, emptyList(), emptyMap(), model,
+                verifier, verifier, query, null))
+    }
+
+    @Test fun admissionReconsidersTheChangedWindowWithoutSkippingOrRepeatingProposals() = runBlocking {
+        val scheduler = EvidenceFirstScheduler()
+        val admitted = mutableListOf<String>()
+        var generation = 0L
+        suspend fun step() = scheduler.step("scope", listOf("note"),
+            inspect = { _, _, _, _ -> ready(if (admitted.isEmpty()) listOf("a", "b") else listOf("b")) },
+            process = { work -> completed(if (admitted.isEmpty()) listOf("a", "b")[work.proposalIndex] else "b") },
+            admit = { done, _ -> admitted += done.candidate.generation.workKey; generation++
+                CanonicalAdmissionResult.Admitted("topic-${done.candidate.generation.workKey}") },
+            generation = generation)
+        repeat(12) { step() }
+        assertEquals(listOf("a", "b"), admitted)
+        assertEquals(EvidenceFirstScheduleResult.Idle, step())
+    }
     private fun proposal(id: String) = IncrementalProposal(id, emptyList(), emptySet(), emptySet())
     private fun ready(ids: List<String>, next: Int? = null, pending: Boolean = false) =
         EvidenceFirstNoteStep.Proposals(IncrementalProposalStepResult.Ready(ProposalWindow(ids.map(::proposal), next), pending))

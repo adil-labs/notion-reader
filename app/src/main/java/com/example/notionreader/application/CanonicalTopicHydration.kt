@@ -36,10 +36,22 @@ internal suspend fun hydrateCanonicalTopic(topic: DiscoveredTopic, model: Embedd
     for (saved in concept.citations) {
         val (record, passage) = resolve(saved.evidence) ?: return null
         val evidence = TopicLabelEvidence(passage.id, saved.evidence.pageId, saved.evidence.revision, passage.excerpt)
-        val support = TopicSupportRequest("pending:${concept.workKey}", concept.workKey, concept.name,
-            concept.definition, evidence, concept.verifier, 0)
-        val validation = validateTopicSupport(support, SupportDecision.SUPPORTED, 0, concept.workKey, sources)
-        if (validation !is TopicSupportValidation.Accepted || validation.assessment != saved) return null
+        var verified = false
+        for (id in listOf(topic.id, "pending:${concept.workKey}")) {
+            val support = TopicSupportRequest(id, concept.workKey, concept.name,
+                concept.definition, evidence, concept.verifier, 0)
+            val validation = validateTopicSupport(support, SupportDecision.SUPPORTED, 0, concept.workKey, sources)
+            if (validation !is TopicSupportValidation.Accepted) return null
+            if (id == "pending:${concept.workKey}" && validation.assessment != saved) return null
+            val stored = store.readSupport(validation.assessment.workKey, sources)
+            if (!current()) return null
+            if (stored != null) {
+                if (stored != validation.assessment || stored.decision != SupportDecision.SUPPORTED) return null
+                verified = true
+                break
+            }
+        }
+        if (!verified) return null
         citations += TopicMembership(saved.evidence.pageId, record.metadata, passage, 0f, passage, record.revision)
     }
     val members = run {
@@ -66,7 +78,9 @@ internal suspend fun hydrateCanonicalTopic(topic: DiscoveredTopic, model: Embedd
             if (!verified) return null
             result += TopicMembership(ref.pageId, record.metadata, passage, 0f, passage, record.revision)
         }
-        result.distinctBy { it.pageId }
+        val scannedPages = concept.scannedRevisions.keys
+        val initialCitations = citations.filter { it.pageId !in scannedPages }
+        (result + initialCitations).distinctBy { it.pageId }
     }
     for ((id, record) in records) if (!current() || index.read(id) != record) return null
     if (!current()) return null

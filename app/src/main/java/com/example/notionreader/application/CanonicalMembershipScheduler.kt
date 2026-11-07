@@ -2,7 +2,7 @@ package com.example.notionreader.application
 
 import com.example.notionreader.domain.discovery.*
 
-internal enum class CanonicalMembershipScheduleResult { Idle, Progress, Blocked }
+internal enum class CanonicalMembershipScheduleResult { Idle, Progress, Blocked, Deferred }
 
 internal fun canonicalMembershipNeedsWork(snapshot: TopicSnapshot, sources: Map<String, String>,
     verifier: TopicLabelIdentity?, fullCoverage: Boolean = true): Boolean = snapshot.topics.mapNotNull { it.canonicalConcept }.any { concept ->
@@ -67,7 +67,7 @@ internal class CanonicalMembershipScheduler {
                     active = work.copy(saved = null, replay = ConceptScanReplay.start(), restart = true, staleRetries = work.staleRetries + 1)
                     if (work.staleRetries == 0) CanonicalMembershipScheduleResult.Progress else block(work.pageId)
                 }
-                DurableConceptScanResult.Deferred -> CanonicalMembershipScheduleResult.Blocked
+                DurableConceptScanResult.Deferred -> CanonicalMembershipScheduleResult.Deferred
                 else -> block(work.pageId)
             }
         }
@@ -82,7 +82,7 @@ internal class CanonicalMembershipScheduler {
                 active = work.copy(saved = null, replay = ConceptScanReplay.start(), restart = true, staleRetries = work.staleRetries + 1)
                 if (work.staleRetries == 0) CanonicalMembershipScheduleResult.Progress else block(work.pageId)
             }
-            CanonicalMembershipUpdateResult.Deferred -> CanonicalMembershipScheduleResult.Blocked
+            CanonicalMembershipUpdateResult.Deferred -> CanonicalMembershipScheduleResult.Deferred
             else -> block(work.pageId)
         }
     }

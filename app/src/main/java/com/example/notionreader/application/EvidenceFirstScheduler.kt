@@ -9,11 +9,13 @@ internal class EvidenceFirstScheduler {
     private data class Page(var offset: Int = 0, var index: Int = 0, var done: Boolean = false,
         var blocked: Boolean = false, var replay: ConceptScanReplay? = null,
         var work: PendingCorpusWork? = null, var candidate: PendingCorpusWorkResult.Done? = null,
-        var admissionReplay: PendingCorpusReplay = PendingCorpusReplay.start(), var restart: Boolean = false, var staleRetries: Int = 0)
+        var admissionReplay: PendingCorpusReplay = PendingCorpusReplay.start(), var restart: Boolean = false, var staleRetries: Int = 0,
+        val admittedProposals: MutableSet<String> = mutableSetOf())
     private var scope: String? = null
     private val pages = sortedMapOf<String, Page>()
     private var current: String? = null
     private var last: String? = null
+    private var catalogGeneration: Long? = null
     private val retry = java.util.concurrent.atomic.AtomicLong()
     private var seenRetry = 0L
     private val resetGeneration = java.util.concurrent.atomic.AtomicLong()
@@ -25,13 +27,23 @@ internal class EvidenceFirstScheduler {
     suspend fun step(scopeKey: String, sourceIds: List<String>,
         inspect: suspend (String, Int, ConceptScanReplay?, Boolean) -> EvidenceFirstNoteStep,
         process: suspend (PendingCorpusWork) -> PendingCorpusWorkResult,
-        admit: suspend (PendingCorpusWorkResult.Done, PendingCorpusReplay) -> CanonicalAdmissionResult
+        admit: suspend (PendingCorpusWorkResult.Done, PendingCorpusReplay) -> CanonicalAdmissionResult,
+        generation: Long? = null
     ): EvidenceFirstScheduleResult {
+        val diagnostics = kotlinx.coroutines.currentCoroutineContext()[DiscoveryWorkDiagnostics]
         val resetToken = resetGeneration.get()
         if (seenReset != resetToken) { scope = null; pages.clear(); current = null; last = null; seenReset = resetToken }
         if (scope != scopeKey || pages.keys != sourceIds.toSet()) {
+            if (scope != null) diagnostics?.record("schedulerRestarts")
             scope = scopeKey; pages.clear(); sourceIds.distinct().sorted().forEach { pages[it] = Page() }
             current = null; last = null
+        }
+        if (catalogGeneration != generation) {
+            catalogGeneration = generation
+            pages.values.forEach { page ->
+                page.replay = null
+                page.staleRetries = 0
+            }
         }
         val generation = retry.get()
         if (seenRetry != generation) { pages.values.forEach { if (it.blocked) { it.blocked = false; it.staleRetries = 0; it.restart = false } }; seenRetry = generation }
@@ -47,7 +59,9 @@ internal class EvidenceFirstScheduler {
             return if (pages.values.any { !it.done && !it.blocked }) EvidenceFirstScheduleResult.Progress else EvidenceFirstScheduleResult.Blocked
         }
         fun stale(): EvidenceFirstScheduleResult {
+            diagnostics?.record("staleResultDiscards")
             if (page.staleRetries++ > 0) return block()
+            diagnostics?.record("schedulerRestarts")
             page.work = null; page.candidate = null; page.replay = null; page.restart = true
             page.admissionReplay = PendingCorpusReplay.start()
             return EvidenceFirstScheduleResult.Progress
@@ -60,7 +74,14 @@ internal class EvidenceFirstScheduler {
                 is CanonicalAdmissionResult.Admitted -> {
                     page.candidate = null
                     page.admissionReplay = PendingCorpusReplay.start()
-                    page.index++
+                    page.admittedProposals += candidate.candidate.proposal.proposalKey
+                    // Admission can remove explained anchors from the next proposal window.
+                    // Numeric offsets belong to the old window, so rebuild once for this
+                    // admission and skip its exact proposal if it remains eligible.
+                    page.offset = 0
+                    page.index = 0
+                    page.replay = null
+                    page.restart = true
                     EvidenceFirstScheduleResult.Progress
                 }
                 CanonicalAdmissionResult.Deferred -> EvidenceFirstScheduleResult.Deferred
@@ -92,6 +113,8 @@ internal class EvidenceFirstScheduler {
             EvidenceFirstNoteStep.PendingScan -> EvidenceFirstScheduleResult.Progress
             is EvidenceFirstNoteStep.PendingReplay -> { page.replay = result.replay; EvidenceFirstScheduleResult.Progress }
             is EvidenceFirstNoteStep.Proposals -> {
+                while (page.index < result.window.window.proposals.size &&
+                    result.window.window.proposals[page.index].proposalKey in page.admittedProposals) page.index++
                 if (result.window.scanPending) EvidenceFirstScheduleResult.Progress
                 else if (page.index < result.window.window.proposals.size) {
                     page.work = PendingCorpusWork.start(id, page.index, anchorOffset = page.offset)

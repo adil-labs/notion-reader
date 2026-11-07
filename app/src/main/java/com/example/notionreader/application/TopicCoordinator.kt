@@ -40,7 +40,8 @@ internal class TopicCoordinator(
     private val labels: TopicLabelCoordinator? = null,
     private val retrievals: TopicRetrievalCoordinator? = null,
     private val proposalProgress: ProposalProgressStore? = null,
-    private val bootstrapInterests: DiscoveryInterestStore? = null
+    private val bootstrapInterests: DiscoveryInterestStore? = null,
+    private val diagnosticLog: (String, String) -> Unit = { _, _ -> }
 ) {
     private class WorkPaused : RuntimeException()
     private class ConnectionSourceUnavailable : RuntimeException()
@@ -60,6 +61,9 @@ internal class TopicCoordinator(
         private set
     @Volatile var sourceAcceptancePending: Boolean = false
         private set
+    private fun logDiag(tag: String, msg: String) {
+        try { diagnosticLog(tag, msg) } catch (_: Exception) {}
+    }
     private data class SourceAcceptance(val scope: String, val lastId: String?)
     private var sourceAcceptance: SourceAcceptance? = null
     private data class ConnectionInputs(val cacheRevision: Long, val sources: Map<String, String>,
@@ -176,26 +180,28 @@ internal class TopicCoordinator(
 
     /** Atomic catalog admission; replay and independent citation checks are performed by the caller. */
     suspend fun admitCandidate(ticket: TopicCatalogTicket, candidate: PendingConceptCandidate,
-        coverage: PendingCorpusReplayResult.Complete, current: () -> Boolean): CanonicalAdmissionResult = writes.withLock {
-        if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
-        if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
-        if (candidate.catalogTicket != ticket || candidate.sources != latest.acceptedRevisions ||
-            candidate.proposal.incomplete != candidate.generation.incomplete ||
-            candidate.proposal.incomplete.any { it.blocksConceptAdmission() })
-            return@withLock CanonicalAdmissionResult.Incomplete
+        coverage: PendingCorpusReplayResult, current: () -> Boolean): CanonicalAdmissionResult = writes.withLock {
+        if (!isCatalogTicketCurrent(ticket)) { logDiag("AdmitCandidate", "stale: ticket not current"); return@withLock CanonicalAdmissionResult.Stale }
+        if (!current()) { logDiag("AdmitCandidate", "stale: current() false"); return@withLock CanonicalAdmissionResult.Stale }
+        if (!mayWork() || shouldYield()) { logDiag("AdmitCandidate", "deferred: mayWork=${mayWork()} yield=${shouldYield()}"); return@withLock CanonicalAdmissionResult.Deferred }
+        if (candidate.catalogTicket != ticket) { logDiag("AdmitCandidate", "incomplete: ticket mismatch"); return@withLock CanonicalAdmissionResult.Incomplete }
+        if (candidate.sources != latest.acceptedRevisions) { logDiag("AdmitCandidate", "incomplete: sources mismatch cand=${candidate.sources.size} latest=${latest.acceptedRevisions.size}"); return@withLock CanonicalAdmissionResult.Incomplete }
+        if (candidate.proposal.incomplete != candidate.generation.incomplete) { logDiag("AdmitCandidate", "incomplete: proposal.incomplete vs generation.incomplete"); return@withLock CanonicalAdmissionResult.Incomplete }
+        if (candidate.proposal.incomplete.any { it.blocksConceptAdmission() }) { logDiag("AdmitCandidate", "incomplete: blocksConceptAdmission ${candidate.proposal.incomplete}"); return@withLock CanonicalAdmissionResult.Incomplete }
         val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
-            ?: return@withLock CanonicalAdmissionResult.Incomplete
+            ?: run { logDiag("AdmitCandidate", "incomplete: response not Concept"); return@withLock CanonicalAdmissionResult.Incomplete }
         val prior = latest.topics.singleOrNull { it.canonicalConcept?.workKey == candidate.generation.workKey }
-        if (prior != null) return@withLock CanonicalAdmissionResult.Admitted(prior.id)
+        if (prior != null) { logDiag("AdmitCandidate", "already admitted: ${prior.id}"); return@withLock CanonicalAdmissionResult.Admitted(prior.id) }
         val citation = candidate.citations.firstOrNull { it.decision == SupportDecision.SUPPORTED }?.evidence
-            ?: return@withLock CanonicalAdmissionResult.Incomplete
+            ?: run { logDiag("AdmitCandidate", "incomplete: no supported citation in ${candidate.citations.map { it.decision }}"); return@withLock CanonicalAdmissionResult.Incomplete }
         val record = readRecord(citation.pageId)
-        if (!isCatalogTicketCurrent(ticket) || !current()) return@withLock CanonicalAdmissionResult.Stale
-        if (!mayWork() || shouldYield()) return@withLock CanonicalAdmissionResult.Deferred
-        if (record == null || record.identity != ticket.identity || record.revision != citation.revision)
-            return@withLock CanonicalAdmissionResult.Incomplete
+        if (!isCatalogTicketCurrent(ticket) || !current()) { logDiag("AdmitCandidate", "stale after readRecord"); return@withLock CanonicalAdmissionResult.Stale }
+        if (!mayWork() || shouldYield()) { logDiag("AdmitCandidate", "deferred after readRecord"); return@withLock CanonicalAdmissionResult.Deferred }
+        if (record == null || record.identity != ticket.identity || record.revision != citation.revision) {
+            logDiag("AdmitCandidate", "incomplete: record missing or revision mismatch"); return@withLock CanonicalAdmissionResult.Incomplete
+        }
         val anchor = record.passages.singleOrNull { it.passage.id == citation.passageId && it.passage.isBodyEvidence() }
-            ?: return@withLock CanonicalAdmissionResult.Incomplete
+            ?: run { logDiag("AdmitCandidate", "incomplete: anchor passage not found or not isBodyEvidence"); return@withLock CanonicalAdmissionResult.Incomplete }
         val fingerprint = canonicalContinuityKey(concept.name, concept.definition)
         val anchorIdentity = topicEvidenceIdentity(anchor.passage)
         val occupied = (latest.topics + latest.provisionalTopics).map { it.id }.toSet()
@@ -208,21 +214,34 @@ internal class TopicCoordinator(
         val order = priorContinuity?.createdOrder ?: (maxOrder + 1)
         val id = priorContinuity?.id ?: java.util.UUID.randomUUID().toString()
         val member = TopicMembership(citation.pageId, record.metadata, anchor.passage, 1f, anchor.passage, citation.revision)
-        val supported = coverage.supported.toSortedMap().flatMap { (page, passages) ->
-            val revision = candidate.sources[page] ?: return@withLock CanonicalAdmissionResult.Stale
-            passages.sorted().map { ProposalEvidenceRef(page, revision, it) }
-        }
+        val fullCoverage = coverage is PendingCorpusReplayResult.Complete && candidate.sources.isNotEmpty() &&
+            coverage.supported.keys == candidate.sources.keys && coverage.supported.keys.all { candidate.sources[it] != null }
+        val scanned = if (fullCoverage) candidate.sources else emptyMap()
+        val supported = if (coverage is PendingCorpusReplayResult.Complete) {
+            coverage.supported.toSortedMap().flatMap { (page, passages) ->
+                val revision = candidate.sources[page] ?: return@withLock CanonicalAdmissionResult.Stale
+                passages.sorted().map { ProposalEvidenceRef(page, revision, it) }
+            }
+        } else emptyList()
         val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
             concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations,
-            supported, candidate.sources, matchingComplete = true, proposalKey = candidate.proposal.proposalKey,
+            supported, scanned, matchingComplete = fullCoverage, proposalKey = candidate.proposal.proposalKey,
             incomplete = candidate.proposal.incomplete,
             queryEmbedding = candidate.query.copy(query = TopicRetrievalQuery(id, candidate.generation.workKey,
                 candidate.query.query.text, ticket.identity, candidate.query.query.policy)))
-        val projection = CanonicalTopicProjection(candidate.generation.workKey, concept.name,
-            concept.definition, concept.listeningDescription,
-            listOf(member), listOf(member))
-        val topic = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order,
-            canonicalConcept = evidence, canonicalProjection = projection)
+        val unprojected = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order,
+            canonicalConcept = evidence)
+        val progress = proposalProgress ?: return@withLock CanonicalAdmissionResult.Incomplete
+        val guardedIndex = object : SemanticIndexStore by index {
+            override suspend fun read(pageId: String): SemanticRecord? = readRecord(pageId)
+        }
+        val topic = hydrateCanonicalTopic(unprojected, ticket.identity, candidate.sources, guardedIndex, progress) {
+            isCatalogTicketCurrent(ticket) && current()
+        } ?: run {
+            logDiag("AdmitCandidate", "incomplete: hydrateCanonicalTopic returned null, isTicketCurrent=${isCatalogTicketCurrent(ticket)} current=${current()}")
+            return@withLock if (isCatalogTicketCurrent(ticket) && current()) CanonicalAdmissionResult.Incomplete
+            else CanonicalAdmissionResult.Stale
+        }
         val continuity = TopicContinuity(id, order, setOf(citation.pageId), setOf(anchorIdentity),
             anchorSourceId = anchorIdentity, canonicalKey = fingerprint)
         val next = latest.copy(topics = latest.topics + topic,
@@ -258,6 +277,7 @@ internal class TopicCoordinator(
         view = if (inspected) view.copy(updated = true) else view.copy(snapshot = latest)
         store.pinInspection(view.snapshot)
         changed(view)
+        logDiag("AdmitCandidate", "SUCCESSFULLY ADMITTED TOPIC: id=$id name=${concept.name}")
         CanonicalAdmissionResult.Admitted(id)
     }
 
@@ -364,6 +384,9 @@ internal class TopicCoordinator(
                 return@withLock CanonicalMembershipUpdateResult.Stale
             val id = canonicalSemanticId(record.pageId)
             val changed = mutableListOf<DiscoveredTopic>()
+            val guardedIndex = object : SemanticIndexStore by index {
+                override suspend fun read(pageId: String): SemanticRecord? = readRecord(pageId)
+            }
             for (topic in latest.topics) {
                 val concept = topic.canonicalConcept
                 if (concept == null) { changed += topic; continue }
@@ -373,12 +396,18 @@ internal class TopicCoordinator(
                         it.evidence.pageId != id || it.evidence.revision != record.revision ||
                         it.decision != SupportDecision.SUPPORTED }) return@withLock CanonicalMembershipUpdateResult.Incomplete
                 val scanned = concept.scannedRevisions.filter { (page, revision) -> sources[page] == revision } + (id to record.revision)
-                val retained = concept.supported.filter { it.pageId != id && scanned[it.pageId] == it.revision }
+                val retained = concept.supported.filter { it.pageId != id && (scanned[it.pageId] == it.revision || (it.pageId !in scanned && sources[it.pageId] == it.revision)) }
                 val added = assessments.map { it.evidence }
                 val nextConcept = concept.copy(supported = (retained + added).distinct().sortedWith(
                     compareBy<ProposalEvidenceRef> { it.pageId }.thenBy { it.passageId }), scannedRevisions = scanned,
                     matchingComplete = fullCoverage && scanned == sources)
-                changed += if (nextConcept == concept) topic else topic.copy(canonicalConcept = nextConcept, canonicalProjection = null)
+                val updatedTopic = if (nextConcept == concept) topic else topic.copy(canonicalConcept = nextConcept, canonicalProjection = null)
+                val hydratedTopic = if (updatedTopic.canonicalConcept != null) {
+                    hydrateCanonicalTopic(updatedTopic, ticket.identity, sources, guardedIndex, progress) {
+                        isCatalogTicketCurrent(ticket) && current()
+                    } ?: updatedTopic
+                } else updatedTopic
+                changed += hydratedTopic
             }
             if (changed == latest.topics) return@withLock CanonicalMembershipUpdateResult.Unchanged
             val next = latest.copy(topics = changed, generation = latest.generation + 1)

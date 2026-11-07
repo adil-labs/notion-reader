@@ -17,6 +17,123 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryControllerTest {
+    @Test fun invalidationDuringLateReconciliationCannotPublishTheOldSnapshot() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-late-invalidated-snapshot").toFile()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val backing = FileDiscoveryInterestStore(dir.resolve("interests"))
+            val entered = CompletableDeferred<Unit>()
+            var hold = false
+            val interests = object : DiscoveryInterestStore by backing {
+                override suspend fun read(): List<DiscoveryInterest> {
+                    if (hold) { entered.complete(Unit); release.await() }
+                    return backing.read()
+                }
+            }
+            val controller = DiscoveryController(cache, FileSemanticIndexStore(dir.resolve("index")), interests, Provider())
+            controller.reconcile(emptyList(), false)
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf("Body")), null, Instant.EPOCH))
+            hold = true
+            val reading = async(Dispatchers.Default) { controller.reconcile(emptyList(), false) }
+            withTimeout(5000) { entered.await() }
+            cache.remove("p"); controller.invalidateSources(); release.complete(Unit)
+            withTimeout(5000) { reading.await() }
+            assertFalse("An invalidated snapshot must not republish a withdrawn Note", "p" in controller.state.value.cachedPageIds)
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
+
+    @Test fun aStableChangedCacheRevisionReconcilesWithoutInvalidatingItsSnapshot() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-stable-new-revision").toFile()
+        try {
+            val cache = FileDocumentCache(dir.resolve("cache"))
+            val controller = DiscoveryController(cache, FileSemanticIndexStore(dir.resolve("index")),
+                FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            controller.reconcile(emptyList(), false)
+            cache.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf("Body")), null, Instant.EPOCH))
+            controller.reconcile(emptyList(), false)
+            assertEquals(cache.revision.value, controller.state.value.cachedRevision)
+            assertTrue("Stable new inventory must be published", "p" in controller.state.value.cachedPageIds)
+            assertEquals(DiscoveryCacheStatus.Ready, controller.state.value.cacheStatus)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun invalidationDuringTheInitialSnapshotCannotPublishWithdrawnInventory() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-stale-inventory").toFile()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val backing = FileDocumentCache(dir.resolve("cache"))
+            backing.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf("Body")), null, Instant.EPOCH))
+            val captured = CompletableDeferred<Unit>()
+            val first = java.util.concurrent.atomic.AtomicBoolean(true)
+            val cache = object : com.example.notionreader.domain.document.DocumentCache by backing {
+                override suspend fun snapshot(): List<CachedDocument> {
+                    val result = backing.snapshot()
+                    if (first.compareAndSet(true, false)) { captured.complete(Unit); release.await() }
+                    return result
+                }
+            }
+            val controller = DiscoveryController(cache, FileSemanticIndexStore(dir.resolve("index")),
+                FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            val states = mutableListOf<DiscoveryState>()
+            val observer = launch(start = CoroutineStart.UNDISPATCHED) { controller.state.collect { states += it } }
+            val reading = async(Dispatchers.Default) { controller.reconcile(emptyList(), false) }
+            withTimeout(5_000) { captured.await() }
+            backing.remove("p"); controller.invalidateSources(); release.complete(Unit)
+            withTimeout(5_000) { reading.await() }
+            yield(); observer.cancelAndJoin()
+            assertTrue("A withdrawn Note must never appear in ready inventory", states.none {
+                it.cacheStatus == DiscoveryCacheStatus.Ready && "p" in it.cachedPageIds
+            })
+            assertTrue(controller.state.value.cachedPageIds.isEmpty())
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
+    @Test fun continuouslyChangingSourcesDoNotTrapAReconciliationInAnUnboundedLoop() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-changing-inventory").toFile()
+        try {
+            val backing = FileDocumentCache(dir.resolve("cache"))
+            var snapshots = 0
+            val cache = object : com.example.notionreader.domain.document.DocumentCache by backing {
+                override suspend fun snapshot(): List<CachedDocument> {
+                    snapshots++
+                    val result = backing.snapshot()
+                    backing.put(CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf("Body $snapshots")), null, Instant.EPOCH))
+                    return result
+                }
+            }
+            val controller = DiscoveryController(cache, FileSemanticIndexStore(dir.resolve("index")),
+                FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            withTimeout(5_000) { controller.reconcile(emptyList(), false) }
+            assertEquals("A changing library must yield to a later wake", 3, snapshots)
+            assertEquals(DiscoveryCacheStatus.Checking, controller.state.value.cacheStatus)
+            assertTrue(controller.hasPendingWork)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun anInvalidationWithoutARevisionChangeForcesANewInitialSnapshot() = runBlocking {
+        val dir = Files.createTempDirectory("discovery-invalidation-generation").toFile()
+        val release = CompletableDeferred<Unit>()
+        try {
+            val backing = FileDocumentCache(dir.resolve("cache"))
+            val captured = CompletableDeferred<Unit>()
+            val stale = CachedDocument(ReaderDocument.fromChunkTexts("p", "Title", listOf("Body")), null, Instant.EPOCH)
+            var snapshots = 0
+            val cache = object : com.example.notionreader.domain.document.DocumentCache by backing {
+                override suspend fun snapshot(): List<CachedDocument> {
+                    snapshots++
+                    if (snapshots == 1) { captured.complete(Unit); release.await(); return listOf(stale) }
+                    return emptyList()
+                }
+            }
+            val controller = DiscoveryController(cache, FileSemanticIndexStore(dir.resolve("index")),
+                FileDiscoveryInterestStore(dir.resolve("interests")), Provider())
+            val reading = async(Dispatchers.Default) { controller.reconcile(emptyList(), false) }
+            withTimeout(5_000) { captured.await() }
+            controller.invalidateSources(); release.complete(Unit)
+            withTimeout(5_000) { reading.await() }
+            assertTrue("Invalidation must force a fresh read", snapshots >= 2)
+            assertTrue(controller.state.value.cachedPageIds.isEmpty())
+        } finally { release.complete(Unit); dir.deleteRecursively() }
+    }
     @Test fun indexingWithoutATopicCatalogDoesNotScheduleTopicWork() = runBlocking {
         val directory = Files.createTempDirectory("index-without-topics").toFile()
         try {

@@ -122,7 +122,10 @@ internal suspend fun replayPendingNoteScan(saved: PendingNoteScanRecord, replay:
     if (!mayWork()) return PendingNoteReplayResult.Deferred
     if (saved.binding != pendingNoteScanBinding(concept, query, record, verifier, dependencies))
         return if (current()) PendingNoteReplayResult.Incompatible else PendingNoteReplayResult.Stale
-    val result = scanPendingConceptNote(concept, query, record, index, verifier, epoch, sources, replay, 1,
+    // A partial checkpoint has an exact cursor we must not step past. A completed
+    // checkpoint can replay a bounded batch and still verify the same final sets.
+    val replayBudget = if (saved.cursor == null) 8 else 1
+    val result = scanPendingConceptNote(concept, query, record, index, verifier, epoch, sources, replay, replayBudget,
         store, current, mayWork, scopeSources = dependencies) { TopicSupportRun.Unavailable }
     if (!current()) return PendingNoteReplayResult.Stale
     if (!mayWork()) return PendingNoteReplayResult.Deferred

@@ -10,6 +10,110 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class TopicSupportVerificationTest {
+    @Test fun interruptionAfterDurableSupportWriteDoesNotRepeatInferenceAfterRestart() = runBlocking {
+        val root = files.newFolder()
+        val index = FileSemanticIndexStore(root.resolve("index")); index.write(record())
+        val disk = FileProposalProgressStore(root.resolve("work"))
+        val interrupted = object : ProposalProgressStore by disk {
+            override suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean): ProposalProgressWriteResult {
+                val written = disk.writeSupport(record, stillCurrent)
+                assertEquals(ProposalProgressWriteResult.Written, written)
+                throw kotlinx.coroutines.CancellationException("Interrupted after durable write")
+            }
+        }
+        var calls = 0
+        try {
+            verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, sources, { true }, interrupted) {
+                calls++; TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+            }
+            fail("Interruption must execute")
+        } catch (_: kotlinx.coroutines.CancellationException) { }
+        val resumed = verifyRetrievedPassage(concept, candidate, FileSemanticIndexStore(root.resolve("index")),
+            embedding, verifier, 5, sources, { true }, FileProposalProgressStore(root.resolve("work"))) {
+            calls++; TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+        } as SupportVerificationResult.Completed
+        assertTrue(resumed.reused)
+        assertEquals(1, calls)
+    }
+    @Test fun diagnosticsCountValidatedReuseSeparatelyFromFreshDecisions() = runBlocking {
+        val index = FileSemanticIndexStore(files.newFolder()); index.write(record())
+        val store = FileProposalProgressStore(files.newFolder())
+        val events = mutableListOf<Map<String, Long>>()
+        kotlinx.coroutines.withContext(DiscoveryWorkDiagnostics({ events += it })) {
+            repeat(2) {
+                verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, sources, { true }, store) {
+                    TopicSupportRun.Completed(SupportDecision.UNSUPPORTED)
+                }
+            }
+            verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, emptyMap(), { true }, store) {
+                error("Withdrawn evidence")
+            }
+        }
+        assertEquals(1L, events.sumOf { it["supportReused"] ?: 0 })
+        assertEquals(1L, events.sumOf { it["supportFreshDecisions"] ?: 0 })
+        assertEquals(2L, events.sumOf { it["supportUnsupported"] ?: 0 })
+        assertEquals(1L, events.sumOf { it["staleResultDiscards"] ?: 0 })
+    }
+    @Test fun admissionReusesEveryCurrentPendingDecisionAcrossStoreReopening() = runBlocking {
+        for (decision in SupportDecision.entries) {
+            val root = files.newFolder()
+            val index = FileSemanticIndexStore(root.resolve("index")); index.write(record())
+            var calls = 0
+            suspend fun run(target: SupportConcept) = verifyRetrievedPassage(target, candidate, index,
+                embedding, verifier, 4, sources, { true }, FileProposalProgressStore(root.resolve("work"))) {
+                calls++; TopicSupportRun.Completed(decision)
+            } as SupportVerificationResult.Completed
+            run(concept.copy(topicId = "pending:${concept.workKey}"))
+            val canonical = run(concept)
+            assertEquals(decision, canonical.assessment.decision)
+            assertEquals(concept.topicId, canonical.assessment.topicId)
+            assertEquals(canonical, run(concept))
+            assertEquals("Admission must reuse $decision without fresh inference", 1, calls)
+            assertEquals(canonical.assessment, FileProposalProgressStore(root.resolve("work"))
+                .readSupport(canonical.assessment.workKey, sources))
+        }
+    }
+
+    @Test fun canonicalRejectionTakesPrecedenceOverPendingSupport() = runBlocking {
+        val index = FileSemanticIndexStore(files.newFolder()); index.write(record())
+        val store = FileProposalProgressStore(files.newFolder())
+        suspend fun save(target: SupportConcept, decision: SupportDecision) = verifyRetrievedPassage(
+            target, candidate, index, embedding, verifier, 4, sources, { true }, store) {
+            TopicSupportRun.Completed(decision)
+        }
+        save(concept, SupportDecision.UNSUPPORTED)
+        save(concept.copy(topicId = "pending:${concept.workKey}"), SupportDecision.SUPPORTED)
+        val result = verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, sources,
+            { true }, store) { error("Current canonical decision must be reused") } as SupportVerificationResult.Completed
+        assertEquals(SupportDecision.UNSUPPORTED, result.assessment.decision)
+    }
+
+    @Test fun pendingReuseRequiresCurrentDefinitionVerifierAndDurableCanonicalWrite() = runBlocking {
+        val index = FileSemanticIndexStore(files.newFolder()); index.write(record())
+        val store = FileProposalProgressStore(files.newFolder())
+        verifyRetrievedPassage(concept.copy(topicId = "pending:${concept.workKey}"), candidate, index,
+            embedding, verifier, 4, sources, { true }, store) { TopicSupportRun.Completed(SupportDecision.SUPPORTED) }
+        val refused = object : ProposalProgressStore by store {
+            override suspend fun writeSupport(record: TopicSupportAssessment, stillCurrent: () -> Boolean) =
+                ProposalProgressWriteResult.StorageRefused
+        }
+        assertEquals(SupportVerificationResult.StorageFailure(ProposalProgressWriteResult.StorageRefused),
+            verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4, sources, { true }, refused) {
+                error("Persistence refusal must not cause redundant inference")
+            })
+        var calls = 0
+        suspend fun check(target: SupportConcept, model: TopicLabelIdentity) = verifyRetrievedPassage(
+            target, candidate, index, embedding, model, 4, sources, { true }, store) {
+            calls++; TopicSupportRun.Completed(SupportDecision.UNSUPPORTED)
+        }
+        check(concept.copy(definition = "Temperature requirements for seeds."), verifier)
+        check(concept, verifier.copy(policy = "support-v2"))
+        assertEquals(2, calls)
+        val withdrawn = verifyRetrievedPassage(concept, candidate, index, embedding, verifier, 4,
+            emptyMap(), { true }, store) { error("Withdrawn evidence cannot be verified or reused") }
+        assertEquals(SupportVerificationResult.Stale, withdrawn)
+    }
+
     @get:Rule val files = TemporaryFolder()
     private val embedding = EmbeddingIdentity("model", 2)
     private val verifier = TopicLabelIdentity("a", "t", "template", "p", "s", "support-v1", "CPU")

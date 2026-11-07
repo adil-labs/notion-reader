@@ -28,7 +28,7 @@ class CanonicalMembershipSchedulerTest {
             commit = { _, record, _, _ -> assertEquals(saved, record); commits++; if (commits == 1) CanonicalMembershipUpdateResult.Deferred else CanonicalMembershipUpdateResult.Updated })
         assertEquals(CanonicalMembershipScheduleResult.Progress, step())
         assertEquals(CanonicalMembershipScheduleResult.Progress, step())
-        assertEquals(CanonicalMembershipScheduleResult.Blocked, step())
+        assertEquals(CanonicalMembershipScheduleResult.Deferred, step())
         assertEquals(CanonicalMembershipScheduleResult.Progress, step())
         assertEquals(2, scans); assertEquals(2, commits)
         val completed = snapshot.copy(topics = listOf(topic.copy(canonicalConcept = concept.copy(scannedRevisions = sources, matchingComplete = true))))

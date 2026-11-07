@@ -183,4 +183,34 @@ class TopicPublicationTest {
         val alternative = first.copy(id = "alternative", label = "energy transfer", createdOrder = 1)
         assertEquals(listOf(first), publishableDiscoveryTopics(listOf(first, alternative)))
     }
+    @Test fun canonicalTopicPublicationStatusDistinguishesEmergingFromEstablishedAndPending() {
+        val base = topic("canon", pages = listOf("one"))
+        val verifier = TopicLabelIdentity("a", "b", "c", "d", "e", "f", "CPU")
+        val concept = CanonicalConceptEvidence("key", "Seeds", "Def", "Desc", verifier, verifier, emptyList(), emptyList())
+        val projectionWith1 = CanonicalTopicProjection("key", "Seeds", "Def", "Desc", emptyList(), listOf(base.members.first()))
+        val projectionWith0 = CanonicalTopicProjection("key", "Seeds", "Def", "Desc", emptyList(), emptyList())
+        val twoMembers = listOf(base.members.first(), base.members.first().copy(pageId = "two"))
+        val projectionWith2 = CanonicalTopicProjection("key", "Seeds", "Def", "Desc", emptyList(), twoMembers)
+
+        val emergingIncomplete = base.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = projectionWith1)
+        assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(emergingIncomplete))
+
+        val emergingComplete = base.copy(canonicalConcept = concept.copy(matchingComplete = true), canonicalProjection = projectionWith1)
+        assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(emergingComplete))
+
+        val pendingIncomplete = base.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = projectionWith0)
+        assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(pendingIncomplete))
+
+        val noMatchesComplete = base.copy(canonicalConcept = concept.copy(matchingComplete = true), canonicalProjection = projectionWith0)
+        assertEquals(TopicPublicationStatus.NoMatches, discoveryTopicPublicationStatus(noMatchesComplete))
+
+        val pendingTwoMembers = base.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = projectionWith2)
+        assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(pendingTwoMembers))
+
+        val establishedComplete = base.copy(canonicalConcept = concept.copy(matchingComplete = true), canonicalProjection = projectionWith2)
+        assertEquals(TopicPublicationStatus.Established, discoveryTopicPublicationStatus(establishedComplete))
+
+        val unhydrated = base.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = null)
+        assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(unhydrated))
+    }
 }

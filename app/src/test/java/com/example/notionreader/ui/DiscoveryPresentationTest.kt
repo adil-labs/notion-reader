@@ -6,6 +6,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiscoveryPresentationTest {
+    @Test fun coordinatorFailureIsNotReclassifiedByMatchingSchedulingMessageText() {
+        val coordinatorMessage = DiscoverySchedulingFailure.ProposalsIncomplete.userMessage()
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false,
+            topicFailure = coordinatorMessage, topicFailureSource = TopicFailureSource.Coordinator,
+            schedulingFailure = DiscoverySchedulingFailure.MembershipIncomplete)
+        assertEquals(coordinatorMessage, discoveryStatus(state).message)
+    }
     @Test fun missingTopicModelIsExplainedEvenWhileConnectionsAreProcessing() {
         val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false,
             cachedPageIds = setOf("a", "b"), indexedCount = 2, workPending = true,

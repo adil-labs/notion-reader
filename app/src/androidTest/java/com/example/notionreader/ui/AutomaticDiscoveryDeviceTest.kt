@@ -51,6 +51,35 @@ class AutomaticDiscoveryDeviceTest {
         } finally { original.cancel(); shell("dumpsys battery reset") }
     }
 
+    @Test fun concurrentCancellationAndRequestDoesNotResurrectCancelledWork() = runBlocking {
+        check(Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("sdk")) { "Device verification requires the owned emulator" }
+        val application = ApplicationProvider.getApplicationContext<ReaderApplication>()
+        val name = "discovery-cancel-race-probe"
+        val work = WorkManager.getInstance(application)
+        val scheduler = com.example.notionreader.DiscoveryScheduler(application, name, "$name-recovery")
+        try {
+            val jobs = (1..5).map { i ->
+                launch(Dispatchers.Default) {
+                    scheduler.request(if (i % 2 == 0) DiscoveryEffort.BALANCED else DiscoveryEffort.CHARGING_ONLY, true)
+                }
+            }
+            delay(5)
+            scheduler.cancel()
+            jobs.joinAll()
+
+            withTimeout(10_000) {
+                while (true) {
+                    val infos = withContext(Dispatchers.IO) { work.getWorkInfosForUniqueWork(name).get() }
+                    val hasActive = infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
+                    if (!hasActive) break
+                    delay(100)
+                }
+            }
+        } finally {
+            scheduler.cancel()
+        }
+    }
+
     @Test fun setupFinishesRealGemmaTopicsAndConnectionsWithTheScreenOffWithoutContinue() = runBlocking {
         check(Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("sdk")) { "Fixture staging is restricted to the owned emulator" }
         val application = ApplicationProvider.getApplicationContext<ReaderApplication>()
