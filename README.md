@@ -7,9 +7,14 @@ playback remain available without a model.
 
 Discovery refinement is in progress ([current decision record](docs/decisions.md#238-keep-bounded-progress-inside-the-work-window-2026-11-06)). The process-owned Discovery coordinator uses evidence-first scheduling for fresh installations. It uses the existing process-owned coordinator, local proposal and support runtimes, and canonical topic catalog. New concepts and memberships require current evidence and independent support checks; similarity retrieves candidates but does not establish membership. A single supported Note can be an Emerging topic, and unmatched Notes remain available.
 
-Indexing, proposal work and independent connections use bounded processing with foreground and playback priority. Verified matching Notes can be shown while coverage is incomplete, with an explicit incomplete count; inspected updates wait for Refresh. Explicit interests, reading and listening remain independent. The user has directed that former cluster-first catalog migration is unnecessary for this fresh-install replacement. The coordinator formation branch and scheduler selector have been removed, and the full JVM unit test suite passes with all 1,634 tests green.
+Indexing, proposal work and independent connections use bounded processing with foreground and playback priority. Verified matching Notes can be shown while coverage is incomplete, with an explicit incomplete count; inspected updates wait for Refresh. Explicit interests, reading and listening remain independent. The user has directed that former cluster-first catalog migration is unnecessary for this fresh-install replacement. The coordinator formation branch and scheduler selector have been removed, and the full JVM unit test suite passes with all 1,696 tests green.
 
 The production selection is an implementation change, not proof of release quality. Representative device, resource, semantic and human TalkBack acceptance remain outstanding. Optional model acquisition remains explicit.
+The [inference and evidence audit](docs/discovery-inference-verification.md) records
+support reuse across admission, synthetic 20,000-passage verification counts, the
+amended bounded per-Note support rule (contract only; the implementation still
+checks every candidate) and the audit metrics still to collect, with remaining
+measurement gaps explicit.
 Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
 radio-selected Automatic vs custom maximums, separate model file reporting, truthful consequences and
 accessible expandable policy explanations with discoverable shared larger-limit preferences.

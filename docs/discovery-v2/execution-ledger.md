@@ -1,5 +1,7 @@
 # Generative Discovery execution ledger
 
+2026-11-07: Bounded per-Note support checks amended in the three governing sources; audit metrics and the counterfactual measurement requirement documented. Documents only, no behavior change (§242).
+
 2026-11-05: Coordinator transition and failing test suite resolution complete. All 1,608 JVM tests pass cleanly; Android test compilation and debug assemble verified (§234).
 
 2026-11-05: Blocked proposal inference no longer starves independent named-reference

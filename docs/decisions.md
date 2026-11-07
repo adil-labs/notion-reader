@@ -14510,3 +14510,200 @@ settings, structural revisions and structural-resource revisions can still cance
 pass, and "is there pending work" is still computed in four places. Separating trigger, invalidation
 and progress into an explicit work loop is the next round. Real topic generation on the phone, model
 quality and TalkBack acceptance remain unobserved.
+
+## 239. Topic runtime startup and bounded evidence on the phone (2026-11-06)
+
+On the Samsung SM-S931B the generative model was present and checksum-verified,
+but no topics appeared. Content-free stage diagnostics showed ready proposal
+neighborhoods followed by a backend failure on every Note. The native error was
+`INVALID_ARGUMENT`: the private LiteRT topic-runtime cache directory did not exist.
+The runtime now creates and checks that directory before constructing its native
+engine. A JVM regression failed against the old initialization order and passed
+afterward; on the phone the engine subsequently loaded and persisted a real
+proposal and independent support decisions. No Note text was put in the added
+diagnostics. The earlier native-library load warning was followed by a successful
+library load and was not itself evidence of the failure.
+
+A separate source inspection found 41 of 42 sampled saved proposal checkpoints
+had filled their bounded evidence bundles. The old `EVIDENCE_LIMIT` admission rule
+blocked those candidates even after a complete independent support pass. The owning
+product, integration and navigation contracts now distinguish bounded generator
+input from incomplete matching. A six-Note file-backed regression, with more
+neighbors than fit in the bundle, failed before the rule change and passes after
+it: a generated concept is admitted only after citation/support checks and the
+independent corpus replay, with the evidence-limit marker retained. Stale source,
+uncertain support and incomplete corpus checks remain in force.
+
+That regression also exposed an immediate-publication defect: the newly admitted
+projection contained only the proposal citation despite six independently matched
+Notes. The assertion failed with one displayed match; admission now uses the same
+source- and support-validated hydration path as saved topics, and the focused
+catalog and integration tests pass. The phone is still processing the first real
+proposal; admission, device memory acceptance and human TalkBack remain open.
+The observed model-loaded footprint is substantial and sampled PSS is not a
+substitute for the required Java/native allocation and Android 17 pressure gates.
+
+## 240. Observe phone admission and reuse completed evidence (2026-11-06)
+
+The S25 indexed 100 cached Notes and generated a topic through the existing
+local pipeline. The original run replayed the candidate through offset 49,
+then started another replay at admission before saving the topic. Discover
+showed two matching Notes and marked the matching coverage incomplete.
+
+Admission can now reuse the live replay result while its validity token,
+index revision, source revisions, model identities and catalog ticket remain
+current. Citations are independently revalidated before the guarded catalog
+write. Completed Note checkpoints replay in bounded batches. Partial
+checkpoints retain exact cursor validation.
+
+Focused admission, retrieval and membership tests passed. Debug assembly
+and device installation succeeded. The updated build reopened the saved topic
+and resumed membership processing. A fresh admission on that build and the
+broader JVM failures remain open.
+
+## 241. Reuse pending support after canonical admission (2026-11-06)
+
+The support work key includes the topic ID as well as the concept work key,
+definition, exact source body/revision and verifier identity. Admission changes
+the topic ID. Hydration already reads both identities, but membership verification
+previously read only the canonical identity and therefore repeated inference for
+unchanged pending evidence.
+
+Membership verification now checks the exact pending identity when no canonical
+assessment exists, revalidates all request fields, and durably writes the equivalent
+canonical assessment before reporting completion. Existing canonical decisions
+take precedence. Supported, unsupported and uncertain assessments are reusable;
+uncertainty remains uncertainty. Refused writes are failures, not completed work.
+No persistence schema or source-validity rule changed.
+
+Failing-first proof: `admissionReusesEveryCurrentPendingDecisionAcrossStoreReopening`
+failed against the original lookup because it made two inference calls instead of
+one. It passes after the change, including reopening the file-backed store and
+checking the canonical record. Definition/policy changes require fresh verification,
+withdrawal rejects reuse, and canonical rejection supersedes pending support.
+
+The first full run executed 1,693 tests with two failures: existing tests expected
+an extra inference call for already verified citations. The catalog test now requires
+zero new calls while retaining its evidence and withdrawal assertions. The membership
+test explicitly persists an uncertain canonical decision before checking that it
+cannot complete membership; its assertion remains intact. All 16 focused tests pass.
+The subsequent full suite passed all 1,693 tests, debug assembly and Android test
+compilation. That checkpoint preceded the scheduler and diagnostics changes below.
+
+The scheduler regression then demonstrated that admission can shrink the proposal
+window from `[a, b]` to `[b]`, while incrementing the old numeric cursor skips `b`.
+Admission now resets the anchor offset and cursor once, remembers the exact admitted
+proposal in its current source scope and skips it if still offered. The test failed
+with only `a` admitted and now reaches Idle with exactly `a, b`. Existing file-backed
+scheduler/controller restart integration tests also pass. The local skip set is not
+durable verification proof; canonical records and source-validated stores remain
+authoritative after restart.
+
+`DiscoverySupportScaleTest` exercised 20,000 synthetic passages, 2,000 Notes and
+35 concepts using shipping retrieval/verification and a destructive invalidation
+double. Actual fake inference counts were cold 4,000, unchanged warm zero, one
+changed Note two, and changed verifier policy 4,000. One-candidate pages exercise
+continuation; support and rejection are both retained. This is not an indexing,
+model-quality, device-latency or interrupted-processing measurement.
+
+Debug proposal/support diagnostics now count native submission attempts and duration,
+valid response successes and invalid outputs at the runtime boundary. A regression
+failed with no events and passes with instrumentation; input-limit rejection before
+submission does not increment attempts. No prompts or generated output are logged.
+The observer is absent in release builds. Full verification of this later checkpoint
+passed: 1,696 JVM tests, zero failures/errors/skips; debug assembly and Android test
+Kotlin compilation succeeded. `git diff --check` found no whitespace errors.
+
+Still open: full inference metrics and reporting, cold/warm indexing and interrupted
+scale scenarios, broader durable scheduler transition proofs, and real-device gates.
+The user connected a Pixel 8 Pro; ADB currently reports it unauthorized. Pixel
+observations must be reported separately and do not establish S25 timing.
+
+## 242. Bound per-Note verification before reducing verifier quality (2026-11-07)
+
+The user reviewed the §241 scale counts and a Pixel capture from this round and
+directed that verification volume be reduced by contract rather than by weakening
+the independent support verifier or raising the retrieval cutoff. This round
+amends the governing sources and documents the audit metrics; it changes no code
+and no production behavior.
+
+Recorded evidence, with provenance:
+
+| Observation | Value | What it is |
+| --- | --- | --- |
+| `DiscoverySupportScaleTest`, cold | 4,000 fake support calls | synthetic; 20,000 passages, 2,000 Notes, 35 concepts, 2 candidates per Note |
+| Unchanged warm | 0 | exact-input reuse |
+| One Note revision changed | 2 | that Note's two candidates only |
+| Verifier policy changed | 4,000 | full invalidation |
+| Pixel 8 Pro, 300 s capture | 877 embeddings, mean 135.7 ms, p50 135.2, p95 151.8 | debug `DiscoveryInference`, one device |
+| Pixel 8 Pro, 600 s capture | 1,732 embeddings, mean 138.0 ms, p50 136.7, p95 153.0 | same device, later interval |
+| Proposal and support attempts in both captures | 0 | real generation latency still unmeasured |
+| User's working sample | 526 embeddings, about 135 ms mean | consistent with the retained captures |
+
+20,000 cold embeddings at 135–138 ms is about 45–46 minutes of native embedding
+alone. That is arithmetic on a device mean, not an end-to-end benchmark: it
+excludes storage, scheduling, proposal and support work, interruption, thermal
+effects and passage-length variation, and the device sample is 526–1,732 calls,
+not 20,000.
+
+The 4,000 cold support calls are fake-verifier calls, not native generation, and
+the synthetic corpus supplies exactly one supported and one unsupported candidate
+per Note. The current pass checks both even after one is supported, so stopping at
+the first support would remove at most half of the cold calls in that shape, and
+only when the supported candidate ranks first. How much is actually removable
+depends on that ranking, which is not measured.
+
+Decision, recorded as directed:
+
+1. Propose from a small evidence bundle and request one or two strong citations.
+2. Publish as soon as the first required independent evidence is verified.
+3. For each Note, try its strongest retrieved passage first. One clear supporting
+   passage establishes membership; inspect more only while the decision is
+   unsupported or uncertain, and keep already recorded decisions and canonical
+   rejection authoritative.
+4. Spread the remaining checks across later windows and label coverage incomplete.
+
+Item 2 already follows from the evidence-first rules. Item 1 is a prompt/bundle
+policy inside the existing selected-subset rule and is not yet changed. Item 3
+required a semantic amendment. Item 4's incomplete-coverage labeling exists, but
+leaving a supported Note's remaining candidates for later bounded windows is part
+of that amendment, not current behavior.
+
+Amended the governing Evidence-first Discovery sources, 2026-11-07:
+
+- Product & Architecture Contract: "Bounded per-Note support checks for
+  Evidence-first Discovery".
+- UI Screens & Navigation Contract: "Presenting bounded per-Note support checks".
+- Notion Integration Implementation Spec: "Bounded per-Note support checks in
+  Evidence-first Discovery".
+
+The amendment keeps independent validation as the authority: one validated current
+passage establishes membership; unchecked candidates are not unsupported, absent or
+checked; the remaining reconciliation work is retained; matching coverage stays
+incomplete while that work is unfinished; persisted decisions are revalidated and a
+canonical rejection still wins. The support verifier, its prompt, schema, policy
+and identity, the admission guards and all withdrawal rules are unchanged. No
+contradiction state is invented; "already encountered contradictions still need
+handling" is met by keeping recorded unsupported or uncertain decisions and
+canonical rejection, not by silently erasing them.
+
+The implementation still verifies every threshold-eligible candidate. The
+specification now authorizes the bounded behavior first, per the repository's
+conflict protocol; wiring, failing-first tests and measurement remain open. No test
+expresses the new rule yet, and this round changes no production behavior.
+
+Documented the audit metrics in `docs/discovery-inference-verification.md`: the
+emitted native and work events, the summarizer's derived values, the captures'
+claim limits, and the per-Note counters needed before the change can be evaluated.
+The methodological point is counterfactual: `supportChecksAfterFirstSupported` and
+the first-candidate decision mix must be measured on the current all-candidate
+path, because once the rule ships the redundant checks no longer occur. If the
+hidden-contradiction question must stay answerable, it needs an explicit bounded
+continued-check audit sample; otherwise that risk is unmeasured.
+
+Still open: implement the bounded pass with failing-first tests; measure the
+per-Note counters, real proposal and support latency and throughput; decide whether
+a continued-check audit sample is required; retain the representative device,
+semantic, memory and human TalkBack gates. The two Pixel captures are
+embedding-throughput evidence only, are not S25 evidence, and live under ignored
+`build/discovery-measurements/`; the table above is the durable record.
