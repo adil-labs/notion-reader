@@ -1721,6 +1721,8 @@ User-authorized direction, 2026-11-02. This amendment supersedes the previous re
 
 For a new or changed eligible cached Note, reuse compatible unchanged passage embeddings, consider existing concepts first, and propose bounded neighborhoods from unexplained current body evidence, section and structural context, explicit references and relevant older evidence, including previously unmatched Notes. Structural inventory may be incomplete; record that state and do not infer absence from partial coverage. Ordinary updates must not require global clustering or a complete structural inventory. Preserve incomplete or unresolved work, cancellation, deterministic bounded processing and lower-priority resumable reconciliation.
 
+A topic supported by independently checked current evidence may appear when the proposal's bounded evidence bundle omitted other neighbors. Its matching count and completeness describe the independently checked matching pass, not the size of the model's input; preserve any remaining reconciliation work and do not present unchecked or stale membership.
+
 A proposal is not a canonical topic. A local Gemma response either proposes a specific name, short definition, short listening description and a nonempty selected subset of offered current passage references, or successfully abstains with a bounded reason. Reject invented, duplicate, stale or incompatible references and malformed responses. Version prompt, schema, model and validation identities. Treat Note text as untrusted; selected citations and model assertions do not themselves prove factual support. Distinguish abstention from invalid output, failure, cancellation and unavailability, and reuse decisions only for compatible exact evidence and policy identity.
 
 Embedding similarity retrieves candidates; it does not establish membership. Independently evaluate and version support decisions as supported, unsupported or uncertain against the current concept and current passage. Aggregate memberships only from validated current support, retain incomplete coverage honestly, and do not force unmatched Notes or seed members into topics. One supporting Note may form an Emerging topic; two or more form an Established topic. A valid concept with no current matches remains inspectable with an honest empty state. No generic heading alone establishes a topic.
@@ -1734,3 +1736,13 @@ Present topic name, short listening description, supporting Note count, validate
 # Fresh-install Discovery replacement
 
 User direction, 2026-11-04: assume a fresh app installation for the evidence-first Discovery replacement. Migration or preservation of derived Discovery records from the former cluster-first pipeline is not required. Remove the legacy production formation and migration paths; any retained formation implementation is an offline evaluation oracle only. This does not weaken source withdrawal, reset, privacy, existing listening and queue behavior, or the evidence-first coverage and verification rules for data created by the new path. Production activation is authorized when the implemented path is ready.
+
+# Presenting bounded per-Note support checks
+
+Amendment, 2026-11-07. This records the presentation consequences of the bounded per-Note support checks in the governing Product contract; Discovery behavior is owned there and by the Integration specification.
+
+A Note whose membership rests on one independently validated passage is a verified match even while its other retrieved passages remain unchecked. Present the verified match normally: do not hide, demote or discount it because its remaining candidates are pending. Do not describe those unchecked passages as unsupported, absent or checked.
+
+While a Note's reconciliation work remains unfinished, present the concept's matching coverage as incomplete rather than as a completed scan. In accessible why-this-topic presentation, do not present unchecked evidence as unsupported or checked, and keep the existing Emerging and Established counts based on independently validated members.
+
+Do not add a verification-mode control, a progress estimate or an algorithm selector, and do not change inspection ordering, focus restoration or immediate withdrawal behavior.
