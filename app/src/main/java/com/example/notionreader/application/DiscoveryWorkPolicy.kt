@@ -10,7 +10,7 @@ data class DiscoveryPowerState(val percent: Int? = null, val connected: Boolean 
 
 data class ProcessingTimeRange(val minimumSeconds: Long, val maximumSeconds: Long)
 data class DiscoveryEmbeddingWork(val remainingNotes: Int, val remainingPassages: Int,
-    val estimate: ProcessingTimeRange? = null)
+    val estimate: ProcessingTimeRange? = null, val totalPassages: Int = 0)
 
 /** Active provider-call time only: query waits and battery pauses are never observations. */
 internal class DiscoveryTimeEstimator {

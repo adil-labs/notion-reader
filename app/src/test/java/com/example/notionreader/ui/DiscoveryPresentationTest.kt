@@ -160,6 +160,12 @@ class DiscoveryPresentationTest {
         assertTrue(text.contains("2–3 minutes"))
         assertTrue(text.contains("Subject and connection analysis is additional"))
         assertTrue(discoveryWorkDescription(state.copy(embeddingWork = DiscoveryEmbeddingWork(3, 25)))!!.contains("Estimating on this device"))
+        // The UI must show actual passage progress, not only a Note-completion count.
+        val withTotal = state.copy(embeddingWork = DiscoveryEmbeddingWork(3, 25, ProcessingTimeRange(70, 170), 100))
+        assertTrue(discoveryWorkDescription(withTotal)!!.contains("75 of 100 passages embedded"))
+        val status = discoveryStatus(withTotal.copy(indexedCount = 2, cachedPageIds = setOf("a", "b")))
+        assertTrue(status.coverage.contains("2 of 2 cached Notes indexed"))
+        assertTrue(status.coverage.contains("25 passages remaining"))
     }
     @Test fun independentReferencePreviewsQuoteTheReferencingPassageRegardlessOfPairOrder() {
         fun member(id: String, text: String): TopicMembership {
@@ -231,5 +237,18 @@ class DiscoveryPresentationTest {
         assertEquals("Interest: Forests", recentListeningTitle(entry("Interest: Forests")))
         assertEquals("Current Note", recentListeningTitle(entry("Single Note")))
         assertEquals("Current Note", recentListeningTitle(entry("Browse selection")))
+    }
+
+    @Test fun aVerifierChangeIsPresentedWithARebuildInstructionAndNoFalseRetry() {
+        val failure = DiscoverySchedulingFailure.VerifierChanged
+        val state = DiscoveryState(cacheStatus = DiscoveryCacheStatus.Ready, paused = false,
+            schedulingFailure = failure, topicFailure = failure.userMessage(),
+            topicFailureSource = TopicFailureSource.Scheduling)
+        assertFalse("A verifier change is not recoverable by ordinary retry", state.canRetryTopicScheduling())
+        assertEquals(failure.userMessage(), discoveryStatus(state).message)
+        val progress = discoveryProgress(state)
+        assertEquals(failure.userMessage(), progress.message)
+        assertNull("A verifier change must not offer an ineffective Retry action", progress.action)
+        assertTrue("The instruction names the explicit recovery path", failure.userMessage().contains("Rebuild index"))
     }
 }

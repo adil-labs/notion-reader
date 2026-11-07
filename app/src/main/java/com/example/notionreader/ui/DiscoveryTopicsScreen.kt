@@ -77,7 +77,9 @@ internal fun DiscoveryTopicsScreen(app: ReaderApp) {
                     rows.none { it.key == "major" })
                     Text("No supported topics to show yet. Search and individual connections remain available.",
                         style = MaterialTheme.typography.bodyMedium)
-                TopicProgressNotice(presentationState) { controller.refreshTopics() }
+                TopicProgressNotice(presentationState, retry = { controller.requestUserRetry() }) {
+                    controller.refreshTopics()
+                }
             }
         }
         items(rows, key = { it.key }, contentType = { if (it.topic != null) "topic" else "heading" }) { row ->
@@ -86,7 +88,8 @@ internal fun DiscoveryTopicsScreen(app: ReaderApp) {
             }, nav.focusTarget, app::focusHandled, displayName = topicDisplayName(row.topic, state.interests))
             else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(checkNotNull(row.heading), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                if (row.key == "emerging") Text("Subjects supported by one cached Note.", style = MaterialTheme.typography.bodySmall)
+                if (row.key == "emerging") Text("Subjects with verified evidence and incomplete coverage.",
+                style = MaterialTheme.typography.bodySmall)
             }
         }
         item("back") {

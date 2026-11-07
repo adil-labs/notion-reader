@@ -4,7 +4,7 @@ import com.example.notionreader.application.*
 import com.example.notionreader.domain.discovery.DiscoveryModelState
 import com.example.notionreader.application.HistoryEntry
 
-internal enum class DiscoveryProgressAction { Refresh }
+internal enum class DiscoveryProgressAction { Refresh, Retry }
 internal data class DiscoveryProgressUi(val message: String? = null, val action: DiscoveryProgressAction? = null)
 
 data class DiscoveryStatusUi(
@@ -56,7 +56,11 @@ internal fun discoveryStatus(state: DiscoveryState): DiscoveryStatusUi {
             state.cacheStatus == DiscoveryCacheStatus.Checking -> "Checking cached Notes…"
             state.cacheStatus is DiscoveryCacheStatus.Failed -> "Cached Note coverage is unavailable."
             state.indexCoverage == DiscoveryCoverageStatus.Checking -> "Checking indexed Note coverage…"
-            else -> "${state.indexedCount} of ${state.cachedPageIds.size} cached Notes indexed"
+            else -> {
+                val remaining = state.embeddingWork?.takeIf { it.remainingPassages > 0 }
+                val suffix = remaining?.let { " · ${it.remainingPassages} passages remaining" }.orEmpty()
+                "${state.indexedCount} of ${state.cachedPageIds.size} cached Notes indexed$suffix"
+            }
         },
         if (status in setOf(DiscoveryProcessingStatus.Checking, DiscoveryProcessingStatus.SetupRequired,
                 DiscoveryProcessingStatus.CacheUnavailable)) null else discoveryWorkDescription(state),
@@ -68,9 +72,14 @@ internal fun discoveryStatus(state: DiscoveryState): DiscoveryStatusUi {
 
 internal fun discoveryProgress(state: DiscoveryState): DiscoveryProgressUi =
     if (state.topicsUpdated) DiscoveryProgressUi("New discoveries available", DiscoveryProgressAction.Refresh)
+    else if (state.schedulingFailure != null)
+        // A verifier change is presented with its rebuild instruction and no false Retry action.
+        DiscoveryProgressUi(discoveryStatus(state).message,
+            if (state.canRetryTopicScheduling()) DiscoveryProgressAction.Retry else null)
     else DiscoveryProgressUi(discoveryStatus(state).message)
 
 private fun discoveryProcessingDescription(state: DiscoveryState): String? = when {
+    state.embeddingWork?.remainingNotes?.let { it > 0 } == true -> "Indexing cached Notes…"
     state.indexing -> "Preparing cached Notes…"
     state.topicNaming == TopicNamingStatus.Unavailable -> state.topicStatus
         ?: "Download the topic discovery model in Settings to find new topics."
@@ -92,12 +101,16 @@ internal fun discoveryWorkDescription(state: DiscoveryState): String? {
         val high = ((it.maximumSeconds + 59) / 60).coerceAtLeast(low)
         when {
             it.maximumSeconds == 0L -> "No new embeddings needed."
-            it.maximumSeconds < 60 -> "Less than a minute of embedding work."
-            low == high -> "About $high ${if (high == 1L) "minute" else "minutes"} of embedding work."
-            else -> "About $low–$high minutes of embedding work."
+            it.maximumSeconds < 60 -> "Less than a minute of active embedding work."
+            low == high -> "About $high ${if (high == 1L) "minute" else "minutes"} of active embedding work."
+            else -> "About $low–$high minutes of active embedding work."
         }
     } ?: "Estimating on this device…"
-    return "${work.remainingNotes} Notes, ${work.remainingPassages} passages remaining. $duration Subject and connection analysis is additional; its time is not yet estimated."
+    val progress = if (work.totalPassages > 0) {
+        val completed = (work.totalPassages - work.remainingPassages).coerceIn(0, work.totalPassages)
+        "$completed of ${work.totalPassages} passages embedded."
+    } else "${work.remainingPassages} passages remaining."
+    return "${work.remainingNotes} Notes remaining · $progress $duration Subject and connection analysis is additional; its time is not yet estimated."
 }
 
 internal fun topicDisplayName(topic: com.example.notionreader.domain.discovery.DiscoveredTopic,

@@ -138,7 +138,7 @@ internal fun TopicDetailsScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    "${state.indexedCount} of ${state.cachedPageIds.size} cached Notes indexed",
+                    discoveryStatus(state).coverage,
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(if (topic.canonicalConcept != null) "Supporting evidence" else "Group evidence",
@@ -174,7 +174,7 @@ internal fun TopicDetailsScreen(
 
             Text("Matching Notes", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
             val members = topic.matchingMembers.distinctBy { it.pageId }
-            if (members.isEmpty() || topic.canonicalConcept?.matchingComplete == false)
+            if (members.isEmpty() || topic.canonicalConcept?.passageCoverageComplete == false)
                 Text(topicNoteCount(topic), style = MaterialTheme.typography.bodyMedium)
             Column(
                 modifier = Modifier.semantics { collectionInfo = CollectionInfo(minOf(members.size, visibleMembers), 1) },

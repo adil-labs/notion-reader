@@ -79,6 +79,8 @@ class DiscoveryController(
     private val membershipSchedulerLock = Mutex()
     @Volatile private var membershipWorkPending = false
     @Volatile private var evidenceWorkPending = topicStore != null
+    /** Alternates which independent job gets the first bounded opportunity in a domain step. */
+    @Volatile private var evidenceFirst = false
 
     private fun isRetriableScheduling(state: DiscoveryState): Boolean =
         state.canRetryTopicScheduling()
@@ -92,7 +94,9 @@ class DiscoveryController(
     }
     val hasPendingWork: Boolean get() = indexing.reconciliationPending || topics?.needsMoreWork == true || membershipWorkPending || evidenceWorkPending ||
         state.value.indexedCount < state.value.cachedPageIds.size || state.value.cachedRevision != cache.revision.value
-    fun requestAutomaticContinuation() { membershipScheduler.retryBlocked(); evidenceScheduler.retryBlocked(); wake.value++ }
+    fun requestAutomaticContinuation() { membershipScheduler.continueAutomatically(); evidenceScheduler.continueAutomatically(); wake.value++ }
+    /** Explicit user retry may re-open membership pages blocked for the current source revision. */
+    fun requestUserRetry() { membershipScheduler.retryBlocked(); evidenceScheduler.retryBlocked(); wake.value++ }
     suspend fun releaseTopicLabelModel() { runtime.closeLabels(); requestAutomaticContinuation() }
     suspend fun closeLabels() { runtime.closeLabels() }
     private val wake = MutableStateFlow(0L)
@@ -219,7 +223,8 @@ class DiscoveryController(
             topicSupportIdentity() == candidate.verifier && candidate.embedding == ticket.identity
         if (!current()) return@withContext PendingConceptCoverage.Stale
         val sources = runtime.validity.eligibleRevisions()
-        if (sources != candidate.sources || !current()) return@withContext PendingConceptCoverage.Stale
+        if (candidate.sources != ticket.snapshot.acceptedRevisions ||
+            candidate.sources.any { (id, revision) -> sources[id] != revision } || !current()) return@withContext PendingConceptCoverage.Stale
         val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
             ?: return@withContext PendingConceptCoverage.Invalid
         val expectedQuery = TopicRetrievalQuery("pending:${candidate.generation.workKey}", candidate.generation.workKey,
@@ -260,7 +265,8 @@ class DiscoveryController(
             else -> return@withContext PendingCorpusReplayResult.Invalid
         }
         val sources = runtime.validity.eligibleRevisions()
-        if (sources != candidate.sources || !current()) return@withContext PendingCorpusReplayResult.Stale
+        if (candidate.sources != ticket.snapshot.acceptedRevisions ||
+            candidate.sources.any { (id, revision) -> sources[id] != revision } || !current()) return@withContext PendingCorpusReplayResult.Stale
         val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
             ?: return@withContext PendingCorpusReplayResult.Invalid
         val refs = candidate.proposal.evidence.groupBy { canonicalSemanticId(it.pageId) }
@@ -275,7 +281,7 @@ class DiscoveryController(
         }
         measureWork("corpusReplayNanos") { replayPendingCorpus(replay, scope,
             SupportConcept("pending:${candidate.generation.workKey}", candidate.generation.workKey, concept.name, concept.definition),
-            candidate.query, candidate.verifier, ticket.epoch, sources, guardedIndex, store, ::current, ::mayWork,
+            candidate.query, candidate.verifier, ticket.epoch, candidate.sources, guardedIndex, store, ::current, ::mayWork,
             ticket.snapshot, dependencies) }
     }
 
@@ -286,9 +292,12 @@ class DiscoveryController(
         val owner = topics ?: return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "topics is null") }
         val ticket = candidate.catalogTicket ?: return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "candidate.catalogTicket is null") }
         if (candidate.proposal.incomplete != candidate.generation.incomplete ||
-            done.reconciliationReasons != candidate.proposal.incomplete ||
-            candidate.proposal.incomplete.any { it.blocksConceptAdmission() })
+            done.reconciliationReasons != candidate.proposal.incomplete)
             return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "incomplete reasons mismatch: prop=${candidate.proposal.incomplete} gen=${candidate.generation.incomplete} done=${done.reconciliationReasons}") }
+        val citationsSupported = candidate.citations.isNotEmpty() &&
+            candidate.citations.all { it.decision == SupportDecision.SUPPORTED }
+        if (!candidate.coverage.allowsEmerging(citationsSupported))
+            return@withContext CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "evidence or catalog is not safe for Emerging publication: coverage=${candidate.coverage} citations=$citationsSupported") }
         val token = runtime.validity.capture()
         val indexedRevision = mutable.value.indexedRevision
         fun current() = owner.isCatalogTicketCurrent(ticket) && runtime.validity.isCurrent(token) &&
@@ -297,8 +306,10 @@ class DiscoveryController(
         if (!current()) return@withContext CanonicalAdmissionResult.Stale.also { logDiag("CanonicalAdmission", "current() false before checked: ticket=${owner.isCatalogTicketCurrent(ticket)} token=${runtime.validity.isCurrent(token)} idxRev=${mutable.value.indexedRevision == indexedRevision} prop=${topicProposalIdentity() == candidate.generator} supp=${topicSupportIdentity() == candidate.verifier}") }
         if (!mayContinueWork() || runtime.foregroundQueries.get() != 0)
             return@withContext CanonicalAdmissionResult.Deferred
+        val eligible = runtime.validity.eligibleRevisions()
         val checked = if (done.verified?.invoke(done) == true &&
-            runtime.validity.eligibleRevisions() == candidate.sources) {
+            candidate.sources == ticket.snapshot.acceptedRevisions &&
+            candidate.sources.all { (id, revision) -> eligible[id] == revision }) {
             when (val citations = revalidatePendingCandidate(candidate)) {
                 PendingConceptCoverage.Stale -> PendingCorpusReplayResult.Stale
                 is PendingConceptCoverage.Complete ->
@@ -313,9 +324,12 @@ class DiscoveryController(
             is PendingCorpusReplayResult.Pending -> CanonicalAdmissionResult.Pending(checked.replay)
             PendingCorpusReplayResult.Stale -> CanonicalAdmissionResult.Stale
             PendingCorpusReplayResult.Deferred -> CanonicalAdmissionResult.Deferred
-            is PendingCorpusReplayResult.Complete -> {
+            is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> {
                 if (done.coverage != checked) CanonicalAdmissionResult.Stale.also { logDiag("CanonicalAdmission", "coverage mismatch") }
-                else owner.admitCandidate(ticket, candidate, checked, ::current)
+                else if (candidate.citations.isNotEmpty() &&
+                    candidate.citations.all { it.decision == SupportDecision.SUPPORTED })
+                    owner.admitCandidate(ticket, candidate, checked, ::current)
+                else CanonicalAdmissionResult.Incomplete.also { logDiag("CanonicalAdmission", "citations not all supported: ${candidate.citations.map { it.decision }}") }
             }
             is PendingCorpusReplayResult.Incomplete -> {
                 if (done.coverage != checked &&
@@ -412,12 +426,11 @@ class DiscoveryController(
                 is PendingCorpusReplayResult.Incomplete -> {
                     val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
                         ?: return PendingCorpusWorkResult.Stopped(result, work)
-                    if (result.candidate.catalogTicket != null &&
-                        result.candidate.citations.isNotEmpty() &&
-                        result.candidate.citations.all { it.decision == SupportDecision.SUPPORTED } &&
+                    val citationsSupported = result.candidate.citations.isNotEmpty() &&
+                        result.candidate.citations.all { it.decision == SupportDecision.SUPPORTED }
+                    if (result.candidate.catalogTicket != null && citationsSupported &&
                         result.candidate.citations.none { it.evidence.pageId == replay.pageId } &&
-                        !result.window.scanPending &&
-                        !proposal.incomplete.any { it.blocksConceptAdmission() }) {
+                        result.candidate.coverage.allowsEmerging(citationsSupported)) {
                         return completed(replay, result.candidate, proposal.incomplete)
                     }
                     return PendingCorpusWorkResult.Pending(work.copy(
@@ -427,7 +440,10 @@ class DiscoveryController(
                 is PendingCorpusReplayResult.Complete, is PendingCorpusReplayResult.Uncertain -> {
                     val proposal = result.window.window.proposals.getOrNull(work.proposalIndex)
                         ?: return PendingCorpusWorkResult.Stopped(result, work)
-                    return if (pendingCorpusIsIncomplete(replay, proposal.incomplete, result.window.scanPending))
+                    val citationsSupported = result.candidate.citations.isNotEmpty() &&
+                        result.candidate.citations.all { it.decision == SupportDecision.SUPPORTED }
+                    val permitsEmerging = result.candidate.coverage.allowsEmerging(citationsSupported)
+                    return if (pendingCorpusIsIncomplete(replay, proposal.incomplete, result.window.scanPending) && !permitsEmerging)
                         PendingCorpusWorkResult.Incomplete(replay, result.candidate, proposal.incomplete, result.window.scanPending)
                     else completed(replay, result.candidate, proposal.incomplete)
                 }
@@ -438,13 +454,13 @@ class DiscoveryController(
                 PendingNoteReplayResult.Incompatible -> return PendingCorpusWorkResult.Pending(work.copy(
                     phase = PendingCorpusWorkPhase.SCAN_NOTE, note = PendingConceptNoteScan.start()))
                 is PendingNoteReplayResult.Validated -> return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.SCAN_NOTE, note = replay.scan))
-                is PendingNoteReplayResult.Complete, is PendingNoteReplayResult.Uncertain -> return PendingCorpusWorkResult.Pending(
+                is PendingNoteReplayResult.Complete -> return PendingCorpusWorkResult.Pending(
                     work.copy(phase = PendingCorpusWorkPhase.CORPUS, target = null, note = PendingConceptNoteScan.start()))
                 else -> Unit
             }
             is EvidenceFirstNoteStep.NoteRetrievalScan -> when (val scan = result.scan) {
                 is PendingConceptNoteScanResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(note = scan.scan))
-                is PendingConceptNoteScanResult.Complete, is PendingConceptNoteScanResult.Uncertain -> return PendingCorpusWorkResult.Pending(
+                is PendingConceptNoteScanResult.Complete -> return PendingCorpusWorkResult.Pending(
                     work.copy(phase = PendingCorpusWorkPhase.CORPUS, target = null, note = PendingConceptNoteScan.start()))
                 else -> Unit
             }
@@ -490,13 +506,20 @@ class DiscoveryController(
             if (!mayWork()) return EvidenceFirstNoteStep.Deferred
             if (guardedIndex.read(canonicalSemanticId(originPageId)) != record || !current())
                 return EvidenceFirstNoteStep.Stale
+            val coverage = ProposalAdmissionCoverage(
+                sourceScanComplete = ProposalIncompleteReason.SOURCE_SCAN !in proposal.incomplete,
+                catalogConsistent = catalogTicket?.snapshot?.canonicalCatalogReady == true,
+                duplicateCheckComplete = catalogTicket?.snapshot?.canonicalCatalogReady == true,
+                unresolvedEvidence = ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN in proposal.incomplete,
+                staleEvidence = ProposalIncompleteReason.STALE_SOURCE in proposal.incomplete
+            )
             return EvidenceFirstNoteStep.CorpusReplay(PendingConceptCandidate(proposal, generated, citations.toList(),
-                sources.toMap(), identity, verifier, generator, embeddedQuery, catalogTicket), corpus, window)
+                sources.toMap(), identity, verifier, generator, embeddedQuery, catalogTicket, coverage), corpus, window)
         }
         if (replayPendingScan) {
             val saved = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
                 ?: return EvidenceFirstNoteStep.Incomplete
-            if (saved.formatVersion != 2) return EvidenceFirstNoteStep.Incomplete
+            if (saved.formatVersion != CONCEPT_SCAN_FORMAT_VERSION) return EvidenceFirstNoteStep.Incomplete
             val replayed = replayPendingNoteScan(saved, checkNotNull(retrieveScan), pendingConcept, embeddedQuery,
                 target, guardedIndex, verifier, epoch, sources, store, current, mayWork, noteDependencies)
             if (!current()) return EvidenceFirstNoteStep.Stale
@@ -509,10 +532,11 @@ class DiscoveryController(
             val expected = if (checkpointPendingScan) {
                 val stored = store.readPendingNoteScan(pendingConcept.workKey, targetId, sources)
                 val old = if (retrieveScan.binding == null) stored?.takeIf {
-                    it.formatVersion == 1 || it.binding != pendingNoteScanBinding(pendingConcept, embeddedQuery, target, verifier, noteDependencies)
+                    it.formatVersion != PENDING_NOTE_SCAN_FORMAT_VERSION || it.binding != pendingNoteScanBinding(pendingConcept, embeddedQuery, target, verifier, noteDependencies)
                 } else PendingNoteScanRecord(pendingConcept.workKey,
                     targetId, target.revision, noteDependencies, retrieveScan.binding, checkNotNull(retrieveScan.next).passage,
-                    retrieveScan.supported, retrieveScan.uncertain, formatVersion = 2)
+                    retrieveScan.supported, retrieveScan.uncertain, formatVersion = PENDING_NOTE_SCAN_FORMAT_VERSION,
+                    retrievedCandidates = retrieveScan.retrieved, examinedCandidates = retrieveScan.examined)
                 if (stored != old) return EvidenceFirstNoteStep.Stale
                 stored
             } else null
@@ -525,7 +549,7 @@ class DiscoveryController(
             if (guardedIndex.read(targetId) != target || guardedIndex.read(canonicalSemanticId(originPageId)) != record || !current())
                 return EvidenceFirstNoteStep.Stale
             if (checkpointPendingScan && (scan is PendingConceptNoteScanResult.Pending ||
-                    scan is PendingConceptNoteScanResult.Complete || scan is PendingConceptNoteScanResult.Uncertain)) {
+                    scan is PendingConceptNoteScanResult.Complete)) {
                 val written = savePendingNoteResult(pendingConcept, target, noteDependencies, scan, expected, store) { current() && mayWork() }
                 if (!current()) return EvidenceFirstNoteStep.Stale
                 if (!mayWork()) return EvidenceFirstNoteStep.Deferred
@@ -559,7 +583,7 @@ class DiscoveryController(
         retrieveScan: PendingConceptNoteScan? = null, checkpointPendingScan: Boolean = false,
         replayPendingScan: Boolean = false, corpusReplay: PendingCorpusReplay? = null,
         scopeAnchor: Any, catalogScope: String, extraCurrent: () -> Boolean = { true },
-        indexedSources: Map<String, String>? = null): EvidenceFirstNoteStep {
+        indexedSources: Map<String, String>? = null, catalogTicket: TopicCatalogTicket? = null): EvidenceFirstNoteStep {
         val token = runtime.validity.capture()
         val identity = provider.identity
         val indexedRevision = mutable.value.indexedRevision
@@ -622,7 +646,7 @@ class DiscoveryController(
                             val scopeFields = listOf("provisional-retrieval-v1", catalogScope, token.reset.toString(),
                                 token.cacheRevision.toString(), indexedRevision.toString(), identity.toString())
                             val scopeTicket = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
-                            return advancePendingRetrieval(proposal, generated, window, concept, coverage.assessments, identity, verifier, generator, null, token.reset,
+                            return advancePendingRetrieval(proposal, generated, window, concept, coverage.assessments, identity, verifier, generator, catalogTicket, token.reset,
                                 sources, guardedIndex, store, pageId, record, retrievePageId, retrieveCursor, retrieveScan,
                                 checkpointPendingScan, replayPendingScan, corpusReplay, scopeTicket, scopeAnchor, maxRecords,
                                 ::assessmentCurrent, ::mayWork)
@@ -691,7 +715,8 @@ class DiscoveryController(
                     val provisional = provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
                         maxRecords, store, windowContinue, supported, uncertain.isNotEmpty(), generateIndex, expectedGenerationKey,
                         assessEvidenceIndex, wantCoverage, retrievePageId, retrieveCursor, retrieveScan, checkpointPendingScan,
-                        replayPendingScan, corpusReplay, ticket.snapshot, "${ticket.epoch}:${ticket.cacheRevision}:${ticket.queryTicket}", ::current)
+                        replayPendingScan, corpusReplay, ticket.snapshot, "${ticket.epoch}:${ticket.cacheRevision}:${ticket.queryTicket}", ::current,
+                        catalogTicket = ticket)
                     if (!current()) EvidenceFirstNoteStep.Stale else if (!mayWork()) EvidenceFirstNoteStep.Deferred else provisional
                 }
             }
@@ -699,7 +724,8 @@ class DiscoveryController(
                 val provisional = provisionalEvidenceFirstWindow(pageId, explicitPageIds, structureComplete, anchorOffset,
                     maxRecords, store, windowContinue, scan.supported, scan.uncertain.isNotEmpty(), generateIndex, expectedGenerationKey,
                     assessEvidenceIndex, wantCoverage, retrievePageId, retrieveCursor, retrieveScan, checkpointPendingScan,
-                    replayPendingScan, corpusReplay, ticket.snapshot, "${ticket.epoch}:${ticket.cacheRevision}:${ticket.queryTicket}", ::current)
+                    replayPendingScan, corpusReplay, ticket.snapshot, "${ticket.epoch}:${ticket.cacheRevision}:${ticket.queryTicket}", ::current,
+                    catalogTicket = ticket)
                 if (!current()) EvidenceFirstNoteStep.Stale else if (!mayWork()) EvidenceFirstNoteStep.Deferred else provisional
             }
             ExistingConceptScanResult.Stale -> EvidenceFirstNoteStep.Stale
@@ -753,7 +779,7 @@ class DiscoveryController(
                 retrievePageId = retrievePageId, retrieveCursor = retrieveCursor, retrieveScan = retrieveScan,
                 checkpointPendingScan = checkpointPendingScan, replayPendingScan = replayPendingScan, corpusReplay = corpusReplay,
                 scopeAnchor = ticket.snapshot, catalogScope = "partial:${ticket.epoch}:${ticket.cacheRevision}:${ticket.queryTicket}",
-                extraCurrent = { owner.isCatalogTicketCurrent(ticket) }, indexedSources = partial)
+                extraCurrent = { owner.isCatalogTicketCurrent(ticket) }, indexedSources = partial, catalogTicket = ticket)
         }
         val verifier = topicSupportIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete
         val generator = if (generateIndex != null) topicProposalIdentity() ?: return@withContext EvidenceFirstNoteStep.Incomplete else null
@@ -786,10 +812,10 @@ class DiscoveryController(
         if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
         val supported = when (checked) {
             is ConceptScanReplayResult.Pending -> return@withContext EvidenceFirstNoteStep.PendingReplay(checked.replay)
-            is ConceptScanReplayResult.Validated -> {
-                if (checked.uncertain.isNotEmpty()) return@withContext EvidenceFirstNoteStep.Uncertain(checked.uncertain)
-                checked.supported
-            }
+            // Uncertainty about an existing subject is not evidence that this Note has no
+            // other subject. New proposals are independently supported and duplicate-checked
+            // at admission, so an unresolved existing match must not suppress this Note.
+            is ConceptScanReplayResult.Validated -> checked.supported
             ConceptScanReplayResult.Stale -> return@withContext EvidenceFirstNoteStep.Stale
             ConceptScanReplayResult.Deferred -> return@withContext EvidenceFirstNoteStep.Deferred
             else -> return@withContext EvidenceFirstNoteStep.Incomplete
@@ -936,43 +962,69 @@ class DiscoveryController(
             return
         }
 
-        try { advanceScheduledMembership() }
-        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (_: DiscoveryEligibilityChanged) { membershipWorkPending = true; return }
-        catch (_: Exception) {
-            membershipWorkPending = true
-            mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
-        }
-
-        if (membershipWorkPending && state.value.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) {
-            try { advanceConnectionsWhileMembershipBlocked() }
+        // Membership expansion and new-topic formation are independent bounded jobs. A Note
+        // whose membership check is blocked, deferred or still incomplete must not stop the
+        // evidence-first proposal scheduler from admitting other verified subjects. Alternate
+        // which job runs first: when the shared work gate flips after a long membership step, a
+        // permanently second proposal step would defer every window and never admit a topic.
+        suspend fun runMembership(): Boolean {
+            try { advanceScheduledMembership() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true; return }
-            catch (_: Exception) { mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ConnectionsIncomplete) } }
+            catch (_: DiscoveryEligibilityChanged) { membershipWorkPending = true; return false }
+            catch (_: Exception) {
+                membershipWorkPending = true
+                mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
+            }
+            if (membershipWorkPending && state.value.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) {
+                try { advanceConnectionsWhileMembershipBlocked() }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true; return false }
+                catch (_: Exception) { mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ConnectionsIncomplete) } }
+            }
+            return true
         }
-
-        if (topicStore != null && !membershipWorkPending && isRetriableScheduling(state.value)) {
+        suspend fun runEvidence(): Boolean {
+            if (topicStore == null || !isRetriableScheduling(state.value)) return true
             try { advanceScheduledEvidence() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true; return }
+            catch (_: DiscoveryEligibilityChanged) { evidenceWorkPending = true; return false }
             catch (_: Exception) {
                 evidenceWorkPending = true
                 mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.ProposalsIncomplete) }
             }
+            return true
         }
+        if (evidenceFirst) {
+            if (!runEvidence()) return
+            if (!runMembership()) return
+        } else {
+            if (!runMembership()) return
+            if (!runEvidence()) return
+        }
+        evidenceFirst = !evidenceFirst
     }
     private suspend fun advanceScheduledMembership() = membershipSchedulerLock.withLock {
         val owner = topics ?: return@withLock
         val ticket = owner.captureCatalogTicket() ?: return@withLock
-        val eligible = runtime.validity.eligibleRevisions()
         val sources = membershipSources(ticket) ?: return@withLock
         if (!owner.isCatalogTicketCurrent(ticket)) return@withLock
-        val fullCoverage = sources == eligible
         val verifier = topicSupportIdentity()
-        val pending = canonicalMembershipNeedsWork(ticket.snapshot, sources, verifier, fullCoverage)
+        // A changed support-model identity invalidates existing canonical evidence. Do not present
+        // an ordinary Retry that cannot succeed; expose the rebuild path instead.
+        if (verifier != null && ticket.snapshot.topics.any {
+                it.canonicalConcept?.verifier != null && it.canonicalConcept.verifier != verifier
+            }) {
+            membershipWorkPending = true
+            mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.VerifierChanged) }
+            return@withLock
+        }
+        val pending = canonicalMembershipNeedsWork(ticket.snapshot, sources, verifier)
         if (!pending) {
             membershipWorkPending = false
-            mutable.update { if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) clearSchedulingFailure(it) else it }
+            mutable.update {
+                if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete ||
+                    it.schedulingFailure == DiscoverySchedulingFailure.VerifierChanged) clearSchedulingFailure(it) else it
+            }
             return@withLock
         }
         if (verifier == null || proposalProgressStore == null) {
@@ -980,11 +1032,14 @@ class DiscoveryController(
             mutable.update { setSchedulingFailure(it, DiscoverySchedulingFailure.MembershipIncomplete) }
             return@withLock
         }
-        mutable.update { if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete) clearSchedulingFailure(it) else it }
+        mutable.update {
+            if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete ||
+                it.schedulingFailure == DiscoverySchedulingFailure.VerifierChanged) clearSchedulingFailure(it) else it
+        }
         val result = membershipScheduler.step(ticket.snapshot, sources, verifier,
+            retrievalPolicyIdentity = topicRetrievalPolicy.toString(),
             scan = { page, restart -> advanceExistingConceptWorkForNote(page, 8, restart) },
-            commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) },
-            fullCoverage = fullCoverage)
+            commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) })
         logDiag("EvidenceScheduler", "membership result=${result.name}")
         when (result) {
             CanonicalMembershipScheduleResult.Idle -> membershipWorkPending = false
@@ -1035,9 +1090,25 @@ class DiscoveryController(
         when (evidenceScheduler.step(scope, sources.keys.sorted(),
             inspect = { page, offset, replay, restart -> advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart) },
             process = { work -> advancePendingCorpusWork(work) },
-            admit = { _, _ -> CanonicalAdmissionResult.Incomplete })) {
+            admit = { done, replay -> admitScheduledCandidate(done, replay) })) {
             EvidenceFirstScheduleResult.Progress -> evidenceWorkPending = true
             EvidenceFirstScheduleResult.Deferred, EvidenceFirstScheduleResult.Blocked, EvidenceFirstScheduleResult.Idle -> evidenceWorkPending = true
+        }
+    }
+
+    private suspend fun admitScheduledCandidate(done: PendingCorpusWorkResult.Done,
+        replay: PendingCorpusReplay): CanonicalAdmissionResult {
+        val priorIds = mutable.value.topicSnapshot.topics.map { it.id }.toSet()
+        return measureWork("canonicalAdmissionNanos") { advanceCanonicalAdmission(done, replay) }.also {
+            if (it is CanonicalAdmissionResult.Admitted && it.topicId !in priorIds) {
+                reportWork(mapOf("topicsAdmitted" to 1L))
+                if (!firstNewTopicReported && mutable.value.publishedTopics.any { published -> published.topic.id == it.topicId }) {
+                    firstWorkStartedNanos?.let { started ->
+                        reportWork(mapOf("firstPublishedTopicNanos" to (monotonicNanos() - started).coerceAtLeast(0)))
+                    }
+                    firstNewTopicReported = true
+                }
+            }
         }
     }
 
@@ -1133,21 +1204,9 @@ class DiscoveryController(
                     5L
                 }
             })) } },
-            admit = { done, replay ->
-                val wasPresent = mutable.value.topicSnapshot.topics.any { it.canonicalConcept?.workKey == done.candidate.generation.workKey }
-                measureWork("canonicalAdmissionNanos") { advanceCanonicalAdmission(done, replay) }.also {
-                    if (it is CanonicalAdmissionResult.Admitted && !wasPresent) {
-                        reportWork(mapOf("topicsAdmitted" to 1L))
-                        if (!firstNewTopicReported && mutable.value.publishedTopics.any { published -> published.topic.id == it.topicId }) {
-                            firstWorkStartedNanos?.let { started ->
-                                reportWork(mapOf("firstPublishedTopicNanos" to (monotonicNanos() - started).coerceAtLeast(0)))
-                            }
-                            firstNewTopicReported = true
-                        }
-                    }
-                    logDiag("EvidenceScheduler", "admit replayOffset=${replay.offset} result=${it::class.simpleName}")
-                }
-            }, generation = ticket.snapshot.generation)
+            admit = { done, replay -> admitScheduledCandidate(done, replay) },
+            catalogEpoch = ticket.snapshot.generation,
+            catalogIdentity = evidenceCatalogIdentity(ticket.snapshot))
         logDiag("EvidenceScheduler", "stepResult: ${result.name}")
         reportWork(mapOf("evidenceScheduler" to result.ordinal.toLong()))
         when (result) {

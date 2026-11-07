@@ -119,15 +119,23 @@ class CanonicalMembershipUpdateTest {
         val uncertain = worker.advanceExistingConceptWork(currentTicket, seed, sources, verifier, 4) {
             error("The durable uncertain assessment must be reused")
         } as DurableConceptScanResult.AwaitingValidation
-        assertEquals(CanonicalMembershipUpdateResult.Incomplete,
+        // A terminal scan that leaves unresolved evidence is committed as coverage rather than
+        // rejected. Verified support is retained; the uncertainty stays visible and keeps
+        // membership coverage incomplete for that Note-concept pair.
+        assertEquals(CanonicalMembershipUpdateResult.Updated,
             worker.advanceCanonicalMembershipUpdate(currentTicket, seed, sources, verifier, uncertain.record, ConceptScanReplay.start(), 4))
         assertEquals(setOf("seed", "later"), graph.snapshot.topics.single().canonicalConcept!!.supported.map { it.pageId }.toSet())
-        val thirdScan = worker.advanceExistingConceptWork(currentTicket, third, sources, verifier, 4) {
+        assertEquals(mapOf("seed" to seed.revision), graph.snapshot.topics.single().canonicalConcept!!.uncertainRevisions)
+        assertFalse(graph.snapshot.topics.single().canonicalConcept!!.matchingComplete)
+        // Committing coverage publishes a new catalog generation, so the scan and its commit
+        // must use a ticket captured after that write.
+        val nextTicket = worker.captureCatalogTicket()!!
+        val thirdScan = worker.advanceExistingConceptWork(nextTicket, third, sources, verifier, 4) {
             TopicSupportRun.Completed(SupportDecision.SUPPORTED)
         } as DurableConceptScanResult.AwaitingValidation
         afterCommit = { cache.remove("third"); afterCommit = {} }
         assertEquals(CanonicalMembershipUpdateResult.Stale,
-            worker.advanceCanonicalMembershipUpdate(currentTicket, third, sources, verifier, thirdScan.record, ConceptScanReplay.start(), 4))
+            worker.advanceCanonicalMembershipUpdate(nextTicket, third, sources, verifier, thirdScan.record, ConceptScanReplay.start(), 4))
         assertEquals("topic", graph.snapshot.topics.single().id)
         assertEquals(setOf("seed", "later"), graph.snapshot.topics.single().canonicalConcept!!.supported.map { it.pageId }.toSet())
         assertFalse(graph.snapshot.topics.single().canonicalConcept!!.matchingComplete)

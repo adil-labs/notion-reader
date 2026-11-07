@@ -1,8 +1,51 @@
 package com.example.notionreader.application
 
-import com.example.notionreader.domain.discovery.blocksConceptAdmission
+import com.example.notionreader.domain.discovery.*
 
 internal enum class EvidenceFirstScheduleResult { Idle, Progress, Blocked, Deferred }
+
+/**
+ * Catalog identity relevant to proposal eligibility and duplicate/continuity admission.
+ *
+ * It covers the canonical readiness gate, each topic's existing-concept query/verifier/members
+ * and the duplicate-continuity bookkeeping. It deliberately excludes connection progress and the
+ * global generation: those do not change whether a proposal can be checked or admitted, and
+ * including them would release blocked proposal work on unrelated activity.
+ */
+internal fun evidenceCatalogIdentity(snapshot: TopicSnapshot): String {
+    val fields = mutableListOf("evidence-catalog-v2", snapshot.canonicalCatalogReady.toString())
+    (snapshot.topics + snapshot.provisionalTopics)
+        .sortedWith(compareBy<DiscoveredTopic> { it.id })
+        .forEach { topic ->
+            val concept = topic.canonicalConcept
+            fields += topic.id
+            fields += concept?.workKey.orEmpty()
+            fields += concept?.name.orEmpty()
+            fields += concept?.definition.orEmpty()
+            fields += concept?.verifier?.toString().orEmpty()
+            fields += concept?.queryEmbedding?.query?.key.orEmpty()
+            fields += concept?.queryEmbedding?.query?.policy?.toString().orEmpty()
+            concept?.queryEmbedding?.vector?.forEach { fields += it.toRawBits().toString() }
+            fields += topic.currentGeneratedLabel?.workKey.orEmpty()
+            fields += topic.currentCanonicalProjection?.workKey.orEmpty()
+            topic.members.sortedBy { it.pageId }.forEach { member ->
+                fields += member.pageId
+                fields += member.revision
+                fields += member.passage.id
+            }
+        }
+    // Continuity is consulted by duplicate/continuity admission.
+    snapshot.continuity.sortedBy { it.id }.forEach { continuity ->
+        fields += continuity.id
+        fields += continuity.createdOrder.toString()
+        fields += continuity.canonicalKey.orEmpty()
+        fields += continuity.replacementId.orEmpty()
+        fields += continuity.anchorSourceId.orEmpty()
+        continuity.pageIds.sorted().forEach { fields += it }
+        continuity.sourceIds.sorted().forEach { fields += it }
+    }
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+}
 
 /** One bounded operation per call; durable evidence is revalidated when this cursor is rebuilt. */
 internal class EvidenceFirstScheduler {
@@ -15,11 +58,19 @@ internal class EvidenceFirstScheduler {
     private val pages = sortedMapOf<String, Page>()
     private var current: String? = null
     private var last: String? = null
-    private var catalogGeneration: Long? = null
+    private var catalogEpoch: Long? = null
+    private var catalogIdentity: String? = null
     private val retry = java.util.concurrent.atomic.AtomicLong()
     private var seenRetry = 0L
     private val resetGeneration = java.util.concurrent.atomic.AtomicLong()
     private var seenReset = 0L
+
+    /**
+     * Automatic continuation resumes available/deferred work and preserves every page's durable
+     * cursor. It must not reopen blocked proposal work; that is reserved for an explicit retry or
+     * a relevant catalog-identity change.
+     */
+    fun continueAutomatically() { /* available pages already resume from their stored work */ }
 
     fun retryBlocked() { retry.incrementAndGet() }
     fun reset() { resetGeneration.incrementAndGet(); retryBlocked() }
@@ -28,7 +79,8 @@ internal class EvidenceFirstScheduler {
         inspect: suspend (String, Int, ConceptScanReplay?, Boolean) -> EvidenceFirstNoteStep,
         process: suspend (PendingCorpusWork) -> PendingCorpusWorkResult,
         admit: suspend (PendingCorpusWorkResult.Done, PendingCorpusReplay) -> CanonicalAdmissionResult,
-        generation: Long? = null
+        catalogEpoch: Long? = null,
+        catalogIdentity: String? = null
     ): EvidenceFirstScheduleResult {
         val diagnostics = kotlinx.coroutines.currentCoroutineContext()[DiscoveryWorkDiagnostics]
         val resetToken = resetGeneration.get()
@@ -38,15 +90,22 @@ internal class EvidenceFirstScheduler {
             scope = scopeKey; pages.clear(); sourceIds.distinct().sorted().forEach { pages[it] = Page() }
             current = null; last = null
         }
-        if (catalogGeneration != generation) {
-            catalogGeneration = generation
+        if (this.catalogEpoch != catalogEpoch) {
+            this.catalogEpoch = catalogEpoch
             pages.values.forEach { page ->
                 page.replay = null
                 page.staleRetries = 0
             }
         }
-        val generation = retry.get()
-        if (seenRetry != generation) { pages.values.forEach { if (it.blocked) { it.blocked = false; it.staleRetries = 0; it.restart = false } }; seenRetry = generation }
+        if (this.catalogIdentity != catalogIdentity) {
+            this.catalogIdentity = catalogIdentity
+            // Proposal work re-checks the current canonical topic catalog for existing concepts
+            // and duplicate safety. A connection-only generation bump changes the epoch but not
+            // this identity, so it does not reopen a proposal block.
+            pages.values.forEach { page -> page.blocked = false }
+        }
+        val retryGeneration = retry.get()
+        if (seenRetry != retryGeneration) { pages.values.forEach { if (it.blocked) { it.blocked = false; it.staleRetries = 0; it.restart = false } }; seenRetry = retryGeneration }
         val available = pages.filterValues { !it.done && !it.blocked }.keys
         if (available.isEmpty()) return if (pages.values.any { it.blocked && !it.done })
             EvidenceFirstScheduleResult.Blocked else EvidenceFirstScheduleResult.Idle

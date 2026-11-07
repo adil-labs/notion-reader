@@ -64,18 +64,24 @@ enum class TopicFailureSource { Scheduling, Coordinator }
 enum class DiscoverySchedulingFailure {
     MembershipIncomplete,
     ProposalsIncomplete,
-    ConnectionsIncomplete;
+    ConnectionsIncomplete,
+    /** Existing canonical evidence was verified under a different support-model identity. */
+    VerifierChanged;
 
     fun userMessage(): String = when (this) {
         MembershipIncomplete -> "Some topic membership checks are incomplete. Retry processing."
         ProposalsIncomplete -> "Some topic proposals are incomplete. Retry processing."
         ConnectionsIncomplete -> "Note connections are incomplete. Retry processing."
+        VerifierChanged -> "Topic evidence was verified with a different support model. Use Rebuild index in Settings to re-verify it."
     }
 
+    /** A verifier change is not recoverable by the ordinary retry path; it needs a rebuild. */
+    val isRetryable: Boolean get() = this != VerifierChanged
 }
 
 internal fun DiscoveryState.canRetryTopicScheduling(): Boolean =
-    topicFailure == null || topicFailureSource == TopicFailureSource.Scheduling
+    (topicFailure == null || topicFailureSource == TopicFailureSource.Scheduling) &&
+        schedulingFailure?.isRetryable != false
 
 internal fun DiscoveryState.withSchedulingFailure(failure: DiscoverySchedulingFailure): DiscoveryState {
     val ownsMessage = canRetryTopicScheduling()

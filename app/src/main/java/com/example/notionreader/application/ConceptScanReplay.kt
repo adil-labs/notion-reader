@@ -6,10 +6,12 @@ import kotlinx.coroutines.ensureActive
 
 /** In-memory replay state; only the replay operation can advance it. */
 internal class ConceptScanReplay private constructor(internal val binding: String?, internal val next: ExistingConceptScanCursor?,
-    internal val seen: Set<String>, internal val supported: Set<String>, internal val uncertain: Set<String>) {
-    companion object { fun start() = ConceptScanReplay(null, null, emptySet(), emptySet(), emptySet()) }
-    internal fun advance(binding: String, next: ExistingConceptScanCursor, seen: Set<String>, supported: Set<String>, uncertain: Set<String>) =
-        ConceptScanReplay(binding, next, seen, supported, uncertain)
+    internal val seen: Set<String>, internal val supported: Set<String>, internal val uncertain: Set<String>,
+    internal val earlyWorkKeys: Set<String>) {
+    companion object { fun start() = ConceptScanReplay(null, null, emptySet(), emptySet(), emptySet(), emptySet()) }
+    internal fun advance(binding: String, next: ExistingConceptScanCursor, seen: Set<String>, supported: Set<String>,
+        uncertain: Set<String>, earlyWorkKeys: Set<String>) =
+        ConceptScanReplay(binding, next, seen, supported, uncertain, earlyWorkKeys)
 }
 internal sealed interface ConceptScanReplayResult {
     data class Pending(val replay: ConceptScanReplay) : ConceptScanReplayResult
@@ -32,8 +34,17 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
     val id = canonicalSemanticId(record.pageId)
     if (saved.next != null || saved.pageId != id || saved.revision != record.revision || saved.sourceRevisions != sources ||
         sources[id] != record.revision) return ConceptScanReplayResult.Stale
-    if (saved.scopeKey != existingConceptScanScope(snapshot, record, identity, policy, verifier, epoch, sources, queryTicket))
+    // A checkpoint without the current completion contract cannot prove how it stopped.
+    if (saved.formatVersion != CONCEPT_SCAN_FORMAT_VERSION || saved.completion == null) return ConceptScanReplayResult.Stale
+    if (saved.scopeKey != existingConceptScanScope(snapshot, record, identity, policy, verifier, sources, queryTicket))
         return ConceptScanReplayResult.Stale
+    if (saved.earlyConceptWorkKeys.any { key ->
+            saved.assessments.none { it.conceptWorkKey == key && it.decision == SupportDecision.SUPPORTED }
+        }) return ConceptScanReplayResult.Invalid
+    if (saved.completion == ConceptScanCompletion.EXHAUSTED && saved.earlyConceptWorkKeys.isNotEmpty())
+        return ConceptScanReplayResult.Invalid
+    if (saved.completion == ConceptScanCompletion.SUPPORTED_EARLY && saved.earlyConceptWorkKeys.isEmpty())
+        return ConceptScanReplayResult.Invalid
     if (saved.assessments.map { it.workKey }.toSet().size != saved.assessments.size) return ConceptScanReplayResult.Invalid
     val bindingFields = listOf("concept-replay-v1", saved.scopeKey, saved.pageId, saved.revision) +
         saved.assessments.sortedBy { it.workKey }.flatMap { listOf(it.workKey, it.decision.name) }
@@ -62,9 +73,19 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
             val seen = replay.seen + result.assessments.map { it.workKey }
             val supported = replay.supported + result.supported
             val uncertain = replay.uncertain + result.uncertain
-            if (result.next != null) ConceptScanReplayResult.Pending(replay.advance(binding, result.next, seen, supported, uncertain))
+            val early = replay.earlyWorkKeys + listOfNotNull(result.earlyStoppedWorkKey)
+            if (result.next != null) ConceptScanReplayResult.Pending(
+                replay.advance(binding, result.next, seen, supported, uncertain, early))
             else if (seen != expected.keys) ConceptScanReplayResult.Invalid
-            else ConceptScanReplayResult.Validated(supported, uncertain)
+            else if (early != saved.earlyConceptWorkKeys) ConceptScanReplayResult.Invalid
+            else when (saved.completion) {
+                // Early support and unresolved evidence may coexist. Termination only records why
+                // the scan stopped; the replay validates the assessments independently.
+                ConceptScanCompletion.SUPPORTED_EARLY -> if (early.isEmpty() || supported.isEmpty())
+                    ConceptScanReplayResult.Invalid else ConceptScanReplayResult.Validated(supported, uncertain)
+                ConceptScanCompletion.EXHAUSTED -> if (early.isNotEmpty())
+                    ConceptScanReplayResult.Invalid else ConceptScanReplayResult.Validated(supported, uncertain)
+            }
         }
         ExistingConceptScanResult.Stale -> ConceptScanReplayResult.Stale
         ExistingConceptScanResult.Deferred -> ConceptScanReplayResult.Deferred

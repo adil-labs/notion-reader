@@ -279,12 +279,13 @@ internal class DiscoveryIndexing(
                     indexComplete = false, metadata = cachedMetadata, indexedSources = indexedSources.toMap())
                 advancePartialWork()
             }
-            var remainingPassages = jobs.sumOf { it.second }
+            val totalPassages = jobs.sumOf { it.second }
+            var remainingPassages = totalPassages
             var remainingNotes = jobs.size
             val workKey = semanticHash(provider.identity.toString() + sources.mapValues { semanticRevision(it.value.document) }.toSortedMap() + epoch)
             timeEstimator.begin(workKey, remainingPassages)
             fun publishWork() { mutable.update { it.copy(embeddingWork = DiscoveryEmbeddingWork(
-                remainingNotes, remainingPassages, timeEstimator.remaining(remainingPassages))) } }
+                remainingNotes, remainingPassages, timeEstimator.remaining(remainingPassages), totalPassages)) } }
             if (jobs.isNotEmpty()) publishWork()
             mutable.update { it.copy(indexing = jobs.isNotEmpty()) }
             for ((id, _) in jobs) {
@@ -344,7 +345,7 @@ internal class DiscoveryIndexing(
                             return
                         }
                     }
-                    if (reused == null) { remainingPassages = (remainingPassages - 1).coerceAtLeast(0); publishWork() }
+                    remainingPassages = (remainingPassages - 1).coerceAtLeast(0); publishWork()
                 }
                 val committed = runtime.commits.withLock {
                     if (runtime.generation.get() != epoch || index.isPaused()) return@withLock null

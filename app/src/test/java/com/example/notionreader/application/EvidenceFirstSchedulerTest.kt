@@ -29,7 +29,7 @@ class EvidenceFirstSchedulerTest {
             process = { work -> completed(if (admitted.isEmpty()) listOf("a", "b")[work.proposalIndex] else "b") },
             admit = { done, _ -> admitted += done.candidate.generation.workKey; generation++
                 CanonicalAdmissionResult.Admitted("topic-${done.candidate.generation.workKey}") },
-            generation = generation)
+            catalogEpoch = generation, catalogIdentity = "catalog-$generation")
         repeat(12) { step() }
         assertEquals(listOf("a", "b"), admitted)
         assertEquals(EvidenceFirstScheduleResult.Idle, step())
@@ -121,4 +121,42 @@ class EvidenceFirstSchedulerTest {
             process = { error("Old proposal must not survive reset") }, admit = { _, _ -> error("No candidate") }))
     }
 
+
+    @Test fun aCatalogGenerationChangeReleasesCatalogDependentBlocks() = runBlocking {
+        val scheduler = EvidenceFirstScheduler(); val seen = mutableListOf<String>()
+        suspend fun step(generation: Long) = scheduler.step("scope", listOf("a"), catalogEpoch = generation, catalogIdentity = "catalog-$generation",
+            inspect = { page, _, _, _ -> seen += page; ready(listOf(page)) },
+            process = {
+                PendingCorpusWorkResult.Abstained(DiscoveryAbstentionReason.NO_USEFUL_TOPIC,
+                    setOf(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG), false)
+            },
+            admit = { _, _ -> error("No candidate") })
+        assertEquals(EvidenceFirstScheduleResult.Progress, step(0))
+        assertEquals(EvidenceFirstScheduleResult.Blocked, step(0))
+        assertEquals(EvidenceFirstScheduleResult.Blocked, step(0))
+        assertEquals("A relevant catalog change releases the proposal block",
+            EvidenceFirstScheduleResult.Progress, step(1))
+        assertTrue("The Note is inspected again under the new catalog; seen=$seen", seen.count { it == "a" } >= 2)
+    }
+
+    @Test fun automaticContinuationDoesNotReopenABlockedProposalButExplicitRetryDoes() = runBlocking {
+        val scheduler = EvidenceFirstScheduler(); val seen = mutableListOf<String>()
+        suspend fun step() = scheduler.step("scope", listOf("a"),
+            inspect = { page, _, _, _ -> seen += page; ready(listOf(page)) },
+            process = {
+                PendingCorpusWorkResult.Abstained(DiscoveryAbstentionReason.NO_USEFUL_TOPIC,
+                    setOf(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG), false)
+            },
+            admit = { _, _ -> error("No candidate") })
+        assertEquals(EvidenceFirstScheduleResult.Progress, step())
+        assertEquals(EvidenceFirstScheduleResult.Blocked, step())
+        val before = seen.size
+        scheduler.continueAutomatically()
+        assertEquals("Automatic continuation must not reopen blocked proposal work",
+            EvidenceFirstScheduleResult.Blocked, step())
+        assertEquals(before, seen.size)
+        scheduler.retryBlocked()
+        assertEquals("Explicit retry may reopen it", EvidenceFirstScheduleResult.Progress, step())
+        assertTrue(seen.size > before)
+    }
 }

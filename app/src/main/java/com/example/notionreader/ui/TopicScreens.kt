@@ -80,7 +80,9 @@ internal fun TopicPreviews(app: ReaderApp) {
     }, nav.focusTarget, app::focusHandled).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
     if (!discoveryStatus(presentationState).incomplete && topics.isEmpty()) Text("No supported topics to show yet. Search and individual connections remain available.",
         style = MaterialTheme.typography.bodyMedium)
-    TopicProgressNotice(presentationState) { controller.refreshTopics() }
+    TopicProgressNotice(presentationState, retry = { controller.requestUserRetry() }) {
+        controller.refreshTopics()
+    }
     Column(Modifier.semantics { collectionInfo = CollectionInfo(minOf(3, established.size), 1) },
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         established.take(3).forEach { topic -> key(topic.id) {
@@ -123,7 +125,7 @@ internal fun TopicPreviews(app: ReaderApp) {
 }
 
 @Composable
-internal fun TopicProgressNotice(state: DiscoveryState, refresh: suspend () -> Unit) {
+internal fun TopicProgressNotice(state: DiscoveryState, retry: () -> Unit = {}, refresh: suspend () -> Unit) {
     val progress = discoveryProgress(state)
     val scope = rememberCoroutineScope()
     progress.message?.let { message ->
@@ -133,6 +135,7 @@ internal fun TopicProgressNotice(state: DiscoveryState, refresh: suspend () -> U
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             when (progress.action) {
                 DiscoveryProgressAction.Refresh -> TextButton(onClick = { scope.launch { refresh() } }) { Text("Refresh") }
+                DiscoveryProgressAction.Retry -> TextButton(onClick = retry) { Text("Retry processing") }
                 null -> Unit
             }
         }
@@ -237,7 +240,9 @@ internal fun topicNoteCount(topic: DiscoveredTopic): String {
     if (topic.canonicalConcept != null && topic.currentCanonicalProjection?.members == null ||
         topic.canonicalConcept == null && topic.currentTopicMatches == null) return "Matching Notes pending"
     val count = topic.matchingMembers.distinctBy { canonicalSemanticId(it.pageId) }.size
-    if (topic.canonicalConcept?.matchingComplete == false) return if (count == 0) "Matching Notes incomplete" else
+    // A verified member is presented normally; only the coverage statement stays incomplete
+    // while any Note has unchecked eligible passages.
+    if (topic.canonicalConcept?.passageCoverageComplete == false) return if (count == 0) "Matching Notes incomplete" else
         "$count matching ${if (count == 1) "Note" else "Notes"}; matching incomplete"
     return if (count == 0) "No matching Notes" else "$count matching ${if (count == 1) "Note" else "Notes"}"
 }

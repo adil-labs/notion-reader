@@ -88,9 +88,147 @@ class EvidenceFirstSchedulingIntegrationTest {
         assertEquals("Complete matching must show every independently matched Note",
             sources.keys, published.matchingMembers.map { it.pageId }.toSet())
     }
+    @Test fun admissionRetainsAnEarlyStoppedPassageTail() = runBlocking {
+        val root = files.newFolder()
+        val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index"))
+        val model = EmbeddingIdentity("model", 2)
+        val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
+        val sources = linkedMapOf<String, String>()
+        repeat(1) { number ->
+            val id = "note$number"
+            val body = "Moisture and warmth support seed germination in the garden."
+            val document = ReaderDocument.fromChunkTexts(id, "Seeds $number", listOf(body))
+            cache.put(CachedDocument(document, null, Instant.EPOCH))
+            val revision = semanticRevision(document); sources[id] = revision
+            val passage = SemanticPassage("p$number", id, "s$number", "Seeds", "b$number", "c$number", 0, body.length, body, body, 0)
+            assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata("Seeds $number"),
+                listOf(EmbeddedPassage(passage, listOf(1f, 0f)),
+                    EmbeddedPassage(passage.copy(id = "tail", order = 1), listOf(1f, 0f))))))
+        }
+        index.setPaused(false)
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources,
+            connectionPassComplete = true, policyVersion = TopicPolicy().version)))
+        var proposals = 0; var supportChecks = 0
+        val metrics = mutableListOf<Map<String, Long>>()
+        val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
+            override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
+            override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun {
+                proposals++
+                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination conditions",
+                    "Moisture and warmth support seed germination.", "Listen about seed germination.",
+                    listOf(request.evidence.first().passageId)))
+            }
+            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun {
+                supportChecks++; return TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+            }
+            override suspend fun close() {}
+        }
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
+            override suspend fun embed(text: String) = listOf(1f, 0f)
+            override fun release() {}
+        }
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
+            topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
+            topicSupportIdentity = { identity.copy(prompt = "support") }, topicProposalIdentity = { identity },
+            workDiagnostics = { metrics += it })
+        controller.reconcile(emptyList(), false)
+        var work = PendingCorpusWork.start("note0", 0)
+        var done: PendingCorpusWorkResult.Done? = null
+        repeat(60) {
+            if (done == null) when (val result = controller.advancePendingCorpusWork(work, 1)) {
+                is PendingCorpusWorkResult.Pending -> work = result.work
+                is PendingCorpusWorkResult.Done -> done = result
+                else -> fail("Unexpected pending work result: $result")
+            }
+        }
+        val candidate = checkNotNull(done)
+        var replay = PendingCorpusReplay.start()
+        var admitted: CanonicalAdmissionResult? = null
+        repeat(60) {
+            if (admitted == null) when (val result = controller.advanceCanonicalAdmission(candidate, replay)) {
+                is CanonicalAdmissionResult.Pending -> replay = result.replay
+                else -> admitted = result
+            }
+        }
+        assertTrue(admitted is CanonicalAdmissionResult.Admitted)
+        val stored = graph.readMetadata()!!.topics.single().canonicalConcept!!
+        assertEquals(sources, stored.uncheckedRevisions)
+        assertFalse(stored.passageCoverageComplete)
+    }
+    @Test fun twoVerifiedNotesPublishWhileAnotherSourceCannotBeIndexed() = runBlocking {
+        val root = files.newFolder()
+        val cache = FileDocumentCache(root.resolve("cache"))
+        val index = FileSemanticIndexStore(root.resolve("index"))
+        val model = EmbeddingIdentity("model", 2)
+        val identity = TopicLabelIdentity("a", "t", "template", "proposal", "schema", "v1", "CPU")
+        val sources = linkedMapOf<String, String>()
+        repeat(3) { number ->
+            val id = "note$number"
+            val body = (if (number == 2) "Unavailable tools. " else "") + "Moisture and warmth support seed germination in the garden."
+            val document = ReaderDocument.fromChunkTexts(id, "Seeds $number", listOf(body))
+            cache.put(CachedDocument(document, null, Instant.EPOCH))
+            if (number == 2) return@repeat
+            val revision = semanticRevision(document); sources[id] = revision
+            val passage = SemanticPassage("p$number", id, "s$number", "Seeds", "b$number", "c$number", 0, body.length, body, body, 0)
+            assertTrue(index.write(SemanticRecord(id, revision, model, SemanticMetadata("Seeds $number"),
+                listOf(EmbeddedPassage(passage, listOf(1f, 0f))))))
+        }
+        index.setPaused(false)
+        val graph = FileTopicStore(root.resolve("topics"))
+        assertTrue(graph.write(TopicSnapshot(identity = model, canonicalCatalogReady = true, acceptedRevisions = sources,
+            connectionPassComplete = true, policyVersion = TopicPolicy().version)))
+        var proposals = 0; var supportChecks = 0
+        val metrics = mutableListOf<Map<String, Long>>()
+        val runtime = object : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
+            override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
+            override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun {
+                proposals++
+                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination conditions",
+                    "Moisture and warmth support seed germination.", "Listen about seed germination.",
+                    request.evidence.take(2).map { it.passageId }))
+            }
+            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun {
+                supportChecks++; return TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+            }
+            override suspend fun close() {}
+        }
+        val provider = object : EmbeddingProvider {
+            override val identity = model
+            override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = if (text.isEmpty()) emptyList() else listOf(SemanticToken(1, 0, text.length)) }
+            override suspend fun embed(text: String): List<Float> {
+                if (text.contains("Unavailable tools")) throw java.io.IOException("Unavailable source")
+                return listOf(1f, 0f)
+            }
+            override fun release() {}
+        }
+        val controller = DiscoveryController(cache, index, FileDiscoveryInterestStore(root.resolve("interests")), provider,
+            topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
+            topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")),
+            proposalProgressStore = FileProposalProgressStore(root.resolve("progress")),
+            topicSupportIdentity = { identity.copy(prompt = "support") }, topicProposalIdentity = { identity },
+            workDiagnostics = { metrics += it })
+        controller.reconcile(emptyList(), false)
+        repeat(300) {
+            if (controller.state.value.publishedTopics.none { it.topic.matchingMembers.size >= 2 })
+                controller.reconcile(emptyList(), true)
+        }
+        assertTrue("state=${controller.state.value} proposals=$proposals supports=$supportChecks", controller.state.value.publishedTopics.isNotEmpty())
+        val published = controller.state.value.publishedTopics.single().topic
+        assertEquals(2, published.matchingMembers.size)
+        assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(published))
+        assertFalse(published.canonicalConcept!!.matchingComplete)
+        assertFalse(published.canonicalConcept!!.passageCoverageComplete)
+        assertTrue(ProposalIncompleteReason.SOURCE_SCAN in published.canonicalConcept!!.incomplete)
+    }
     @Test fun reconciliationRunsAndReusesAnAbstainedProposal() = runBlocking { scenario(false) }
     @Test fun reconciliationAdmitsAnIndependentlySupportedConcept() = runBlocking { scenario(true) }
-    @Test fun aFailedProposalCanBeRetriedAfterContinuation() = runBlocking { scenario(false, failFirst = true) }
+    @Test fun aFailedProposalCanBeRetriedAfterExplicitRetry() = runBlocking { scenario(false, failFirst = true) }
     @Test fun unreadableCatalogCannotBeTreatedAsAnEmptyCatalog() = runBlocking { scenario(false, corrupt = true) }
     @Test fun withdrawalDiscardsUnreadableEvidenceWithoutBootstrappingAnEmptyCatalog() = runBlocking {
         scenario(false, corrupt = true, withdraw = true)
@@ -187,7 +325,9 @@ class EvidenceFirstSchedulingIntegrationTest {
                 assertTrue(ProposalIncompleteReason.SOURCE_SCAN in proposal.incomplete)
                 assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in proposal.incomplete)
                 assertTrue(proposal.incomplete.any { it.blocksConceptAdmission() })
-                assertTrue("Incomplete corpus work cannot be published as a complete topic", graph.readMetadata()!!.topics.isEmpty())
+                val early = controller.state.value.publishedTopics.single().topic
+                assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(early))
+                assertFalse("Partial source coverage cannot become complete", early.canonicalConcept!!.matchingComplete)
                 assertNotNull(controller.state.value.indexFailure)
                 assertTrue(controller.hasPendingWork)
                 if (recover) {
@@ -232,7 +372,7 @@ class EvidenceFirstSchedulingIntegrationTest {
             assertNotNull(controller.state.value.topicFailure)
             assertTrue(controller.hasPendingWork)
             fail = false
-            controller.requestAutomaticContinuation()
+            controller.requestUserRetry()
             repeat(80) { controller.reconcile(emptyList(), true) }
         }
         val expectedCalls = if (failFirst) 2 else 1
