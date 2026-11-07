@@ -348,8 +348,9 @@ class EarlyEmergingTopicPublicationTest {
         assertEquals(ProposalProgressWriteResult.Written, progress.writeSupport(assessment) { true })
 
         val ref1 = ProposalEvidenceRef("note1", rev1, "p1")
-        val incrementalProposal = IncrementalProposal(proposalKey, listOf(ref1), emptySet(), emptySet())
-        val completedGen = ProposalGenerationResult.Completed(response, key, emptySet())
+        val partialSource = setOf(ProposalIncompleteReason.SOURCE_SCAN)
+        val incrementalProposal = IncrementalProposal(proposalKey, listOf(ref1), emptySet(), partialSource)
+        val completedGen = ProposalGenerationResult.Completed(response, key, partialSource)
         val query = TopicRetrievalQuery("pending", key, "${response.name}\n${response.definition}", model, TopicRetrievalPolicy(.85f))
         val embeddedQuery = TopicQueryEmbedding(query, listOf(1f, 0f))
 
@@ -386,20 +387,90 @@ class EarlyEmergingTopicPublicationTest {
             verifier = verifier,
             generator = generator,
             query = embeddedQuery,
-            catalogTicket = ticket
+            catalogTicket = ticket,
+            coverage = ProposalAdmissionCoverage(sourceScanComplete = false, catalogConsistent = true,
+                duplicateCheckComplete = true)
         )
 
-        // Coverage is Incomplete because note2 has not been scanned yet
+        // Coverage is Incomplete because note2 has not been scanned yet.
         val incompleteCoverage = PendingCorpusReplayResult.Incomplete("note2", PendingCorpusReplay.start())
+        assertEquals("Unresolved evidence must still block publication", CanonicalAdmissionResult.Incomplete,
+            coordinator.admitCandidate(ticket, candidate.copy(coverage = candidate.coverage.copy(
+                unresolvedEvidence = true)), incompleteCoverage) { true })
+        assertEquals("An inconsistent catalog must still block publication", CanonicalAdmissionResult.Incomplete,
+            coordinator.admitCandidate(ticket, candidate.copy(coverage = candidate.coverage.copy(
+                catalogConsistent = false)), incompleteCoverage) { true })
         val admissionResult = coordinator.admitCandidate(ticket, candidate, incompleteCoverage) { true }
-        assertTrue("Early candidate must be admitted", admissionResult is CanonicalAdmissionResult.Admitted)
+        assertTrue("A verified citation must be admitted with partial source coverage",
+            admissionResult is CanonicalAdmissionResult.Admitted)
 
         val admittedTopic = viewEmitted!!.snapshot.topics.single { it.canonicalConcept?.workKey == key }
         assertNotNull(admittedTopic.canonicalProjection)
         assertEquals(listOf("note1"), admittedTopic.matchingMembers.map { it.pageId })
         assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(admittedTopic))
         assertFalse("matchingComplete must be false on early admission", admittedTopic.canonicalConcept!!.matchingComplete)
+        assertTrue("The partial source scan must be recorded, not hidden",
+            ProposalIncompleteReason.SOURCE_SCAN in admittedTopic.canonicalConcept!!.incomplete)
         assertTrue("scannedRevisions must be empty on early admission", admittedTopic.canonicalConcept!!.scannedRevisions.isEmpty())
         assertTrue("supported must be empty on early admission", admittedTopic.canonicalConcept!!.supported.isEmpty())
+
+        // A later-indexed Note can produce the same concept again. It must attach to the
+        // existing canonical topic instead of creating a duplicate.
+        val currentTicket = coordinator.captureCatalogTicket(allowIncomplete = true)!!
+        val proposalKey2 = semanticHash("coord-early-proposal-2")
+        val request2 = DiscoveryProposalRequest(proposalKey2, 0, listOf(evidence1), generator)
+        val response2 = DiscoveryProposalResponse.Concept(response.name, response.definition,
+            response.listeningDescription, listOf("p1"))
+        val key2 = (validateDiscoveryProposal(request2, response2, 0, sources) as DiscoveryProposalValidation.Accepted).workKey
+        val candidate2 = candidate.copy(
+            proposal = IncrementalProposal(proposalKey2, listOf(ref1), emptySet(), emptySet()),
+            generation = ProposalGenerationResult.Completed(response2, key2, emptySet()),
+            catalogTicket = currentTicket,
+            coverage = ProposalAdmissionCoverage()
+        )
+        val duplicate = coordinator.admitCandidate(currentTicket, candidate2, incompleteCoverage) { true }
+        assertEquals("An equivalent later proposal must not create a duplicate topic",
+            CanonicalAdmissionResult.Admitted((admissionResult as CanonicalAdmissionResult.Admitted).topicId), duplicate)
+        assertEquals(1, viewEmitted!!.snapshot.topics.size)
+
+        // The model can reword the definition while keeping the user-facing label. That must
+        // attach to the existing topic instead of publishing a second same-label topic.
+        val currentTicket3 = coordinator.captureCatalogTicket(allowIncomplete = true)!!
+        val proposalKey3 = semanticHash("coord-early-proposal-3")
+        val request3 = DiscoveryProposalRequest(proposalKey3, 0, listOf(evidence1), generator)
+        val response3 = DiscoveryProposalResponse.Concept(response.name,
+            "A specific sequence of steps for analyzing and deciding a move.",
+            response.listeningDescription, listOf("p1"))
+        val key3 = (validateDiscoveryProposal(request3, response3, 0, sources) as DiscoveryProposalValidation.Accepted).workKey
+        val candidate3 = candidate2.copy(
+            proposal = IncrementalProposal(proposalKey3, listOf(ref1), emptySet(), emptySet()),
+            generation = ProposalGenerationResult.Completed(response3, key3, emptySet()),
+            catalogTicket = currentTicket3,
+            coverage = ProposalAdmissionCoverage()
+        )
+        val similar = coordinator.admitCandidate(currentTicket3, candidate3, incompleteCoverage) { true }
+        assertEquals("A same-label reworded proposal must not publish a duplicate topic",
+            CanonicalAdmissionResult.Admitted((admissionResult as CanonicalAdmissionResult.Admitted).topicId), similar)
+        assertEquals(1, viewEmitted!!.snapshot.topics.size)
+
+        // A differently named paraphrase can still be the same subject; the embedding guard
+        // attaches it to the existing topic when the same-model query vectors are close.
+        val currentTicket4 = coordinator.captureCatalogTicket(allowIncomplete = true)!!
+        val proposalKey4 = semanticHash("coord-early-proposal-4")
+        val request4 = DiscoveryProposalRequest(proposalKey4, 0, listOf(evidence1), generator)
+        val response4 = DiscoveryProposalResponse.Concept("Chess Move Order",
+            "A method for approaching chess calculation by prioritizing targets before candidate moves.",
+            response.listeningDescription, listOf("p1"))
+        val key4 = (validateDiscoveryProposal(request4, response4, 0, sources) as DiscoveryProposalValidation.Accepted).workKey
+        val candidate4 = candidate2.copy(
+            proposal = IncrementalProposal(proposalKey4, listOf(ref1), emptySet(), emptySet()),
+            generation = ProposalGenerationResult.Completed(response4, key4, emptySet()),
+            catalogTicket = currentTicket4,
+            coverage = ProposalAdmissionCoverage()
+        )
+        val semantic = coordinator.admitCandidate(currentTicket4, candidate4, incompleteCoverage) { true }
+        assertEquals("A differently named embedding-equivalent proposal must not create a duplicate",
+            CanonicalAdmissionResult.Admitted((admissionResult as CanonicalAdmissionResult.Admitted).topicId), semantic)
+        assertEquals(1, viewEmitted!!.snapshot.topics.size)
     }
 }

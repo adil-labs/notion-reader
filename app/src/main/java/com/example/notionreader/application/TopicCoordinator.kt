@@ -8,12 +8,62 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.sqrt
 
 internal data class TopicView(val snapshot: TopicSnapshot = TopicSnapshot(), val updated: Boolean = false,
     val status: String? = null, val failure: String? = null, val naming: TopicNamingStatus? = null)
 
 internal data class TopicCatalogTicket(val snapshot: TopicSnapshot, val epoch: Long, val cacheRevision: Long,
     val identity: EmbeddingIdentity, val queryTicket: String)
+
+/**
+ * Admission needs the catalog semantics that decide eligibility and duplicate/continuity, not the
+ * in-memory epoch or the snapshot object identity. Catalog restores and coverage-only commits
+ * legitimately replace those between proposal generation and admission; they do not change the
+ * proposal's subject. A relevant catalog change (topic/query/verifier/readiness/continuity) still
+ * fails this check.
+ */
+internal fun catalogAdmissionCurrent(candidate: TopicCatalogTicket?, current: TopicCatalogTicket): Boolean =
+    candidate != null &&
+        candidate.identity == current.identity &&
+        candidate.cacheRevision == current.cacheRevision &&
+        candidate.snapshot.acceptedRevisions == current.snapshot.acceptedRevisions &&
+        evidenceCatalogIdentity(candidate.snapshot) == evidenceCatalogIdentity(current.snapshot)
+
+/**
+ * Case-, punctuation- and word-order-insensitive topic-label identity used before publishing.
+ * A reworded definition must not create a second topic with the same user-facing label; the
+ * exact name/definition continuity check below still handles the canonical identity.
+ */
+private fun normalizedTopicName(name: String): String =
+    name.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        .split(' ').filter { it.isNotBlank() }.sorted().joinToString(" ")
+
+/**
+ * Conservative semantic-duplicate threshold. Measured on the live Pixel corpus the observed
+ * duplicate pair scored 0.9894 while an unrelated topic pair scored 0.8027. The embedding model
+ * has a high baseline, so this stays near the duplicate end and is a secondary guard behind the
+ * deterministic normalized-label check. Calibrate against a labelled set before lowering.
+ */
+private const val EMBEDDING_DUPLICATE_THRESHOLD = 0.97f
+
+/** Cosine similarity of two same-dimension finite query vectors; null when not comparable. */
+private fun cosineSimilarity(left: List<Float>, right: List<Float>): Float? {
+    if (left.isEmpty() || left.size != right.size) return null
+    var dot = 0.0
+    var leftNorm = 0.0
+    var rightNorm = 0.0
+    for (i in left.indices) {
+        val l = left[i]
+        val r = right[i]
+        if (!l.isFinite() || !r.isFinite()) return null
+        dot += l * r
+        leftNorm += l * l
+        rightNorm += r * r
+    }
+    if (leftNorm == 0.0 || rightNorm == 0.0) return null
+    return (dot / (sqrt(leftNorm) * sqrt(rightNorm))).toFloat()
+}
 
 internal enum class IncrementalConnectionsResult { Pending, Updated, Complete, Deferred, Failed }
 
@@ -184,14 +234,49 @@ internal class TopicCoordinator(
         if (!isCatalogTicketCurrent(ticket)) { logDiag("AdmitCandidate", "stale: ticket not current"); return@withLock CanonicalAdmissionResult.Stale }
         if (!current()) { logDiag("AdmitCandidate", "stale: current() false"); return@withLock CanonicalAdmissionResult.Stale }
         if (!mayWork() || shouldYield()) { logDiag("AdmitCandidate", "deferred: mayWork=${mayWork()} yield=${shouldYield()}"); return@withLock CanonicalAdmissionResult.Deferred }
-        if (candidate.catalogTicket != ticket) { logDiag("AdmitCandidate", "incomplete: ticket mismatch"); return@withLock CanonicalAdmissionResult.Incomplete }
+        if (!catalogAdmissionCurrent(candidate.catalogTicket, ticket)) { logDiag("AdmitCandidate", "incomplete: catalog identity changed"); return@withLock CanonicalAdmissionResult.Incomplete }
         if (candidate.sources != latest.acceptedRevisions) { logDiag("AdmitCandidate", "incomplete: sources mismatch cand=${candidate.sources.size} latest=${latest.acceptedRevisions.size}"); return@withLock CanonicalAdmissionResult.Incomplete }
         if (candidate.proposal.incomplete != candidate.generation.incomplete) { logDiag("AdmitCandidate", "incomplete: proposal.incomplete vs generation.incomplete"); return@withLock CanonicalAdmissionResult.Incomplete }
-        if (candidate.proposal.incomplete.any { it.blocksConceptAdmission() }) { logDiag("AdmitCandidate", "incomplete: blocksConceptAdmission ${candidate.proposal.incomplete}"); return@withLock CanonicalAdmissionResult.Incomplete }
+        val citationsSupported = candidate.citations.isNotEmpty() &&
+            candidate.citations.all { it.decision == SupportDecision.SUPPORTED }
+        if (!candidate.coverage.allowsEmerging(citationsSupported)) {
+            logDiag("AdmitCandidate", "incomplete: coverage=${candidate.coverage} citations=$citationsSupported incomplete=${candidate.proposal.incomplete}")
+            return@withLock CanonicalAdmissionResult.Incomplete
+        }
         val concept = candidate.generation.response as? DiscoveryProposalResponse.Concept
             ?: run { logDiag("AdmitCandidate", "incomplete: response not Concept"); return@withLock CanonicalAdmissionResult.Incomplete }
         val prior = latest.topics.singleOrNull { it.canonicalConcept?.workKey == candidate.generation.workKey }
         if (prior != null) { logDiag("AdmitCandidate", "already admitted: ${prior.id}"); return@withLock CanonicalAdmissionResult.Admitted(prior.id) }
+        val fingerprint = canonicalContinuityKey(concept.name, concept.definition)
+        val nameIdentity = normalizedTopicName(concept.name)
+        // A second proposal for the same concept from a later-indexed Note must not create a
+        // duplicate canonical topic. Membership expansion adds the new Note to the existing one.
+        // The user-facing label is part of the pre-publish identity too: a model-reworded
+        // definition must not publish a second topic with the same name.
+        val activeDuplicate = latest.topics.firstOrNull { existing ->
+            val existingConcept = existing.canonicalConcept ?: return@firstOrNull false
+            canonicalContinuityKey(existingConcept.name, existingConcept.definition) == fingerprint ||
+                (nameIdentity.isNotEmpty() && normalizedTopicName(existingConcept.name) == nameIdentity)
+        }
+        if (activeDuplicate != null) {
+            logDiag("AdmitCandidate", "already admitted equivalent concept: ${activeDuplicate.id}")
+            return@withLock CanonicalAdmissionResult.Admitted(activeDuplicate.id)
+        }
+        // Secondary semantic guard for differently named paraphrases. The deterministic label
+        // check above covers identical labels; this compares same-model query vectors and keeps a
+        // high threshold because the embedding baseline is high even for unrelated subjects.
+        val candidateQuery = candidate.query
+        val semanticDuplicate = latest.topics.firstOrNull { existing ->
+            val existingQuery = existing.canonicalConcept?.queryEmbedding ?: return@firstOrNull false
+            if (existingQuery.query.embedding != candidateQuery.query.embedding) return@firstOrNull false
+            val similarity = cosineSimilarity(existingQuery.vector, candidateQuery.vector)
+                ?: return@firstOrNull false
+            similarity >= EMBEDDING_DUPLICATE_THRESHOLD
+        }
+        if (semanticDuplicate != null) {
+            logDiag("AdmitCandidate", "already admitted semantically equivalent concept: ${semanticDuplicate.id}")
+            return@withLock CanonicalAdmissionResult.Admitted(semanticDuplicate.id)
+        }
         val citation = candidate.citations.firstOrNull { it.decision == SupportDecision.SUPPORTED }?.evidence
             ?: run { logDiag("AdmitCandidate", "incomplete: no supported citation in ${candidate.citations.map { it.decision }}"); return@withLock CanonicalAdmissionResult.Incomplete }
         val record = readRecord(citation.pageId)
@@ -202,7 +287,6 @@ internal class TopicCoordinator(
         }
         val anchor = record.passages.singleOrNull { it.passage.id == citation.passageId && it.passage.isBodyEvidence() }
             ?: run { logDiag("AdmitCandidate", "incomplete: anchor passage not found or not isBodyEvidence"); return@withLock CanonicalAdmissionResult.Incomplete }
-        val fingerprint = canonicalContinuityKey(concept.name, concept.definition)
         val anchorIdentity = topicEvidenceIdentity(anchor.passage)
         val occupied = (latest.topics + latest.provisionalTopics).map { it.id }.toSet()
         val priorContinuity = latest.continuity.filter {
@@ -214,24 +298,43 @@ internal class TopicCoordinator(
         val order = priorContinuity?.createdOrder ?: (maxOrder + 1)
         val id = priorContinuity?.id ?: java.util.UUID.randomUUID().toString()
         val member = TopicMembership(citation.pageId, record.metadata, anchor.passage, 1f, anchor.passage, citation.revision)
-        val fullCoverage = coverage is PendingCorpusReplayResult.Complete && candidate.sources.isNotEmpty() &&
-            coverage.supported.keys == candidate.sources.keys && coverage.supported.keys.all { candidate.sources[it] != null }
-        val scanned = if (fullCoverage) candidate.sources else emptyMap()
-        val supported = if (coverage is PendingCorpusReplayResult.Complete) {
-            coverage.supported.toSortedMap().flatMap { (page, passages) ->
-                val revision = candidate.sources[page] ?: return@withLock CanonicalAdmissionResult.Stale
-                passages.sorted().map { ProposalEvidenceRef(page, revision, it) }
-            }
-        } else emptyList()
+        val allSources = cache.snapshot().associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        // Coverage is derived from validated terminal outcomes, never from which Notes happened
+        // to support the concept. A Note that was checked and did not support the concept still
+        // counts toward membership coverage.
+        val terminalCorpus = coverage is PendingCorpusReplayResult.Complete || coverage is PendingCorpusReplayResult.Uncertain
+        val scanned = if (terminalCorpus) candidate.sources else emptyMap()
+        // Both terminal corpus outcomes carry the members verified while replaying. Unresolved
+        // evidence elsewhere does not discard those verified members.
+        val supportMap = when (coverage) {
+            is PendingCorpusReplayResult.Complete -> coverage.supported
+            is PendingCorpusReplayResult.Uncertain -> coverage.supported
+            else -> emptyMap()
+        }
+        val supported = supportMap.toSortedMap().flatMap { (page, passages) ->
+            val revision = candidate.sources[page] ?: return@withLock CanonicalAdmissionResult.Stale
+            passages.sorted().map { ProposalEvidenceRef(page, revision, it) }
+        }
+        val progress = proposalProgress ?: return@withLock CanonicalAdmissionResult.Incomplete
+        val uncertain = (coverage as? PendingCorpusReplayResult.Uncertain)?.uncertain.orEmpty()
+            .mapNotNull { (page, _) -> candidate.sources[page]?.let { page to it } }.toMap()
+        val unchecked = scanned.filter { (page, _) ->
+            val checkpoint = progress.readPendingNoteScan(candidate.generation.workKey, page, candidate.sources)
+            // An early-supported Note keeps its unchecked candidate tail; an unresolved scan has
+            // already examined every eligible passage and is not a tail.
+            checkpoint == null || checkpoint.completion == ConceptScanCompletion.SUPPORTED_EARLY
+        }
+        val matchingComplete = candidate.coverage.sourceScanComplete && candidate.sources.isNotEmpty() &&
+            candidate.sources == allSources && scanned.keys == candidate.sources.keys && uncertain.isEmpty()
         val evidence = CanonicalConceptEvidence(candidate.generation.workKey, concept.name, concept.definition,
             concept.listeningDescription, candidate.generator, candidate.verifier, candidate.proposal.evidence, candidate.citations,
-            supported, scanned, matchingComplete = fullCoverage, proposalKey = candidate.proposal.proposalKey,
+            supported, scanned, matchingComplete = matchingComplete, uncheckedRevisions = unchecked, proposalKey = candidate.proposal.proposalKey,
             incomplete = candidate.proposal.incomplete,
+            uncertainRevisions = uncertain,
             queryEmbedding = candidate.query.copy(query = TopicRetrievalQuery(id, candidate.generation.workKey,
                 candidate.query.query.text, ticket.identity, candidate.query.query.policy)))
         val unprojected = DiscoveredTopic(id, concept.name, anchor.passage, anchor, listOf(member), order,
             canonicalConcept = evidence)
-        val progress = proposalProgress ?: return@withLock CanonicalAdmissionResult.Incomplete
         val guardedIndex = object : SemanticIndexStore by index {
             override suspend fun read(pageId: String): SemanticRecord? = readRecord(pageId)
         }
@@ -368,7 +471,9 @@ internal class TopicCoordinator(
             is ConceptScanReplayResult.Pending -> return CanonicalMembershipUpdateResult.Pending(checked.replay)
             ConceptScanReplayResult.Stale -> return CanonicalMembershipUpdateResult.Stale
             ConceptScanReplayResult.Deferred -> return CanonicalMembershipUpdateResult.Deferred
-            is ConceptScanReplayResult.Validated -> if (checked.uncertain.isNotEmpty()) return CanonicalMembershipUpdateResult.Incomplete
+            // A terminal scan may still leave unresolved evidence. That is coverage state, not a
+            // reason to discard the whole Note: every concept is reconciled independently below.
+            is ConceptScanReplayResult.Validated -> Unit
             else -> return CanonicalMembershipUpdateResult.Incomplete
         }
         return writes.withLock {
@@ -391,16 +496,17 @@ internal class TopicCoordinator(
                 val concept = topic.canonicalConcept
                 if (concept == null) { changed += topic; continue }
                 if (concept.verifier != verifier) return@withLock CanonicalMembershipUpdateResult.Incomplete
-                val assessments = saved.assessments.filter { it.topicId == topic.id }
-                if (assessments.any { it.conceptWorkKey != concept.workKey || it.verifier != verifier ||
-                        it.evidence.pageId != id || it.evidence.revision != record.revision ||
-                        it.decision != SupportDecision.SUPPORTED }) return@withLock CanonicalMembershipUpdateResult.Incomplete
-                val scanned = concept.scannedRevisions.filter { (page, revision) -> sources[page] == revision } + (id to record.revision)
-                val retained = concept.supported.filter { it.pageId != id && (scanned[it.pageId] == it.revision || (it.pageId !in scanned && sources[it.pageId] == it.revision)) }
-                val added = assessments.map { it.evidence }
-                val nextConcept = concept.copy(supported = (retained + added).distinct().sortedWith(
-                    compareBy<ProposalEvidenceRef> { it.pageId }.thenBy { it.passageId }), scannedRevisions = scanned,
-                    matchingComplete = fullCoverage && scanned == sources)
+                // A terminal Note scan covers every concept; each Note-concept pair keeps its own
+                // supported, unresolved-uncertain and unchecked-tail status.
+                val assessments = saved.assessments.filter { it.topicId == topic.id && it.conceptWorkKey == concept.workKey }
+                if (assessments.any { it.verifier != verifier || it.evidence.pageId != id ||
+                        it.evidence.revision != record.revision || it.decision == SupportDecision.UNSUPPORTED })
+                    return@withLock CanonicalMembershipUpdateResult.Incomplete
+                val coverage = reconcileConceptCoverage(concept, id, record.revision, sources, fullCoverage,
+                    assessments, saved.earlyConceptWorkKeys)
+                val nextConcept = concept.copy(supported = coverage.supported,
+                    scannedRevisions = coverage.scannedRevisions, matchingComplete = coverage.matchingComplete,
+                    uncheckedRevisions = coverage.uncheckedRevisions, uncertainRevisions = coverage.uncertainRevisions)
                 val updatedTopic = if (nextConcept == concept) topic else topic.copy(canonicalConcept = nextConcept, canonicalProjection = null)
                 val hydratedTopic = if (updatedTopic.canonicalConcept != null) {
                     hydrateCanonicalTopic(updatedTopic, ticket.identity, sources, guardedIndex, progress) {

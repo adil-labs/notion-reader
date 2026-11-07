@@ -93,8 +93,11 @@ class FreshCanonicalCatalogIntegrationTest {
             override val tokenizer = object : SemanticTokenizer { override fun tokens(text: String) = emptyList<SemanticToken>() }
             override suspend fun embed(text: String): List<Float> {
                 val lower = text.lowercase()
-                return if (lower.contains("tool") || lower.contains("pruning")) listOf(0f, 1f)
-                else listOf(1f, 0f)
+                return when {
+                    lower.contains("pruning") -> listOf(0.6f, 0.8f)
+                    lower.contains("tool") -> listOf(0f, 1f)
+                    else -> listOf(1f, 0f)
+                }
             }
             override fun release() {}
         }
