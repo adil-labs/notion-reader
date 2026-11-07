@@ -24,7 +24,8 @@ internal fun normalizeGemmaOutput(output: FloatArray): List<Float> {
 class GemmaEmbeddingProvider(
     private val directory: File,
     private val npuBundle: () -> File? = { null },
-    private val nativeLibraryDirectory: String? = null
+    private val nativeLibraryDirectory: String? = null,
+    inferenceDiagnostics: ((String, Long) -> Unit)? = null
 ) : EmbeddingProvider, ObservableEmbeddingRuntime {
     override val identity = GemmaModelPack.identity
     override val tokenizer = GemmaTokenizer(File(directory, GemmaModelPack.bundleFile))
@@ -36,7 +37,7 @@ class GemmaEmbeddingProvider(
                 "libQnnSystem.so", "libQnnHtpV79Stub.so", "libQnnHtpV79Skel.so").any {
                 !File(nativeLibraryDirectory, it).isFile }) "NPU vendor libraries unavailable."
         else null
-    })
+    }, inferenceDiagnostics = inferenceDiagnostics)
     override val runtimeState = runtime.state
     val runtimeBackend: String get() = runtimeState.value.effective?.label ?: "Not running"
 

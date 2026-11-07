@@ -22,7 +22,8 @@ internal interface NativeTopicLabelEngine : AutoCloseable { fun conversation(): 
 class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIdentity,
     private val available: () -> Boolean, private val open: () -> NativeTopicLabelEngine,
     private val mayRun: () -> Boolean, private val dispatcher: CoroutineDispatcher,
-    private val diagnostic: (String, Throwable) -> Unit = { _, _ -> }) : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
+    private val diagnostic: (String, Throwable) -> Unit = { _, _ -> },
+    private val inferenceDiagnostics: ((String, Long) -> Unit)? = null) : TopicLabelRuntime, DiscoveryProposalRuntime, TopicSupportRuntime {
     override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun = withContext(dispatcher) {
         operations.withLock {
             if (!available()) { release(); return@withLock TopicSupportRun.Unavailable }
@@ -41,6 +42,8 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
                     is NativeResult.Completed -> parseTopicSupportResponse(output.raw)?.let { TopicSupportRun.Completed(it) }
                         ?: TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
                 }
+                if (result is TopicSupportRun.Completed) metric("supportSuccesses", 1)
+                if (result == TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)) metric("supportInvalidOutputs", 1)
                 if (result is TopicSupportRun.Failed || result == TopicSupportRun.Cancelled) release()
                 result
             } catch (cancelled: CancellationException) {
@@ -63,6 +66,8 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
                 val runtime = engine ?: open().also { engine = it }
                 currentCoroutineContext().ensureActive()
                 val result = inferProposal(runtime, request)
+                if (result is DiscoveryProposalRun.Completed) metric("proposalSuccesses", 1)
+                if (result == DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)) metric("proposalInvalidOutputs", 1)
                 if (result is DiscoveryProposalRun.Failed || result == DiscoveryProposalRun.Cancelled) release()
                 result
             } catch (cancelled: CancellationException) {
@@ -76,13 +81,18 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
     }
     companion object {
         fun create(manager: GenerativeModelManager, cacheDirectory: java.io.File,
-            mayRun: () -> Boolean, backend: TopicLabelBackend = TopicLabelBackend.GPU): GemmaTopicLabeler =
+            mayRun: () -> Boolean, backend: TopicLabelBackend = TopicLabelBackend.GPU,
+            diagnostic: (String, Throwable) -> Unit = { _, _ -> },
+            inferenceDiagnostics: ((String, Long) -> Unit)? = null): GemmaTopicLabeler =
             GemmaTopicLabeler(GenerativeModelPack.identity(backend.provenance),
                 { manager.verifiedBundle() != null },
                 { LiteRtTopicLabelEngine(checkNotNull(manager.verifiedBundle()), cacheDirectory, backend) },
-                mayRun, Dispatchers.IO)
+                mayRun, Dispatchers.IO, diagnostic, inferenceDiagnostics)
     }
     private val operations = Mutex()
+    private fun metric(name: String, value: Long) {
+        try { inferenceDiagnostics?.invoke(name, value) } catch (_: Exception) { /* Observability cannot control inference. */ }
+    }
     private var engine: NativeTopicLabelEngine? = null
     @Volatile private var active: Flight? = null
 
@@ -184,6 +194,12 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
         val session = runtime.conversation()
         val flight = Flight(session)
         var submitted = false
+        val kind = if (inferenceDiagnostics == null) null else when (schema) {
+            TopicSupportSchema -> "support"
+            DiscoveryProposalSchema -> "proposal"
+            else -> "label"
+        }
+        var started: Long? = null
         try {
             val tokens = session.countPromptTokens(prompt)
             if (tokens <= 0 || tokens > GenerativeModelPack.contextTokens - GenerativeModelPack.outputTokens)
@@ -194,6 +210,10 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
             val output = StringBuilder()
             var outputBytes = 0
             val oversized = AtomicBoolean(false)
+            if (kind != null) {
+                metric("${kind}Attempts", 1)
+                started = System.nanoTime()
+            }
             session.start(prompt, schema, { chunk ->
                 synchronized(output) {
                     if (!oversized.get()) {
@@ -223,6 +243,7 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
             }
             throw cancelled
         } finally {
+            started?.let { metric("${kind}Nanos", System.nanoTime() - it) }
             active = null
             flight.close()
         }

@@ -17,7 +17,8 @@ internal class LiteRtBackendRuntime(
     private val unavailable: (DiscoveryBackend) -> String? = {
         if (it == DiscoveryBackend.NPU) "NPU requires a matching published model and compatible vendor libraries." else null
     },
-    private val clock: () -> Long = System::nanoTime
+    private val clock: () -> Long = System::nanoTime,
+    private val inferenceDiagnostics: ((String, Long) -> Unit)? = null
 ) {
     private val mutable = MutableStateFlow(EmbeddingRuntimeState())
     val state: StateFlow<EmbeddingRuntimeState> = mutable
@@ -42,7 +43,7 @@ internal class LiteRtBackendRuntime(
             val target = if (cpuOnly) DiscoveryBackend.CPU else checkNotNull(selected)
             if (sessionBackend != target) release()
             if (session == null) { sessionBackend = target; session = open(target) }
-            val result = checked(checkNotNull(session).embed(text))
+            val result = infer(checkNotNull(session), text)
             mutable.value = mutable.value.copy(effective = target, reason = if (cpuOnly && selected != target)
                 "This input exceeds the accelerator context; using CPU." else rejection)
             return result
@@ -80,7 +81,7 @@ internal class LiteRtBackendRuntime(
         selected = DiscoveryBackend.CPU
         val reference: List<List<Float>>
         open(DiscoveryBackend.CPU).use { cpu ->
-            reference = probes.map { checked(cpu.embed(it)) }
+            reference = probes.map { infer(cpu, it, probe = true) }
             measurements[DiscoveryBackend.CPU] = measure(cpu)
         }
         var best = DiscoveryBackend.CPU
@@ -88,7 +89,7 @@ internal class LiteRtBackendRuntime(
             try {
                 open(backend).use { candidate ->
                     probes.forEachIndexed { index, probe ->
-                        val output = checked(candidate.embed(probe))
+                        val output = infer(candidate, probe, probe = true)
                         val cosine = output.indices.sumOf { output[it].toDouble() * reference[index][it] }
                         if (cosine < .999) throw EmbeddingBackendValidationFailure(cosine)
                     }
@@ -111,9 +112,26 @@ internal class LiteRtBackendRuntime(
 
     private fun measure(active: LiteRtEmbeddingSession): Long = List(3) {
         val start = clock()
-        probes.forEach { checked(active.embed(it)) }
+        probes.forEach { infer(active, it, probe = true) }
         (clock() - start).coerceAtLeast(0L)
     }.sorted()[1]
+
+    private fun metric(name: String, value: Long) {
+        try { inferenceDiagnostics?.invoke(name, value) } catch (_: Exception) { /* Diagnostics cannot affect inference. */ }
+    }
+
+    /** Includes failed accelerator calls and their CPU fallback; probes remain separate. */
+    private fun infer(active: LiteRtEmbeddingSession, text: String, probe: Boolean = false): List<Float> {
+        if (inferenceDiagnostics == null) return checked(active.embed(text))
+        val kind = if (probe) "embeddingProbe" else "embedding"
+        metric("${kind}Attempts", 1)
+        val started = clock()
+        return try {
+            checked(active.embed(text)).also { metric("${kind}Successes", 1) }
+        } finally {
+            metric("${kind}Nanos", (clock() - started).coerceAtLeast(0L))
+        }
+    }
 
     private fun checked(vector: List<Float>): List<Float> {
         require(vector.size == 768 && vector.all { it.isFinite() }) { "Invalid embedding" }

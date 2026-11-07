@@ -5,9 +5,13 @@ import java.io.File
 
 /** One engine, fresh conversation per group; callers close it before an embedding engine starts. */
 internal class LiteRtTopicLabelEngine(file: File, cacheDirectory: File, backend: TopicLabelBackend) : NativeTopicLabelEngine {
+    private val preparedCacheDirectory = cacheDirectory.also {
+        check(it.isDirectory || it.mkdirs()) { "Cannot create the topic runtime cache directory" }
+        check(it.isDirectory && it.canWrite()) { "Topic runtime cache directory is not writable" }
+    }
     private val engine = Engine(EngineConfig(modelPath = file.absolutePath,
         backend = if (backend == TopicLabelBackend.GPU) Backend.GPU() else Backend.CPU(threadCount = 6),
-        maxNumTokens = GenerativeModelPack.contextTokens, cacheDir = cacheDirectory.absolutePath))
+        maxNumTokens = GenerativeModelPack.contextTokens, cacheDir = preparedCacheDirectory.absolutePath))
     private var tokenizer = 0L
     init {
         try {

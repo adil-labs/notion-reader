@@ -5,6 +5,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LiteRtBackendRuntimeTest {
+    @Test fun metricsDistinguishNativeWorkFromBackendValidationAndCountFallbackAttempts() {
+        val f = Factory(vector)
+        val events = mutableListOf<Pair<String, Long>>()
+        val runtime = LiteRtBackendRuntime(f::open, clock = { f.clock },
+            inferenceDiagnostics = { name, value -> events += name to value })
+        runtime.select(DiscoveryBackend.GPU)
+        runtime.embed("first")
+        assertEquals(1, events.count { it.first == "embeddingAttempts" })
+        assertEquals(1, events.count { it.first == "embeddingSuccesses" })
+        assertEquals(16, events.count { it.first == "embeddingProbeAttempts" })
+        f.failGpu = true
+        runtime.embed("second")
+        assertEquals(3, events.count { it.first == "embeddingAttempts" })
+        assertEquals(2, events.count { it.first == "embeddingSuccesses" })
+        assertEquals(3, events.count { it.first == "embeddingNanos" })
+        runtime.release()
+    }
+
     private val vector = List(768) { if (it == 0) 1f else 0f }
     private class Factory(val vector: List<Float>) {
         val opened = mutableListOf<DiscoveryBackend>()

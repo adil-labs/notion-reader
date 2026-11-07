@@ -8,6 +8,36 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GemmaTopicLabelerTest {
+    @Test fun inferenceMetricsCountNativeSubmissionsAndSeparateInvalidOutput() = runTest {
+        val engine = Engine().apply { output = """{"decision":"SUPPORTED"}""" }
+        val events = mutableListOf<Pair<String, Long>>()
+        val runtime = GemmaTopicLabeler(identity, { true }, { engine }, { true }, StandardTestDispatcher(testScheduler),
+            inferenceDiagnostics = { name, value -> events += name to value })
+        val input = TopicSupportRequest("topic", "concept", "Seed germination", "Conditions for seed germination.",
+            request.evidence.single(), topicSupportIdentity(identity), 1)
+        runtime.verifySupport(input)
+        engine.output = "invalid output"
+        runtime.verifySupport(input)
+        assertEquals(2, events.count { it.first == "supportAttempts" })
+        assertEquals(1, events.count { it.first == "supportSuccesses" })
+        assertEquals(1, events.count { it.first == "supportInvalidOutputs" })
+        assertEquals(2, events.count { it.first == "supportNanos" })
+        assertTrue(events.filter { it.first == "supportNanos" }.all { it.second >= 0 })
+        engine.tokens = GenerativeModelPack.contextTokens
+        runtime.verifySupport(input)
+        assertEquals("Input-limit rejection is not native inference", 2, events.count { it.first == "supportAttempts" })
+        runtime.close()
+    }
+    @Test fun topicEngineCreatesItsPrivateCacheDirectoryBeforeNativeInitialization() {
+        val root = java.nio.file.Files.createTempDirectory("topic-engine-cache").toFile()
+        try {
+            val cache = root.resolve("nested/runtime")
+            // No Android native engine is available in this JVM; directory preparation must
+            // occur before attempting to initialize that engine.
+            runCatching { LiteRtTopicLabelEngine(root.resolve("model"), cache, TopicLabelBackend.GPU) }
+            assertTrue("Native initialization requires a real cache directory", cache.isDirectory)
+        } finally { root.deleteRecursively() }
+    }
     @Test fun supportVerificationUsesItsOwnSchemaAndKeepsUncertaintyDistinct() = runTest {
         val engine = Engine().apply { output = """{"decision":"UNCERTAIN"}""" }
         val input = TopicSupportRequest("topic", "concept", "Seed germination", "Conditions for seed germination.",
