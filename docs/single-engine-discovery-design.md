@@ -1,5 +1,11 @@
 # Single-engine Discovery architecture and migration
 
+> **Status (2026-11-07): historical design.** The single-engine principle still
+> holds, but the hierarchical formation engine this document describes is retired.
+> The current sole pipeline and its state contract are
+> [the Discovery work-state model](discovery-v2/discovery-work-state-model.md)
+> under the amended Product contract. Read this file as migration history.
+
 Date: 2026-10-17. Implements the user's explicit decision to retire the legacy
 Discovery engine. This design is subordinate to the amended governing Notion
 contracts; the previous debug/release fallback requirement is superseded by that

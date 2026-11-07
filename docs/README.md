@@ -1,7 +1,7 @@
 # Documentation guide
 
 Start with [the repository summary](../README.md) for implemented behavior, then
-[the current decision-record entry](decisions.md#238-keep-bounded-progress-inside-the-work-window-2026-11-06)
+[the current decision-record entry](decisions.md#254-proposal-admission-identity-and-evidence-first-fairness-a-new-topic-is-published-on-the-pixel-2026-11-07)
 for evidence and remaining work. Read the governing contract before changing behavior.
 
 ## Authority
@@ -36,6 +36,10 @@ capabilities and amend the authoritative repository specifications before changi
   publication status and release acceptance. UI owns presentation and navigation;
   Integration owns the cache, index and persistence boundary.
 - [Discovery v2 proposed redesign](discovery-v2/README.md) collects the 49 requested requirements, evidence and scoring design, incremental architecture, state/migration safeguards, validation plan and full traceability. **It is a non-governing proposal, not implemented behavior or release approval.** Apply any semantic amendments in the owning Notion contracts before adopting production changes.
+- [The adopted Discovery work-state model](discovery-v2/discovery-work-state-model.md)
+  is the single authoritative contract for state separation, coverage derivation,
+  admission typing, checkpoint replay and scheduling fairness. The implementation
+  gaps it originally named are closed; remaining risk is verifier calibration.
 - [The implementation companion](semantic-discovery-implementation-spec.md)
   explains local algorithms and limits subordinate to those contracts. Historical
   baseline policy does not override replacement-engine requirements.

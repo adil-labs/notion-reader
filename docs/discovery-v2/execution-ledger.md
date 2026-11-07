@@ -1,5 +1,94 @@
 # Generative Discovery execution ledger
 
+2026-11-07: Proposal-admission and fairness round. Admission now compares the
+relevant catalog identity rather than the exact in-memory ticket; the proposal
+and membership jobs alternate the first bounded opportunity, so a long
+membership step cannot defer proposal corpus replay every window. A new topic was
+published on the Pixel (23:06:12). 1,754 JVM tests green. See §254.
+2026-11-07: Publishing-stall round. The durable scan scope no longer hashes the
+live catalog epoch, so unrelated catalog activity stops discarding partial scans;
+a stale completed tail is restarted instead of looping; a bounded tail commit
+replay resumes its cursor instead of restarting every step. 1,753 JVM tests green.
+Pixel membership commit verified (`topics.json` written; Chess unchecked tail
+cleared). See §253.
+
+2026-11-07: Continuation-scope and proposal-catalog identity round. Automatic
+continuation no longer hashes a retry counter or the global catalog generation
+into the membership active-work scope, so an active `AwaitingValidation` scan/commit
+is preserved; explicit retry clears only blocked work. `evidenceCatalogIdentity()`
+now covers canonical readiness, canonical query/verifier/wording, seed members and
+continuity for proposal eligibility/duplicate release. 1,750 JVM tests green.
+See §252.
+
+2026-11-07: Scheduler progress-continuity round. The membership scheduler no
+longer restarts a multi-page tail on every turn; the durable checkpoint owns
+resume/restart/commit (including process recreation and automatic continuation).
+Automatic continuation no longer reopens blocked proposal work, and a canonical
+verifier change is exposed as a non-retryable `VerifierChanged` condition whose
+recovery is the explicit Settings rebuild. 1,747 JVM tests green; real-Gemma
+Pixel probe passed. See §251.
+
+2026-11-07: Closed the work-state implementation gaps and retired the legacy
+checkpoint contract. Coverage is derived from terminal `scannedRevisions` and
+`uncertainRevisions` (`reconcileConceptCoverage`); `CanonicalMembershipScheduler`
+has explicit `MEMBERSHIP` and `TAIL` work kinds with bounded tail fairness; a
+terminal `UNCERTAIN` scan commits per-concept coverage instead of replaying after
+restart; and one current checkpoint version replaces four interpreted
+generations. 1,742 JVM tests green. See §249 and §250.
+
+2026-11-07: Adopted the Discovery work-state model and scheduling contract. The
+documentation-only round separates evidence validity, work progress and coverage
+completeness; makes scan termination independent of verifier decisions; makes
+coverage facts derived; types and makes admission idempotent; distinguishes
+deferred from blocked work; requires bidirectional scheduling fairness; and
+recorded the then-open implementation gaps (coverage from the supported-key set,
+tail work competing with membership work, uncommitted uncertain scans, verifier
+calibration). Governing contract amended in place. That documentation round was
+later numbered §249 as well; the implementation round above is the current one.
+
+2026-11-07: S25 full-corpus RCA and scheduling correction. With 100/100 Notes
+indexed the catalog still held one Emerging topic; membership work gated the
+evidence scheduler, and page-level `UNCERTAIN` for an existing subject blocked
+proposals for other subjects. Proposal work now runs independently and uncertain
+existing membership no longer suppresses it. Live Gemma quality remains the
+dominant publication limit (50 supported / 345 uncertain / 499 unsupported
+decisions); 1,724 tests green. See §248.
+
+2026-11-07: Discover progress now reflects passage-level progress, not only
+completed Notes: coverage shows remaining passages, the work line shows embedded
+versus total passages, and the status says “Indexing cached Notes…” while work is
+active. Full JVM 1,723 green. See §247.
+
+2026-11-07: Membership liveness fix. Automatic continuation no longer reopens a
+page blocked for the same source revision; explicit Retry does. Live Pixel logs
+switched from repeated support scans to continuous embedding. See §246.
+
+2026-11-07: Partial-source admission/tail correction plus live Pixel validation.
+A verified topic published as Emerging while only 3 of 109 cached Notes were indexed;
+the persisted catalog held one topic with matchingComplete=false, SOURCE_SCAN and one
+unchecked tail, and the same topic id survived an app restart. Full JVM suite: 1,723
+tests, zero failures; see §245.
+
+2026-11-07: Verified Emerging admission implemented with typed coverage. A
+verified citation may publish before full source indexing; `SOURCE_SCAN` and a
+consistent-catalog `EXISTING_CONCEPT_CATALOG` are coverage facts, while unresolved
+or stale evidence and an inconsistent catalog still block. Equivalent later
+proposals attach to the existing canonical topic. JVM suite 1,720 tests green;
+the full-corpus Pixel probe passed before this round, the post-change/partial
+device runs hit low-memory native failures and remain open (§244).
+
+2026-11-07: Bounded support-first verification implemented: strongest candidate
+first, stop on one validated support, explicit `SUPPORTED_EARLY`/`EXHAUSTED`
+completion in both Note scan paths (the brief `UNCERTAIN` completion value was
+retired in §249), replay validation without
+inference, Note-level unchecked coverage, and membership/coverage separation.
+Synthetic 20,000-passage A/B: 4,000 → 2,000 cold support calls and 2 → 1 after
+one changed Note, with the same 2,000 verified members. Focused/full JVM,
+debug assembly and Android test compilation pass. A Pixel 8 Pro real-Gemma probe
+(`SupportFirstDeviceTest`) passed with 4 proposals, 11 support calls (mean
+1,413 ms), 23 early-stopped concept scans and a 2-member published topic; S25
+Gemma validation remains open. See §243.
+
 2026-11-07: Bounded per-Note support checks amended in the three governing sources; audit metrics and the counterfactual measurement requirement documented. Documents only, no behavior change (§242).
 
 2026-11-05: Coordinator transition and failing test suite resolution complete. All 1,608 JVM tests pass cleanly; Android test compilation and debug assemble verified (§234).
@@ -391,7 +480,8 @@ construction, comparison and activation remain open.
 direct implementation instead of a separate prototype. The governing Product,
 UI and Integration files now carry the new direction locally; the user directed
 that specifications remain repository-owned, and the transient Notion amendment
-was removed and verified absent. Current cluster-seeded behavior remains enabled.
+was removed and verified absent. At that time cluster-seeded behavior remained
+enabled; it is retired now (§249).
 No replacement code, fresh semantic comparison or acceptance is claimed; see
 decisions §136 and `evidence-first-audit.md`.
 

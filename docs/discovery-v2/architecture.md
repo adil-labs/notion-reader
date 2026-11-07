@@ -96,6 +96,78 @@ No similarity value is itself a calibrated probability. Current engine threshold
 
 Proposed intrinsic Q = 100 × sum(normalized weights × feature scores). Optional relevance R is separate: recent opening 45%, followed interests 35%, recent add/edit relevance 20% (illustrative and permission-dependent). An initial display score is 0.70 × Q + 0.30 × (100 × R). These are **presentation hypotheses**, not release behavior or authorization for covert activity profiling. If activity signals are forbidden or unavailable, use explicit interests and neutral/fixed ordering. Old published topics remain reachable.
 
+## Implemented bounded per-Note verification (2026-11-07)
+
+The shipping evidence-first path now separates **verified membership** from
+**exhaustive passage coverage**:
+
+- `topicCandidatePage` ranks threshold-eligible passages strongest first under the
+  versioned retrieval policy. `verifyExistingConceptPage` verifies that order and
+  stops on the first completed `SUPPORTED` decision when a tail remains. It
+  continues on `UNSUPPORTED` and `UNCERTAIN`; uncertainty is retained, never
+  erased by later support.
+- `ExistingConceptScanRecord` (`formatVersion = 4`) records termination only:
+  `ConceptScanCompletion` is `SUPPORTED_EARLY` or `EXHAUSTED`, plus the
+  early-stopped concept work keys. `PendingNoteScanRecord`
+  (`formatVersion = 5`) records the same termination distinction for one
+  pending-concept Note. Uncertainty is evidence state stored in the assessments,
+  never a completion value. A non-null cursor means interrupted; no completion
+  claim is valid without an explicit terminal value. There is one current format:
+  older files are rejected and rebuilt, with no compatibility branch.
+- `CanonicalConceptEvidence.matchingComplete` means every accepted source Note
+  reached a terminal, resolved assessment. It is derived from
+  `scannedRevisions`/`uncertainRevisions`, not from the set of Notes that support
+  the concept. `passageCoverageComplete` additionally requires that no Note has an
+  unchecked tail (`uncheckedRevisions`). UI copy distinguishes the two; a verified
+  member is shown normally while coverage stays incomplete.
+- Replay uses `TopicSupportRun.Unavailable` and compares derived decisions,
+  early-stop keys and completion; it never asks the model for a decision. A file
+  from an older format is not reinterpreted; its exact-input support assessments
+  remain reusable while the scan is rebuilt.
+- `CanonicalMembershipScheduler` advances to the Note's next concept after an
+  early stop and continues with remaining Notes. Membership and tail work are
+  distinct kinds: a scanned Note with an unchecked tail is not membership work, so
+  the scheduler reaches Idle for membership and then runs the tail as an
+  exhaustive pass after at most two consecutive membership turns. Full membership
+  coverage becomes true only when every current Note has a resolved outcome.
+- Membership expansion and new-subject evidence work are independent bounded
+  jobs. Incomplete membership must not defer the evidence scheduler, and an
+  `UNCERTAIN` result for one existing subject does not suppress proposals for a
+  different subject from the same Note. Proposed subjects still pass their own
+  supported-citation, catalog and duplicate checks at admission.
+- Admission is typed, not a single blocking predicate. `ProposalAdmissionCoverage`
+  separates complete source scanning, catalog consistency, duplicate-check
+  completeness, unresolved evidence and stale evidence.
+  `allowsEmerging(citationsSupported)` permits verified citations while
+  `SOURCE_SCAN` is incomplete; `allowsEstablished` additionally requires complete
+  source coverage. `EXISTING_CONCEPT_UNCERTAIN`, stale identity, unsupported
+  citations, canonical rejection and storage/consistency failures still block.
+- `EXISTING_CONCEPT_CATALOG` is allowed for Emerging only when the current
+  canonical catalog generation is consistent and the proposal has been checked
+  for an equivalent active concept. A later equivalent proposal attaches to the
+  existing canonical topic rather than creating a duplicate.
+- Early topics keep `matchingComplete = false`, `uncheckedRevisions` and their
+  `SOURCE_SCAN` reason. A topic with verified members is presented as Emerging
+  while coverage is incomplete; Established still requires the existing
+  complete-coverage conditions. Indexing and membership expansion continue
+  independently.
+
+The state model behind these rules is specified in
+[work-state model](discovery-work-state-model.md): scan termination is
+independent of verifier decisions, coverage facts are derived rather than
+asserted, admission is one typed and idempotent decision, and scheduling is
+bidirectionally fair between membership and proposal work. The implementation
+gaps that document originally recorded (coverage computed from the supported-key
+set, tail work competing with membership work, and completed uncertain scans not
+committing coverage) were closed on 2026-11-07; see
+[decisions.md §249](../decisions.md).
+
+Deliberate limits: the tail of an early-supported Note is not checked merely to
+collect more proofs; it is checked only by the later bounded reconciliation or
+after a source/verifier invalidation. Exact tail length is not persisted because
+the total eligible set is not materialized; the Note-level unchecked fact is.
+No score cutoff, top-one-only rule, verifier change or second engine is added.
+
 ## Failure and privacy invariants
 
 - Delete, permission loss, revision mismatch, reset or embedding-model change invalidates stale derived evidence before it can be displayed; scrub references from pending pool, checkpoint, explanations and graph as appropriate.

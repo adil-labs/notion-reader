@@ -817,7 +817,9 @@ Check ActivityManager.MemoryInfo before expensive work and respond to lowMemory,
 
 Inspect ApplicationExitInfo on supported Android versions, including Android 17 memory-limiter exits identified by REASON_OTHER with MemoryLimiter:AnonSwap in the description. Preserve truthful failure/coverage state after termination; absence of a conventional crash stack does not establish stability. Keep exit diagnostics free of private Note text. Do not claim native cancellation, memory release or pressure handling passed until observed on the actual runtime/device.
 
-# Sole Discovery pipeline: existing grouping with local LLM labels
+# Sole Discovery pipeline: existing grouping with local LLM labels (superseded)
+
+> **Superseded by [Evidence-first incremental Discovery](#evidence-first-incremental-discovery).** This section is retained as amendment history and is not a current requirement.
 
 Approved direction, 2026-10-26. This amendment supersedes the earlier Local generative Discovery v2 requirement that Gemma form or separate concepts and choose passage memberships, and its description of label-only generation as merely an evaluation baseline. The sole production Discovery topic pipeline is eligible cached body evidence, the existing section-aware hierarchical grouping and membership policy over compatible EmbeddingGemma vectors, followed by local Gemma 4 E2B labeling through LiteRT-LM. The model supplies concise supported names for existing groups; it cannot add, omit, split or merge groups, change memberships, assign durable topic identities, infer hierarchy or mutate queues. Full LLM concept formation is removed from the current implementation scope, not retained as a selectable or hidden alternative.
 
@@ -835,7 +837,9 @@ One process-owned coordinator and serialized native execution gate own both embe
 
 The user authorizes implementing this sole grouping-plus-labeling architecture and replacing the catalog in place. Debug adoption and general release still require their applicable measured gates; agent-reviewed semantic evidence remains distinct from independent human release and TalkBack speech/listening observation. No production activation is claimed by this amendment.
 
-# Sole Discovery pipeline: cluster seeds, generated concepts and retrieved Notes
+# Sole Discovery pipeline: cluster seeds, generated concepts and retrieved Notes (superseded)
+
+> **Superseded by [Evidence-first incremental Discovery](#evidence-first-incremental-discovery).** This section is retained as amendment history and is not a current requirement.
 
 Approved implementation direction, 2026-10-26. This amendment supersedes the prior requirement that generated names leave topic memberships permanently equal to existing clusters. The sole pipeline is eligible cached body evidence, existing section-aware grouping as seed discovery, local Gemma 4 E2B through LiteRT-LM proposing a concise useful name and short source-supported definition, then compatible EmbeddingGemma retrieval of matching passages and Notes across the eligible indexed library. A cluster supplies proposal evidence, not a mandatory final membership list. Do not retain another topic engine, generated catalog, algorithm selector or screen-owned inference loop.
 
@@ -884,3 +888,58 @@ For each eligible Note and current concept, rank threshold-eligible passages by 
 Validating a published member means one independently validated supporting passage, not every retrieved candidate for that member. Persist a supported decision as today and record the Note's unexamined threshold-eligible candidates for that concept as unchecked reconciliation state, never as unsupported decisions or as an empty pass. Continue the concept's bounded corpus work, including the Note's other concept checks and other Notes; keep that Note's unfinished work for a later lower-priority window or an invalidation-triggered recheck, and keep the concept's matching coverage incomplete while it remains unfinished. Selected proposal citations still require their existing independent validation before admission. Do not mark the Note or the corpus scanned and do not reuse an unchecked candidate as evidence.
 
 Keep exact-input reuse, verifier and source identity validation, canonical-decision precedence, admission guards, and all withdrawal, cancellation and bounded-window rules. Do not lower verifier quality, raise the retrieval threshold or skip independent validation to obtain the saving. Report support work and coverage under the existing diagnostics rules.
+
+# Emerging admission with partial source coverage
+
+Amendment, 2026-11-07. This records the implementation contract for the typed
+Emerging admission rule. It does not change the verifier, its prompt/schema/
+policy/identity, the cosine retrieval policy, citation requirements, catalog
+ownership or withdrawal behavior.
+
+Admission eligibility must be computed from typed coverage and safety state, not
+from a shared `blocksConceptAdmission()` predicate. The implementation shall
+distinguish at least:
+
+- source-scan completeness;
+- catalog consistency and duplicate-check completeness;
+- unresolved evidence (`EXISTING_CONCEPT_UNCERTAIN`) and stale evidence;
+- whether every required citation has an independently validated current
+  assessment.
+
+A verified current citation may admit an Emerging topic while `SOURCE_SCAN` is
+incomplete. The persisted concept must retain the incomplete reason, report
+incomplete membership and passage coverage, and keep `matchingComplete = false`.
+`Established` remains unavailable until complete current source and membership
+coverage plus the existing verification conditions are satisfied.
+
+`EXISTING_CONCEPT_CATALOG` may allow Emerging admission only when the current
+canonical-catalog generation is consistent and the proposed concept has been
+checked against the canonical topics for an equivalent active concept. If a
+consistent generation or duplicate check cannot be established, admission is
+deferred. `EXISTING_CONCEPT_UNCERTAIN`, stale source/catalog identity, unsupported
+citations, canonical rejection and storage/consistency failures remain blocking.
+
+A later proposal for an equivalent concept from a newly indexed Note must attach
+to the existing canonical topic rather than create a duplicate. Indexing and
+membership expansion continue after publication; newly discovered sources may add
+members, make coverage incomplete again, or trigger withdrawal. The existing
+source-revision, verifier, policy, catalog-ticket and query-identity checks remain
+authoritative. Persisted progress must not record a partial source scan as a
+complete scan.
+
+
+### Publication and deferred passage reconciliation clarification (2026-11-07)
+
+Topics with two or more independently verified current Note memberships remain
+publishable as Emerging while source or required membership coverage is incomplete.
+The number of verified Notes must never hide such a topic. Complete coverage is a
+separate claim. Admission preserves unfinished passage checks from pending scans;
+an indexed subset is valid evidence when every referenced revision and its catalog
+ticket remain current, but cannot establish complete source coverage.
+
+After outstanding Note membership work, the existing bounded scheduler revisits
+Notes with unchecked passage tails, reusing durable decisions and continuing through
+remaining candidates. Unresolved evidence still blocks completion. This lower-priority
+work does not delay initial publication. Proposal generation requests one strong
+citation, or two when necessary, from its existing small evidence bundle; every
+selected citation is independently verified.

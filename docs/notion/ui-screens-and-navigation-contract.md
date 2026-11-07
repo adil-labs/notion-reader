@@ -1679,7 +1679,9 @@ Check ActivityManager.MemoryInfo before expensive work and respond to lowMemory,
 
 Inspect ApplicationExitInfo on supported Android versions, including Android 17 memory-limiter exits identified by REASON_OTHER with MemoryLimiter:AnonSwap in the description. Preserve truthful failure/coverage state after termination; absence of a conventional crash stack does not establish stability. Keep exit diagnostics free of private Note text. Do not claim native cancellation, memory release or pressure handling passed until observed on the actual runtime/device.
 
-# Sole Discovery pipeline: existing grouping with local LLM labels
+# Sole Discovery pipeline: existing grouping with local LLM labels (superseded)
+
+> **Superseded by [Evidence-first incremental Discovery](#evidence-first-incremental-discovery).** This section is retained as amendment history and is not a current requirement.
 
 Approved direction, 2026-10-26. This amendment supersedes the earlier Local generative Discovery v2 requirement that Gemma form or separate concepts and choose passage memberships, and its description of label-only generation as merely an evaluation baseline. The sole production Discovery topic pipeline is eligible cached body evidence, the existing section-aware hierarchical grouping and membership policy over compatible EmbeddingGemma vectors, followed by local Gemma 4 E2B labeling through LiteRT-LM. The model supplies concise supported names for existing groups; it cannot add, omit, split or merge groups, change memberships, assign durable topic identities, infer hierarchy or mutate queues. Full LLM concept formation is removed from the current implementation scope, not retained as a selectable or hidden alternative.
 
@@ -1697,7 +1699,9 @@ One process-owned coordinator and serialized native execution gate own both embe
 
 The user authorizes implementing this sole grouping-plus-labeling architecture and replacing the catalog in place. Debug adoption and general release still require their applicable measured gates; agent-reviewed semantic evidence remains distinct from independent human release and TalkBack speech/listening observation. No production activation is claimed by this amendment.
 
-# Sole Discovery pipeline: cluster seeds, generated concepts and retrieved Notes
+# Sole Discovery pipeline: cluster seeds, generated concepts and retrieved Notes (superseded)
+
+> **Superseded by [Evidence-first incremental Discovery](#evidence-first-incremental-discovery).** This section is retained as amendment history and is not a current requirement.
 
 Approved implementation direction, 2026-10-26. This amendment supersedes the prior requirement that generated names leave topic memberships permanently equal to existing clusters. The sole pipeline is eligible cached body evidence, existing section-aware grouping as seed discovery, local Gemma 4 E2B through LiteRT-LM proposing a concise useful name and short source-supported definition, then compatible EmbeddingGemma retrieval of matching passages and Notes across the eligible indexed library. A cluster supplies proposal evidence, not a mandatory final membership list. Do not retain another topic engine, generated catalog, algorithm selector or screen-owned inference loop.
 
@@ -1746,3 +1750,39 @@ A Note whose membership rests on one independently validated passage is a verifi
 While a Note's reconciliation work remains unfinished, present the concept's matching coverage as incomplete rather than as a completed scan. In accessible why-this-topic presentation, do not present unchecked evidence as unsupported or checked, and keep the existing Emerging and Established counts based on independently validated members.
 
 Do not add a verification-mode control, a progress estimate or an algorithm selector, and do not change inspection ordering, focus restoration or immediate withdrawal behavior.
+
+# Presenting Emerging topics with incomplete source coverage
+
+Amendment, 2026-11-07. A verified Emerging topic may be presented while cached
+Notes remain unindexed or membership coverage is incomplete. Present the topic
+normally as Emerging, with explicit incomplete indexing/membership/passage
+coverage language; do not hide or discount it solely because coverage is partial.
+
+Do not describe unindexed or unchecked Notes as unsupported, absent or checked.
+Do not claim complete corpus coverage, exhaustive verification or unanimous
+agreement. Established presentation continues to require the existing complete
+coverage and verification conditions.
+
+When topic or indexing work is genuinely deferred or blocked, expose a visible
+processing status and a Retry/Continue action that resumes automatic processing;
+automatic continuation remains the default when work is eligible. Do not add a
+verification-mode control, a progress estimate or an algorithm selector, and do
+not change inspection ordering, focus restoration or immediate withdrawal
+behavior.
+
+
+### Publication and deferred passage reconciliation clarification (2026-11-07)
+
+Topics with two or more independently verified current Note memberships remain
+publishable as Emerging while source or required membership coverage is incomplete.
+The number of verified Notes must never hide such a topic. Complete coverage is a
+separate claim. Admission preserves unfinished passage checks from pending scans;
+an indexed subset is valid evidence when every referenced revision and its catalog
+ticket remain current, but cannot establish complete source coverage.
+
+After outstanding Note membership work, the existing bounded scheduler revisits
+Notes with unchecked passage tails, reusing durable decisions and continuing through
+remaining candidates. Unresolved evidence still blocks completion. This lower-priority
+work does not delay initial publication. Proposal generation requests one strong
+citation, or two when necessary, from its existing small evidence bundle; every
+selected citation is independently verified.

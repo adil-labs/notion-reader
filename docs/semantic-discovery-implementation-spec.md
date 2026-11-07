@@ -1,8 +1,15 @@
 # Semantic Discovery Implementation Specification
 
-**Current implementation direction (2026-10-26):** existing grouping plus local LLM labels is the sole replacement pipeline. See [approved design](discovery-v2/sole-grouping-labeling-design.md) and [current plan](superpowers/plans/2026-10-26-sole-grouping-llm-labeling.md). Full generative concept formation below is superseded; no parallel catalog or production engine selector is authorized.
-
-> **2026-10-25 generative direction:** The governing contracts now authorize a gated local Gemma 4 E2B / LiteRT-LM replacement. [Generative direction](discovery-v2/generative-direction.md) and the [phased plan](superpowers/plans/2026-10-25-llm-discovery-v2.md) define that work. The engine described below remains current production until replacement acceptance; no generative runtime is implemented by the specification amendment.
+> **Current status (2026-11-07):** The sole production pipeline is the
+> evidence-first incremental engine. The former grouping-plus-label and
+> cluster-seeded formation paths are retired, and legacy Discovery checkpoint
+> formats are no longer read. The authoritative Discovery state contract is
+> [the work-state model](discovery-v2/discovery-work-state-model.md) under the
+> amended Product contract; [decisions.md §249](decisions.md) records the current
+> implementation and verification. **Everything below is a historical
+> implementation record.** Where it describes a "current" grouping or
+> hierarchical engine, that description is superseded and is not a current
+> requirement.
 
 Hand-authored implementation companion to the seven governing specifications listed
 in [the documentation map](README.md). This file records concrete implementation
@@ -11,13 +18,15 @@ The live Product, UI and Integration contracts, including their 2026-10-17 and 2
 control Discovery semantics. [decisions.md](decisions.md) preserves investigation,
 verification and superseded-policy history.
 
-## Current discovery engine
+## Historical discovery engine (superseded)
 
-All debug and release builds use the sole section-aware hierarchical engine; legacy
-streaming execution, wrappers, switching flags and rollback properties are retired.
-The process-owned host coordinates bounded foreground and persistent WorkManager execution windows. See
-[single-engine design](single-engine-discovery-design.md) for stages and migration.
-This adoption does not certify failed or unmeasured acceptance gates.
+The retired section-aware hierarchical engine described in this section was the
+sole production engine before the evidence-first replacement. Legacy streaming
+execution, wrappers, switching flags and rollback properties are retired. The
+process-owned host now coordinates bounded foreground and persistent WorkManager
+execution windows for the evidence-first pipeline. See
+[single-engine design](single-engine-discovery-design.md) for historical stages.
+This record does not certify failed or unmeasured acceptance gates.
 
 ### Current hierarchy/catalog refinement
 

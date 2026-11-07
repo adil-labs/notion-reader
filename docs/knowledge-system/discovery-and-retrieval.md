@@ -1,8 +1,17 @@
 # Semantic Discovery and incremental concept retrieval
 
-Status: architectural integration proposal subordinate to current approved [generative direction](../discovery-v2/generative-direction.md) and [cluster-seeded retrieval design](../discovery-v2/cluster-seeded-topic-retrieval-design.md).
+Status: architectural integration proposal subordinate to the amended Product
+contract and [the Discovery work-state model](../discovery-v2/discovery-work-state-model.md).
+The cluster-seeded design this file originally referenced is retired.
 
-## Production concept flow
+## Current implementation note
+
+This target design predates the evidence-first replacement. The current sole
+pipeline proposes concepts from indexed evidence, independently verifies
+citations, and expands membership against the canonical catalog. Where this file
+describes clustering as the first production step, that mechanism is historical.
+
+## Production concept flow (historical)
 Eligible body passages -> current section-aware clustering (seeds only) -> Gemma 4 E2B local label and grounded definition -> strict structure/provenance checks -> semantic quality assessment -> embedding of name + definition -> passage-level retrieval over eligible Notes -> one canonical topic catalog. Seed membership is not final retrieved membership; out-of-seed inclusion and no-match are permitted.
 
 ## Admission rules

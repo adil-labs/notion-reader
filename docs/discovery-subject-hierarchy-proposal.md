@@ -1,6 +1,13 @@
 # Discovery subject hierarchy and connection catalog — proposal
 
-Date: 2026-10-17. Status: user-approved design; implementation in progress.
+> **Status (2026-11-07): historical design, partially superseded.** The
+> hierarchical *formation* path is retired. The canonical topic catalog, subject
+> relationships and connection provenance it proposed remain in the current
+> engine, governed by [the Discovery work-state model](discovery-v2/discovery-work-state-model.md)
+> and the amended Product contract. Do not read this proposal as current
+> scheduling or admission authority.
+
+Date: 2026-10-17. Status: user-approved design; implementation history.
 This is subordinate to the live governing specifications and their generated
 mirrors. Execution is tracked in the 2026-10-17 subject-hierarchy implementation plan.
 

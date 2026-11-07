@@ -938,7 +938,9 @@ Check ActivityManager.MemoryInfo before expensive work and respond to lowMemory,
 
 Inspect ApplicationExitInfo on supported Android versions, including Android 17 memory-limiter exits identified by REASON_OTHER with MemoryLimiter:AnonSwap in the description. Preserve truthful failure/coverage state after termination; absence of a conventional crash stack does not establish stability. Keep exit diagnostics free of private Note text. Do not claim native cancellation, memory release or pressure handling passed until observed on the actual runtime/device.
 
-# Sole Discovery pipeline: existing grouping with local LLM labels
+# Sole Discovery pipeline: existing grouping with local LLM labels (superseded)
+
+> **Superseded by [Evidence-first incremental Discovery](#evidence-first-incremental-discovery).** This section is retained as amendment history and is not a current requirement.
 
 Approved direction, 2026-10-26. This amendment supersedes the earlier Local generative Discovery v2 requirement that Gemma form or separate concepts and choose passage memberships, and its description of label-only generation as merely an evaluation baseline. The sole production Discovery topic pipeline is eligible cached body evidence, the existing section-aware hierarchical grouping and membership policy over compatible EmbeddingGemma vectors, followed by local Gemma 4 E2B labeling through LiteRT-LM. The model supplies concise supported names for existing groups; it cannot add, omit, split or merge groups, change memberships, assign durable topic identities, infer hierarchy or mutate queues. Full LLM concept formation is removed from the current implementation scope, not retained as a selectable or hidden alternative.
 
@@ -956,7 +958,9 @@ One process-owned coordinator and serialized native execution gate own both embe
 
 The user authorizes implementing this sole grouping-plus-labeling architecture and replacing the catalog in place. Debug adoption and general release still require their applicable measured gates; agent-reviewed semantic evidence remains distinct from independent human release and TalkBack speech/listening observation. No production activation is claimed by this amendment.
 
-# Sole Discovery pipeline: cluster seeds, generated concepts and retrieved Notes
+# Sole Discovery pipeline: cluster seeds, generated concepts and retrieved Notes (superseded)
+
+> **Superseded by [Evidence-first incremental Discovery](#evidence-first-incremental-discovery).** This section is retained as amendment history and is not a current requirement.
 
 Approved implementation direction, 2026-10-26. This amendment supersedes the prior requirement that generated names leave topic memberships permanently equal to existing clusters. The sole pipeline is eligible cached body evidence, existing section-aware grouping as seed discovery, local Gemma 4 E2B through LiteRT-LM proposing a concise useful name and short source-supported definition, then compatible EmbeddingGemma retrieval of matching passages and Notes across the eligible indexed library. A cluster supplies proposal evidence, not a mandatory final membership list. Do not retain another topic engine, generated catalog, algorithm selector or screen-owned inference loop.
 
@@ -1007,3 +1011,162 @@ Order each Note's candidates deterministically strongest first under the version
 Validating a published member means one independently validated supporting passage, not every retrieved candidate for that member. This bounds verification work, not verification authority: membership still requires an independently validated current passage, similarity, a selected citation and a model assertion still prove nothing, and the support verifier, its prompt, schema, policy and identity are not weakened to save calls. Unchecked candidates remain explicitly unchecked: not unsupported, not treated as evidence of absence and not counted as checked. Retain them as unfinished reconciliation work for that Note. They may be checked only in later bounded lower-priority windows, or when a source or verifier change invalidates that Note's support; while that work remains unfinished, present the concept's matching coverage as incomplete and never as a completed scan. Proposal citations are separate: each citation selected for the concept still requires its existing independent validation before admission.
 
 Persisted support decisions stay bound to their exact evidence, verifier and policy identity and are revalidated rather than silently replaced. A decision already recorded for another passage is not erased by later support, and a canonical rejection still takes precedence. Publishing may occur as soon as the required independent evidence for an Emerging or Established topic is verified, without marking the remaining Notes or the corpus as scanned.
+
+# Emerging publication before complete source indexing
+
+Amendment, 2026-11-07. This narrows the admission distinction between verified
+local evidence and complete corpus coverage; it does not weaken the support
+verifier, citations, source identity, catalog ownership or withdrawal rules.
+
+**Emerging validity.** An Emerging topic may be admitted when every citation
+required by its admission contract has been independently validated against a
+current, indexed source passage, the source and catalog tickets are current, and
+no canonical rejection or unresolved-evidence condition applies. Complete source
+indexing is not a prerequisite for that local validity. The topic must report
+incomplete source and membership coverage explicitly and must never be presented
+as an exhaustively scanned corpus.
+
+**Established validity.** An Established topic retains the stronger completeness
+conditions: complete current source coverage, complete required membership
+coverage, and no unresolved or stale evidence. Partial source scanning must never
+produce an Established claim.
+
+Admission eligibility is typed, not a single shared "blocking reason" predicate:
+
+| Condition | Emerging publication |
+| --- | --- |
+| Every required citation independently verified and current | Allow, subject to the other rows |
+| `SOURCE_SCAN` incomplete | Allow only as explicit incomplete coverage, with no stale or unresolved evidence |
+| `STRUCTURE`, `ANCHOR_WINDOW`, `EVIDENCE_LIMIT` incomplete | Continue to allow |
+| `EXISTING_CONCEPT_CATALOG` incomplete | Allow only when the current canonical catalog generation is consistent and the proposed concept has been checked for an active duplicate; otherwise defer |
+| `EXISTING_CONCEPT_UNCERTAIN` | Block |
+| Stale source or catalog ticket | Block |
+| Unsupported required citation | Block |
+| Canonical rejection | Block |
+| Storage or catalog-consistency failure | Block |
+
+Coverage uncertainty is not evidence uncertainty. An unindexed Note may contain
+supporting evidence, a different perspective or a contradiction; its absence does
+not invalidate a current independently verified citation, and coverage statements
+must not imply unanimous agreement. A verified Emerging topic may later gain
+members, merge with an equivalent concept, or be withdrawn when its source or
+verifier identity changes. Those transitions must remain deterministic and use
+the existing continuity, duplicate-consolidation and withdrawal rules.
+
+Indexing and membership expansion continue independently after publication. The
+topic's `matchingComplete` remains false and its unchecked passage tails remain
+recorded until the existing complete-coverage conditions are met. A user-visible
+processing status and a Retry/Continue action must be available for genuinely
+deferred or blocked work; automatic continuation remains the default when work is
+eligible.
+
+
+### Publication and deferred passage reconciliation clarification (2026-11-07)
+
+Topics with two or more independently verified current Note memberships remain
+publishable as Emerging while source or required membership coverage is incomplete.
+The number of verified Notes must never hide such a topic. Complete coverage is a
+separate claim. Admission preserves unfinished passage checks from pending scans;
+an indexed subset is valid evidence when every referenced revision and its catalog
+ticket remain current, but cannot establish complete source coverage.
+
+After outstanding Note membership work, the existing bounded scheduler revisits
+Notes with unchecked passage tails, reusing durable decisions and continuing through
+remaining candidates. Unresolved evidence still blocks completion. This lower-priority
+work does not delay initial publication. Proposal generation requests one strong
+citation, or two when necessary, from its existing small evidence bundle; every
+selected citation is independently verified.
+
+# Discovery work-state separation, scheduling fairness and coverage facts
+
+Amendment, 2026-11-07. This adopts the Discovery work-state model specified in
+[discovery work-state model](../discovery-v2/discovery-work-state-model.md). It
+governs how the sole evidence-first Discovery pipeline represents work state and
+schedules its work; it does not change the support verifier, prompts, schema,
+retrieval thresholds, embedding model or persistence backend, and it authorizes
+no second pipeline.
+
+**Three separate facts.** Evidence validity, work progress and coverage
+completeness are separate facts and must never be represented by one ambiguous
+value. A Note may simultaneously be a verified member of a concept, carry an
+unresolved uncertainty for that concept, and retain an unchecked passage tail.
+None of those facts contradicts another, and none may be collapsed into a single
+"done" flag.
+
+**Scan termination is not a decision.** Why a bounded Note–concept scan stopped
+is independent of what the verifier decided. Termination has exactly two values:
+exhaustion of eligible candidates under the current retrieval policy, or a stop
+after verified support. An exhausted scan records only that no further eligible
+candidate needs inspection; it may have found support on its final candidate or
+left unresolved evidence, and it must not be presented as proof that the subject
+is absent from the Note. Uncertainty is evidence state, not a termination value:
+a scan can stop after verified support and still carry previously encountered
+uncertainty. A supported Note is a verified member without exhaustive passage
+coverage. A terminal scan with unresolved evidence is neither a pending scan nor
+verified support, and it may not be counted as completed membership coverage.
+
+**Coverage is derived, not asserted.** Source indexing coverage, membership
+coverage and passage coverage are derived from validated progress. The set of
+Notes that support a concept is not the set of Notes that have been checked;
+equality between those sets does not express coverage and must not be used as a
+completion test. A fully checked corpus may be complete when most Notes do not
+support the topic. Stored completeness summaries must agree with their source
+facts, and incomplete or uncertain coverage must always be presented as
+incomplete.
+
+**Uncertainty is scoped to its subject.** An uncertain decision about one
+existing subject is evidence state for that Note–subject pair. It does not make
+the Note subject-less, and it does not suppress proposals about a different
+subject from the same Note. Those proposals still require their own independently
+verified citations, a consistent catalog and the duplicate check. An uncertain
+decision that applies to the candidate itself still blocks admission.
+
+**Scheduling fairness is bidirectional.** Automatic membership expansion,
+passage-tail reconciliation and new-subject proposal formation are independent
+bounded jobs under one process-owned coordinator and one serialized execution
+gate. A continuously incomplete, deferred or blocked membership job must not
+prevent an eligible proposal job from executing, and continuously available
+proposal work must not starve membership expansion indefinitely. Foreground
+search, reading, playback and accessibility keep their existing priority. New
+memberships remain more urgent than exhaustive tail reconciliation.
+
+**Deferred and blocked differ.** Deferral is temporary runtime ineligibility;
+blocked means one specific unresolved dependency. Automatic continuation resumes
+eligible, deferred work and must not reopen blocked work whose blocking identity
+has not changed. A change to that identity, or an explicit user retry, may resume
+it. Input invalidation resets only work whose dependency identity changed, and
+must preserve otherwise valid support decisions.
+
+**Admission is typed and idempotent.** Admission is one decision — allow as
+Emerging, attach to an existing equivalent topic, defer with named dependencies,
+reject with a named evidence defect, or stale — rather than a chain of
+independent booleans interpreted by several layers. The same input produces the
+same topic identity across retries and restarts. Resolving a duplicate must not
+discard the new supporting Note: membership reconciles its evidence against the
+existing topic. An admission decision remains provisional until the catalog owner
+rechecks its guards at commit time.
+
+**Checkpoints are untrusted.** No stored checkpoint authorizes evidence without
+replay validation. A completed checkpoint has a terminal reason; a pending one
+has a continuation cursor. Replay of a valid checkpoint performs no fresh
+inference. A checkpoint claiming exhaustion must replay exhaustion under the same
+retrieval policy and candidate ordering, and an early-stop checkpoint must replay
+at least one current supported assessment. Missing, truncated or malformed
+records can never masquerade as complete coverage. A changed source, query,
+policy, concept or verifier identity invalidates only the checkpoints that depend
+on it; valid cached decisions are reused rather than deleted.
+
+**No coverage claim without its work.** Processing, recovery, incomplete,
+unavailable and no-match states keep their existing distinct presentations. The
+user-visible status and the Retry/Continue affordance must continue to describe
+the work that actually remains, including unchecked tails and unresolved
+evidence.
+
+**Verification quality is out of scope for this amendment.** Uncertainty must
+not be reduced by lowering a cutoff, accepting uncertain citations, skipping
+independent validation or weakening the verifier. Improving it requires a
+labeled calibration study under the existing evaluation rules.
+
+**Correcting this behaviour must not require deleting user data.** The defects
+above are code-level and must be fixed without clearing application data,
+discarding the semantic index or destroying a reproducible corpus.

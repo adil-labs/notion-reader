@@ -4,16 +4,27 @@
 
 ## Read in this order
 
-**Current direction (2026-11-02):** The repository-owned Product, UI and Integration contracts authorize an evidence-first incremental replacement, without mandatory global cluster formation for ordinary updates. The user authorized enabling it before outstanding measurements; that is not quality or release acceptance (§141). The currently enabled implementation remains **cluster seeds → Gemma name and definition → embedding retrieval** (§133) while replacement wiring is incomplete. Proposal windows, source-bound responses and a shared-runtime generation path exist, but are not wired to the production coordinator (§137–141). See the [initial audit](evidence-first-audit.md), [previous cluster-seeded design](cluster-seeded-topic-retrieval-design.md), and [execution ledger](execution-ledger.md).
+**Current direction (2026-11-07):** The sole production pipeline is the
+evidence-first incremental engine. The former cluster-first formation path,
+scheduler selector and legacy Discovery checkpoint formats are retired; migration
+of their derived records is not required for a fresh installation. The
+authoritative state contract is the
+[work-state model](discovery-work-state-model.md) under the amended governing
+Notion contracts. This directory's original documents 1–8 preserve the earlier
+Discovery v2 proposal for comparison and are **not** execution authority where
+they conflict. See the [initial audit](evidence-first-audit.md), [previous
+cluster-seeded design](cluster-seeded-topic-retrieval-design.md), and [execution
+ledger](execution-ledger.md).
 
-1. [Requirements](requirements.md) — all 49 requested requirements, scope, acceptance intent and non-goals.
+1. [Requirements](requirements.md) — all 49 requested requirements, scope, acceptance intent and non-goals. Historical proposal; superseded where it conflicts.
 2. [Architecture](architecture.md) — end-to-end operation, responsibilities, evidence flow, topic lifecycle and user experience.
 3. [Evidence, scoring and naming](evidence-scoring.md) — deterministic features, hard gates, generic-heading isolation, weights and abstention.
-4. [Incremental processing and resource control](incremental-processing.md) — triggers, candidate retrieval, reuse, reconciliation and work budgets.
-5. [State, migration and safety](state-migration.md) — versioned records, topic continuity, privacy, removal and atomic updates.
+4. [Incremental processing and resource control](incremental-processing.md) — triggers, candidate retrieval, reuse, reconciliation and work budgets. Historical proposal; subordinate to the work-state model.
+5. [State, migration and safety](state-migration.md) — versioned records, topic continuity, privacy, removal and atomic updates. Historical proposal; the current checkpoint contract is in the work-state model.
 6. [Evaluation and acceptance](evaluation-acceptance.md) — annotated fixtures, quality metrics, regression, performance and TalkBack validation.
-7. [Implementation plan](implementation-plan.md) — phases, dependency gates, risks, rollout and rollback.
+7. [Implementation plan](implementation-plan.md) — phases, dependency gates, risks, rollout and rollback. Historical plan; completion is recorded in the latest decision round.
 8. [Traceability matrix](traceability.md) — every R01–R49 requirement mapped to a proposed implementation contract and verification.
+9. [Work-state model and scheduling contract](discovery-work-state-model.md) — adopted 2026-11-07: scan termination vs verifier decisions, derived coverage facts, typed and idempotent admission, checkpoint replay, deferral vs blocked work, bidirectional scheduling fairness and the central invariants. **This is the one current Discovery state contract.**
 
 ## Decision summary
 

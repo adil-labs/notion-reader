@@ -1,5 +1,11 @@
 # Discovery architecture review — 19 October 2026
 
+> **Status (2026-11-07): historical investigation.** The performance findings and
+> measurements are preserved as evidence. Current Discovery behavior and its state
+> contract are in [the work-state model](discovery-v2/discovery-work-state-model.md)
+> under the amended Product contract. Implementation recommendations here are not
+> current requirements.
+
 The user chose INT4 and delegated decisions about device backends and lower-cost
 Discovery using existing authored areas/topics. No private source text is included.
 

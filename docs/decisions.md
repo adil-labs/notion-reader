@@ -2,7 +2,7 @@
 
 This is chronological evidence: decisions, investigations, superseded proposals and
 verification results. It does not override the governing specifications. Start with
-[keeping bounded progress inside the Discovery work window (§238)](#238-keep-bounded-progress-inside-the-work-window-2026-11-06)
+[multiple verified Notes and deferred passage reconciliation (§245)](#245-publish-multiple-verified-notes-before-source-completion-and-resume-tails-2026-11-07)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
 apply to their recorded round, not automatically to the current product.
@@ -14707,3 +14707,1121 @@ a continued-check audit sample is required; retain the representative device,
 semantic, memory and human TalkBack gates. The two Pixel captures are
 embedding-throughput evidence only, are not S25 evidence, and live under ignored
 `build/discovery-measurements/`; the table above is the durable record.
+
+## 243. Implement bounded support-first verification (2026-11-07)
+
+This round implements the contract amended in §242. It does not change the
+support verifier, its prompt/schema/policy/identity, the cosine retrieval cutoff,
+the proposal schema, catalog ownership or the withdrawal rules.
+
+### Behavior
+
+`verifyExistingConceptPage` now processes `topicCandidatePage()` candidates in
+the deterministic strongest-first order and stops after a completed `SUPPORTED`
+decision when an eligible tail remains. It continues on `UNSUPPORTED` and
+`UNCERTAIN`; uncertainty is retained and cannot be erased by later support. A
+supported decision on the final eligible candidate is reported as `EXHAUSTED`,
+not early. Persisted exact-input decisions are checked first, as before; the
+change only avoids submitting later candidates after membership is verified.
+
+The result now separates `ConceptScanOutcome.SUPPORTED_EARLY`, `EXHAUSTED` and
+`UNCERTAIN`. `Pending` is still a non-null cursor, `Deferred` and `Stale` remain
+validity outcomes, and `Failure` remains a processing failure. A supported early
+stop is never represented as exhaustive coverage.
+
+Both scan paths share the behavior:
+
+- pending proposal corpus verification (`retrievePendingConceptPage`,
+  `scanPendingConceptNote`);
+- existing canonical membership expansion (`scanExistingConceptPage`,
+  `advanceDurableConceptScan`, `replayConceptScanPage`).
+
+Early support advances to the Note's next concept rather than forcing the
+unchecked passage tail. A supported Note is eligible for canonical membership
+from its validated assessment even when the rest of its candidates were not
+inspected. An interrupted negative scan still has a cursor and cannot become a
+definitive negative.
+
+### Durable progress, coverage and replay
+
+`ExistingConceptScanRecord` then had `formatVersion = 2`, a terminal
+`ConceptScanCompletion` (`SUPPORTED_EARLY`, `EXHAUSTED` or `UNCERTAIN`), the
+early-stopped concept work keys, and retrieved/examined candidate counts.
+`PendingNoteScanRecord` then had `formatVersion = 3` and the same completion
+distinction. **Superseded by §249:** the `UNCERTAIN` completion value is retired;
+current format versions are 4 and 5 and completion is `SUPPORTED_EARLY` or
+`EXHAUSTED` only. A non-null cursor means interrupted and carries no completion
+claim. The store rejects a finished record without completion, a partial record
+with one, a completion that disagrees with the early-stop keys, and a truncated
+early-support record missing its supported assessment.
+
+`existingConceptScanScope` and `pendingNoteScanBinding` carry new version
+prefixes. Older checkpoints are therefore deterministically invalidated and
+rebuilt under the new contract; their exact-input support assessments remain in
+the support store and are reused without inference. Replay uses
+`TopicSupportRun.Unavailable`, re-derives supported/uncertain sets and early-stop
+keys, and compares them with the saved completion. It never generates a support
+decision and never demands the unexamined tail.
+
+`CanonicalConceptEvidence` gains `uncheckedRevisions` (Notes with an early-stopped
+tail). `matchingComplete` continues to mean corpus-wide **membership** coverage:
+every current Note has an outcome. `passageCoverageComplete` additionally requires
+no unchecked tail. `topicNoteCount` and the Topic details screen describe coverage
+as incomplete while a tail remains, while still presenting the verified Note as a
+normal match. The scheduler can reach Idle after all Notes have an outcome; an
+unchecked tail is retained coverage state, not a retry loop.
+
+Admission remains atomic and evidence-grounded: each selected citation still
+requires its independent validated assessment, canonical writes remain guarded,
+and an incomplete corpus scan does not block a citation-valid Emerging topic.
+The proposal instruction already permits selecting only the passages supporting
+the proposed concept, and the schema accepts one citation; this round did not
+weaken those rules or change the prompt.
+
+### Verification
+
+Focused tests, the full JVM suite, debug assembly and Android-test Kotlin
+compilation pass. The full JVM result is 1,720 tests, 0 failures, 0 errors,
+0 skipped (177 result files). Relevant new/updated tests:
+
+- `ExistingConceptEvidenceTest`: single strongest support stops before lower
+  candidates; unsupported-then-supported uses exactly two checks; all-unsupported
+  is exhausted; uncertainty before support is retained; support-first versus
+  exhaustive same membership but different coverage; changed verifier identity
+  requires a fresh decision; diagnostics report the checked prefix.
+- `ExistingConceptScanTest`: early support advances to the next concept without
+  checking the tail; unsupported pagination still finishes; durable early-support
+  checkpoint replays without inference; forged exhausted/truncated checkpoints
+  are rejected; an interrupted negative scan is not definitive; a legacy
+  checkpoint is rebuilt while its support decision is reused; a Note with no
+  eligible passages records zero retrieved/examined candidates.
+- `PendingConceptRetrievalTest`: early support completes a Note; uncertain then
+  supported retains both; early checkpoint replay compares completion;
+  truncated/contradictory checkpoints are invalid.
+- `SupportFirstMembershipIntegrationTest`: early support confirms canonical
+  membership, persists `uncheckedRevisions`, keeps `matchingComplete` true while
+  `passageCoverageComplete` is false, and a restarted scan reuses support without
+  checking the tail.
+- `FileProposalProgressStoreTest`: completion state, truncation and legacy
+  structural-read rules.
+- `CanonicalMembershipSchedulerTest`: a scanned Note with an unchecked tail is
+  not pending membership work, so the scheduler reaches Idle.
+- `DiscoverySupportWiringTest`: updated to the bounded outcomes (a supported
+  strongest passage leaves the weaker candidate as proposal evidence; an
+  uncertain first passage is retained when a later passage supports).
+
+### Synthetic 20,000-passage A/B
+
+`DiscoverySupportScaleTest` now runs both arms over the same fixture (2,000 Notes,
+20,000 passages, 35 concepts, two eligible candidates per matching Note, pagination
+page size 1). The exhaustive arm uses the same shipping pager/verifier with the
+pre-change all-candidate loop; the support-first arm uses the shipping scan.
+
+| Pass | Exhaustive fresh | Support-first fresh | Support-first reused |
+| --- | ---: | ---: | ---: |
+| Cold | 4,000 | 2,000 | 0 |
+| Unchanged warm | 0 | 0 | 2,000 |
+| One Note revision changed | 2 | 1 | 1,999 |
+| Verifier policy changed | 4,000 | 2,000 | 0 |
+
+Both arms verify 2,000 positive Note memberships from 2,000 supported decisions.
+Exhaustive records 2,000 unsupported decisions; support-first records 0 because
+the weaker candidate is unchecked, not unsupported. Support-first records 2,000
+early-stopped scans, 0 fully exhausted scans with candidates, 2,000 Notes with an
+unchecked tail, 2,000 scanner steps and 2,000 pages versus 2,000 steps and 4,000
+pages for exhaustive. The saving is 2,000 of 4,000 cold fake support calls and
+1 of 2 calls after one changed Note; it is not an arbitrary percentage target and
+is not a production ranking distribution. The fixture's supported candidate is
+strongest by construction.
+
+### Device verification and open risks
+
+The full S25 gate is **not** satisfied by this round. The Samsung Galaxy S25
+requested by the task was not present; `adb devices` showed only a Pixel 8 Pro
+running Android 17. The Pixel was initially credential-locked
+(`AlternateBouncerView`); after it was unlocked, the latest debug APK was
+installed, the Discovery index was cleared, and indexing was resumed with the
+installed 2.4 GiB topic model and 100 cached Notes. A debug `DiscoveryInference`/
+`DiscoveryWork` capture ran for about 14 minutes.
+
+Real Pixel 8 Pro observations (`docs/discovery-inference-verification.md` has the
+full table):
+
+| Observation | Pixel 8 Pro value |
+| --- | ---: |
+| Embedding attempts / successes | 1,712 / 1,711 |
+| Embedding mean / p50 / p95 | 139.2 / 137.8 / 155.4 ms |
+| Proposal attempts / successes | 2 / 2 |
+| Proposal mean (min–max) | 17.09 s (16.34–17.84 s) |
+| Support attempts / successes | 4 / 4 |
+| Support mean / p50 / p95 | 1.566 / 1.499 / 1.770 s |
+| Support reuse / fresh decisions | 3 / 4 |
+| Support cache hit rate | 0.4286 |
+| Early-stopped concept scans | 3 |
+| Candidates retrieved / checked per early stop | 8 / 1 |
+| Scheduler restarts | 1 |
+| Topics admitted | 0 |
+
+The persisted pending checkpoint was version 3 with
+`completion = SUPPORTED_EARLY`, `retrievedCandidates = 8`,
+`examinedCandidates = 1`, one supported passage and no uncertainty. Two early
+stops reused the earlier citation decision and spent no additional Gemma support
+call. Only 1 of 100 Notes had been indexed when the capture ended, so no topic
+admission was observed; the catalog still contained zero topics. This is Pixel
+Gemma evidence, **not S25 evidence**, and it does not establish S25 latency or
+resource behavior. The `nativeDurationSamplesMatchAttempts` summary reports
+`embedding=false` because the capture boundary split one embedding attempt from
+its duration.
+
+The targeted `TopicScreenAccessibilityTest` was also run through the repository
+wrapper on the owned emulator (`emulator-5554`): 10 tests, 0 failures. That is
+emulator accessibility evidence, not a Pixel or S25 TalkBack observation.
+
+A new tracked device test, `SupportFirstDeviceTest`, uses an isolated two-Note
+cache and the real installed Gemma proposal/support runtime. It skips when the
+large model is absent. On the Pixel 8 Pro it passed with: 4 proposal attempts,
+11 support calls (mean 1,413 ms), 23 early-stopped concept scans with 23 checked
+candidates (one per stop), and a published topic with 2 independently verified
+members. The tiny fixture reached `matchingComplete = true` and
+`passageCoverageComplete = true`, so its publication status resolves to
+Established; it is a real bounded-verification, membership and publication probe,
+not an early-publication example. Early publication is covered by
+`EarlyEmergingTopicPublicationTest`. The test is Pixel evidence, not S25
+evidence.
+
+Unresolved risks: the hidden-contradiction question (a weaker unchecked passage
+would have been unsupported) is unmeasured because no continued-check audit sample
+runs; exact unchecked-passage length is not persisted (only the Note-level fact);
+`matchingComplete` now means membership coverage, which must be explained
+consistently in future UI work; completed-scan replay can hit the existing
+one-bounded-restart path when a commit advances the catalog generation, which
+reuses support and does not re-check the tail; a full-corpus Pixel admission run
+and S25 behavior remain unmeasured; and human TalkBack acceptance remains open.
+
+## 244. Allow verified Emerging topics before complete source indexing (2026-11-07)
+
+The live Pixel run exposed a goal mismatch: evidence-first verification produced
+2 proposals, 15 support decisions and 3 early-stopped concept scans while only 8
+of 100 Notes were indexed, but no topic was published. The proposal carried
+`SOURCE_SCAN` and `EXISTING_CONCEPT_CATALOG`, and the shared
+`blocksConceptAdmission()` predicate rejected both. On a 9,456-passage corpus the
+complete-index gate is hours of work before the first useful topic.
+
+The governing Product, Integration and UI contracts were amended first (2026-11-07
+amendments: Emerging publication before complete source indexing; typed admission;
+Emerging presentation with incomplete coverage; Retry/Continue). The amendment
+does not weaken verification, citations, source or catalog identity, withdrawal
+or atomic catalog writes.
+
+Implementation:
+
+- `ProposalAdmissionCoverage` is a typed runtime state: source-scan completeness,
+  catalog consistency, duplicate-check completeness, unresolved evidence and stale
+  evidence. `allowsEmerging(citationsSupported)` requires every admission citation
+  to be independently verified, a consistent catalog and a completed duplicate
+  check; it does not require complete source scanning. `allowsEstablished` also
+  requires complete source coverage.
+- `PendingConceptCandidate` carries that coverage. Partial-source runs built
+  through `provisionalEvidenceFirstWindow` now retain the current catalog ticket
+  (previously passed as `null`), so the candidate can be admitted against a
+  consistent catalog instead of being forced through a ticketless path.
+- `advanceCanonicalAdmission`, `TopicCoordinator.admitCandidate`,
+  `advancePendingCorpusWork` and `FileTopicStore` no longer use the broad
+  `blocksConceptAdmission()` predicate as the admission decision.
+  `SOURCE_SCAN` and `EXISTING_CONCEPT_CATALOG` are persisted coverage facts;
+  `EXISTING_CONCEPT_UNCERTAIN` and `STALE_SOURCE` remain evidence-invalidating
+  and block. A ticketless or inconsistent catalog still blocks.
+- `admitCandidate` now checks the current canonical topics for an equivalent
+  active concept (`canonicalContinuityKey(name, definition)`) and returns that
+  topic's id instead of creating a duplicate. Membership expansion remains the
+  path that adds later Notes to an existing concept.
+- Early topics keep `matchingComplete = false`, `uncheckedRevisions`/incomplete
+  passage coverage and their `SOURCE_SCAN` reason. A topic with verified members
+  but incomplete coverage is presented as Emerging rather than Pending; Established
+  still requires the existing complete-coverage conditions. Indexing and membership
+  work continue independently after publication.
+- The Discover/Topics progress notice now exposes a visible “Retry processing”
+  action when a scheduling failure has deferred work; `requestAutomaticContinuation`
+  remains the automatic path.
+
+Regression coverage:
+
+- `EarlyEmergingTopicPublicationTest` now admits a candidate with
+  `SOURCE_SCAN`, verifies the reason is persisted, verifies unresolved evidence
+  and an inconsistent catalog still block, and verifies an equivalent later
+  proposal returns the existing topic id without creating a second topic.
+- `ProposalAdmissionCoverageTest` covers partial-source Emerging vs Established,
+  unresolved/stale/catalog/duplicate-check blocking, and the reason-safety
+  classification.
+- Existing source deletion, stale ticket, withdrawal, restart, membership and
+  scheduler tests remain green.
+
+Verification: full JVM suite **1,720 tests, 0 failures, 0 errors, 0 skipped**;
+debug assembly and Android-test Kotlin compilation pass.
+
+The Pixel real-Gemma full-corpus probe still publishes a 2-member topic. A
+partial-source Pixel probe was attempted with a 10-Note fixture (8 indexed, 2
+deliberately unavailable) but timed out before publication and was removed rather
+than left as a failing gate; that device acceptance remains open. The JVM
+regression covers the typed admission decision, `SOURCE_SCAN` persistence, the
+blocking rules and the equivalent-concept duplicate guard; the earlier live run
+supplies the observed 8/100 evidence shapes. The S25 gate and human TalkBack
+remain open. Remaining risks: equivalent-concept detection uses exact canonical
+name/definition continuity, so paraphrased duplicates still rely on display
+consolidation; partial-source topics may gain members or be withdrawn as indexing
+completes; a consistent catalog is required before admission, so a
+ticketless/provisional catalog still defers; and the partial-source device path
+still needs a stable fixture and a successful Pixel run.
+
+
+## 245. Publish multiple verified Notes before source completion and resume tails (2026-11-07)
+
+Partial-source revalidation still required all eligible sources, partial scheduling
+unconditionally rejected admission, and admission lost early-stop passage coverage.
+Completed subset replay also populated supported references without scanned revisions,
+causing hydration to reject it. These were actual publication blockers despite the
+typed eligibility helper passing tests.
+
+Product, Integration and UI contracts now explicitly permit two or more verified
+Notes in an Emerging topic before complete source coverage. Current catalog-subset
+identity and individual source revisions remain mandatory. Admission persists scanned
+subset revisions and conservatively preserves unchecked tails. Full source coverage
+is checked separately. The existing scheduler prioritizes unprocessed Notes, then
+resumes tails through bounded exhaustive scans with saved decisions and cursors.
+This defers additional support cost rather than eliminating eventual audit calls.
+Proposal prompt and schema request at most two citations without weakening support.
+Partial and full scheduling share metrics counted by actual new topic ID.
+
+Regression proofs:
+
+| Old behavior restored | Tests that failed |
+| --- | --- |
+| Tails ignored and early stop repeated forever | CanonicalMembershipSchedulerTest; SupportFirstMembershipIntegrationTest |
+| Full-source equality and admission tail metadata omission | twoVerifiedNotesPublishWhileAnotherSourceCannotBeIndexed; admissionRetainsAnEarlyStoppedPassageTail |
+
+The partial-source test requires a visible two-member Emerging topic while a third
+source fails indexing. The tail integration restarts, reuses the first support,
+checks the remaining passage and commits complete passage coverage. These JVM
+regressions do not establish S25 latency or human TalkBack acceptance.
+
+Verification: final full JVM suite **1,723 tests, zero failures, errors or skips**;
+`:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass. The first full
+run identified two obsolete assertions requiring partial-source topics to stay
+hidden; they now require visible Emerging topics with incomplete source coverage.
+All four regression properties passed after restoring their production guards.
+`git diff --check` is clean. No new device run was performed in this correction
+round; S25 measurements, the real partial-index publication journey and human
+TalkBack acceptance remain open.
+
+### Live Pixel validation after §245 (2026-11-07)
+
+The current debug build was installed on the connected Pixel 8 Pro (Android 17)
+with 109 cached Notes and an empty derived Discovery index. No cache or source
+file was removed. At the first publication the UI reported **3 of 109 cached
+Notes indexed** and **13,839 passages remaining**; the proposal/support path had
+produced one admission and the topic list showed **“Emerging topics — 1 matching
+Note; matching incomplete.”** A small number of uncertain decisions was present,
+but the admitted topic's required citation was independently supported.
+
+Persisted state after publication (`discovery-topics/topics.json`, graph pages):
+
+| Field | Value |
+| --- | --- |
+| `topicGraph.topics` | 1 |
+| `topicGraph.provisional` | 0 |
+| Topic membership | 1 Note |
+| `canonicalConcept.citations` / `supported` | 1 / 1 |
+| `matchingComplete` | false |
+| `uncheckedRevisions` | 1 |
+| `incomplete` | `STRUCTURE, ANCHOR_WINDOW, EXISTING_CONCEPT_CATALOG, SOURCE_SCAN` |
+
+The same topic id (`58a5a264-50e7-4536-aee1-38a186e0e851`) was still present and
+displayed as Emerging after a force-stop and relaunch. There was no duplicate
+topic.
+
+Observed debug diagnostics for the early-publication interval (concurrent
+indexing, so embedding latency is higher than the quiet rate):
+
+| Observation | Value |
+| --- | ---: |
+| `topicsAdmitted` | 1 |
+| `proposalAttempts` / `proposalNanos` | 1 / 11.47 s |
+| `supportAttempts` / mean / p95 | 13 / 1.686 s / 2.458 s |
+| `supportReused` | 20 |
+| `supportSupported` / `supportUncertain` / `supportUnsupported` | 4 / 23 / 6 |
+| `staleResultDiscards` | 2 |
+| `embeddingAttempts` / mean | 365 / 269.2 ms |
+| `canonicalAdmissionNanos` | 1.37 s |
+| `corpusReplayNanos` | 29.7 ms |
+| `supportCacheHitRate` | 0.606 |
+
+This is the first successful live partial-index publication validation on Pixel.
+It does **not** establish S25 latency, full-corpus completion, human TalkBack
+acceptance or operation after all 109 Notes have been indexed; those remain open.
+
+## 246. Stop automatic membership retries from starving indexing (2026-11-07)
+
+Live Pixel logs after §245 showed the scheduler spending repeated windows on the
+same membership support checks: `supportReused`, `supportUncertain`,
+`supportCandidatesChecked=8`, `conceptScanUncertain`, then
+`window result=PENDING` every ~120 s. Indexed Note count stayed at 3 of 109 and
+the remaining-passage count stayed at 13,839; no `passagesEmbedded` events were
+produced.
+
+The cause was the membership scheduler's blocked-page reset. Its scope includes
+the catalog generation and every accepted source, so accepting a source or any
+automatic wake-up cleared the block and re-ran the same unresolved Note. The
+automatic continuation path also called the explicit `retryBlocked()` API, which
+cleared blocked work. Each window therefore repeated support checks instead of
+letting indexing proceed.
+
+The fix separates the two intents:
+
+- `continueAutomatically()` advances the retry generation but retains pages
+  blocked for their current source revision. A catalog/source change alone no
+  longer reopens an unchanged blocked Note.
+- `retryBlocked()` remains the explicit user/policy action and clears those
+  blocks. The visible “Retry processing” action now calls
+  `requestUserRetry()`; automatic scheduler continuation calls
+  `requestAutomaticContinuation()`.
+- Blocked pages are retained across scope changes while their own source revision
+  is unchanged, and are dropped when that revision changes or on explicit retry.
+
+A regression in `CanonicalMembershipSchedulerTest` now proves that
+`continueAutomatically()` leaves blocked work blocked and an explicit
+`retryBlocked()` reopens it. The membership scheduler and integration tests pass.
+
+Live verification after installing the fix: the same topic remained visible as
+Emerging, and the logs switched from repeated support scans to continuous
+`passagesEmbedded`; the remaining count fell from 13,839 to 13,459 in roughly two
+minutes (about 190 passages, ~1.6/s) with no new support loop. The 106 remaining
+Notes still need roughly 1–2 hours of embedding plus membership/proposal work, so
+full completion is not claimed. The early topic remains incomplete and is not
+presented as an exhaustive scan.
+
+## 247. Sync Discover progress with actual passage progress (2026-11-07)
+
+The live run exposed a presentation gap even after scheduling was healthy: the
+header stayed at “3 of 109 cached Notes indexed” while the real work was advancing
+passage by passage, the status stayed at “Finding topics and connections…”, and
+the estimate did not show how much embedding work had actually completed. A user
+could not tell steady progress from a stall.
+
+Changes:
+
+- `DiscoveryEmbeddingWork` now carries `totalPassages`. `DiscoveryIndexing`
+  publishes progress for every completed passage, including reused vectors, and
+  decrements `remainingNotes` when a Note commits.
+- The Discover coverage line appends the remaining passage count:
+  “4 of 109 cached Notes indexed · 12,473 passages remaining”.
+- The work line reports actual passage progress:
+  “105 Notes remaining · 339 of 12,812 passages embedded. About 53–106 minutes of
+  active embedding work. Subject and connection analysis is additional; its time
+  is not yet estimated.”
+- While embedding work is active the status says “Indexing cached Notes…” instead
+  of the static “Finding topics and connections…”.
+- The estimate is explicitly “active embedding work”; pauses, storage waits,
+  topic analysis and connections are not included. The Note count still updates
+  when a Note completes; the passage count is the continuous signal.
+- Topic details now uses the same coverage text as Discover rather than a second
+  hand-built Note count.
+
+Verification: `DiscoveryPresentationTest` asserts passage progress, the coverage
+suffix, and active-work wording. Full JVM suite: **1,723 tests, 0 failures, 0
+errors, 0 skipped**; debug assembly and Android-test Kotlin compilation pass.
+
+Live Pixel verification after installing the UI build: the screen showed
+“4 of 109 cached Notes indexed · 12,473 passages remaining”, “Indexing cached
+Notes…”, and “105 Notes remaining · 339 of 12,812 passages embedded…” while the
+Emerging topic remained visible. The passage counter advanced from 127 to 339
+during the check. The full 109-Note run, S25 measurement, and human TalkBack
+acceptance remain open.
+
+## 248. S25 full-corpus stall: membership gating and page-level uncertainty (2026-11-07)
+
+The S25 reached **100 of 100 cached Notes indexed** but still showed only the
+single Early Emerging topic (Chess Calculation Strategy, two matching Notes,
+matching incomplete). There was no duplicate or withdrawn topic; the graph had
+one topic and **37** concept-scan checkpoints. The stalls were in scheduling, not
+publication policy.
+
+Observed state:
+
+| Signal | Value |
+| --- | ---: |
+| Cached/indexed Notes | 100 / 100 |
+| Persisted topics | 1 |
+| Concept-scan checkpoints | 37, every one `UNCERTAIN` |
+| Support decisions (all) | 894: 50 `SUPPORTED`, 345 `UNCERTAIN`, 499 `UNSUPPORTED` |
+| Pending-citation support | 257: 27 `SUPPORTED`, 119 `UNCERTAIN`, 111 `UNSUPPORTED` |
+| `topics.json` last write | more than two hours before the check |
+
+Two independent liveness defects kept new concepts from being proposed:
+
+1. `DiscoveryController.advanceDomainWork()` ran `advanceScheduledEvidence()`
+   only while `membershipWorkPending` was false. The first admitted topic had
+   incomplete membership, so membership work stayed pending and the evidence
+   scheduler was **never reached** after that admission. Logs showed repeated
+   `membership result=Progress` and no `AdmitCandidate` or proposal inspection.
+2. `advanceEvidenceFirstNote()` returned `EvidenceFirstNoteStep.Uncertain` as
+   soon as the page's existing-concept replay contained any uncertain decision.
+   `EvidenceFirstScheduler` treats `Uncertain` as `block()`, so a page that was
+   uncertain about one existing subject could not propose any other subject.
+   This also stopped replaying the rest of the page.
+
+The fixes separate the jobs without weakening verification:
+
+- Evidence-first proposal work now runs after membership work regardless of
+  whether membership is blocked, deferred or still progressing. Each job remains
+  bounded and uses the existing process-owned lock and power/foreground gates.
+- Uncertainty about an existing subject no longer suppresses proposals from the
+  same Note. Any generated proposal still requires its own independently
+  `SUPPORTED` citations, a consistent catalog, the duplicate check, and the
+  existing `allowsEmerging` admission decision. `EXISTING_CONCEPT_UNCERTAIN`
+  remains an admission blocker when it applies to the candidate.
+
+Regression evidence:
+
+- `MembershipLivenessIntegrationTest` sets up an existing topic whose later-Note
+  membership support is `UNCERTAIN`, then requires an independent Chess subject
+  to be proposed and published. Removing either production change makes the test
+  fail for the expected reason; both were restored.
+- `DiscoverySupportWiringTest` now asserts that an uncertain existing-concept
+  replay still returns the page's proposals rather than `Uncertain`.
+
+Verification: full JVM suite **1,724 tests, 0 failures, 0 errors, 0 skipped**
+(179 result files); `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin`
+pass.
+
+Live S25 after installing this build: the evidence scheduler now runs alongside
+membership (`inspect` and `stepResult` logs appear instead of membership only).
+It reached proposal generation, but no second topic had been admitted by the end
+of the observation. This is not presented as a completed publication fix.
+
+**Remaining blockers (not fixed by §248):**
+
+- Verification quality is now the dominant limit. Only **50 of 894** decisions
+  were `SUPPORTED`; **119 of 257** pending-citation checks were `UNCERTAIN`.
+  Admission requires every citation to be independently supported, so most new
+  concepts cannot be admitted. This must be addressed by calibrating or improving
+  the support prompt/model, not by lowering the cutoff or accepting uncertainty.
+- Admission still runs a corpus replay after citation support and can scan every
+  indexed Note before an Emerging topic is published. The governing contract
+  permits publication after verified citations with incomplete corpus matching;
+  stopping the replay at that point is the next scheduling/coverage change.
+- Completed `UNCERTAIN` membership scans are not committed as scanned revisions,
+  so they remain pending and are replayed after restart. That keeps the existing
+  topic explicitly incomplete (acceptable) but should not be mistaken for
+  forward progress.
+- S25 full-corpus publication of additional supported subjects, S25 latency and
+  resource measurements, and human TalkBack acceptance remain open.
+
+## 249. Close the Discovery work-state gaps and retire the legacy checkpoint contract (2026-11-07)
+
+This round implements the state model adopted in §248's amendment and closes the
+three coverage/scheduling defects it named, plus the remaining legacy checkpoint
+compatibility paths. It changes no Gemma prompt, verifier identity, retrieval
+threshold, embedding model or storage backend, and it adds no second pipeline.
+
+### What was wrong
+
+1. **Coverage used the wrong set.** `TopicCoordinator.admitCandidate` derived
+   catalog completeness by comparing `coverage.supported.keys` with every source
+   key. A checked Note that did not support the concept therefore looked unscanned,
+   so complete membership coverage could almost never be reached.
+2. **Tail work was not work.** `CanonicalMembershipScheduler` treated
+   `uncheckedRevisions` as pending membership but always called the support-first
+   scan, which returned the same completed early checkpoint. A commit could return
+   `Unchanged` and block the Note, so its unchecked tail was never reconciled.
+3. **Uncertainty was page-level and uncommitted.** A terminal `UNCERTAIN` scan was
+   rejected by `advanceCanonicalMembershipUpdate`, so the Note replayed after every
+   restart and one uncertain subject could suppress updates for every other
+   concept on the same Note.
+4. **Four checkpoint generations were still interpreted.** Concept scans accepted
+   `formatVersion` 1–2 and pending Note scans 1–3, with compatibility branches in
+   the file store, replay, controller and tests. The contract requires one current
+   contract and permits derived state to be rebuilt.
+
+### What changed
+
+- `domain/discovery/TopicCoverage.kt` adds the pure
+  `reconcileConceptCoverage` transition. `matchingComplete` is now derived from
+  terminal `scannedRevisions` and `uncertainRevisions`; supported members are an
+  output, never the coverage test. `CanonicalConceptEvidence` carries
+  `uncertainRevisions`, and a Note may hold verified support, uncertainty and an
+  unchecked tail at once.
+- `CanonicalMembershipScheduler` has explicit `MEMBERSHIP` and `TAIL` work kinds.
+  Tail work runs the exhaustive scan mode (never early-stops, reuses the support
+  cache) and is preferred after at most two consecutive membership turns, so it
+  cannot be starved and does not compete under one completion criterion. An
+  `Unchanged` commit is retried once, then parked, instead of looping.
+- `TopicCoordinator.advanceCanonicalMembershipUpdate` commits a terminal
+  `UNCERTAIN` scan as checked coverage for each Note–concept pair, while keeping
+  that concept's `matchingComplete` false. Verification is scoped per concept, so
+  uncertainty about one subject no longer blocks another. Hydration retains the
+  immutable supporting decision when a later canonical observation is
+  inconclusive; a definite canonical rejection still withdraws.
+- Checkpoints use one current version:
+  `CONCEPT_SCAN_FORMAT_VERSION = 4` and `PENDING_NOTE_SCAN_FORMAT_VERSION = 5`.
+  The store validates the exact version, replay requires it, and an older file is
+  rejected on read/write and rebuilt from current sources. Exact-input support
+  assessments are still reused, so rebuilding costs no inference.
+
+### Tests changed
+
+- Retained: source validity, guarded writes, cancellation, replay-no-inference,
+  early-stop, staleness, storage refusal, catalog ownership and UI coverage copy.
+- Rewritten for the new contract: `CanonicalMembershipSchedulerTest` now asserts
+  that a fully scanned concept is not rescanned to repair a flag, that a newly
+  accepted Note is work, that tail work uses the exhaustive mode, and that tails
+  run within a bounded number of membership turns. `CanonicalMembershipUpdateTest`
+  now expects a terminal uncertain scan to commit coverage instead of `Incomplete`.
+- Added: `TopicCoverageTest` covers non-supporting checked Notes, unresolved
+  coverage, verified membership with an unchecked tail, retained support +
+  uncertainty, incomplete source coverage, and revision withdrawal.
+- Removed (retired-architecture only):
+  `legacyPendingNoteCheckpointCanBeReplacedOnlyByItsObservedSuccessor`, and the
+  "legacy records remain readable" assertions. The replacement test proves an
+  older on-disk checkpoint is ignored and rebuilt with zero new inference.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,733 tests, 0 failures, 0 errors, 0 skipped**
+  (180 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- Synthetic fixed-fixture benchmark (20,000 passages / 2,000 Notes / 35
+  concepts), unchanged verification policy:
+  - exhaustive cold = 4,000 fresh support calls; support-first cold = 2,000
+    (2 → 1 fresh call per member).
+  - warm = 0 fresh in both arms; one-Note change = 2 fresh (exhaustive) vs 1
+    (support-first); verifier change = 4,000 vs 2,000.
+  - support-first cold: 2,000 early stops, 0 exhausted, 2,000 unchecked tails.
+  - later tail reconciliation: 2,000 fresh + 2,000 reused witness decisions and
+    2,000 failed-early -> exhausted completions, i.e. exactly one new decision
+    per unchecked candidate and no repeat inference for the witness.
+- Real-device validation was not completed: the S25 (`RZGL30JYLEN`) was present
+  at session start but disconnected before an install/run, and no device was
+  available afterwards. This round provides no new S25 evidence.
+
+### Remaining risk
+
+- Verifier calibration still dominates publication (50 supported / 345 uncertain
+  / 499 unsupported on the S25 corpus). This round must not be read as a
+  publication-quality fix and deliberately does not lower any cutoff.
+- S25 end-to-end publication of additional subjects, S25 latency/resource
+  figures and human TalkBack acceptance remain open.
+
+§248's "Remaining blockers" bullets about corpus replay before admission and
+uncommitted uncertain scans are superseded by this round. Its calibration bullet
+and its S25 acceptance bullet remain accurate.
+
+### Test audit (2026-11-07)
+
+| Test / area | Classification | Reason |
+| --- | --- | --- |
+| `CanonicalMembershipSchedulerTest` | Updated | Tail is now a distinct work kind; a fully scanned flag is not work; verifier change remains blocked work. Added exhaustive-mode and bounded-tail assertions. |
+| `CanonicalMembershipUpdateTest` | Updated | A terminal `UNCERTAIN` scan now commits per-concept coverage instead of returning `Incomplete`; the ticket must be re-captured after a coverage write. |
+| `TopicCoverageTest` | Added | Non-supporting checked Notes, unresolved coverage, support+uncertainty, unchecked tails, incomplete source coverage, revision withdrawal. |
+| `CanonicalTopicHydrationTest` | Retained | A definite canonical rejection withdraws; an inconclusive observation falls back to the immutable supporting decision. |
+| `ExistingConceptScanTest` | Updated + retained | Retained early-stop, paging, stale, refusal and replay-without-inference coverage. Rewrote the retired-format test to corrupt the on-disk version and prove rebuild with zero inference. |
+| `FileProposalProgressStoreTest` | Updated | Completion is mandatory for a finished record; one exact version is enforced. Removed the legacy-read/replace tests; added `olderFormatCheckpointsAreRejectedInsteadOfReinterpreted`. |
+| `PendingConceptRetrievalTest` | Updated | Older pending-scan record is rejected and replayed as `Incomplete`, not reinterpreted. |
+| `DiscoverySupportWiringTest`, `DiscoverySupportScaleTest`, `MembershipLivenessIntegrationTest`, `EarlyEmergingTopicPublicationTest`, `SupportFirstMembershipIntegrationTest`, `EvidenceFirstSchedulingIntegrationTest`, `CanonicalMembershipSchedulerIntegrationTest`, `TopicPublicationTest`, `DiscoveryPresentationTest` | Retained | They still assert the current contract: bounded verification, early publication, liveness, replay reuse, coverage copy and admission typing. Only version constants and affected expectations were updated. |
+| `legacyPendingNoteCheckpointCanBeReplacedOnlyByItsObservedSuccessor` | Deleted | Sole purpose was legacy-format compatibility, which the contract retires. Replacement coverage is `olderFormatCheckpointsAreRejectedInsteadOfReinterpreted`. |
+| "Legacy completed records remain structurally readable" assertions | Deleted | Same retired-format compatibility; the new contract rejects old derived state and rebuilds it. |
+
+## 250. Final Discovery correctness pass: termination, blocked invalidation and tail liveness (2026-11-07)
+
+Audited the complete working tree, including untracked files and the
+`UNCERTAIN`/completion paths added in §249. This round found and fixed five
+confirmed defects. It changes no prompt, threshold, verifier identity, model
+runtime or unrelated user data.
+
+### Confirmed defects and fixes
+
+1. **Pending scans collapsed early support into uncertainty.**
+   `scanPendingConceptNote` returned `PendingConceptNoteScanResult.Uncertain`
+   whenever any candidate was inconclusive, even when a later candidate was
+   supported and the scan had early-stopped. `savePendingNoteResult` then stored
+   `ConceptScanCompletion.UNCERTAIN`, losing the `SUPPORTED_EARLY` termination
+   and the unchecked tail. **Fix:** one `Complete` result carries `supported`,
+   `uncertain` and `termination`; `savePendingNoteResult` stores
+   `SUPPORTED_EARLY` or `EXHAUSTED` only, with both evidence sets. **Regression:**
+   `PendingConceptRetrievalTest.pendingEarlySupportRetainsPreviouslyEncounteredUncertainty`.
+
+2. **The `UNCERTAIN` completion category still conflated termination and
+   evidence across every scan path.** `ConceptScanOutcome`/`ConceptScanCompletion`
+   had a third value, replay rejected `EXHAUSTED` with uncertainty, and the file
+   store rejected `SUPPORTED_EARLY` with uncertainty. **Fix:** termination is
+   exactly `SUPPORTED_EARLY` or `EXHAUSTED` in canonical scanning, pending
+   scanning, checkpoint serialization, replay and file-store validation.
+   Uncertainty lives only in the assessments; `EXHAUSTED` may carry support found
+   on the final candidate or unresolved evidence. Checkpoint formats were bumped
+   to `CONCEPT_SCAN_FORMAT_VERSION = 4` and
+   `PENDING_NOTE_SCAN_FORMAT_VERSION = 5`; old derived state is rejected and
+   rebuilt, with no compatibility adapter. **Regression:**
+   `UncertainSupportMembershipIntegrationTest` (full `UNCERTAIN → SUPPORTED →
+   early stop → checkpoint → restart → replay → membership/tail reconciliation`),
+   plus updated scan/replay/store tests.
+
+3. **Blocked membership work ignored most of its dependency identity.** The
+   scheduler retained a block by the Note's source revision only; a changed
+   concept identity, query, verifier or retrieval policy did not reopen it, while
+   an unrelated catalog change could. **Fix:** `membershipDependency` hashes the
+   source revision, relevant concept identity (id/workKey/name/definition),
+   verifier, query key/vector/policy, retrieval policy and the concept's
+   scanned/unchecked/uncertain state. A block is pruned only when that complete
+   identity changes (or on explicit retry); an unrelated generation change keeps
+   it. **Regression:**
+   `CanonicalMembershipSchedulerTest.aBlockedNoteSurvivesAnUnrelatedCatalogChangeButReopensForItsOwnDependency`
+   and `membershipDependencyIncludesVerifierPolicyAndConceptQuery`.
+
+4. **Tail work could be starved by continuously pending membership work.** The
+   fairness counter advanced only on a membership *commit*, so a membership scan
+   that always returned `Pending` never yielded. **Fix:** membership scheduler
+   steps count toward the bound; after two steps an in-flight membership scan is
+   preempted for one bounded tail opportunity, and later tail turns resume the
+   durable checkpoint (`tailStarted`) instead of restarting from the beginning.
+   **Regression:**
+   `CanonicalMembershipSchedulerTest.tailRunsEvenWhenMembershipWorkStaysContinuouslyPending`.
+
+5. **Proposal blocks survived a relevant topic-catalog change.** The evidence-first
+   scheduler reset replay/stale retries on a generation change but kept blocked
+   pages. Proposal work re-checks existing concepts and duplicate safety against
+   the topic catalog, so its identity is part of the dependency. **Fix:** blocked
+   proposal pages are released when the **topic-catalog identity** (topic ids,
+   concept workKeys, label projections) changes; a connection-only generation bump
+   does not change that identity and does not reopen a model-failure block.
+   **Regression:**
+   `EvidenceFirstSchedulerTest.aCatalogGenerationChangeReleasesCatalogDependentBlocks`
+   and the retained `EvidenceFirstSchedulingIntegrationTest.aFailedProposalCanBeRetriedAfterContinuation`.
+
+### Hydration audit (no new production change required)
+
+The fallback added in §249 is constrained to an exact evidence/verifier identity:
+a pending witness is reused only when the concept work key, evidence, definition
+and verifier all match, and only when the canonical decision is inconclusive. A
+definite canonical rejection still withdraws. New tests:
+`CanonicalTopicHydrationTest.aPendingWitnessIsNotReusedUnderAChangedVerifierOrConceptText`,
+`anInconclusiveCanonicalDecisionFallsBackOnlyToAnExactPendingWitness` and
+`aTamperedCanonicalSupportRecordCannotAuthorizeHydration`.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,742 tests, 0 failures, 0 errors, 0 skipped**
+  (181 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- Synthetic fixed-fixture benchmark (20,000 passages / 2,000 Notes / 35
+  concepts) is unchanged by the termination/block fixes: support-first cold =
+  2,000 fresh support calls vs 4,000 exhaustive (2 → 1 per member), warm = 0,
+  one-Note change = 1 vs 2, verifier change = 2,000 vs 4,000, 2,000 early stops
+  with 2,000 unchecked tails, and tail reconciliation = 2,000 fresh + 2,000
+  reused witness decisions. No threshold or verifier policy changed.
+- S25 validation was not possible: the S25 (`RZGL30JYLEN`) is not attached. A
+  Pixel 8 Pro is attached but has no Discovery model or cached corpus, so it
+  cannot exercise publication. No new device claim is made.
+
+### Remaining limitations (not claimed fixed)
+
+- A changed support-verifier identity on an existing canonical concept is
+  detected and blocked, but not automatically re-verified; it requires an
+  explicit derived-state rebuild. This is now stated in the work-state model §11.
+- Tail throughput and the two-step fairness ratio are bounded-liveness
+  guarantees, not tuned performance measurements.
+- The full instrumented suite and TalkBack observation were not run; only
+  `androidTest` compilation was verified.
+
+## 251. Scheduler progress continuity, durable tail cursor and verifier-change recovery (2026-11-07)
+
+Audited the membership/proposal schedulers after §250, including automatic
+continuation, process recreation, durable scan checkpoints and the verifier-change
+path. Five confirmed defects were fixed; this round adds no compatibility layer
+and changes no threshold, verifier policy or model runtime.
+
+### Verified defects and fixes
+
+1. **A multi-page tail restarted on every turn.** The scheduler created each tail
+   turn with `Active(restart = kind == TAIL)` and also forced
+   `restart = work.restart || (kind == TAIL && work !in tailStarted)`. Because
+   `finishTail()` cleared the active after each bounded step, the next tail turn
+   always restarted from the first page; the durable cursor never advanced.
+   `tailStarted` was also cleared whenever the scheduler scope changed, so
+   automatic continuation or any catalog generation bump discarded it.
+   **Fix:** the scheduler no longer forces a tail restart and no longer keeps an
+   in-memory "started" marker. `advanceDurableConceptScan` owns tail semantics:
+   a partial checkpoint (`next != null`) resumes its cursor; a completed
+   `SUPPORTED_EARLY` checkpoint with a pending unchecked tail restarts
+   exhaustively; a completed `EXHAUSTED` checkpoint commits without rescanning.
+   Only a stale result sets `restart = true`. **Regression:**
+   `TailContinuityIntegrationTest.aMultiPageTailAdvancesAcrossContinuationMembershipAndRecreation`
+   (cursor and examined counts monotonic across automatic continuation, pending
+   membership work and a recreated scheduler; p0 witness reused, only p1..p5
+   fresh, tail cleared), and
+   `ExistingConceptScanTest.aCompletedEarlyCheckpointWithAPendingTailRestartsExhaustively`
+   (failing-first proven by restoring the old `AwaitingValidation` early return).
+
+2. **The durable scan scope included the global catalog generation.** Every
+   unrelated membership/connection commit changed the scope, so a partial scan
+   (including a multi-page tail) was discarded as stale. **Fix:** the scope now
+   contains the actual semantic dependency — record fingerprint, identity,
+   retrieval policy, verifier, query ticket, all topic ids/workKeys/queries/
+   members, and the per-Note unchecked state — and deliberately excludes the
+   global generation. **Regression:**
+   `ExistingConceptScanTest.anUnrelatedCatalogGenerationChangeDoesNotDiscardAPartialScan`
+   (failing-first proven by re-adding the generation).
+
+3. **Automatic continuation reopened blocked proposal work.** The controller
+   called `evidenceScheduler.retryBlocked()` for both automatic continuation and
+   explicit retry. Automatic continuation must resume Ready/Deferred work only;
+   reopening a block is reserved for an explicit retry or a dependency-identity
+   change. **Fix:** `EvidenceFirstScheduler.continueAutomatically()` preserves
+   page cursors and does not clear blocks; `requestAutomaticContinuation()` uses
+   it; `requestUserRetry()` still calls `retryBlocked()`. **Regression:**
+   `EvidenceFirstSchedulerTest.automaticContinuationDoesNotReopenABlockedProposalButExplicitRetryDoes`;
+   `aFailedProposalCanBeRetriedAfterExplicitRetry` now uses the correct explicit
+   trigger.
+
+4. **A completed early checkpoint with a pending tail was treated as finished.**
+   `advanceDurableConceptScan` returned `AwaitingValidation` for any completed
+   record, so the exhaustive tail pass never ran for an early-supported Note.
+   **Fix:** as in defect 1, a completed `SUPPORTED_EARLY` record with a pending
+   unchecked tail is not returned; the exhaustive scan restarts and reuses the
+   witness. **Regression:** the same two tests above; `SupportFirstMembershipIntegrationTest`
+   was updated to expect the exhaustive restart on process recreation.
+
+5. **A canonical verifier change offered an ineffective Retry.** The condition
+   was reported as `MembershipIncomplete` with a Retry action, but the concept's
+   verifier identity cannot change by retrying the same work. **Fix:**
+   `DiscoverySchedulingFailure.VerifierChanged` is a distinct, non-retryable
+   condition. The controller detects a canonical-concept verifier mismatch,
+   exposes the message "Topic evidence was verified with a different support
+   model. Use Rebuild index in Settings to re-verify it.", and the UI omits the
+   Retry action. The existing explicit **Rebuild index** action clears derived
+   Discovery state (topics, checkpoints, index) while preserving cached Notes,
+   credentials, interests and preferences; the current verifier re-derives
+   topics. **Regression:**
+   `DiscoveryPresentationTest.aVerifierChangeIsPresentedWithARebuildInstructionAndNoFalseRetry`;
+   the scheduler mismatch detection remains covered by
+   `CanonicalMembershipSchedulerTest`.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,747 tests, 0 failures, 0 errors, 0 skipped**
+  (182 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- `SupportFirstDeviceTest` on the Pixel 8 Pro (API 37) passed on attempt 2 with
+  `proposalAttempts=4 supportAttempts=9 supportMeanMs=2086 earlyStops=8
+  checked=52 unchecked=2 supported=2 matchingComplete=true
+  passageComplete=false members=2`. Attempt 1 was classified by the wrapper as
+  the known harness activity loss (recorded with no message and no trace), not
+  an assertion; the retry is reported rather than hidden.
+- Live Pixel app with the 109-Note corpus: two topics persisted across a
+  force-stop/relaunch (Notion Workspace Note Management, Chess Calculation
+  Strategy), each with one verified member and an unchecked tail; the partial
+  concept scans advanced to `examinedCandidates=40/24/24` without restarting at
+  page one. No crash or duplicate topic was observed. The full 109-Note tail
+  completion was not reached inside the observation window; this is a throughput
+  limit, not a correctness claim.
+
+### Remaining risks (not confirmed defects)
+
+- The membership/proposal `blocked` state is in-memory. A process restart retries
+  a blocked page once; exact-input support decisions are reused, but the block
+  itself is not durable. A durable block reason would avoid that one retry.
+- A multi-page **commit replay** cursor is in-memory. Automatic continuation or a
+  scope change can restart the replay from its first page; it performs zero fresh
+  inference but re-reads completed pages. The scan cursor itself is durable.
+- The verifier-change recovery rebuilds **all** derived Discovery state, not only
+  the mismatched concepts. Valid topics under the current verifier are re-derived
+  too; cached Notes, credentials, interests and preferences are preserved.
+- A topic-catalog identity change releases all blocked proposal pages, including
+  pages blocked for a model failure; the retry is bounded by the catalog change.
+
+## 252. Preserve active continuation across automatic wake-ups and complete the proposal-catalog identity (2026-11-07)
+
+Audited `CanonicalMembershipScheduler.continueAutomatically()`, `retryGeneration`,
+scope hashing, active-work reuse, durable replay and `evidenceCatalogIdentity()`.
+Three confirmed defects were fixed; no thresholds, prompts, verification authority
+or persistence format changed.
+
+### Verified defects and fixes
+
+1. **`retryGeneration` unnecessarily invalidated active continuation.** The
+   scheduler hashed `retryGeneration` into the active-work scope, and
+   `continueAutomatically()` incremented it. An automatic wake-up therefore
+   discarded an active `AwaitingValidation` scan: the next step re-ran the scan
+   before committing. It also discarded an in-progress `ConceptScanReplay`.
+   **Fix:** removed `retryGeneration` from the scope and from the scheduler;
+   `continueAutomatically()` is a no-op because no work dependency changed;
+   `retryBlocked()` only clears blocked work. **Regression:**
+   `CanonicalMembershipSchedulerTest.automaticContinuationPreservesAnAwaitingValidationCommit`
+   (failing-first: scan count 2 before the fix, 1 after; the commit receives the
+   stored record without a re-scan).
+
+2. **The global catalog generation also invalidated active work.** The active-work
+   scope hashed `snapshot.generation`, so an unrelated membership/connection
+   commit discarded an active `AwaitingValidation` scan. The durable checkpoint
+   and replay already validate any relevant change. **Fix:** removed the global
+   generation from the active-work scope; the scope now contains model identity,
+   verifier, retrieval policy, sources and the topic/concept/query identities.
+   **Regression:** `CanonicalMembershipSchedulerTest.anUnrelatedCatalogGenerationChangePreservesActiveContinuation`
+   (failing-first: scan count 2 before, 1 after).
+
+3. **`evidenceCatalogIdentity()` omitted catalog dependencies used by proposal
+   eligibility and duplicate/continuity admission.** It hashed only topic ids,
+   canonical workKeys, generated-label workKeys and projection workKeys. It did not
+   change when canonical readiness, the canonical query/verifier, the concept
+   name/definition, seed member evidence or continuity changed. A blocked proposal
+   page could therefore remain blocked despite a relevant catalog change.
+   **Fix:** the identity now covers `canonicalCatalogReady`; each topic's
+   workKey/name/definition/verifier/query key/query vector/query policy;
+   generated-label and projection workKeys; seed member page/revision/passage;
+   and continuity id/order/canonicalKey/replacement/anchor/page/source ids. It
+   still excludes the global generation and connection progress.
+   **Regression:** `EvidenceCatalogIdentityTest.proposalCatalogIdentityTracksEligibilityAndDuplicateDependencies`
+   (failing-first on readiness; now covers readiness, query vector, verifier,
+   name, definition, members and continuity, and asserts an unrelated generation
+   bump does not change the identity).
+
+### Preserved behavior (verified, not changed)
+
+- `retryBlocked()` still reopens blocked membership work; automatic continuation
+  still does not reopen it (`CanonicalMembershipSchedulerTest.boundedSteps…` and
+  `EvidenceFirstSchedulerTest.automaticContinuationDoesNotReopen…`).
+- Tail restart remains owned by the durable checkpoint; a partial tail resumes
+  across automatic continuation and process recreation
+  (`TailContinuityIntegrationTest`).
+- The verifier-change recovery remains the explicit `VerifierChanged` condition
+  with the Settings rebuild instruction
+  (`DiscoveryPresentationTest.aVerifierChangeIsPresented…`).
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,750 tests, 0 failures, 0 errors, 0 skipped**
+  (183 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+
+### Real-device measurement (Pixel 8 Pro, API 37, 109-Note corpus)
+
+The **Samsung S25 was not attached**; the attached Pixel 8 Pro with the existing
+109-Note corpus was used. A short bounded window (~3 minutes of scheduler work;
+the sampling loop was stopped when device reads stalled) observed:
+
+| Signal | Observation |
+| --- | --- |
+| Persisted topics / canonical admissions | 2 / 0 new in the window |
+| Persisted proposal concepts | 6 (no new in the window) |
+| Membership convergence | scanned 2 and 1 Notes; `matchingComplete=false` for both |
+| Passage tails | 1 unchecked tail per topic; no tail completed in the window |
+| Partial concept-scan checkpoints | 3, all with a forward `next` cursor; one page advanced 64 → 72 examined candidates |
+| Support candidates retrieved / checked | 128 / 128 |
+| Fresh / reused support decisions | 6 / 130 (≈95.6% reuse) |
+| Support outcomes | 16 supported / 94 uncertain / 26 unsupported |
+| Concept scans | 17 exhausted / 16 uncertain |
+| Membership scheduler results | 10 Progress, 1 Deferred, 0 Blocked |
+| Evidence scheduler results | 9 Progress, 1 Deferred, 0 Blocked |
+| Scheduler restarts / stale discards | 1 / 2 |
+| Crash / duplicate topic | none observed |
+
+The window demonstrates steady bounded progress, high support-cache reuse and no
+starvation or block loop, but it is **not** evidence of convergence: the 109-Note
+corpus needs far more support inference than a three-minute window (the observed
+uncertain rate also matches the known model-calibration limit). Full-corpus
+membership/tail completion and S25 measurements remain open.
+
+### Potential improvements (not confirmed defects)
+
+- `EvidenceFirstScheduler` resets a page's in-memory `ConceptScanReplay` on every
+  catalog epoch change. The durable checkpoint is preserved and revalidated, and
+  no fresh inference occurs, but a multi-page replay can re-read completed pages.
+  Limiting the reset to the stale-retry path would reduce that work.
+- Membership/proposal blocked reasons remain in-memory; a process restart retries
+  a blocked page once before re-blocking.
+- The real-device window was short and the S25 was unavailable; no full-corpus
+  convergence or steady-state duration measurement was obtained.
+
+## 253. Durable scan scope included the live catalog epoch, stalling membership commits and topic publishing (2026-11-07)
+
+### Confirmed defect
+
+`existingConceptScanScope()` hashed the in-memory catalog `epoch` into every
+durable concept-scan checkpoint. The comment above the scope said the global
+catalog generation was deliberately excluded, but `epoch` is the same class of
+value: `TopicCoordinator` increments it on unrelated catalog activity (labels,
+retrieval restores, source acceptance, membership commits for another Note).
+
+Consequence: every such mutation changed the scope of every in-flight scan, so
+`scanExistingConceptPage` returned `Stale` from the cursor check, the scheduler
+restarted or blocked the page, and a large multi-page scan could not reach a
+terminal commit. On the Pixel this was directly observable:
+
+- a completed `3dac9345…` checkpoint (`EXHAUSTED`) was never committed;
+- the large `3dec9345…` scan's scope changed while `topics.json` still had its
+  20:28 timestamp;
+- the scan repeatedly sat at the same cursor (88 examined) for more than a
+  minute, and `topics.json` did not change for over an hour despite continuous
+  support inference and `Progress` scheduler results.
+
+The UI still showed the two already-published topics, but no membership commit
+(and therefore no coverage/tail progress or new admission context) was landing.
+
+### Fix
+
+Removed `epoch` from the durable scan scope only. `epoch` remains the runtime
+`sourceEpoch` bind for support requests and is still passed to
+`verifyExistingConceptPage`; it is no longer part of the reusable checkpoint
+identity. The durable scope now contains the actual dependency: topic set,
+created order, generated/projection workKeys, per-Note unchecked state, canonical
+query key/vector, record fingerprint, identity, policy, verifier, sources and
+query ticket. `ConceptScanReplay` uses the same scope check.
+
+### Regression
+
+`ExistingConceptScanTest.anUnrelatedCatalogEpochChangeDoesNotDiscardAPartialScan`
+— **failing-first**: with `epoch` restored in the scope, the second step returns
+`Stale`; with the fix it resumes and reaches a terminal checkpoint. The existing
+`anUnrelatedCatalogGenerationChangeDoesNotDiscardAPartialScan` still passes.
+
+### Second confirmed defect: a stale completed tail looped instead of restarting
+
+The membership scheduler's `CanonicalMembershipUpdateResult.Stale` branch cleared
+the active state for `TAIL` work (`active = null`). A completed tail whose
+checkpoint scope was stale therefore repeated `AwaitingValidation → commit Stale`
+forever: the tail branch never carried `restart = true`, so the next attempt read
+the same stale record again. The device showed this exactly: the completed
+`3dac9345…` (Chess) tail sat at `EXHAUSTED`, 107 examined, and never committed.
+
+**Fix:** preserve the forced restart for tails as well
+(`active = work.copy(saved = null, restart = true, staleRetries + 1)`); after the
+first stale commit the next step rescans under the current scope, and a second
+stale blocks the page. **Regression:**
+`CanonicalMembershipSchedulerTest.aStaleCompletedTailIsRestartedInsteadOfLooping`
+— **failing-first** (with the old branch the second scan receives
+`restart=false`; with the fix it receives `true` and commits).
+
+### Third confirmed defect: a bounded tail commit replay restarted every step
+
+`CanonicalMembershipUpdateResult.Pending` called `finishTail()` for a tail,
+discarding the returned `ConceptScanReplay`. A tail large enough to need more than
+one bounded commit step therefore re-scanned the completed record and restarted
+the replay from its first page on every step; it could never reach `Updated`.
+**Fix:** for a tail, keep the completed record and the returned replay in the
+active state (`active = work.copy(saved = recorded, replay = result.replay)`) and
+continue from the cursor. Membership commit handling is unchanged.
+**Regression:** `CanonicalMembershipSchedulerTest.aTailCommitReplayResumesAcrossBoundedSteps`
+— **failing-first** (the completed record was re-scanned before the fix; after,
+the second commit receives the same replay cursor and finishes).
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,753 tests, 0 failures, 0 errors, 0 skipped**
+  (183 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- Pixel 8 Pro (API 37, 109-Note corpus): inference is active (fresh support
+  decisions plus reused decisions; real-Gemma probe previously passed), and the
+  Discover UI shows both published topics. After the epoch fix the large scan
+advanced monotonically (8 → 160 → 192 examined candidates) instead of restarting
+at 88. The stale-tail fix restarted the completed `3dac9345…` (Chess) tail
+(107 → 16 → 48 → 107) instead of looping on the stale commit. The tail-replay
+fix then let its bounded commit finish: `topics.json` was written at **22:46**,
+the Chess concept's unchecked tail became empty (`unchecked=0`), and the Notion
+`3dec9345…` tail remained in progress. This is a verified membership commit and
+published-state update, not full-corpus convergence; the Notion tail and the
+remaining 109-Note corpus are still throughput-limited.
+
+### Potential improvements (not confirmed defects)
+
+- The UI/throughput observation window was short relative to a 109-Note corpus;
+  no S25 device was attached.
+- A stale completed checkpoint is returned as `AwaitingValidation` and detected
+  only at commit; the scheduler then restarts it once. Making the scope check
+  happen before returning the completed record would save a commit round.
+- The completed `3dac9345` checkpoint created before this fix still needs its
+  one deliberate restart; the live run was still working through the large
+  `3dec9345` Note.
+
+## 254. Proposal admission identity and evidence-first fairness: a new topic is published on the Pixel (2026-11-07)
+
+### Confirmed defects fixed
+
+1. **Admission compared the exact in-memory catalog ticket.** `TopicCoordinator`
+   rejected a proposal whenever `candidate.catalogTicket != ticket`. Catalog
+   restores and coverage-only commits legitimately replace the snapshot/epoch
+   between proposal generation and admission; the proposal's subject and
+   duplicate/eligibility context may be unchanged. The new helper
+   `catalogAdmissionCurrent` accepts an epoch/generation/query-ticket change when
+   the model identity, cache revision, accepted source revisions and
+   `evidenceCatalogIdentity` (readiness, topic/query/verifier/name/members/
+   continuity) are unchanged, and rejects a relevant catalog change.
+   **Regression:** `EvidenceCatalogIdentityTest.admissionUsesRelevantCatalogIdentityNotTheInMemoryTicket`
+   (failing-first: the old exact-ticket rule rejects a restore-only change).
+
+2. **The proposal step was always second in `advanceDomainWork`.** Membership ran
+   first; when the shared work gate flipped after a long membership step, the
+   evidence corpus replay returned `Deferred` at offset 0 (`elapsedMs=0`) every
+   window. Proposals were generated (`proposals=8`) but admission was never
+   reached, so no new topic appeared. The two independent bounded jobs now
+   alternate which gets the first opportunity; membership still runs every step,
+   so it is not starved either. **Regression:** the existing membership/evidence
+   integration and fairness suites; device confirmation below.
+
+3. **A reworded definition published a second same-label topic.** Admission's
+   duplicate check compared only the exact `canonicalContinuityKey(name,
+   definition)`. A model-reworded definition therefore created a second topic with
+   the same user-facing label. The check now also compares a normalized label
+   identity (case, punctuation and word order are ignored). A same-label proposal
+   attaches to the existing canonical topic instead of publishing a duplicate.
+   **Regression:** `EarlyEmergingTopicPublicationTest` gains a same-name,
+   different-definition proposal that must return the existing topic id and leave
+   one topic. **Failing-first:** removing the normalized-label clause makes the
+   proposal create a second topic and the test fails.
+
+### Device confirmation
+
+Pixel 8 Pro (API 37, 109-Note corpus), after installing the fixed build:
+
+- evidence corpus replay advanced (`CORPUS` Pending with non-zero elapsed, then
+  `Done`), citation assessment, note replay/scan, then
+  `CanonicalAdmission outcome=Admitted`;
+- **new topic published at 23:06:12**: id `33400ccf-27f6-4c76-b4ef-348840f936a7`,
+  name "Chess Calculation Strategy", `topicsAdmitted=1`;
+- `topics.json` now contains 3 topics; the new one is an Emerging topic with 2
+  supported citations and no scanned members yet.
+
+### Duplicate-label prevention
+
+Admission now uses two pre-publish guards:
+
+- a normalized label identity (case, punctuation and word order ignored) as a
+  hard, threshold-free duplicate check; and
+- a secondary embedding check over the same-model query vectors for differently
+  named paraphrases. The threshold is `0.97`: the observed duplicate pair scored
+  `0.9894`, while an unrelated topic pair scored `0.8027`. The embedding model has
+  a high baseline, so the threshold stays near the duplicate end and the
+  deterministic label guard remains underneath it.
+
+The embedding guard exposed degenerate `[1,0]` vectors in two integration fakes
+that made *distinct* subjects indistinguishable. The fakes now return
+subject-dependent vectors (chess vs seeds; tools vs pruning), and the membership
+liveness assertion checks the **existing** blocked topic's incompleteness rather
+than the new topic's own coverage. `EarlyEmergingTopicPublicationTest` covers a
+differently named but embedding-equivalent proposal; **failing-first** removal of
+the guard makes it create a second topic.
+
+The already-published `33400ccf-27f6-4c76-b4ef-348840f936a7` remains in the catalog;
+it was admitted before this check existed, so the fix prevents future same-label
+duplicates rather than silently deleting it. Its definition differs from the
+existing `cb4c73b2` Chess topic and it cites the existing topic's `3dac9345…` page
+plus `3f3c9345…`. Removing or merging the existing duplicate is a controlled
+cleanup if desired; it is not done implicitly.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,754 tests, 0 failures, 0 errors, 0 skipped**
+  (183 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- Real-device inference and publishing are confirmed (the new topic was published
+  at 23:06). After installing the embedding-guard build the Pixel app was active
+  (~192% CPU, membership/evidence progress, no crash); the three persisted topics
+  remain, including the pre-fix duplicate that the new guards prevent recurring.
+  The S25 remains unavailable.

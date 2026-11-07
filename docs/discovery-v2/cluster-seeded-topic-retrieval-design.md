@@ -1,5 +1,11 @@
 # Cluster-seeded topics with semantic Note retrieval
 
+> **Status (2026-11-07): historical design, superseded.** The cluster-seeded
+> formation pipeline is retired by the evidence-first incremental replacement.
+> Current Discovery semantics and its single state contract are the amended
+> Product contract and [the work-state model](discovery-work-state-model.md).
+> No part of this document is a current requirement.
+
 Approved for implementation by the user, 2026-10-26. Incorporates the user's cluster → LLM name → embedding matches proposal and explicit permission for Notes to remain unmatched. Product/UI/Integration Notion sources now contain the approved amendment; export verification precedes production edits. The earlier fixed-group design describes the pre-migration code. Implementation and acceptance are tracked separately.
 
 ## Intended behavior
