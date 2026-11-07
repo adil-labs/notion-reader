@@ -46,9 +46,13 @@ internal suspend fun hydrateCanonicalTopic(topic: DiscoveredTopic, model: Embedd
             val stored = store.readSupport(validation.assessment.workKey, sources)
             if (!current()) return null
             if (stored != null) {
-                if (stored != validation.assessment || stored.decision != SupportDecision.SUPPORTED) return null
-                verified = true
-                break
+                // An inconclusive canonical observation does not erase the immutable supporting
+                // decision recorded under the other identity; a definite rejection does.
+                if (stored == validation.assessment && stored.decision == SupportDecision.SUPPORTED) {
+                    verified = true
+                    break
+                }
+                if (stored.decision == SupportDecision.UNSUPPORTED) return null
             }
         }
         if (!verified) return null
@@ -70,9 +74,12 @@ internal suspend fun hydrateCanonicalTopic(topic: DiscoveredTopic, model: Embedd
                 val saved = store.readSupport(expected.assessment.workKey, sources)
                 if (!current()) return null
                 if (saved != null) {
-                    if (saved != expected.assessment) return null
-                    verified = true
-                    break
+                    // Verified support under either identity survives an inconclusive observation.
+                    if (saved == expected.assessment && saved.decision == SupportDecision.SUPPORTED) {
+                        verified = true
+                        break
+                    }
+                    if (saved.decision == SupportDecision.UNSUPPORTED) return null
                 }
             }
             if (!verified) return null

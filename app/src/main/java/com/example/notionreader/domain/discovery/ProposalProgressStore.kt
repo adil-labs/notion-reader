@@ -16,18 +16,46 @@ data class ProposalAbstentionRecord(val workKey: String, val evidence: List<Prop
 data class ProposalConceptRecord(val workKey: String, val evidence: List<ProposalEvidenceRef>,
     val name: String, val definition: String, val listeningDescription: String, val evidenceIds: List<String>)
 
+/**
+ * Why a bounded Note+concept scan stopped. This is termination only; verifier decisions
+ * (including unresolved `UNCERTAIN` evidence) are persisted separately in [assessments]
+ * and may coexist with either value.
+ */
+@Serializable
+enum class ConceptScanCompletion {
+    /** Every eligible retrieved passage for the Note was evaluated. */
+    EXHAUSTED,
+    /** A current independently verified supporting passage established membership; the tail was not checked. */
+    SUPPORTED_EARLY
+}
+
+/** One current checkpoint contract for concept-scan state. Older files are rebuilt, never reinterpreted. */
+const val CONCEPT_SCAN_FORMAT_VERSION = 4
+/** One current checkpoint contract for pending-Note concept scans. */
+const val PENDING_NOTE_SCAN_FORMAT_VERSION = 5
+
 /** Checkpointed values are untrusted until revalidated against the current catalog and source bodies. */
 @Serializable
 data class ExistingConceptScanCursor(val scopeKey: String, val topicOffset: Int, val passage: TopicCandidateCursor?)
+/**
+ * `next != null` means the Note scan is interrupted and must continue from its cursor. Once `next == null`
+ * [completion] records whether the scan exhausted its eligible passages or stopped on verified support.
+ * [earlyConceptWorkKeys] records exactly which concepts left an unchecked tail.
+ */
 @Serializable
 data class ExistingConceptScanRecord(val pageId: String, val revision: String, val sourceRevisions: Map<String, String>,
-    val scopeKey: String, val next: ExistingConceptScanCursor?, val assessments: List<TopicSupportAssessment>)
+    val scopeKey: String, val next: ExistingConceptScanCursor?, val assessments: List<TopicSupportAssessment>,
+    val formatVersion: Int = CONCEPT_SCAN_FORMAT_VERSION, val completion: ConceptScanCompletion? = null,
+    val earlyConceptWorkKeys: Set<String> = emptySet(), val retrievedCandidates: Int = 0,
+    val examinedCandidates: Int = 0)
 
 /** Untrusted pending-concept progress; replay against current sources before use. */
 @Serializable
 data class PendingNoteScanRecord(val workKey: String, val pageId: String, val revision: String,
     val sourceRevisions: Map<String, String>, val binding: String, val cursor: TopicCandidateCursor?,
-    val supported: Set<String>, val uncertain: Set<String>, val formatVersion: Int = 1)
+    val supported: Set<String>, val uncertain: Set<String>, val formatVersion: Int = PENDING_NOTE_SCAN_FORMAT_VERSION,
+    val completion: ConceptScanCompletion? = null, val retrievedCandidates: Int = 0,
+    val examinedCandidates: Int = 0)
 enum class ProposalProgressWriteResult { Written, Stale, Invalid, StorageRefused, IoFailure, RecordMemoryLimit }
 
 interface ProposalProgressStore {

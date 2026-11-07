@@ -14,7 +14,23 @@ data class CanonicalConceptEvidence(val workKey: String, val name: String, val d
     val offered: List<ProposalEvidenceRef>, val citations: List<TopicSupportAssessment>,
     val supported: List<ProposalEvidenceRef> = emptyList(), val scannedRevisions: Map<String, String> = emptyMap(),
     val matchingComplete: Boolean = false, val proposalKey: String = "",
-    val incomplete: Set<ProposalIncompleteReason> = emptySet(), val queryEmbedding: TopicQueryEmbedding? = null)
+    val incomplete: Set<ProposalIncompleteReason> = emptySet(), val queryEmbedding: TopicQueryEmbedding? = null,
+    /**
+     * Notes whose membership was confirmed by early support before every eligible passage was checked.
+     * Their membership is verified; their exhaustive passage coverage is not. Corpus-wide membership
+     * coverage ([matchingComplete]) and passage-level coverage are deliberately separate.
+     */
+    val uncheckedRevisions: Map<String, String> = emptyMap(),
+    /**
+     * Notes whose terminal scan left unresolved (`UNCERTAIN`) evidence for this concept. The scan is
+     * finished, so the Note is not pending work, but membership coverage stays incomplete until the
+     * decision is replaced under a changed verifier or retrieval policy. Uncertainty is scoped to
+     * this Note-concept pair and never suppresses work for a different concept.
+     */
+    val uncertainRevisions: Map<String, String> = emptyMap()) {
+    /** True only when every eligible Note and every eligible passage has been evaluated. */
+    val passageCoverageComplete: Boolean get() = matchingComplete && uncheckedRevisions.isEmpty()
+}
 @Serializable
 data class DiscoveredTopic(val id: String, val label: String, val labelSource: SemanticPassage,
     val anchor: EmbeddedPassage, val members: List<TopicMembership>, val createdOrder: Long,

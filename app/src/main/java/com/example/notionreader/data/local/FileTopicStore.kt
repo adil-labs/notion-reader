@@ -140,7 +140,7 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                 if (query != null && (query.topicId != topic.id || query.conceptWorkKey != concept.workKey ||
                         query.embedding != identity || query.text != "${concept.name.trim()}\n${concept.definition.trim()}"))
                     return TopicValidationReason.InvalidTopic
-                if (concept.incomplete.any { it.blocksConceptAdmission() } ||
+                if (concept.incomplete.any { it.invalidatesVerifiedEvidence() } ||
                     !Regex("[0-9a-f]{64}").matches(concept.workKey) || concept.name.isBlank() || concept.name.length > 96 ||
                     concept.definition.isBlank() || concept.definition.length > 512 || concept.listeningDescription.isBlank() ||
                     concept.listeningDescription.length > 512 || offered.size !in 1..16 ||
@@ -154,7 +154,15 @@ class FileTopicStore(private val directory: File, private val maxBytes: Long = L
                         !Regex("[0-9a-f]{64}").matches(it.workKey) || it.decision != SupportDecision.SUPPORTED } ||
                     concept.scannedRevisions.any { (id, revision) -> id.isBlank() || canonicalSemanticId(id) != id ||
                         revision.isBlank() || snapshot.acceptedRevisions[id] != revision } ||
-                    concept.matchingComplete && concept.scannedRevisions != snapshot.acceptedRevisions ||
+                    concept.uncheckedRevisions.any { (id, revision) -> id.isBlank() || canonicalSemanticId(id) != id ||
+                        revision.isBlank() || concept.scannedRevisions[id] != revision ||
+                        snapshot.acceptedRevisions[id] != revision } ||
+                    concept.uncertainRevisions.any { (id, revision) -> id.isBlank() || canonicalSemanticId(id) != id ||
+                        revision.isBlank() || concept.scannedRevisions[id] != revision ||
+                        snapshot.acceptedRevisions[id] != revision } ||
+                    concept.uncheckedRevisions.keys.any { it in concept.uncertainRevisions } ||
+                    concept.matchingComplete && (concept.scannedRevisions != snapshot.acceptedRevisions ||
+                        concept.uncertainRevisions.isNotEmpty()) ||
                     concept.supported.distinct().size != concept.supported.size || concept.supported.any {
                         it.pageId.isBlank() || canonicalSemanticId(it.pageId) != it.pageId || it.passageId.isBlank() ||
                             it.revision.isBlank() || concept.scannedRevisions[it.pageId] != it.revision })

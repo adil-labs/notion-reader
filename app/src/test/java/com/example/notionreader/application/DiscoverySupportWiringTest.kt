@@ -71,7 +71,8 @@ class DiscoverySupportWiringTest {
         val doc = ReaderDocument.fromChunkTexts("note", "Seed germination", listOf(text)); cache.put(CachedDocument(doc, null, Instant.EPOCH))
         val revision = semanticRevision(doc); val p = SemanticPassage("p", "note", "section", "Summary", "block", "chunk", 0, text.length, text, text, 0)
         val embedded = EmbeddedPassage(p, listOf(1f, 0f)); val metadata = SemanticMetadata("Seed germination")
-        assertTrue(index.write(SemanticRecord("note", revision, model, metadata, listOf(embedded)))); index.setPaused(false)
+        val record = SemanticRecord("note", revision, model, metadata, listOf(embedded))
+        assertTrue(index.write(record)); index.setPaused(false)
         val raw = DiscoveredTopic("topic", "seed", p, embedded, listOf(TopicMembership("note", metadata, p, 1f, p, revision)), 1)
         val request = topicLabelRequest(raw, labelIdentity, 0)!!
         val label = (validateTopicLabel(request, "Seed germination", request.evidence.map { it.passageId }, request.groupFingerprint, 0,
@@ -165,9 +166,6 @@ class DiscoverySupportWiringTest {
         assertEquals(setOf("p"), (scanned.scan as PendingConceptNoteScanResult.Complete).supported)
         assertEquals(EvidenceFirstNoteStep.Incomplete, controller.advanceEvidenceFirstNote("note", generateIndex = 0,
             retrievePageId = "note", retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true))
-        val legacy = PendingNoteScanRecord(assessed.generation.workKey, "note", revision, mapOf("note" to revision),
-            semanticHash("legacy"), null, emptySet(), emptySet())
-        assertEquals(ProposalProgressWriteResult.Written, backing.replacePendingNoteScan(null, legacy) { true })
         var work = PendingCorpusWork.start("note", 0)
         val stoppedWindow = controller.advancePendingCorpusWindow(work, maxSteps = 8, shouldContinue = { false }) as PendingCorpusWorkResult.Pending
         assertSame(work, stoppedWindow.work)
@@ -212,13 +210,7 @@ class DiscoverySupportWiringTest {
         assertEquals(PendingConceptCoverage.Stale, controller.revalidatePendingCandidate(incomplete.candidate))
         activeProposalIdentity = originalProposalIdentity
         assertTrue(ProposalIncompleteReason.STRUCTURE in incomplete.reconciliationReasons)
-        assertEquals(2, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
-        val restoredScan = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
-            retrieveScan = PendingConceptNoteScan.start(), replayPendingScan = true) as EvidenceFirstNoteStep.PendingNoteReplay
-        assertEquals(setOf("p"), (restoredScan.replay as PendingNoteReplayResult.Complete).supported)
-        val corpus = controller.advanceEvidenceFirstNote("note", generateIndex = 0, retrievePageId = "note",
-            corpusReplay = PendingCorpusReplay.start()) as EvidenceFirstNoteStep.CorpusReplay
-        assertEquals(mapOf("note" to setOf("p")), (corpus.replay as PendingCorpusReplayResult.Complete).supported)
+        assertEquals(PENDING_NOTE_SCAN_FORMAT_VERSION, backing.readPendingNoteScan(assessed.generation.workKey, "note", mapOf("note" to revision))!!.formatVersion)
         assertEquals(1, queryEmbeddings); assertEquals(1, pendingSupportCalls)
         activeSupportIdentity = supportIdentity.copy(policy = "unsupported-pending-v3"); pendingDecision = SupportDecision.UNSUPPORTED
         val pending = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
@@ -234,7 +226,8 @@ class DiscoverySupportWiringTest {
         assertEquals(listOf("topic"), controller.state.value.topicSnapshot.topics.map { it.id })
         activeSupportIdentity = supportIdentity.copy(policy = "uncertain-v3")
         decision = SupportDecision.UNCERTAIN
-        assertEquals(EvidenceFirstNoteStep.Uncertain(setOf("p")), controller.advanceEvidenceFirstNote("note", restart = true))
+        // Uncertainty about an existing subject must not suppress proposals for another subject.
+        assertTrue(controller.advanceEvidenceFirstNote("note", restart = true) is EvidenceFirstNoteStep.Proposals)
         val uncertainCheckpoint = progress.readConceptScan("note", mapOf("note" to revision))!!
         activeSupportIdentity = supportIdentity.copy(policy = "support-v4"); switchDuringInference = true
         assertEquals(DurableConceptScanResult.Stale, controller.advanceExistingConceptWorkForNote("note", 1, restart = true))
@@ -333,12 +326,13 @@ class DiscoverySupportWiringTest {
             override suspend fun embed(text: String) = listOf(1f, 0f)
             override fun release() {}
         }
-        var qDecision = SupportDecision.UNSUPPORTED; var pendingDecision = SupportDecision.UNSUPPORTED
+        var pDecision = SupportDecision.SUPPORTED; var qDecision = SupportDecision.UNSUPPORTED
+        var pendingDecision = SupportDecision.UNSUPPORTED
         var activeVerifier = verifier
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime, DiscoveryProposalRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No labels")
             override suspend fun verifySupport(request: TopicSupportRequest) = TopicSupportRun.Completed(
-                if (request.topicId.startsWith("pending:")) pendingDecision else if (request.evidence.passageId == "p") SupportDecision.SUPPORTED else qDecision)
+                if (request.topicId.startsWith("pending:")) pendingDecision else if (request.evidence.passageId == "p") pDecision else qDecision)
             override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun = DiscoveryProposalRun.Completed(
                 DiscoveryProposalResponse.Concept("Seed germination conditions", "Conditions that allow seeds to germinate.",
                     "Listen to seed germination conditions.", listOf(request.evidence.first().passageId)))
@@ -373,19 +367,30 @@ class DiscoverySupportWiringTest {
             topicProposalIdentity = { verifier })
         controller.reconcile(emptyList(), false)
         val publishedBefore = controller.state.value.publishedTopics
-        val first = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
-        val result = controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = first.scan) as EvidenceFirstNoteStep.Proposals
-        val proposals = result.window.window.proposals
+        // The strongest passage p is supported on the first bounded check, so the weaker
+        // q stays unchecked and becomes proposal evidence instead of being verified again.
+        val first = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.Proposals
+        val proposals = first.window.window.proposals
         assertEquals(setOf("q"), proposals.map { it.evidence.first().passageId }.toSet())
         assertTrue(proposals.all { ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in it.incomplete })
-        val originalGeneration = controller.advanceEvidenceFirstNote("note", maxRecords = 1, generateIndex = 0,
-            knownCatalogScan = first.scan) as EvidenceFirstNoteStep.Generated
+        val originalGeneration = controller.advanceEvidenceFirstNote("note", maxRecords = 1,
+            generateIndex = 0) as EvidenceFirstNoteStep.Generated
         assertEquals(publishedBefore, controller.state.value.publishedTopics)
-        val driven = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0), maxRecords = 1) as PendingCorpusWorkResult.Pending).work
-        val citation = (controller.advancePendingCorpusWork(driven, maxRecords = 1) as PendingCorpusWorkResult.Pending).work
-        assertEquals(PendingCorpusWorkPhase.ASSESS_CITATION, citation.phase)
-        val provisionalStop = controller.advancePendingCorpusWork(citation, maxRecords = 1) as PendingCorpusWorkResult.Stopped
-        val assessed = provisionalStop.reason as EvidenceFirstNoteStep.Assessed
+        var citationWork = PendingCorpusWork.start("note", 0)
+        val phases = mutableListOf<PendingCorpusWorkPhase>()
+        var provisionalStop: PendingCorpusWorkResult.Stopped? = null
+        repeat(10) {
+            if (provisionalStop == null) {
+                val next = controller.advancePendingCorpusWork(citationWork, maxRecords = 1)
+                when (next) {
+                    is PendingCorpusWorkResult.Pending -> { citationWork = next.work; phases += next.work.phase }
+                    is PendingCorpusWorkResult.Stopped -> provisionalStop = next
+                    else -> fail("Expected an assessed citation: $next")
+                }
+            }
+        }
+        assertTrue("Citation assessment phase was skipped: $phases", PendingCorpusWorkPhase.ASSESS_CITATION in phases)
+        val assessed = checkNotNull(provisionalStop).reason as EvidenceFirstNoteStep.Assessed
         assertEquals(SupportDecision.UNSUPPORTED, assessed.assessment.decision)
         assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in assessed.generation.incomplete)
         pendingDecision = SupportDecision.SUPPORTED; activeVerifier = verifier.copy(policy = "provisional-supported-v3")
@@ -400,12 +405,17 @@ class DiscoverySupportWiringTest {
         }
         val provisionalCoverage = checkNotNull(supportedResult)
         assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in provisionalCoverage.reasons)
-        assertEquals(mapOf("note" to setOf("p", "q")), (provisionalCoverage.coverage as PendingCorpusReplayResult.Complete).supported)
+        // Early support stops the pending corpus scan at the strongest passage; q is unchecked,
+        // not unsupported, and remains independently assessed as the proposal citation.
+        assertEquals(mapOf("note" to setOf("p")), (provisionalCoverage.coverage as PendingCorpusReplayResult.Complete).supported)
         assertEquals(publishedBefore, controller.state.value.publishedTopics)
-        qDecision = SupportDecision.UNCERTAIN; activeVerifier = verifier.copy(policy = "uncertain-v2")
+        pDecision = SupportDecision.UNCERTAIN; qDecision = SupportDecision.SUPPORTED
+        activeVerifier = verifier.copy(policy = "uncertain-v2")
         val uncertainFirst = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
         val uncertain = controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = uncertainFirst.scan) as EvidenceFirstNoteStep.Proposals
-        assertEquals(setOf("q"), uncertain.window.window.proposals.map { it.evidence.first().passageId }.toSet())
+        // p's unresolved decision is retained, q verifies membership, and the unchecked-tail
+        // candidate is not exposed as unsupported.
+        assertEquals(setOf("p"), uncertain.window.window.proposals.map { it.evidence.first().passageId }.toSet())
         assertTrue(uncertain.window.window.proposals.all { ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN in it.incomplete })
         val uncertainGeneration = controller.advanceEvidenceFirstNote("note", maxRecords = 1, generateIndex = 0,
             knownCatalogScan = uncertainFirst.scan) as EvidenceFirstNoteStep.Generated
@@ -413,4 +423,5 @@ class DiscoverySupportWiringTest {
         val pending = controller.advanceEvidenceFirstNote("note", maxRecords = 1) as EvidenceFirstNoteStep.PendingKnownCatalog
         assertEquals(TopicRetrievalWriteResult.Written, queries.write(TopicRetrievalProgress(TopicQueryEmbedding(query, listOf(0f, 1f)))) { true })
         assertEquals(EvidenceFirstNoteStep.Stale, controller.advanceEvidenceFirstNote("note", maxRecords = 1, knownCatalogScan = pending.scan))
-    }}
+    }
+}

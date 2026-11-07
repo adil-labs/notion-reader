@@ -88,7 +88,7 @@ class FileProposalProgressStoreTest {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir); val scope = semanticHash("catalog")
         val first = ExistingConceptScanRecord("older", "r2", sources, scope, ExistingConceptScanCursor(scope, 1, null), listOf(support))
         val second = first.copy(next = ExistingConceptScanCursor(scope, 2, null))
-        val third = first.copy(next = null)
+        val third = first.copy(next = null, completion = ConceptScanCompletion.EXHAUSTED)
         assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(null, first) { true })
         assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(first, second) { true })
         assertEquals(ProposalProgressWriteResult.Stale, store.replaceConceptScan(first, third) { true })
@@ -194,11 +194,11 @@ class FileProposalProgressStoreTest {
         val work = semanticHash("proposal"); val binding = semanticHash("scope")
         val checkpoint = PendingNoteScanRecord(work, "older", "r2", sources, binding,
             TopicCandidateCursor(semanticHash("query"), "older", "r2", .9f, 0, "passage"),
-            setOf("supported"), setOf("uncertain"), formatVersion = 2)
+            setOf("supported"), setOf("uncertain"))
         assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(null, checkpoint) { true })
         val restored = FileProposalProgressStore(dir)
         assertEquals(checkpoint, restored.readPendingNoteScan(work, "older", sources))
-        val later = checkpoint.copy(cursor = null)
+        val later = checkpoint.copy(cursor = null, completion = ConceptScanCompletion.EXHAUSTED)
         assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(checkpoint, later) { true })
         assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(checkpoint, checkpoint) { true })
         assertEquals(later, restored.readPendingNoteScan(work, "older", sources))
@@ -214,8 +214,9 @@ class FileProposalProgressStoreTest {
     @Test fun staleOrInvalidPendingNoteCheckpointCannotOverwriteProgress() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
         val work = semanticHash("proposal"); val binding = semanticHash("scope")
-        val checkpoint = PendingNoteScanRecord(work, "older", "r2", sources, binding, null, setOf("p"), emptySet())
-        assertEquals(ProposalProgressWriteResult.Invalid, store.replacePendingNoteScan(null, checkpoint.copy(uncertain = setOf("p"))) { true })
+        val checkpoint = PendingNoteScanRecord(work, "older", "r2", sources, binding, null, setOf("p"), emptySet(),
+            completion = ConceptScanCompletion.EXHAUSTED)
+        assertEquals(ProposalProgressWriteResult.Invalid, store.replacePendingNoteScan(null, checkpoint.copy(completion = null)) { true })
         var checks = 0
         assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(null, checkpoint) { ++checks == 1 })
         assertNull(store.readPendingNoteScan(work, "older", sources))
@@ -229,13 +230,69 @@ class FileProposalProgressStoreTest {
         assertEquals(support, FileProposalProgressStore(dir).readSupport(support.workKey, sources))
         var checks = 0
         assertEquals(ProposalProgressWriteResult.Stale, store.writeSupport(support) { ++checks == 1 })
-    }    @Test fun legacyPendingNoteCheckpointCanBeReplacedOnlyByItsObservedSuccessor() = runBlocking {
+    }    @Test fun conceptScanCompletionMustStateWhetherSupportStoppedTheScan() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir); val scope = semanticHash("catalog")
+        val earlyKey = semanticHash("concept")
+        val earlySupport = support.copy(conceptWorkKey = earlyKey)
+        val early = ExistingConceptScanRecord("older", "r2", sources, scope, null, listOf(earlySupport),
+            completion = ConceptScanCompletion.SUPPORTED_EARLY,
+            earlyConceptWorkKeys = setOf(earlyKey), retrievedCandidates = 2, examinedCandidates = 1)
+        assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(null, early) { true })
+        assertEquals(early, FileProposalProgressStore(dir).readConceptScan("older", sources))
+        // A finished scan cannot omit its completion state.
+        assertEquals(ProposalProgressWriteResult.Invalid, store.replaceConceptScan(early, early.copy(completion = null)) { true })
+        // Claiming exhaustion while an early-support key remains is contradictory.
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replaceConceptScan(early, early.copy(completion = ConceptScanCompletion.EXHAUSTED)) { true })
+        // A truncated tail cannot keep the early key without its supported assessment.
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replaceConceptScan(early, early.copy(assessments = emptyList())) { true })
+        // An interrupted scan has a cursor and no completion claim.
+        val interrupted = early.copy(next = ExistingConceptScanCursor(scope, 0, null), completion = null)
+        assertEquals(ProposalProgressWriteResult.Written, store.replaceConceptScan(early, interrupted) { true })
+        assertEquals(interrupted, store.readConceptScan("older", sources))
+        // Removing the cursor without adding a completion claim is not a legitimate finish.
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replaceConceptScan(interrupted, interrupted.copy(next = null)) { true })
+    }
+
+    @Test fun pendingNoteCheckpointRequiresExplicitCompletionAndRejectsContradictions() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
-        val legacy = PendingNoteScanRecord(semanticHash("proposal"), "older", "r2", sources,
-            semanticHash("old"), null, setOf("p"), emptySet())
-        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(null, legacy) { true })
-        val replacement = legacy.copy(sourceRevisions = mapOf("older" to "r2"), binding = semanticHash("new"), formatVersion = 2)
-        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(legacy, replacement) { true })
-        assertEquals(ProposalProgressWriteResult.Stale, store.replacePendingNoteScan(legacy, replacement) { true })
-        assertEquals(replacement, store.readPendingNoteScan(legacy.workKey, "older", sources + ("extra" to "r3")))
-    }}
+        val work = semanticHash("proposal"); val binding = semanticHash("scope")
+        val complete = PendingNoteScanRecord(work, "older", "r2", sources, binding, null, emptySet(), emptySet(),
+            completion = ConceptScanCompletion.EXHAUSTED)
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(null, complete) { true })
+        assertEquals(complete, store.readPendingNoteScan(work, "older", sources))
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replacePendingNoteScan(complete, complete.copy(completion = null)) { true })
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replacePendingNoteScan(complete, complete.copy(completion = ConceptScanCompletion.SUPPORTED_EARLY)) { true })
+        // Exhaustion and early support are termination values only. Unresolved evidence can
+        // coexist with either one, so this is a valid completed record.
+        val withUncertainty = complete.copy(supported = setOf("p"), uncertain = setOf("q"))
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(complete, withUncertainty) { true })
+        assertEquals(withUncertainty, store.readPendingNoteScan(work, "older", sources))
+        assertEquals(ProposalProgressWriteResult.Written, store.replacePendingNoteScan(withUncertainty, complete) { true })
+        val cursor = TopicCandidateCursor(semanticHash("query"), "older", "r2", .9f, 0, "passage")
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replacePendingNoteScan(complete, complete.copy(cursor = cursor)) { true })
+        // A checkpoint from an older format version is never reinterpreted under the current
+        // contract. It is rejected and rebuilt from still-valid support decisions instead.
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replacePendingNoteScan(complete, complete.copy(formatVersion = PENDING_NOTE_SCAN_FORMAT_VERSION - 1)) { true })
+    }
+
+    @Test fun olderFormatCheckpointsAreRejectedInsteadOfReinterpreted() = runBlocking {
+        val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
+        val scope = semanticHash("catalog")
+        val checkpoint = ExistingConceptScanRecord("older", "r2", sources, scope, null, listOf(support),
+            completion = ConceptScanCompletion.EXHAUSTED)
+        assertEquals(ProposalProgressWriteResult.Invalid,
+            store.replaceConceptScan(null, checkpoint.copy(formatVersion = CONCEPT_SCAN_FORMAT_VERSION - 1)) { true })
+        val pending = PendingNoteScanRecord(semanticHash("proposal"), "older", "r2", sources, semanticHash("scope"),
+            null, emptySet(), emptySet(), completion = ConceptScanCompletion.EXHAUSTED,
+            formatVersion = PENDING_NOTE_SCAN_FORMAT_VERSION - 1)
+        assertEquals(ProposalProgressWriteResult.Invalid, store.replacePendingNoteScan(null, pending) { true })
+        assertEquals(0L, store.bytes())
+    }
+}

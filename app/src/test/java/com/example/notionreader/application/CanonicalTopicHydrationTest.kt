@@ -54,7 +54,7 @@ class CanonicalTopicHydrationTest {
         val partial = updated.copy(canonicalConcept = updated.canonicalConcept!!.copy(matchingComplete = false))
         val hydratedPartial = hydrateCanonicalTopic(partial, model, sources, index, store) { true }!!
         assertEquals(setOf("note", "later"), hydratedPartial.matchingMembers.map { it.pageId }.toSet())
-        assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(hydratedPartial))
+        assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(hydratedPartial))
         assertNull("A supported passage must belong to a scanned source revision", hydrateCanonicalTopic(
             partial.copy(canonicalConcept = partial.canonicalConcept!!.copy(scannedRevisions = mapOf("note" to "r1"))), model, sources, index, store) { true })
         val established = hydrateCanonicalTopic(updated, model, sources, index, store) { true }!!
@@ -67,5 +67,84 @@ class CanonicalTopicHydrationTest {
         assertNull(hydrateCanonicalTopic(topic, model, mapOf("note" to "r2"), index, store) { true })
         store.clear()
         assertNull(hydrateCanonicalTopic(topic, model, mapOf("note" to "r1"), index, store) { true })
+    }
+
+    private class HydrationFixture(
+        val model: EmbeddingIdentity, val generator: TopicLabelIdentity, val verifier: TopicLabelIdentity,
+        val index: FileSemanticIndexStore, val store: FileProposalProgressStore,
+        val topic: DiscoveredTopic, val concept: CanonicalConceptEvidence,
+        val sources: Map<String, String>, val pending: TopicSupportAssessment, val evidence: TopicLabelEvidence
+    )
+
+    private suspend fun fixture(root: java.io.File): HydrationFixture {
+        val index = FileSemanticIndexStore(root.resolve("index"))
+        val store = FileProposalProgressStore(root.resolve("progress"))
+        val model = EmbeddingIdentity("model", 2)
+        val generator = TopicLabelIdentity("g", "t", "template", "proposal", "schema", "v1", "CPU")
+        val verifier = generator.copy(prompt = "support")
+        val text = "Moisture and warmth help seeds to germinate and begin growing."
+        val passage = SemanticPassage("p", "note", "section", "Seeds", "block", "chunk", 0, text.length, text, text, 0)
+        val record = SemanticRecord("note", "r1", model, SemanticMetadata("Seeds"), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))
+        assertTrue(index.write(record))
+        val sources = mapOf("note" to "r1")
+        val evidence = TopicLabelEvidence("p", "note", "r1", text)
+        val proposalKey = semanticHash("proposal")
+        val request = DiscoveryProposalRequest(proposalKey, 0, listOf(evidence), generator)
+        val response = DiscoveryProposalResponse.Concept("Seed germination", "Moisture helps seeds germinate.",
+            "Listen to seed germination.", listOf("p"))
+        val key = (validateDiscoveryProposal(request, response, 0, sources) as DiscoveryProposalValidation.Accepted).workKey
+        val pendingRequest = TopicSupportRequest("pending:$key", key, response.name, response.definition, evidence, verifier, 0)
+        val pending = (validateTopicSupport(pendingRequest, SupportDecision.SUPPORTED, 0, key, sources)
+            as TopicSupportValidation.Accepted).assessment
+        assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(pending) { true })
+        val ref = ProposalEvidenceRef("note", "r1", "p")
+        val concept = CanonicalConceptEvidence(key, response.name, response.definition, response.listeningDescription,
+            generator, verifier, listOf(ref), listOf(pending), listOf(ref), sources, true, proposalKey)
+        val member = TopicMembership("note", record.metadata, passage, 1f, passage, "r1")
+        val topic = DiscoveredTopic("canonical", "Seeds", passage, EmbeddedPassage(passage, listOf(1f, 0f)),
+            listOf(member), 1, canonicalConcept = concept)
+        return HydrationFixture(model, generator, verifier, index, store, topic, concept, sources, pending, evidence)
+    }
+
+    @Test fun aPendingWitnessIsNotReusedUnderAChangedVerifierOrConceptText() = runBlocking {
+        val f = fixture(files.newFolder())
+        assertNotNull(hydrateCanonicalTopic(f.topic, f.model, f.sources, f.index, f.store) { true })
+        val changedVerifier = f.concept.copy(verifier = f.verifier.copy(policy = "v2"))
+        assertNull("A different verifier has no cached decision for this evidence",
+            hydrateCanonicalTopic(f.topic.copy(canonicalConcept = changedVerifier), f.model, f.sources, f.index, f.store) { true })
+        val changedText = f.concept.copy(definition = "A different definition changes the verification request.")
+        assertNull("A different concept text is a different verification identity",
+            hydrateCanonicalTopic(f.topic.copy(canonicalConcept = changedText), f.model, f.sources, f.index, f.store) { true })
+    }
+
+    @Test fun anInconclusiveCanonicalDecisionFallsBackOnlyToAnExactPendingWitness() = runBlocking {
+        val f = fixture(files.newFolder())
+        val canonicalRequest = TopicSupportRequest("canonical", f.concept.workKey, f.concept.name, f.concept.definition,
+            f.evidence, f.verifier, 0)
+        val uncertain = (validateTopicSupport(canonicalRequest, SupportDecision.UNCERTAIN, 0, f.concept.workKey, f.sources)
+            as TopicSupportValidation.Accepted).assessment
+        assertEquals(ProposalProgressWriteResult.Written, f.store.writeSupport(uncertain) { true })
+        assertNotNull("An exact pending witness still authorizes the immutable support",
+            hydrateCanonicalTopic(f.topic, f.model, f.sources, f.index, f.store) { true })
+        val mismatched = object : ProposalProgressStore by f.store {
+            override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? {
+                val saved = f.store.readSupport(workKey, sources) ?: return null
+                return if (saved.topicId.startsWith("pending:")) saved.copy(conceptWorkKey = "other") else saved
+            }
+        }
+        assertNull("A non-matching pending witness cannot authorize support",
+            hydrateCanonicalTopic(f.topic, f.model, f.sources, f.index, mismatched) { true })
+    }
+
+    @Test fun aTamperedCanonicalSupportRecordCannotAuthorizeHydration() = runBlocking {
+        val f = fixture(files.newFolder())
+        val tampered = object : ProposalProgressStore by f.store {
+            override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? {
+                val saved = f.store.readSupport(workKey, sources) ?: return null
+                return if (saved.topicId == "canonical") saved.copy(conceptWorkKey = "other") else null
+            }
+        }
+        assertNull("A support record must match the exact concept/evidence/verifier identity it is used for",
+            hydrateCanonicalTopic(f.topic, f.model, f.sources, f.index, tampered) { true })
     }
 }

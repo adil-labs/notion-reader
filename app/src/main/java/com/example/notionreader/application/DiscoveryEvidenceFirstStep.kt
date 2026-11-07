@@ -33,6 +33,24 @@ internal sealed interface EvidenceFirstNoteStep {
     data class ProposalFailure(val result: PendingProposalStepResult) : EvidenceFirstNoteStep
 }
 
+/**
+ * Coverage is not evidence validity. A verified citation can support an Emerging
+ * topic before the source scan or catalog has reached complete coverage.
+ */
+internal data class ProposalAdmissionCoverage(
+    val sourceScanComplete: Boolean = true,
+    val catalogConsistent: Boolean = true,
+    val duplicateCheckComplete: Boolean = true,
+    val unresolvedEvidence: Boolean = false,
+    val staleEvidence: Boolean = false
+) {
+    fun allowsEmerging(citationsSupported: Boolean): Boolean =
+        citationsSupported && catalogConsistent && duplicateCheckComplete && !unresolvedEvidence && !staleEvidence
+
+    fun allowsEstablished(citationsSupported: Boolean): Boolean =
+        allowsEmerging(citationsSupported) && sourceScanComplete
+}
+
 /** Evidence retained for a later coordinator commit; this is not a canonical topic or a commit ticket. */
 internal data class PendingConceptCandidate(
     val proposal: com.example.notionreader.domain.discovery.IncrementalProposal,
@@ -43,7 +61,8 @@ internal data class PendingConceptCandidate(
     val verifier: com.example.notionreader.domain.discovery.TopicLabelIdentity,
     val generator: com.example.notionreader.domain.discovery.TopicLabelIdentity,
     val query: com.example.notionreader.domain.discovery.TopicQueryEmbedding,
-    val catalogTicket: TopicCatalogTicket?
+    val catalogTicket: TopicCatalogTicket?,
+    val coverage: ProposalAdmissionCoverage = ProposalAdmissionCoverage()
 )
 
 internal sealed interface CanonicalAdmissionResult {

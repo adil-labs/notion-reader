@@ -204,8 +204,8 @@ class TopicPublicationTest {
         val noMatchesComplete = base.copy(canonicalConcept = concept.copy(matchingComplete = true), canonicalProjection = projectionWith0)
         assertEquals(TopicPublicationStatus.NoMatches, discoveryTopicPublicationStatus(noMatchesComplete))
 
-        val pendingTwoMembers = base.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = projectionWith2)
-        assertEquals(TopicPublicationStatus.Pending, discoveryTopicPublicationStatus(pendingTwoMembers))
+        val emergingTwoMembers = base.copy(canonicalConcept = concept.copy(matchingComplete = false), canonicalProjection = projectionWith2)
+        assertEquals(TopicPublicationStatus.Emerging, discoveryTopicPublicationStatus(emergingTwoMembers))
 
         val establishedComplete = base.copy(canonicalConcept = concept.copy(matchingComplete = true), canonicalProjection = projectionWith2)
         assertEquals(TopicPublicationStatus.Established, discoveryTopicPublicationStatus(establishedComplete))

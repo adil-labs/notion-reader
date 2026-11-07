@@ -12,6 +12,15 @@ enum class ProposalIncompleteReason { STRUCTURE, SOURCE_SCAN, EVIDENCE_LIMIT, ST
 fun ProposalIncompleteReason.blocksConceptAdmission(): Boolean =
     this != ProposalIncompleteReason.STRUCTURE && this != ProposalIncompleteReason.ANCHOR_WINDOW &&
         this != ProposalIncompleteReason.EVIDENCE_LIMIT
+
+/**
+ * Reasons that make already verified citation evidence unsafe, as opposed to
+ * merely incomplete corpus or catalog coverage. Source-scan and provisional
+ * catalog reasons are coverage facts; they do not by themselves invalidate a
+ * current, independently verified citation.
+ */
+fun ProposalIncompleteReason.invalidatesVerifiedEvidence(): Boolean =
+    this == ProposalIncompleteReason.STALE_SOURCE || this == ProposalIncompleteReason.EXISTING_CONCEPT_UNCERTAIN
 data class IncrementalProposal(val proposalKey: String, val evidence: List<ProposalEvidenceRef>, val reasons: Set<ProposalReason>,
     val incomplete: Set<ProposalIncompleteReason>, val policyVersion: Int = 1)
 @Serializable

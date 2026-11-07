@@ -10,7 +10,9 @@ fun discoveryTopicPublicationStatus(topic: DiscoveredTopic): TopicPublicationSta
         if (topic.currentCanonicalProjection?.members == null) return TopicPublicationStatus.Pending
         val distinctCount = topic.matchingMembers.map { canonicalSemanticId(it.pageId) }.distinct().size
         if (!topic.canonicalConcept.matchingComplete) {
-            return if (distinctCount == 1) TopicPublicationStatus.Emerging else TopicPublicationStatus.Pending
+            // Verified members are publishable before complete corpus coverage. Established
+            // still waits for the complete-coverage condition below.
+            return if (distinctCount == 0) TopicPublicationStatus.Pending else TopicPublicationStatus.Emerging
         }
         return when (distinctCount) {
             0 -> TopicPublicationStatus.NoMatches

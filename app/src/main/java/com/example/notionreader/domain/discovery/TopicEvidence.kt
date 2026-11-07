@@ -20,11 +20,19 @@ fun retainCanonicalConcepts(previous: TopicSnapshot, next: TopicSnapshot): Topic
         val retained = concept.copy(
             supported = concept.supported.filter { next.acceptedRevisions[it.pageId] == it.revision },
             scannedRevisions = concept.scannedRevisions.filter { (id, revision) -> next.acceptedRevisions[id] == revision },
-            matchingComplete = concept.matchingComplete && concept.scannedRevisions == next.acceptedRevisions)
+            uncheckedRevisions = concept.uncheckedRevisions.filter { (id, revision) ->
+                next.acceptedRevisions[id] == revision && concept.scannedRevisions[id] == revision },
+            uncertainRevisions = concept.uncertainRevisions.filter { (id, revision) ->
+                next.acceptedRevisions[id] == revision && concept.scannedRevisions[id] == revision },
+            matchingComplete = concept.matchingComplete && concept.scannedRevisions == next.acceptedRevisions &&
+                retainedUncertaintyEmpty(concept, next))
         return if (survives) topic.copy(canonicalConcept = retained) else topic
     }
     return next.copy(topics = next.topics.map(::retain), provisionalTopics = next.provisionalTopics.map(::retain))
 }
+
+private fun retainedUncertaintyEmpty(concept: CanonicalConceptEvidence, next: TopicSnapshot): Boolean =
+    concept.uncertainRevisions.all { (id, revision) -> next.acceptedRevisions[id] != revision }
 
 /** Opaque concept fingerprint supplements, but never substitutes for, surviving source evidence. */
 fun canonicalContinuityKey(name: String, definition: String): String {
@@ -88,9 +96,14 @@ fun invalidateTopics(snapshot: TopicSnapshot, pageIds: Set<String>, permanent: B
         val topic = when {
             concept == null -> original
             concept.offered.any { !available(it.pageId) } -> original.copy(canonicalConcept = null, canonicalProjection = null)
-            concept.scannedRevisions.keys.any { !available(it) } -> original.copy(canonicalConcept = concept.copy(
-                supported = concept.supported.filter { available(it.pageId) },
-                scannedRevisions = concept.scannedRevisions.filterKeys(::available), matchingComplete = false), canonicalProjection = null)
+            concept.scannedRevisions.keys.any { !available(it) } || concept.uncheckedRevisions.keys.any { !available(it) } ||
+                concept.uncertainRevisions.keys.any { !available(it) } ->
+                original.copy(canonicalConcept = concept.copy(
+                    supported = concept.supported.filter { available(it.pageId) },
+                    scannedRevisions = concept.scannedRevisions.filterKeys(::available),
+                    uncheckedRevisions = concept.uncheckedRevisions.filterKeys(::available),
+                    uncertainRevisions = concept.uncertainRevisions.filterKeys(::available),
+                    matchingComplete = false), canonicalProjection = null)
             else -> original
         }
         if (topic.generatedLabel != null && topic.currentGeneratedLabel == null) topic.copy(generatedLabel = null, topicMatches = null)

@@ -87,6 +87,20 @@ class FileProposalProgressStore(private val directory: File,
     private fun valid(record: ExistingConceptScanRecord): Boolean {
         val cursor = record.next
         val passage = cursor?.passage
+        if (record.formatVersion != CONCEPT_SCAN_FORMAT_VERSION || record.retrievedCandidates < 0 ||
+            record.examinedCandidates < 0 || record.examinedCandidates > record.retrievedCandidates) return false
+        // A finished scan must state how it stopped; an interrupted scan must have a cursor and no
+        // completion claim. A truncated tail cannot masquerade as an exhaustive scan or vice versa.
+        if (cursor == null && record.completion == null) return false
+        if (cursor != null && record.completion != null) return false
+        if (record.earlyConceptWorkKeys.any { key ->
+                !Regex("[0-9a-f]{64}").matches(key) ||
+                    record.assessments.none { it.conceptWorkKey == key && it.decision == SupportDecision.SUPPORTED }
+            }) return false
+        if (record.completion == ConceptScanCompletion.SUPPORTED_EARLY && record.earlyConceptWorkKeys.isEmpty()) return false
+        // Exhaustion may still carry verified support (found on the final candidate) or unresolved
+        // evidence. Neither changes why the scan stopped.
+        if (record.completion == ConceptScanCompletion.EXHAUSTED && record.earlyConceptWorkKeys.isNotEmpty()) return false
         return validId(record.pageId) && validRevision(record.revision) && record.sourceRevisions.size <= 32768 &&
             record.sourceRevisions[record.pageId] == record.revision &&
             record.sourceRevisions.all { (id, rev) -> validId(id) && validRevision(rev) } &&
@@ -100,7 +114,14 @@ class FileProposalProgressStore(private val directory: File,
     }
     private fun valid(record: PendingNoteScanRecord): Boolean {
         val cursor = record.cursor
-        return record.formatVersion in 1..2 && Regex("[0-9a-f]{64}").matches(record.workKey) && validId(record.pageId) && validRevision(record.revision) &&
+        if (record.formatVersion != PENDING_NOTE_SCAN_FORMAT_VERSION || record.retrievedCandidates < 0 ||
+            record.examinedCandidates < 0 || record.examinedCandidates > record.retrievedCandidates) return false
+        if (cursor == null && record.completion == null) return false
+        if (cursor != null && record.completion != null) return false
+        // Early support and uncertainty may coexist: uncertainty is evidence state, not a
+        // termination value. Exhaustion may also leave unresolved evidence.
+        if (record.completion == ConceptScanCompletion.SUPPORTED_EARLY && record.supported.isEmpty()) return false
+        return Regex("[0-9a-f]{64}").matches(record.workKey) && validId(record.pageId) && validRevision(record.revision) &&
             Regex("[0-9a-f]{64}").matches(record.binding) && record.sourceRevisions.size <= 32768 &&
             record.sourceRevisions[record.pageId] == record.revision &&
             record.sourceRevisions.all { (id, revision) -> validId(id) && validRevision(revision) } &&
@@ -243,7 +264,7 @@ class FileProposalProgressStore(private val directory: File,
     override suspend fun readPendingNoteScan(workKey: String, pageId: String, sources: Map<String, String>): PendingNoteScanRecord? =
         withContext(Dispatchers.IO) { lock.withLock {
             if (!Regex("[0-9a-f]{64}").matches(workKey) || !validId(pageId)) null
-            else readPendingNoteScanFile(pendingNoteScanTarget(workKey, pageId))?.takeIf { scan -> if (scan.formatVersion == 1) scan.sourceRevisions == sources else scan.sourceRevisions.all { (id, revision) -> sources[id] == revision } }
+            else readPendingNoteScanFile(pendingNoteScanTarget(workKey, pageId))?.takeIf { scan -> scan.sourceRevisions.all { (id, revision) -> sources[id] == revision } }
         } }
 
     override suspend fun replacePendingNoteScan(expected: PendingNoteScanRecord?, record: PendingNoteScanRecord,
@@ -321,7 +342,7 @@ class FileProposalProgressStore(private val directory: File,
                 conceptName.matches(file.name) -> readConceptFile(file)?.evidence?.all { sources[it.pageId] == it.revision } == true
                 deltaName.matches(file.name) -> readDeltaFile(file)?.let { sources[it.pageId] == it.revision } == true
                 scanName.matches(file.name) -> readConceptScanFile(file)?.let { it.sourceRevisions == sources } == true
-                pendingNoteScanName.matches(file.name) -> readPendingNoteScanFile(file)?.let { scan -> if (scan.formatVersion == 1) scan.sourceRevisions == sources else scan.sourceRevisions.all { (id, revision) -> sources[id] == revision } } == true
+                pendingNoteScanName.matches(file.name) -> readPendingNoteScanFile(file)?.let { scan -> scan.sourceRevisions.all { (id, revision) -> sources[id] == revision } } == true
                 supportName.matches(file.name) -> readSupportFile(file)?.let { eligible(it, sources) } == true
                 else -> readFile(file)?.let { eligible(it, sources) } == true
             }

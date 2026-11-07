@@ -17,6 +17,12 @@ class DiscoveryProposalWireTest {
         assertEquals("Seed germination conditions", result.name)
     }
 
+    @Test fun aProposalSelectsAtMostTwoIndependentlyCheckableCitations() {
+        val expanded = request.copy(evidence = request.evidence + request.evidence.first().copy(passageId = "p2"))
+        assertNotNull(parseDiscoveryProposalResponse(accepted.replace("[\"p0\"]", "[\"p0\",\"p1\"]"), expanded))
+        assertNull(parseDiscoveryProposalResponse(accepted.replace("[\"p0\"]", "[\"p0\",\"p1\",\"p2\"]"), expanded))
+    }
+
     @Test fun abstentionIsASuccessfulBoundedOutcome() {
         assertEquals(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE),
             parseDiscoveryProposalResponse("""{"result":"abstain","reason":"MIXED_EVIDENCE"}""", request))
