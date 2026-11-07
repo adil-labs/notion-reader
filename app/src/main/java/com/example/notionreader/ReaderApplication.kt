@@ -89,20 +89,16 @@ class ReaderApplication : Application() {
             val percent = if (scale > 0 && level in 0..scale) (level.toLong() * 100 / scale).toInt() else null
             discoveryPower.value = com.example.notionreader.application.DiscoveryPowerState(percent,
                 connected = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) > 0)
+            if (::discoveryOrchestrator.isInitialized) discoveryOrchestrator.requestWake()
         }
     }
     private var processDiscovery: com.example.notionreader.application.DiscoveryController? = null
-    private lateinit var discoveryWork: suspend () -> Unit
-    private lateinit var discoveryCoordinator: com.example.notionreader.application.DiscoveryWorkCoordinator
+    lateinit var discoveryOrchestrator: DiscoveryOrchestrator
     private val discoveryScheduler by lazy { DiscoveryScheduler(this) }
-    @Volatile private var scheduledDiscovery = false
-    @Volatile private var activeEffort = com.example.notionreader.domain.settings.DiscoveryEffort.CHARGING_ONLY
-    private val scheduledWindowLock = Mutex()
     private val structuralDiscoveryLock = Mutex()
     private val structuralResourceRevision = MutableStateFlow(0L)
     private val structuralContinuation = com.example.notionreader.data.structure.StructuralDiscoveryContinuation()
     @Volatile private var structuralDiscoveryPending = true
-    private lateinit var verifyDiscoveryModel: suspend () -> Unit
 
     private suspend fun structuralTicket(): com.example.notionreader.domain.structure.StructuralIndex? = try {
         structuralCoordinator.refreshLifecycle()
@@ -160,28 +156,10 @@ class ReaderApplication : Application() {
         finally { client.close() }
     }
 
-    internal suspend fun runScheduledDiscovery(): com.example.notionreader.application.DiscoveryWindowResult =
-        scheduledWindowLock.withLock {
-            host
-            verifyDiscoveryModel()
-            hasDiscoveryMemory(force = true)
-            scheduledDiscovery = true
-            try {
-                val discoveryResult = com.example.notionreader.application.discoveryBeforeStructuralWork(
-                    discovery = { discoveryCoordinator.runWindow(120_000) },
-                    structural = {
-                        structuralDiscoveryPending = true
-                        discoverStructuralResources()
-                        if (hasStructuralWork()) runStructuralWindow()
-                    })
-                if ((hasStructuralWork() || structuralDiscoveryPending) && structuralScheduler.isEligible()) {
-                    com.example.notionreader.application.DiscoveryWindowResult.PENDING
-                } else {
-                    discoveryResult
-                }
-            }
-            finally { scheduledDiscovery = false }
-        }
+    internal suspend fun runScheduledDiscovery(): com.example.notionreader.application.DiscoveryWindowResult {
+        host
+        return discoveryOrchestrator.runScheduledDiscovery()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -191,9 +169,11 @@ class ReaderApplication : Application() {
             private var started = 0
             override fun onActivityStarted(activity: android.app.Activity) {
                 started++; hasDiscoveryMemory(force = true); discoveryForeground.value = true
+                if (::discoveryOrchestrator.isInitialized) discoveryOrchestrator.requestWake()
             }
             override fun onActivityStopped(activity: android.app.Activity) {
                 started = (started - 1).coerceAtLeast(0); discoveryForeground.value = started > 0
+                if (::discoveryOrchestrator.isInitialized) discoveryOrchestrator.requestWake()
             }
             override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}
@@ -214,7 +194,8 @@ class ReaderApplication : Application() {
             pageSnapshots.clear()
             discoveryScope.launch { structuralDiscoveryLock.withLock { structuralContinuation.clear() } }
             discoveryScope.launch { structuralStore.releaseMemory() }
-            discoveryScope.launch { processDiscovery?.releaseModel() }
+            if (::discoveryOrchestrator.isInitialized) discoveryOrchestrator.onTrimMemory(level)
+            else discoveryScope.launch { processDiscovery?.releaseModel() }
         }
     }
 
@@ -397,7 +378,14 @@ class ReaderApplication : Application() {
         val topicLabeler = com.example.notionreader.data.discovery.GemmaTopicLabeler.create(topicModel,
             File(cacheDir, "topic-label-runtime"), mayRun = {
                 hasDiscoveryMemory(force = true)
-            }, backend = labelBackend)
+            }, backend = labelBackend, diagnostic = { phase, failure ->
+                if (BuildConfig.DEBUG) {
+                    val origin = failure.stackTrace.firstOrNull()
+                    Log.d("DiscoveryBackend", "phase=$phase type=${failure.javaClass.simpleName} origin=${origin?.className}.${origin?.methodName}")
+                }
+            }, inferenceDiagnostics = if (BuildConfig.DEBUG) { name, value ->
+                Log.d("DiscoveryInference", "$name=$value")
+            } else null)
         val discoveryModel = com.example.notionreader.data.discovery.LocalDiscoveryModelManager(
             File(noBackupFilesDir, "discovery-model"), discoveryScope,
             writeGate = storageWrites,
@@ -422,7 +410,10 @@ class ReaderApplication : Application() {
         embeddingProvider = com.example.notionreader.data.discovery.GemmaEmbeddingProvider(discoveryModel.modelDirectory,
             npuBundle = { npuModel?.takeIf { it.state.value.installed }?.let {
                 File(it.modelDirectory, com.example.notionreader.data.discovery.GemmaModelPack.npuBundleFile)
-            } }, nativeLibraryDirectory = applicationInfo.nativeLibraryDir)
+            } }, nativeLibraryDirectory = applicationInfo.nativeLibraryDir,
+            inferenceDiagnostics = if (BuildConfig.DEBUG) { name, value ->
+                Log.d("DiscoveryInference", "$name=$value")
+            } else null)
         discovery = com.example.notionreader.application.DiscoveryController(
             documentCache, semanticIndex, interestStore,
             embeddingProvider,
@@ -432,6 +423,9 @@ class ReaderApplication : Application() {
             queryTimings = { timings ->
                 if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
             },
+            workDiagnostics = if (BuildConfig.DEBUG) { values ->
+                android.util.Log.d("DiscoveryWork", values.toString())
+            } else null,
             topicStore = topicStore, passageProgressStore = passageProgressStore,
             topicLabelRuntime = topicLabeler,
             topicRetrievalStore = topicMatches,
@@ -440,10 +434,12 @@ class ReaderApplication : Application() {
             topicProposalIdentity = { com.example.notionreader.data.discovery.GenerativeModelPack.proposalIdentity(labelBackend.provenance) },
             topicLabelModelAvailable = { com.example.notionreader.data.discovery.GenerativeModelPack.enabledForDiscovery && topicModel.state.value.installed },
             invalidationAcknowledgementLimit = { minOf(recentNotes.processedInvalidationGeneration, structuralCoordinator.processedInvalidationGeneration) },
-            mayContinueIndexing = { discoveryCoordinator.windowOpen && (discoveryForeground.value || scheduledDiscovery) &&
-                hasDiscoveryMemory() && discoveryPower.value.allows(activeEffort) &&
-                discoveryPower.value.allows(discoveryApp.settings.value.discoveryEffort) &&
-                discoveryModel.state.value.installed && !discoveryApp.session.state.value.isPlaying }
+            mayContinueIndexing = {
+                if (::discoveryOrchestrator.isInitialized) discoveryOrchestrator.isIndexingEligible() else false
+            },
+            diagnosticLog = { tag, msg ->
+                if (BuildConfig.DEBUG) android.util.Log.d(tag, msg)
+            }
         )
         processDiscovery = discovery
         discoveryScope.launch {
@@ -507,89 +503,33 @@ class ReaderApplication : Application() {
                 discovery.requestAutomaticContinuation()
             }
         }
-        verifyDiscoveryModel = { discoveryModel.checkInstalled(); npuModel?.checkInstalled(); topicModel.checkInstalled() }
-        discoveryCoordinator = com.example.notionreader.application.DiscoveryWorkCoordinator(
-            android.os.SystemClock::elapsedRealtime,
-            onWindowEnd = { discovery.closeLabels() }) {
-            activeEffort = settingsRepository.readCurrentSettings().discoveryEffort
-            storageBudget.refresh()
-            discovery.updateWorkAvailability(activeEffort, when {
-                app.session.state.value.isPlaying -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForPlayback
-                !hasDiscoveryMemory() -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForResources
-                !discoveryForeground.value && !scheduledDiscovery -> com.example.notionreader.application.DiscoveryExecutionAvailability.WaitingForAndroid
-                else -> com.example.notionreader.application.DiscoveryExecutionAvailability.Available
-            })
-            discovery.updatePowerState(discoveryPower.value)
-            val eligible = (discoveryForeground.value || scheduledDiscovery) && discoveryResourcesAvailable.value &&
-                discoveryPower.value.allows(activeEffort) && discoveryModel.state.value.installed && !app.session.state.value.isPlaying
-            app.recentNotes?.refresh()
-            structuralTicket()
-            discovery.reconcile(app.browse.state.value.entries, eligible)
-            com.example.notionreader.application.discoveryWindowResult(discoveryModel.state.value.installed,
-                discovery.state.value, eligible, discovery.hasPendingWork)
-        }
-        discoveryWork = {
-            discoveryModel.checkInstalled()
-            // Inventory must not wait behind remote structural discovery or its processing window.
-            // Reconciliation without indexing still performs normal source-withdrawal checks.
-            discoveryCoordinator.prepareInventory { discovery.reconcile(app.browse.state.value.entries, false) }
-            topicModel.checkInstalled()
-            discoveryScope.launch {
-                discoveryScheduler.completions().map { infos -> infos.map { it.id to it.state } }.distinctUntilChanged().collect { infos ->
-                    if (infos.any { it.second.isFinished } && discovery.hasPendingWork && !discovery.state.value.paused)
-                        discovery.requestAutomaticContinuation()
-                }
-            }
-            val inputs = combine(
-                documentCache.revision,
-                app.browse.state.map { it.entries }.distinctUntilChanged(),
-                discoveryForeground,
-                app.session.state.map { it.isPlaying }.distinctUntilChanged(),
-                combine(discovery.revision, app.settings, structuralCoordinator.workRevision, structuralResourceRevision) { revision, settings, structuralRevision, resourceRevision -> Triple(revision, settings, structuralRevision to resourceRevision) }
-            ) { cacheRevision, entries, foreground, playing, signal ->
-                if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "input cacheRevision=$cacheRevision entries=${entries.size} foreground=$foreground playing=$playing wake=${signal.first} structuralRevision=${signal.third.first} resourceRevision=${signal.third.second}")
-                Triple(entries, foreground, playing)
-            }
-            val constraints = combine(discoveryResourcesAvailable, discoveryPower) { resources, power -> resources to power }
-            combine(inputs, discoveryModel.state.map { it.installed }.distinctUntilChanged(), constraints) { input, installed, limits ->
-                val (entries, foreground, playing) = input
-                val (memoryOk, power) = limits
-                val structuralEligible = foreground && !playing && memoryOk && power.eligible
-                val discoveryEligible = foreground && !playing && installed && memoryOk && power.eligible
-                Triple(Triple(entries, discoveryEligible, installed), structuralEligible, power)
-            }.conflate().collectLatest { (work, structuralEligible, power) ->
-                val (entries, eligible, installed) = work
-                structuralTicket()
-                com.example.notionreader.application.discoveryBeforeStructuralWork(discovery = {
-                    if (installed) {
-                        val started = android.os.SystemClock.elapsedRealtime()
-                        var finished = false
-                        try { discoveryCoordinator.runWindow(120_000); finished = true }
-                        finally { if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "discoveryWindowMillis=${android.os.SystemClock.elapsedRealtime() - started} completed=$finished") }
-                    }
-                }, structural = {
-                if (structuralEligible) {
-                    val started = android.os.SystemClock.elapsedRealtime()
-                    var finished = false
-                    try { discoverStructuralResources(); finished = true }
-                    finally { if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "structuralDiscoveryMillis=${android.os.SystemClock.elapsedRealtime() - started} completed=$finished") }
-                }
-                if (structuralEligible && hasStructuralWork()) {
-                    // Coalesce a burst of durable Browse requests before starting HTTP.
-                    kotlinx.coroutines.delay(250)
-                    val started = android.os.SystemClock.elapsedRealtime()
-                    var finished = false
-                    try { runStructuralWindow(); finished = true }
-                    finally { if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", "structuralWindowMillis=${android.os.SystemClock.elapsedRealtime() - started} completed=$finished") }
-                }
-                })
-                val structuralPending = hasStructuralWork() || structuralDiscoveryPending
-                val hasAnyPending = discovery.hasPendingWork || structuralPending
-                if (!structuralPending && (!installed || discovery.state.value.paused)) discoveryScheduler.cancel()
-                else discoveryScheduler.request(settingsRepository.readCurrentSettings().discoveryEffort, hasAnyPending)
-                if (!installed) discovery.releaseModel()
-            }
-        }
+        discoveryOrchestrator = DiscoveryOrchestrator(
+            scope = discoveryScope,
+            discovery = discovery,
+            documentCache = documentCache,
+            settingsRepository = settingsRepository,
+            scheduler = discoveryScheduler,
+            isModelInstalled = { discoveryModel.state.value.installed },
+            verifyDiscoveryModels = {
+                discoveryModel.checkInstalled()
+                npuModel?.checkInstalled()
+                topicModel.checkInstalled()
+            },
+            isPlaying = { app.session.state.value.isPlaying },
+            isPlayingEvents = app.session.state.map { it.isPlaying }.distinctUntilChanged(),
+            browseEntries = { app.browse.state.value.entries },
+            browseEntriesEvents = app.browse.state.map { it.entries }.distinctUntilChanged(),
+            discoveryForeground = discoveryForeground,
+            discoveryPower = discoveryPower,
+            hasDiscoveryMemory = ::hasDiscoveryMemory,
+            onRefreshStorageBudget = {
+                storagePreferences = settingsRepository.readCurrentSettings()
+                storageBudget.refresh()
+            },
+            onRefreshRecentNotes = { app.recentNotes?.refresh() },
+            onStructuralTicket = { structuralTicket() },
+            logger = { message -> if (BuildConfig.DEBUG) Log.d("DiscoveryPipeline", message) }
+        )
 
         val scheduler = com.example.notionreader.application.StructuralWorkScheduler(
             coordinator = structuralCoordinator,
@@ -612,7 +552,19 @@ class ReaderApplication : Application() {
             built.start()
             built.startQueuePrefetch()
             built.startRecentNotesPrefetch()
-            discoveryScope.launch { discoveryWork() }
+            discoveryOrchestrator.start()
+            scheduler.startPipeline(
+                scope = discoveryScope,
+                workRevision = structuralCoordinator.workRevision,
+                resourceRevision = structuralResourceRevision,
+                settingsEvents = settingsRepository.settings,
+                powerEvents = discoveryPower,
+                foregroundEvents = discoveryForeground,
+                isPlayingEvents = app.session.state.map { it.isPlaying }.distinctUntilChanged(),
+                onDiscoverResources = { discoverStructuralResources() },
+                isDiscoveryPending = { structuralDiscoveryPending },
+                coalesceDelayMillis = 250L
+            )
         }
     }
 
@@ -716,7 +668,14 @@ class ReaderApplication : Application() {
         }
     }
 
+    /**
+     * Note: onTerminate() is only invoked in emulated/test process environments (e.g., Robolectric).
+     * Production Android devices never call this method on process death; production cleanup is
+     * handled deterministically via onTrimMemory, activity lifecycle callbacks, and window boundaries.
+     */
     override fun onTerminate() {
+        if (::discoveryOrchestrator.isInitialized) discoveryOrchestrator.shutdown()
+        processStructuralScheduler?.shutdownPipeline()
         host.shutdown()
         super.onTerminate()
     }
