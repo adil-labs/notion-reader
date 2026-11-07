@@ -30,7 +30,9 @@ internal class DiscoveryRetrieval(
             ?: ConnectionCatalogPageResult(listOfNotNull(snapshot.connections.firstOrNull { it.id == selectedId }), snapshot.connections.size)
         else topicStore?.connectionPage(snapshot, offset, limit)
             ?: ConnectionCatalogPageResult(snapshot.connections.drop(offset).take(limit), snapshot.connections.size)
-        val eligible = validity.eligibleRevisions()
+        val eligible = try { validity.eligibleRevisions() } catch (_: DiscoveryEligibilityChanged) {
+            return@withContext ConnectionCatalogPageResult(emptyList(), page.totalCount, false)
+        }
         // Clearing derived data does not mutate the source cache. Reject reads that
         // captured evidence before a reset, just as semantic retrieval does.
         if (!validity.isCurrent(token))
@@ -43,7 +45,9 @@ internal class DiscoveryRetrieval(
         exclude: String? = null, threshold: Float = -1f, olderThan: Instant? = null): List<SemanticMatch> = withContext(workDispatcher) {
         val started = System.nanoTime()
         val token = validity.capture()
-        val sources = validity.eligibleRevisions()
+        val sources = try { validity.eligibleRevisions() } catch (_: DiscoveryEligibilityChanged) {
+            return@withContext emptyList()
+        }
         val sourceReadNanos = System.nanoTime() - started
         var recordReadNanos = 0L
         var validationNanos = 0L

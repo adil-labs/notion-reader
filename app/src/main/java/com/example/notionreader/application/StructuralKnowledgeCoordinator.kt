@@ -121,11 +121,12 @@ class StructuralKnowledgeCoordinator(
     }
 
     /** Work identities survive cancellation/recreation; API cursors never become durable identities. */
-    suspend fun runWindow(maxPages: Int = 1, timeBudgetMillis: Long = 120_000, mayContinue: () -> Boolean = { true }) {
+    suspend fun runWindow(maxPages: Int = 1, timeBudgetMillis: Long = 120_000, mayContinue: () -> Boolean = { true }): Boolean {
         require(maxPages in 1..20 && timeBudgetMillis > 0)
-        withContext(Dispatchers.IO) { workMutex.withLock {
+        return withContext(Dispatchers.IO) { workMutex.withLock {
+            val work = stateMutex.withLock { refreshLocked(); store.readPendingWork().take(maxPages) }
+            var advancedObservation = false
             withTimeoutOrNull(timeBudgetMillis) {
-                val work = stateMutex.withLock { refreshLocked(); store.readPendingWork().take(maxPages) }
                 for (item in work) {
                     if (!mayContinue()) break
                     val ticket = stateMutex.withLock { refreshLocked() }
@@ -154,7 +155,11 @@ class StructuralKnowledgeCoordinator(
                                     id in cachedIds || queries.getPage(id)?.accessibilityState == PageAccessibilityState.ACCESSIBLE
                                 }
                                 try {
-                                    store.applyObservation(observation, ticket.sourceIdentity, ticket.sourceEpoch)
+                                    val previous = store.readPage(item.pageId)
+                                    if (store.applyObservation(observation, ticket.sourceIdentity, ticket.sourceEpoch) &&
+                                        previous != store.readPage(item.pageId)) {
+                                        advancedObservation = true
+                                    }
                                 } catch (limit: StructuralPageLimitExceeded) {
                                     val admitted = store.readIndex()
                                     store.blockPageWork(item.pageId, limit.sourceRevision, ticket.sourceIdentity, admitted.sourceEpoch)
@@ -190,6 +195,8 @@ class StructuralKnowledgeCoordinator(
                     if (maxPages > 1) delay(350)
                 }
             }
+            val remaining = stateMutex.withLock { refreshLocked(); store.readPendingWork().map { it.pageId }.toSet() }
+            advancedObservation || work.any { it.pageId !in remaining }
         } }
     }
 

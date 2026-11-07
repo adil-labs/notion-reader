@@ -59,6 +59,36 @@ enum class DiscoveryCoverageStatus { Checking, Ready }
 enum class TopicNamingStatus { Pending, Running, Ready, Unavailable }
 
 enum class DiscoveryTopicBlock { ModelUnavailable }
+enum class TopicFailureSource { Scheduling, Coordinator }
+
+enum class DiscoverySchedulingFailure {
+    MembershipIncomplete,
+    ProposalsIncomplete,
+    ConnectionsIncomplete;
+
+    fun userMessage(): String = when (this) {
+        MembershipIncomplete -> "Some topic membership checks are incomplete. Retry processing."
+        ProposalsIncomplete -> "Some topic proposals are incomplete. Retry processing."
+        ConnectionsIncomplete -> "Note connections are incomplete. Retry processing."
+    }
+
+}
+
+internal fun DiscoveryState.canRetryTopicScheduling(): Boolean =
+    topicFailure == null || topicFailureSource == TopicFailureSource.Scheduling
+
+internal fun DiscoveryState.withSchedulingFailure(failure: DiscoverySchedulingFailure): DiscoveryState {
+    val ownsMessage = canRetryTopicScheduling()
+    return copy(schedulingFailure = failure,
+        topicFailure = if (ownsMessage) failure.userMessage() else topicFailure,
+        topicFailureSource = if (ownsMessage) TopicFailureSource.Scheduling else topicFailureSource)
+}
+
+internal fun DiscoveryState.withoutSchedulingFailure(): DiscoveryState {
+    val ownsMessage = topicFailureSource == TopicFailureSource.Scheduling
+    return copy(schedulingFailure = null, topicFailure = if (ownsMessage) null else topicFailure,
+        topicFailureSource = if (ownsMessage) null else topicFailureSource)
+}
 
 data class DiscoveryState(
     val cacheStatus: DiscoveryCacheStatus = DiscoveryCacheStatus.Checking,
@@ -73,6 +103,8 @@ data class DiscoveryState(
     val searchCompleted: Boolean = false,
     val bytes: Long = 0, val message: String? = null,
     val indexFailure: String? = null, val topicFailure: String? = null,
+    val schedulingFailure: DiscoverySchedulingFailure? = null,
+    val topicFailureSource: TopicFailureSource? = null,
     val topicBlock: DiscoveryTopicBlock? = null,
     val topicSnapshot: TopicSnapshot = TopicSnapshot(), val topicsUpdated: Boolean = false,
     val publishedTopics: List<PublishedTopic> = emptyList(),
@@ -93,7 +125,9 @@ data class DiscoveryState(
     val workPending: Boolean = indexing || indexedCount < cachedPageIds.size || !topicSnapshot.complete ||
         (maxOf(indexedCount, cachedPageIds.size) > 1 && !topicSnapshot.connectionPassComplete)
 ) {
-    val processingFailure: String? get() = indexFailure ?: topicFailure
+    val processingFailure: String? get() = indexFailure
+        ?: topicFailure?.takeUnless { topicFailureSource == TopicFailureSource.Scheduling }
+        ?: schedulingFailure?.userMessage() ?: topicFailure
     val processingStatus: DiscoveryProcessingStatus get() = when {
         cacheStatus == DiscoveryCacheStatus.Checking -> DiscoveryProcessingStatus.Checking
         cacheStatus is DiscoveryCacheStatus.Failed -> DiscoveryProcessingStatus.CacheUnavailable

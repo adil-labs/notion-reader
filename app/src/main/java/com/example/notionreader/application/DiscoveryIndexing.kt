@@ -39,24 +39,36 @@ internal class DiscoveryIndexing(
             "One Note exceeds the safe indexing record size. Discovery coverage is incomplete; other offline Notes remain available."
         else "Discovery needs more storage. Coverage is incomplete; indexing is waiting for space or a higher limit."
 
+    /** Reset indexing work without invalidating a coherent snapshot's read token. */
+    fun markSourcesForReconciliation() {
+        reconciliationPending = true
+        runtime.embeddingMemo.clear()
+        runtime.interruptLabeling()
+        mutable.update { it.copy(embeddingWork = null, indexCoverage = DiscoveryCoverageStatus.Checking) }
+    }
+
     suspend fun reconcileInBackground(entries: List<ReaderIndexEntry>, mayIndex: Boolean) {
         val epoch = runtime.generation.get()
+        var token = runtime.validity.capture()
         try {
-            var sourceGeneration = cache.revision.value
+            var snapshotToken = runtime.validity.capture()
             var snapshots = cache.snapshot()
-            while (sourceGeneration != cache.revision.value) {
+            var attempts = 1
+            while (!runtime.validity.isCurrent(snapshotToken)) {
                 currentCoroutineContext().ensureActive()
-                sourceGeneration = cache.revision.value
+                if (attempts++ >= 3) { reconciliationPending = true; return }
+                snapshotToken = runtime.validity.capture()
                 snapshots = cache.snapshot()
             }
+            val sourceGeneration = snapshotToken.cacheRevision
             val sources = snapshots.associateBy { canonicalSemanticId(it.document.pageId) }
             if (state.value.cachedRevision != sourceGeneration) {
-                reconciliationPending = true
-                runtime.embeddingMemo.clear()
-                runtime.interruptLabeling()
-                mutable.update { it.copy(embeddingWork = null, indexCoverage = DiscoveryCoverageStatus.Checking) }
+                markSourcesForReconciliation()
             }
-            runtime.validity.remember(sourceGeneration, sources.mapValues { semanticRevision(it.value.document) })
+            token = snapshotToken
+            if (!runtime.validity.isCurrent(token)) return
+            runtime.validity.remember(token, sources.mapValues { semanticRevision(it.value.document) })
+            if (!runtime.validity.isCurrent(token)) return
             val ids = sources.keys
             val available = modelAvailable()
             val initialInventory = state.value.cacheStatus != DiscoveryCacheStatus.Ready
@@ -64,6 +76,7 @@ internal class DiscoveryIndexing(
             // Later reconciliations retain the atomic evidence-withdrawal path below.
             runtime.commits.withLock {
                 val paused = index.isPaused()
+                if (!runtime.validity.isCurrent(token)) return
                 mutable.update { current ->
                     if (current.cacheStatus != DiscoveryCacheStatus.Ready) current.copy(
                         cachedPageIds = ids,
@@ -84,13 +97,17 @@ internal class DiscoveryIndexing(
                 val eligible = if (events.any { it.pageId == null }) emptyMap() else
                     sources.filterKeys { it !in withdrawn }.mapValues { semanticRevision(it.value.document) }
                 runtime.commits.withLock {
-                    if (runtime.generation.get() != epoch || cache.revision.value != sourceGeneration) return
+                    if (runtime.generation.get() != epoch || !runtime.validity.isCurrent(token)) return
                     progress.reconcile(eligible)
-                    if (runtime.generation.get() != epoch || cache.revision.value != sourceGeneration) return
+                    if (runtime.generation.get() != epoch || !runtime.validity.isCurrent(token)) return
                 }
             }
             if (!initialInventory) topics?.invalidate(sources.mapValues { semanticRevision(it.value.document) })
-            runtime.commits.withLock { (index.pageIds() - ids).forEach { index.remove(it) } }
+            runtime.commits.withLock {
+                val obsolete = index.pageIds() - ids
+                if (!runtime.validity.isCurrent(token)) return
+                obsolete.forEach { if (!runtime.validity.isCurrent(token)) return; index.remove(it) }
+            }
             passageProgressStore?.let { progress -> runtime.commits.withLock {
                 for (id in progress.pageIds()) {
                     val saved = progress.read(id)
@@ -122,6 +139,7 @@ internal class DiscoveryIndexing(
             }
             val unavailable = preview.filter { it.pageId !in ids || it.passage.excerpt.isEmpty() }.map { it.pageId }.toSet()
             mutable.update { s ->
+                if (!runtime.validity.isCurrent(token)) return@update s
                 // Only reconcile the captured lists. Foreground queries and preview edits can
                 // publish newer state while disk validation is suspended.
                 val samePreview = s.preview === displayed.preview
@@ -297,6 +315,7 @@ internal class DiscoveryIndexing(
                             val started = monotonicNanos()
                             val memoToken = runtime.embeddingMemo.token()
                             val value = runtime.embedInput(passage.input)
+                            currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("passagesEmbedded")
                             if (runtime.generation.get() == epoch) {
                                 runtime.embeddingMemo.put(provider.identity, passage.input, value, memoToken)
                                 timeEstimator.record(monotonicNanos() - started)
@@ -352,7 +371,7 @@ internal class DiscoveryIndexing(
                 mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size)) }
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size), indexing = false) }
-            if (mayIndex && !index.isPaused() && modelAvailable()) withContext(workDispatcher) {
+            if (mayIndex && !index.isPaused() && modelAvailable() && runtime.validity.isCurrent(token)) withContext(workDispatcher) {
                 topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration,
                     indexComplete = indexed == ids.size, metadata = cachedMetadata)
             }

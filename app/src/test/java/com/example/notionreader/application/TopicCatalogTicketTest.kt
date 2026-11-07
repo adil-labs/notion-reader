@@ -79,7 +79,8 @@ class TopicCatalogTicketTest {
         val result = worker.advanceExistingConceptWork(ticket, record, sources, verifier, 1) {
             calls++; TopicSupportRun.Completed(SupportDecision.SUPPORTED)
         } as DurableConceptScanResult.AwaitingValidation
-        assertEquals(1, calls); assertEquals(listOf("p"), result.record.assessments.map { it.evidence.passageId })
+        assertEquals("The current pending assessment survives canonical admission", 0, calls)
+        assertEquals(listOf("p"), result.record.assessments.map { it.evidence.passageId })
         assertEquals(DurableConceptScanResult.Stale, worker.advanceExistingConceptWork(ticket, record, emptyMap(), verifier, 1) { error("No inference") })
         val stale = worker.advanceExistingConceptWork(ticket, record, sources, verifier.copy(policy = "changed"), 1, restart = true) {
             cache.remove("note")
