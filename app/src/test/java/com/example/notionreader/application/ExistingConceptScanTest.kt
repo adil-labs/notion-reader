@@ -112,6 +112,36 @@ class ExistingConceptScanTest {
         assertEquals(listOf("first:note:p", "second:note:p"), calls)
     }
 
+    @Test fun aConceptScanDoesNotRereadTheSameNoteRecordForEveryCandidate() = runBlocking {
+        val root = files.newFolder(); val backing = FileSemanticIndexStore(root.resolve("index"))
+        val base = record("note"); val original = base.passages.single()
+        val note = base.copy(passages = (0..3).map { n ->
+            original.copy(passage = original.passage.copy(id = "note:p$n", order = n))
+        })
+        backing.write(note)
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))
+        val first = topic("first", 1)
+        assertEquals(TopicRetrievalWriteResult.Written, retrievals.write(TopicRetrievalProgress(query(first))) { true })
+        val snapshot = TopicSnapshot(topics = listOf(first), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        var reads = 0
+        val index = object : SemanticIndexStore by backing {
+            override suspend fun read(pageId: String): SemanticRecord? {
+                reads++
+                return backing.read(pageId)
+            }
+        }
+        var calls = 0
+        val result = scanExistingConceptPage(snapshot, note, identity, policy, verifier, 4, sources, retrievals,
+            index, progress, null, 4, { true }, { true }) {
+            calls++
+            TopicSupportRun.Completed(SupportDecision.UNSUPPORTED)
+        }
+        assertTrue(result is ExistingConceptScanResult.Page)
+        assertEquals(4, calls)
+        assertEquals("One Note read per page scan, not one per candidate: $reads", 2, reads)
+    }
+
     @Test fun unsupportedPassagesPageBeforeAdvancingToTheNextConcept() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
         val base = record("note"); val original = base.passages.single()

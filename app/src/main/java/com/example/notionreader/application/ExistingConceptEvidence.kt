@@ -36,6 +36,7 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
     context.ensureActive()
     if (!current()) return ExistingConceptEvidenceResult.Stale
     if (!mayWork()) return ExistingConceptEvidenceResult.Deferred
+    val diagnostics = context[DiscoveryWorkDiagnostics]
     if (query.query.topicId != concept.topicId || query.query.conceptWorkKey != concept.workKey)
         return ExistingConceptEvidenceResult.Invalid
     val pageId = canonicalSemanticId(record.pageId)
@@ -45,8 +46,12 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
     if (!mayWork()) return ExistingConceptEvidenceResult.Deferred
     if (actual == null || actual.identity != record.identity || actual.revision != record.revision ||
         passageDeltaFingerprint(actual) != passageDeltaFingerprint(record)) return ExistingConceptEvidenceResult.Stale
-    val candidates = when (val page = topicCandidatePage(query, record, sources[pageId], limit, cursor,
-        checkActive = { context.ensureActive() })) {
+    diagnostics?.record("candidatePassagesScored", record.passages.size.toLong())
+    val candidates = when (val page = if (diagnostics != null)
+        diagnostics.timed("candidateRetrievalNanos") {
+            topicCandidatePage(query, record, sources[pageId], limit, cursor, checkActive = { context.ensureActive() })
+        }
+        else topicCandidatePage(query, record, sources[pageId], limit, cursor, checkActive = { context.ensureActive() })) {
         is TopicCandidatePage.Ready -> page
         TopicCandidatePage.Stale -> return ExistingConceptEvidenceResult.Stale
         TopicCandidatePage.Invalid -> return ExistingConceptEvidenceResult.Invalid
@@ -64,8 +69,13 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
         context.ensureActive()
         if (!current()) return ExistingConceptEvidenceResult.Stale
         if (!mayWork()) return ExistingConceptEvidenceResult.Deferred
-        val result = verifyRetrievedPassage(concept, candidate, index, record.identity, verifier, epoch, sources,
-            { current() && mayWork() }, store, verify)
+        val result = if (diagnostics != null)
+            diagnostics.timed("supportDecisionNanos") {
+                verifyRetrievedPassage(concept, candidate, index, record.identity, verifier, epoch, sources,
+                    { current() && mayWork() }, store, knownRecord = record, verify = verify)
+            }
+        else verifyRetrievedPassage(concept, candidate, index, record.identity, verifier, epoch, sources,
+            { current() && mayWork() }, store, knownRecord = record, verify = verify)
         if (!current()) return ExistingConceptEvidenceResult.Stale
         if (!mayWork()) return ExistingConceptEvidenceResult.Deferred
         when (result) {

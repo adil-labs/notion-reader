@@ -31,8 +31,18 @@ internal class DiscoveryIndexing(
     private val advancePartialWork: suspend () -> Unit
 ) {
     private class BulkWorkDeferred : RuntimeException()
+    private suspend fun <T> phase(name: String, action: suspend () -> T): T {
+        val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics] ?: return action()
+        return diagnostics.timed(name, action)
+    }
     private val timeEstimator = DiscoveryTimeEstimator()
     @Volatile var reconciliationPending = true
+    // The last fully completed inventory. A scheduler turn whose inputs still match this is a
+    // domain-work turn, not another corpus rebuild: re-reading every index record and decoding
+    // every cached Note once per ~9s step consumes almost all of the bounded window.
+    private var lastReconciledRevision = -1L
+    private var lastReconciledIdentity: EmbeddingIdentity? = null
+    private var lastReconciledEntriesHash: Int? = null
     private val state get() = mutable
     private fun writeFailure(store: SemanticIndexStore): String =
         if (store.lastWriteFailure == SemanticWriteFailure.RecordMemoryLimit)
@@ -48,17 +58,30 @@ internal class DiscoveryIndexing(
     }
 
     suspend fun reconcileInBackground(entries: List<ReaderIndexEntry>, mayIndex: Boolean) {
+        val observedRevision = cache.revision.value
+        val entriesHash = entries.hashCode()
+        val currentState = state.value
+        if (mayIndex && topics?.sourceAcceptancePending != true &&
+            !reconciliationPending && currentState.cacheStatus == DiscoveryCacheStatus.Ready &&
+            currentState.cachedRevision == observedRevision && currentState.indexFailure == null &&
+            currentState.indexedCount >= currentState.cachedPageIds.size &&
+            lastReconciledRevision == observedRevision && lastReconciledIdentity == provider.identity &&
+            lastReconciledEntriesHash == entriesHash) {
+            currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("inventorySkippedUnchanged")
+            return
+        }
+        currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("inventoryRebuilt")
         val epoch = runtime.generation.get()
         var token = runtime.validity.capture()
         try {
             var snapshotToken = runtime.validity.capture()
-            var snapshots = cache.snapshot()
+            var snapshots = phase("indexingSnapshotNanos") { cache.snapshot() }
             var attempts = 1
             while (!runtime.validity.isCurrent(snapshotToken)) {
                 currentCoroutineContext().ensureActive()
                 if (attempts++ >= 3) { reconciliationPending = true; return }
                 snapshotToken = runtime.validity.capture()
-                snapshots = cache.snapshot()
+                snapshots = phase("indexingSnapshotNanos") { cache.snapshot() }
             }
             val sourceGeneration = snapshotToken.cacheRevision
             val sources = snapshots.associateBy { canonicalSemanticId(it.document.pageId) }
@@ -91,29 +114,30 @@ internal class DiscoveryIndexing(
             // A removed and recached page may have the same content revision, so the
             // current snapshot alone is insufficient to withdraw old pending evidence.
             proposalProgressStore?.let { progress ->
-                reconciliationPending = true
                 val events = cache.invalidations.value
                 val withdrawn = events.mapNotNull { it.pageId?.let(::canonicalSemanticId) }.toSet()
                 val eligible = if (events.any { it.pageId == null }) emptyMap() else
                     sources.filterKeys { it !in withdrawn }.mapValues { semanticRevision(it.value.document) }
                 runtime.commits.withLock {
                     if (runtime.generation.get() != epoch || !runtime.validity.isCurrent(token)) return
-                    progress.reconcile(eligible)
+                    phase("proposalReconcileNanos") { progress.reconcile(eligible) }
                     if (runtime.generation.get() != epoch || !runtime.validity.isCurrent(token)) return
                 }
             }
-            if (!initialInventory) topics?.invalidate(sources.mapValues { semanticRevision(it.value.document) })
+            if (!initialInventory) phase("topicsInvalidateNanos") {
+                topics?.invalidate(sources.mapValues { semanticRevision(it.value.document) })
+            }
             runtime.commits.withLock {
-                val obsolete = index.pageIds() - ids
+                val obsolete = phase("indexInventoryNanos") { index.pageIds() } - ids
                 if (!runtime.validity.isCurrent(token)) return
                 obsolete.forEach { if (!runtime.validity.isCurrent(token)) return; index.remove(it) }
             }
-            passageProgressStore?.let { progress -> runtime.commits.withLock {
+            passageProgressStore?.let { progress -> phase("passageProgressReconcileNanos") { runtime.commits.withLock {
                 for (id in progress.pageIds()) {
                     val saved = progress.read(id)
                     if (id !in ids || saved?.identity != provider.identity) progress.remove(id)
                 }
-            } }
+            } } }
             val interests = interestStore.read()
             val displayed = state.value
             val displayedIds = (displayed.results + displayed.related + displayed.recommendations +
@@ -121,7 +145,9 @@ internal class DiscoveryIndexing(
             val currentRecords = mutableMapOf<String, SemanticRecord>()
             for (id in displayedIds) {
                 val source = sources[id] ?: continue
-                index.read(id)?.takeIf { it.identity == provider.identity && it.revision == semanticRevision(source.document) }
+                phase("indexingIndexReadNanos") {
+                    index.read(id)?.takeIf { it.identity == provider.identity && it.revision == semanticRevision(source.document) }
+                }
                     ?.let { currentRecords[id] = it }
             }
             fun currentEvidence(match: SemanticMatch): Boolean = currentRecords[match.pageId]?.let { record ->
@@ -170,15 +196,15 @@ internal class DiscoveryIndexing(
                 while (runtime.foregroundQueries.get() > 0) delay(10)
                 if (runtime.generation.get() != epoch) return
                 val revision = semanticRevision(source.document)
-                val old = runtime.bulkStep { index.read(id) }
+                val old = phase("indexingIndexReadNanos") { runtime.bulkStep { index.read(id) } }
                 val meta = cachedMetadata.getValue(id)
                 if (old?.revision == revision && old.identity == provider.identity) {
                     if (proposalProgressStore != null && modelAvailable() && mayContinueWork()) {
                         val handoff = runtime.bulkStep { runtime.commits.withLock {
-                            capturePassageDelta(old, index, proposalProgressStore) {
+                            phase("passageDeltaNanos") { capturePassageDelta(old, index, proposalProgressStore) {
                                 runtime.generation.get() == epoch && cache.revision.value == sourceGeneration &&
                                     mayContinueWork() && runtime.foregroundQueries.get() == 0
-                            }
+                            } }
                         } }
                         when (handoff) {
                             is PassageDeltaHandoff.Ready -> Unit
@@ -197,7 +223,7 @@ internal class DiscoveryIndexing(
                     if (old.metadata != meta) {
                         reconciliationPending = true
                         runtime.commits.withLock {
-                            if (runtime.generation.get() == epoch && cache.snapshot().any { canonicalSemanticId(it.document.pageId) == id }) {
+                            if (runtime.generation.get() == epoch && phase("indexingVerifySnapshotNanos") { cache.snapshot() }.any { canonicalSemanticId(it.document.pageId) == id }) {
                                 if (index.write(old.copy(metadata = meta))) mutable.update { it.copy(indexedRevision = it.indexedRevision + 1) }
                             }
                         }
@@ -211,10 +237,10 @@ internal class DiscoveryIndexing(
                     val draft = SemanticRecord(id, revision, provider.identity, meta,
                         passages.map { EmbeddedPassage(it, emptyList()) })
                     val handoff = runtime.bulkStep { runtime.commits.withLock {
-                        capturePassageDelta(draft, index, proposalProgressStore) {
+                        phase("passageDeltaNanos") { capturePassageDelta(draft, index, proposalProgressStore) {
                             runtime.generation.get() == epoch && cache.revision.value == sourceGeneration &&
                                 mayContinueWork() && runtime.foregroundQueries.get() == 0
-                        }
+                        } }
                     } }
                     when (handoff) {
                         is PassageDeltaHandoff.Ready -> Unit
@@ -270,14 +296,16 @@ internal class DiscoveryIndexing(
                 indexCoverage = DiscoveryCoverageStatus.Ready) }
             if (initialInventory && topics != null) {
                 mutable.update { it.copy(restoringSavedDiscoveries = true) }
-                try { topics.invalidate(sources.mapValues { semanticRevision(it.value.document) }) }
+                try { phase("topicsInvalidateNanos") { topics.invalidate(sources.mapValues { semanticRevision(it.value.document) }) } }
                 finally { mutable.update { it.copy(restoringSavedDiscoveries = false) } }
             }
             val sourceRevisions = sources.mapValues { semanticRevision(it.value.document) }
             if (mayIndex && !index.isPaused() && modelAvailable() && mayContinueWork() && indexedSources.size < sources.size) {
-                topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration,
-                    indexComplete = false, metadata = cachedMetadata, indexedSources = indexedSources.toMap())
-                advancePartialWork()
+                phase("topicBuildNanos") {
+                    topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration,
+                        indexComplete = false, metadata = cachedMetadata, indexedSources = indexedSources.toMap())
+                    advancePartialWork()
+                }
             }
             val totalPassages = jobs.sumOf { it.second }
             var remainingPassages = totalPassages
@@ -294,7 +322,7 @@ internal class DiscoveryIndexing(
                 val source = sources.getValue(id)
                 val revision = semanticRevision(source.document)
                 val meta = cachedMetadata.getValue(id)
-                val old = runtime.bulkStep { index.read(id) }
+                val old = phase("indexingIndexReadNanos") { runtime.bulkStep { index.read(id) } }
                 // Retain compatibility reuse only within this one Note's bounded lifetime.
                 val passages = SemanticChunker(provider.tokenizer).chunk(source.document)
                 val resumed = passageProgressStore?.read(id)?.takeIf {
@@ -349,7 +377,7 @@ internal class DiscoveryIndexing(
                 }
                 val committed = runtime.commits.withLock {
                     if (runtime.generation.get() != epoch || index.isPaused()) return@withLock null
-                    val latest = cache.snapshot().firstOrNull { canonicalSemanticId(it.document.pageId) == id }
+                    val latest = phase("indexingVerifySnapshotNanos") { cache.snapshot() }.firstOrNull { canonicalSemanticId(it.document.pageId) == id }
                     if (latest == null || semanticRevision(latest.document) != revision) return@withLock null
                     index.write(SemanticRecord(id, revision, provider.identity, meta, embedded))
                 }
@@ -364,25 +392,34 @@ internal class DiscoveryIndexing(
                     indexed++; indexedSources[id] = revision; remainingNotes--; publishWork()
                     mutable.update { it.copy(indexedRevision = it.indexedRevision + 1) }
                     if (indexed < ids.size && mayContinueWork()) {
-                        topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration, indexComplete = false,
-                            metadata = cachedMetadata, indexedSources = indexedSources.toMap())
-                        advancePartialWork()
+                        phase("topicBuildNanos") {
+                            topics?.build(sourceRevisions, semanticMetadataHash(cachedMetadata), sourceGeneration, indexComplete = false,
+                                metadata = cachedMetadata, indexedSources = indexedSources.toMap())
+                            advancePartialWork()
+                        }
                     }
                 }
                 mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size)) }
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size), indexing = false) }
             if (mayIndex && !index.isPaused() && modelAvailable() && runtime.validity.isCurrent(token)) withContext(workDispatcher) {
-                topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration,
-                    indexComplete = indexed == ids.size, metadata = cachedMetadata)
+                phase("topicBuildNanos") {
+                    topics?.build(sources.mapValues { semanticRevision(it.value.document) }, semanticMetadataHash(cachedMetadata), sourceGeneration,
+                        indexComplete = indexed == ids.size, metadata = cachedMetadata)
+                }
             }
             mutable.update { it.copy(indexedCount = minOf(indexed, it.cachedPageIds.size),
-                bytes = index.bytes() + (passageProgressStore?.bytes() ?: 0L) +
-                    (proposalProgressStore?.bytes() ?: 0L) + (topics?.bytes() ?: 0L)) }
+                bytes = phase("storageBytesNanos") { index.bytes() + (passageProgressStore?.bytes() ?: 0L) +
+                    (proposalProgressStore?.bytes() ?: 0L) + (topics?.bytes() ?: 0L) }) }
             if (mayIndex && !index.isPaused() && modelAvailable() && mayContinueWork() &&
                 cache.revision.value == sourceGeneration && indexed == ids.size) {
                 mutable.update { it.copy(indexFailure = null) }
-                if (topics?.needsMoreWork != true) reconciliationPending = false
+                // Inventory is current. Domain work (membership, tails, proposals) remains
+                // pending independently and must not force another full corpus rebuild.
+                reconciliationPending = false
+                lastReconciledRevision = sourceGeneration
+                lastReconciledIdentity = provider.identity
+                lastReconciledEntriesHash = entriesHash
             }
             if (mayIndex && topics?.needsMoreWork == true) delay(50)
         } catch (cancelled: CancellationException) { throw cancelled }

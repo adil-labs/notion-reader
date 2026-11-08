@@ -18,9 +18,10 @@ internal sealed interface SupportVerificationResult {
 internal suspend fun verifyRetrievedPassage(concept: SupportConcept, candidate: TopicMatchReference,
     index: SemanticIndexStore, embedding: EmbeddingIdentity, verifier: TopicLabelIdentity, epoch: Long,
     sources: Map<String, String>, current: () -> Boolean, store: ProposalProgressStore? = null,
+    knownRecord: SemanticRecord? = null,
     verify: suspend (TopicSupportRequest) -> TopicSupportRun): SupportVerificationResult {
     val result = verifyRetrievedPassageImpl(concept, candidate, index, embedding, verifier, epoch,
-        sources, current, store, verify)
+        sources, current, store, knownRecord, verify)
     currentCoroutineContext()[DiscoveryWorkDiagnostics]?.let { diagnostics ->
         when (result) {
             is SupportVerificationResult.Completed -> {
@@ -42,6 +43,7 @@ internal suspend fun verifyRetrievedPassage(concept: SupportConcept, candidate: 
 private suspend fun verifyRetrievedPassageImpl(concept: SupportConcept, candidate: TopicMatchReference,
     index: SemanticIndexStore, embedding: EmbeddingIdentity, verifier: TopicLabelIdentity, epoch: Long,
     sources: Map<String, String>, current: () -> Boolean, store: ProposalProgressStore?,
+    knownRecord: SemanticRecord? = null,
     verify: suspend (TopicSupportRequest) -> TopicSupportRun): SupportVerificationResult {
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
@@ -49,7 +51,23 @@ private suspend fun verifyRetrievedPassageImpl(concept: SupportConcept, candidat
         candidate.revision.isBlank() || candidate.passageId.isBlank() || !candidate.score.isFinite() ||
         candidate.score !in -1f..1f) return SupportVerificationResult.Invalid
     if (sources[candidate.pageId] != candidate.revision) return SupportVerificationResult.Stale
-    val record = index.read(candidate.pageId)
+    val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics]
+    suspend fun readRecord(pageId: String): SemanticRecord? {
+        diagnostics?.record("supportIndexReads")
+        return if (diagnostics != null) diagnostics.timed("supportIndexReadNanos") { index.read(pageId) }
+        else index.read(pageId)
+    }
+    suspend fun readSupport(workKey: String): TopicSupportAssessment? =
+        if (diagnostics != null) diagnostics.timed("supportCacheLookupNanos") { store?.readSupport(workKey, sources) }
+        else store?.readSupport(workKey, sources)
+    val record = if (knownRecord != null) {
+        diagnostics?.record("supportKnownRecord")
+        if (canonicalSemanticId(knownRecord.pageId) != candidate.pageId ||
+            knownRecord.revision != candidate.revision || knownRecord.identity != embedding) {
+            return SupportVerificationResult.Stale
+        }
+        knownRecord
+    } else readRecord(candidate.pageId)
     if (!current()) return SupportVerificationResult.Stale
     if (record == null) return SupportVerificationResult.Unavailable
     if (record.identity != embedding || record.revision != candidate.revision ||
@@ -63,25 +81,32 @@ private suspend fun verifyRetrievedPassageImpl(concept: SupportConcept, candidat
         return SupportVerificationResult.Invalid
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
-    val saved = store?.readSupport(topicSupportWorkKey(request), sources)
+    val workKey = topicSupportWorkKey(request)
+    diagnostics?.recordSupportWork(workKey)
+    val saved = readSupport(workKey)
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
     if (saved != null) {
         val checked = validateTopicSupport(request, saved.decision, epoch, concept.workKey, sources)
-        if (checked is TopicSupportValidation.Accepted && checked.assessment == saved)
+        if (checked is TopicSupportValidation.Accepted && checked.assessment == saved) {
+            diagnostics?.record("supportCacheHit")
             return SupportVerificationResult.Completed(saved, reused = true)
+        }
+        diagnostics?.record("supportCacheRejected")
     }
     // Admission changes the catalog ID, not the concept or evidence that was assessed.
     // An existing canonical decision always wins, including rejection and uncertainty.
     val pendingId = "pending:${concept.workKey}"
     if (store != null && saved == null && concept.topicId != pendingId) {
         val pendingRequest = request.copy(topicId = pendingId)
-        val pending = store.readSupport(topicSupportWorkKey(pendingRequest), sources)
+        val pending = readSupport(topicSupportWorkKey(pendingRequest))
         currentCoroutineContext().ensureActive()
         if (!current()) return SupportVerificationResult.Stale
         if (pending != null) {
             val checked = validateTopicSupport(pendingRequest, pending.decision, epoch, concept.workKey, sources)
             if (checked is TopicSupportValidation.Accepted && checked.assessment == pending) {
+                diagnostics?.record("supportCacheHit")
+                diagnostics?.record("supportPendingFallback")
                 val canonical = validateTopicSupport(request, pending.decision, epoch, concept.workKey, sources)
                     as TopicSupportValidation.Accepted
                 val written = store.writeSupport(canonical.assessment, current)
@@ -92,6 +117,7 @@ private suspend fun verifyRetrievedPassageImpl(concept: SupportConcept, candidat
             }
         }
     }
+    diagnostics?.record("supportCacheMiss")
     val result = verify(request)
     currentCoroutineContext().ensureActive()
     if (!current()) return SupportVerificationResult.Stale
