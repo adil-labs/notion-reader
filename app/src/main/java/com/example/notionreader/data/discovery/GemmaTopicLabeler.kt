@@ -34,9 +34,15 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
                 !is TopicSupportValidation.Accepted) return@withLock TopicSupportRun.Failed(TopicLabelRuntimeFailure.InvalidOutput)
             try {
                 currentCoroutineContext().ensureActive()
+                val openStarted = System.nanoTime()
+                val opened = engine == null
                 val runtime = engine ?: open().also { engine = it }
+                if (opened) metric("supportOpenNanos", (System.nanoTime() - openStarted).coerceAtLeast(0))
                 currentCoroutineContext().ensureActive()
-                val result = when (val output = generate(runtime, topicSupportPrompt(request), TopicSupportSchema)) {
+                val promptStarted = System.nanoTime()
+                val prompt = topicSupportPrompt(request)
+                metric("supportPromptNanos", (System.nanoTime() - promptStarted).coerceAtLeast(0))
+                val result = when (val output = generate(runtime, prompt, TopicSupportSchema)) {
                     NativeResult.Cancelled -> TopicSupportRun.Cancelled
                     is NativeResult.Failed -> TopicSupportRun.Failed(output.reason)
                     is NativeResult.Completed -> parseTopicSupportResponse(output.raw)?.let { TopicSupportRun.Completed(it) }
@@ -63,7 +69,10 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
                 return@withLock DiscoveryProposalRun.Failed(TopicLabelRuntimeFailure.InvalidModel)
             try {
                 currentCoroutineContext().ensureActive()
+                val openStarted = System.nanoTime()
+                val opened = engine == null
                 val runtime = engine ?: open().also { engine = it }
+                if (opened) metric("proposalOpenNanos", (System.nanoTime() - openStarted).coerceAtLeast(0))
                 currentCoroutineContext().ensureActive()
                 val result = inferProposal(runtime, request)
                 if (result is DiscoveryProposalRun.Completed) metric("proposalSuccesses", 1)
@@ -191,17 +200,21 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
     }
 
     private suspend fun generate(runtime: NativeTopicLabelEngine, prompt: String, schema: String): NativeResult {
-        val session = runtime.conversation()
-        val flight = Flight(session)
-        var submitted = false
         val kind = if (inferenceDiagnostics == null) null else when (schema) {
             TopicSupportSchema -> "support"
             DiscoveryProposalSchema -> "proposal"
             else -> "label"
         }
+        val conversationStarted = System.nanoTime()
+        val session = runtime.conversation()
+        if (kind != null) metric("${kind}ConversationNanos", (System.nanoTime() - conversationStarted).coerceAtLeast(0))
+        val flight = Flight(session)
+        var submitted = false
         var started: Long? = null
         try {
+            val tokenizeStarted = System.nanoTime()
             val tokens = session.countPromptTokens(prompt)
+            if (kind != null) metric("${kind}TokenizeNanos", (System.nanoTime() - tokenizeStarted).coerceAtLeast(0))
             if (tokens <= 0 || tokens > GenerativeModelPack.contextTokens - GenerativeModelPack.outputTokens)
                 return NativeResult.Failed(TopicLabelRuntimeFailure.InputLimit)
             currentCoroutineContext().ensureActive()

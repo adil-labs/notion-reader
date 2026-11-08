@@ -83,6 +83,7 @@ internal class EvidenceFirstScheduler {
         catalogIdentity: String? = null
     ): EvidenceFirstScheduleResult {
         val diagnostics = kotlinx.coroutines.currentCoroutineContext()[DiscoveryWorkDiagnostics]
+        diagnostics?.record("evidenceSchedulerTurns")
         val resetToken = resetGeneration.get()
         if (seenReset != resetToken) { scope = null; pages.clear(); current = null; last = null; seenReset = resetToken }
         if (scope != scopeKey || pages.keys != sourceIds.toSet()) {
@@ -115,6 +116,7 @@ internal class EvidenceFirstScheduler {
         fun block(): EvidenceFirstScheduleResult {
             page.blocked = true; page.work = null; page.candidate = null; page.replay = null
             page.admissionReplay = PendingCorpusReplay.start(); current = null; last = id
+            diagnostics?.record("evidencePageBlocks")
             return if (pages.values.any { !it.done && !it.blocked }) EvidenceFirstScheduleResult.Progress else EvidenceFirstScheduleResult.Blocked
         }
         fun stale(): EvidenceFirstScheduleResult {
@@ -177,11 +179,12 @@ internal class EvidenceFirstScheduler {
                 if (result.window.scanPending) EvidenceFirstScheduleResult.Progress
                 else if (page.index < result.window.window.proposals.size) {
                     page.work = PendingCorpusWork.start(id, page.index, anchorOffset = page.offset)
+                    diagnostics?.record("evidenceProposalWindows")
                     EvidenceFirstScheduleResult.Progress
                 } else {
                     val next = result.window.window.nextAnchorOffset
                     if (next != null && next <= page.offset) block()
-                    else { if (next == null) { page.done = true; current = null; last = id }
+                    else { if (next == null) { page.done = true; current = null; last = id; diagnostics?.record("evidencePagesCompleted") }
                         else { page.offset = next; page.index = 0; page.replay = null }
                         EvidenceFirstScheduleResult.Progress }
                 }

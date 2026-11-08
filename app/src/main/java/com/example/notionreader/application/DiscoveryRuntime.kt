@@ -44,10 +44,16 @@ internal class DiscoveryRuntime(cache: DocumentCache, private val provider: Embe
         if (!labelModelAvailable()) return unavailable
         val token = validity.capture()
         while (foregroundQueries.get() > 0) delay(10)
+        val gateRequested = System.nanoTime()
         return inference.withLock {
+            currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("inferenceGateWaitNanos",
+                (System.nanoTime() - gateRequested).coerceAtLeast(0))
             if (!mayWork() || !validity.isCurrent(token)) return@withLock cancelled
             if (!labelModelAvailable()) return@withLock unavailable
+            val releaseStarted = System.nanoTime()
             provider.release()
+            currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("providerReleaseNanos",
+                (System.nanoTime() - releaseStarted).coerceAtLeast(0))
             val result = coroutineScope {
                 val task = async(start = CoroutineStart.LAZY) { action() }
                 activeLabel.set(task)

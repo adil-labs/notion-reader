@@ -52,15 +52,21 @@ internal class DiscoveryValidity(private val cache: DocumentCache) {
     }
 
     suspend fun eligibleRevisions(): Map<String, String> {
+        val diagnostics = kotlinx.coroutines.currentCoroutineContext()[DiscoveryWorkDiagnostics]
         fun cached(token: DiscoveryReadToken): Map<String, String>? = eligibility?.takeIf {
             it.reset == token.reset && it.invalidationGen == token.invalidationGeneration && it.cacheRevision == token.cacheRevision
         }?.sources?.takeIf { isCurrent(token) }
         val token = capture()
-        cached(token)?.let { return it }
+        cached(token)?.let { diagnostics?.record("eligibilityCacheHit"); return it }
         return eligibilityMutex.withLock {
             val current = capture()
-            cached(current)?.let { return@withLock it }
-            val sources = cache.snapshot().associate {
+            cached(current)?.let { diagnostics?.record("eligibilityCacheHit"); return@withLock it }
+            diagnostics?.record("eligibilityCacheMiss")
+            val sources = if (diagnostics != null) diagnostics.timed("eligibilitySnapshotNanos") {
+                cache.snapshot().associate {
+                    canonicalSemanticId(it.document.pageId) to semanticRevision(it.document)
+                }
+            } else cache.snapshot().associate {
                 canonicalSemanticId(it.document.pageId) to semanticRevision(it.document)
             }
             if (!isCurrent(current)) throw DiscoveryEligibilityChanged()

@@ -1,6 +1,7 @@
 package com.example.notionreader.application
 
 import com.example.notionreader.domain.discovery.*
+import kotlinx.coroutines.currentCoroutineContext
 
 /** Membership work is bounded Note-concept scanning; tail work is the later exhaustive pass. */
 internal enum class MembershipWorkKind {
@@ -116,12 +117,19 @@ internal class CanonicalMembershipScheduler {
         scan: suspend (String, Boolean) -> DurableConceptScanResult,
         commit: suspend (String, ExistingConceptScanRecord, ConceptScanReplay, Int) -> CanonicalMembershipUpdateResult
     ): CanonicalMembershipScheduleResult {
+        val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics]
+        diagnostics?.record("membershipSchedulerTurns")
         val concepts = snapshot.topics.mapNotNull { it.canonicalConcept }
-        if (concepts.isEmpty()) { active = null; return CanonicalMembershipScheduleResult.Idle }
-        if ((!snapshot.complete && !snapshot.canonicalCatalogReady) || concepts.any { it.verifier != verifier })
+        if (concepts.isEmpty()) { active = null; diagnostics?.record("membershipIdle"); return CanonicalMembershipScheduleResult.Idle }
+        if ((!snapshot.complete && !snapshot.canonicalCatalogReady) || concepts.any { it.verifier != verifier }) {
+            diagnostics?.record("membershipBlocked")
             return CanonicalMembershipScheduleResult.Blocked
+        }
         val pending = canonicalMembershipWork(snapshot, sources, verifier)
-        if (pending.isEmpty()) { active = null; return CanonicalMembershipScheduleResult.Idle }
+        diagnostics?.record("membershipPendingWork", pending.size.toLong())
+        diagnostics?.record("membershipPendingMembership", pending.count { it.kind == MembershipWorkKind.MEMBERSHIP }.toLong())
+        diagnostics?.record("membershipPendingTails", pending.count { it.kind == MembershipWorkKind.TAIL }.toLong())
+        if (pending.isEmpty()) { active = null; diagnostics?.record("membershipIdle"); return CanonicalMembershipScheduleResult.Idle }
         // The active-work scope is the actual membership dependency: model identity, verifier,
         // retrieval policy, sources and the topic/concept/query identities. The global catalog
         // generation and retry counters are deliberately excluded: they change for unrelated
@@ -139,7 +147,7 @@ internal class CanonicalMembershipScheduler {
             work !in pending || blocked[work] != membershipDependency(work, snapshot, sources, verifier, retrievalPolicyIdentity)
         }
         val available = pending.filterNot { it in blocked }
-        if (available.isEmpty()) return CanonicalMembershipScheduleResult.Blocked
+        if (available.isEmpty()) { diagnostics?.record("membershipBlocked"); return CanonicalMembershipScheduleResult.Blocked }
 
         fun block(work: MembershipWork): CanonicalMembershipScheduleResult {
             blocked[work] = membershipDependency(work, snapshot, sources, verifier, retrievalPolicyIdentity)
@@ -162,6 +170,7 @@ internal class CanonicalMembershipScheduler {
         }
         if (selected.kind == MembershipWorkKind.MEMBERSHIP) membershipTurnsSinceTail++
         else membershipTurnsSinceTail = 0
+        diagnostics?.record(if (selected.kind == MembershipWorkKind.MEMBERSHIP) "membershipWorkTurns" else "tailWorkTurns")
         val work = active?.takeIf { it.work == selected && it.scope == scope }
             ?: Active(selected, scope).also { active = it }
         // The scan function owns durable tail semantics: a partial tail checkpoint resumes, a

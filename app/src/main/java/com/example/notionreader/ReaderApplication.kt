@@ -35,6 +35,7 @@ import com.example.notionreader.player.ReaderEngineImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -414,6 +415,11 @@ class ReaderApplication : Application() {
             inferenceDiagnostics = if (BuildConfig.DEBUG) { name, value ->
                 Log.d("DiscoveryInference", "$name=$value")
             } else null)
+        val discoveryWorkLog = if (BuildConfig.DEBUG) {
+            com.example.notionreader.application.DiscoveryWorkLogAggregator(sink = { values ->
+                android.util.Log.d("DiscoveryWorkSummary", values.toString())
+            })
+        } else null
         discovery = com.example.notionreader.application.DiscoveryController(
             documentCache, semanticIndex, interestStore,
             embeddingProvider,
@@ -423,9 +429,7 @@ class ReaderApplication : Application() {
             queryTimings = { timings ->
                 if (BuildConfig.DEBUG) android.util.Log.d("DiscoveryTiming", timings.toString())
             },
-            workDiagnostics = if (BuildConfig.DEBUG) { values ->
-                android.util.Log.d("DiscoveryWork", values.toString())
-            } else null,
+            workDiagnostics = discoveryWorkLog?.let { log -> { values -> log.accept(values) } },
             topicStore = topicStore, passageProgressStore = passageProgressStore,
             topicLabelRuntime = topicLabeler,
             topicRetrievalStore = topicMatches,
@@ -442,6 +446,12 @@ class ReaderApplication : Application() {
             }
         )
         processDiscovery = discovery
+        if (discoveryWorkLog != null) discoveryScope.launch {
+            while (true) {
+                delay(5_000)
+                discoveryWorkLog.flush()
+            }
+        }
         discoveryScope.launch {
             documentCache.invalidations.collect {
                 pageSnapshots.clear()
