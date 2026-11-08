@@ -37,7 +37,7 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
     explicitPageIds: Set<String>, structureComplete: Boolean, scanComplete: Boolean,
     anchorOffset: Int = 0, maxAnchors: Int = 8, maxRecords: Int = 128, maxEvidence: Int = 4,
     similarityThreshold: Float = .85f, checkActive: () -> Unit = {},
-    previous: ProposalScanCheckpoint? = null): ProposalWindow {
+    previous: ProposalScanCheckpoint? = null, deferredPassageIds: Set<String> = emptySet()): ProposalWindow {
     require(anchorOffset >= 0 && maxAnchors in 1..128 && maxRecords in 1..4096 && maxEvidence in 1..32)
     require(similarityThreshold.isFinite() && similarityThreshold in -1f..1f)
     checkActive()
@@ -60,8 +60,11 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
         .sortedWith(compareBy<EmbeddedPassage> { it.passage.order }.thenBy { it.passage.id })
     fun similar(a: EmbeddedPassage, b: EmbeddedPassage): Boolean =
         runCatching { cosineSimilarity(a.vector, b.vector) >= similarityThreshold }.getOrDefault(false)
-    // Similarity cannot establish that two changed passages express the same concept.
-    val anchors = changedEligible.filter { it.passage.id in changedPassageIds && it.passage.id !in explainedPassageIds }
+    // A pending existing-concept tail is not evidence of a new subject. Defer those exact
+    // candidate passages for this window; they are neither supported nor explained and are
+    // released when the caller's deferral set changes or expires.
+    val anchors = changedEligible.filter { it.passage.id in changedPassageIds &&
+        it.passage.id !in explainedPassageIds && it.passage.id !in deferredPassageIds }
     require(anchorOffset <= anchors.size)
     val selected = anchors.drop(anchorOffset).take(maxAnchors)
     val next = (anchorOffset + selected.size).takeIf { it < anchors.size }
@@ -72,6 +75,7 @@ fun proposeDiscoveryWindow(changed: SemanticRecord, changedPassageIds: Set<Strin
         structureComplete.toString(), "anchors", selected.size.toString()) + selected.map { it.passage.id } +
         listOf("changed", changedPassageIds.size.toString()) + changedPassageIds.sorted() +
         listOf("explained", explainedPassageIds.size.toString()) + explainedPassageIds.sorted() +
+        listOf("deferred", deferredPassageIds.size.toString()) + deferredPassageIds.sorted() +
         listOf("links", explicitPageIds.size.toString()) + explicitPageIds.map(::canonicalSemanticId).sorted()
     val scopeKey = semanticHash(scopeFields.joinToString("") { "${it.length}:$it" })
     val contextFields = scopeFields + listOf("sources", currentRevisions.size.toString()) +

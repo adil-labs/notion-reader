@@ -15,7 +15,8 @@ internal class ConceptScanReplay private constructor(internal val binding: Strin
 }
 internal sealed interface ConceptScanReplayResult {
     data class Pending(val replay: ConceptScanReplay) : ConceptScanReplayResult
-    data class Validated(val supported: Set<String>, val uncertain: Set<String>) : ConceptScanReplayResult
+    data class Validated(val supported: Set<String>, val uncertain: Set<String>,
+        val earlyWorkKeys: Set<String> = emptySet()) : ConceptScanReplayResult
     data object Invalid : ConceptScanReplayResult
     data object Stale : ConceptScanReplayResult
     data object Incomplete : ConceptScanReplayResult
@@ -29,9 +30,13 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
     currentCoroutineContext().ensureActive()
     if (!current()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
+    val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics]
+    val id = canonicalSemanticId(record.pageId)
+    suspend fun readCheckpoint(): ExistingConceptScanRecord? =
+        if (diagnostics != null) diagnostics.timed("checkpointReadNanos") { progress.readConceptScan(id, sources) }
+        else progress.readConceptScan(id, sources)
     val queryTicket = retrievals.queryTicket() ?: return ConceptScanReplayResult.Deferred
     fun valid() = current() && retrievals.queryTicket() == queryTicket
-    val id = canonicalSemanticId(record.pageId)
     if (saved.next != null || saved.pageId != id || saved.revision != record.revision || saved.sourceRevisions != sources ||
         sources[id] != record.revision) return ConceptScanReplayResult.Stale
     // A checkpoint without the current completion contract cannot prove how it stopped.
@@ -50,7 +55,7 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
         saved.assessments.sortedBy { it.workKey }.flatMap { listOf(it.workKey, it.decision.name) }
     val binding = semanticHash(bindingFields.joinToString("") { "${it.length}:$it" })
     if (replay.binding != null && replay.binding != binding) return ConceptScanReplayResult.Stale
-    if (progress.readConceptScan(id, sources) != saved) return ConceptScanReplayResult.Stale
+    if (readCheckpoint() != saved) return ConceptScanReplayResult.Stale
     val indexed = index.read(id)
     if (!valid()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
@@ -61,10 +66,10 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
         index, progress, replay.next, limit, ::valid, mayWork) { TopicSupportRun.Unavailable }
     if (!valid()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
-    if (progress.readConceptScan(id, sources) != saved) return ConceptScanReplayResult.Stale
+    if (readCheckpoint() != saved) return ConceptScanReplayResult.Stale
     if (!valid()) return ConceptScanReplayResult.Stale
     if (!mayWork()) return ConceptScanReplayResult.Deferred
-    return when (result) {
+    val outcome = when (result) {
         is ExistingConceptScanResult.Page -> {
             if (result.scopeKey != saved.scopeKey) return ConceptScanReplayResult.Stale
             val expected = saved.assessments.associateBy { it.workKey }
@@ -82,9 +87,9 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
                 // Early support and unresolved evidence may coexist. Termination only records why
                 // the scan stopped; the replay validates the assessments independently.
                 ConceptScanCompletion.SUPPORTED_EARLY -> if (early.isEmpty() || supported.isEmpty())
-                    ConceptScanReplayResult.Invalid else ConceptScanReplayResult.Validated(supported, uncertain)
+                    ConceptScanReplayResult.Invalid else ConceptScanReplayResult.Validated(supported, uncertain, early)
                 ConceptScanCompletion.EXHAUSTED -> if (early.isNotEmpty())
-                    ConceptScanReplayResult.Invalid else ConceptScanReplayResult.Validated(supported, uncertain)
+                    ConceptScanReplayResult.Invalid else ConceptScanReplayResult.Validated(supported, uncertain, early)
             }
         }
         ExistingConceptScanResult.Stale -> ConceptScanReplayResult.Stale
@@ -92,4 +97,13 @@ internal suspend fun replayConceptScanPage(saved: ExistingConceptScanRecord, rep
         ExistingConceptScanResult.Incomplete -> ConceptScanReplayResult.Incomplete
         is ExistingConceptScanResult.Failure -> ConceptScanReplayResult.Incomplete
     }
+    diagnostics?.record(when (outcome) {
+        is ConceptScanReplayResult.Pending -> "conceptReplayPending"
+        is ConceptScanReplayResult.Validated -> "conceptReplayValidated"
+        ConceptScanReplayResult.Invalid -> "conceptReplayInvalid"
+        ConceptScanReplayResult.Stale -> "conceptReplayStale"
+        ConceptScanReplayResult.Incomplete -> "conceptReplayIncomplete"
+        ConceptScanReplayResult.Deferred -> "conceptReplayDeferred"
+    })
+    return outcome
 }

@@ -16,32 +16,48 @@ private class ProposalStepInterrupted : RuntimeException()
 internal suspend fun advanceIncrementalProposalWindow(changed: SemanticRecord, changedPassageIds: Set<String>,
     explainedPassageIds: Set<String>, sources: Map<String, String>, explicitPageIds: Set<String>,
     structureComplete: Boolean, anchorOffset: Int, store: ProposalProgressStore, maxRecords: Int,
-    current: () -> Boolean, mayWork: () -> Boolean, read: suspend (String) -> SemanticRecord?): IncrementalProposalStepResult {
+    current: () -> Boolean, mayWork: () -> Boolean,
+    deferredPassageIds: Set<String> = emptySet(), deferralKey: String? = null,
+    deferralSinceEpochMillis: Long? = null,
+    read: suspend (String) -> SemanticRecord?): IncrementalProposalStepResult {
     require(maxRecords in 1..128 && anchorOffset >= 0)
     val context = currentCoroutineContext()
     context.ensureActive()
     if (!current()) return IncrementalProposalStepResult.Stale
     if (!mayWork()) return IncrementalProposalStepResult.Deferred
+    val diagnostics = context[DiscoveryWorkDiagnostics]
     val pageId = canonicalSemanticId(changed.pageId)
     if (sources[pageId] != changed.revision || sources.any { (id, revision) ->
             id.isBlank() || id != canonicalSemanticId(id) || revision.isBlank()
         }) return IncrementalProposalStepResult.Stale
-    val saved = store.read(pageId, anchorOffset, sources)?.takeIf {
+    val saved = if (diagnostics != null) diagnostics.timed("proposalCheckpointReadNanos") {
+        store.read(pageId, anchorOffset, sources)
+    } else store.read(pageId, anchorOffset, sources)
+    val usableSaved = saved?.takeIf {
         it.revision == changed.revision && it.embedding == changed.identity
     }
     if (!current()) return IncrementalProposalStepResult.Stale
-    fun window(previous: ProposalScanCheckpoint?, records: Sequence<SemanticRecord>): ProposalWindow? = try {
-        proposeDiscoveryWindow(changed, changedPassageIds, explainedPassageIds, records, sources,
+    suspend fun window(previous: ProposalScanCheckpoint?, records: Sequence<SemanticRecord>): ProposalWindow? = try {
+        if (diagnostics != null) diagnostics.timed("proposalWindowComputeNanos") {
+            proposeDiscoveryWindow(changed, changedPassageIds, explainedPassageIds, records, sources,
+                explicitPageIds, structureComplete, scanComplete = true, anchorOffset = anchorOffset,
+                deferredPassageIds = deferredPassageIds,
+                checkActive = {
+                    context.ensureActive()
+                    if (!current() || !mayWork()) throw ProposalStepInterrupted()
+                }, previous = previous)
+        } else proposeDiscoveryWindow(changed, changedPassageIds, explainedPassageIds, records, sources,
             explicitPageIds, structureComplete, scanComplete = true, anchorOffset = anchorOffset,
+            deferredPassageIds = deferredPassageIds,
             checkActive = {
                 context.ensureActive()
                 if (!current() || !mayWork()) throw ProposalStepInterrupted()
             }, previous = previous)
     } catch (_: ProposalStepInterrupted) { null }
     fun interrupted() = if (current()) IncrementalProposalStepResult.Deferred else IncrementalProposalStepResult.Stale
-    var resumed = saved
-    var result = window(saved?.checkpoint, emptySequence()) ?: return interrupted()
-    if (result.stale && saved != null) {
+    var resumed = usableSaved
+    var result = window(usableSaved?.checkpoint, emptySequence()) ?: return interrupted()
+    if (result.stale && usableSaved != null) {
         // A changed source set or policy invalidates this checkpoint, not the current Note.
         resumed = null
         result = window(null, emptySequence()) ?: return interrupted()
@@ -60,7 +76,8 @@ internal suspend fun advanceIncrementalProposalWindow(changed: SemanticRecord, c
         if (!mayWork() || attempted >= maxRecords) break
         if (checkpoint.scannedRevisions[id] == sources[id]) continue
         lastAttempted = id; attempted++
-        val record = read(id)
+        diagnostics?.record("proposalCorpusRecordsRead")
+        val record = if (diagnostics != null) diagnostics.timed("proposalCorpusRecordReadNanos") { read(id) } else read(id)
         if (!current()) return IncrementalProposalStepResult.Stale
         if (!mayWork()) return IncrementalProposalStepResult.Deferred
         if (record != null) {
@@ -69,8 +86,11 @@ internal suspend fun advanceIncrementalProposalWindow(changed: SemanticRecord, c
             checkpoint = checkNotNull(result.checkpoint)
         }
     }
-    val savedRecord = ProposalProgressRecord(pageId, changed.revision, anchorOffset, changed.identity, checkpoint, lastAttempted)
-    val written = store.write(savedRecord, current)
+    val savedRecord = ProposalProgressRecord(pageId, changed.revision, anchorOffset, changed.identity, checkpoint, lastAttempted,
+        deferralKey = deferralKey, deferralSinceEpochMillis = deferralSinceEpochMillis)
+    val written = if (diagnostics != null) diagnostics.timed("proposalCheckpointWriteNanos") {
+        store.write(savedRecord, current)
+    } else store.write(savedRecord, current)
     if (!current() || written == ProposalProgressWriteResult.Stale) return IncrementalProposalStepResult.Stale
     if (written != ProposalProgressWriteResult.Written) return IncrementalProposalStepResult.StorageFailure(written)
     val expected = sources.filterKeys { it != pageId }

@@ -170,12 +170,22 @@ class DiscoveryController(
             if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext DurableConceptScanResult.Stale
             val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext DurableConceptScanResult.Incomplete
             if (!owner.isCatalogTicketCurrent(ticket) || topicSupportIdentity() != verifier) return@withContext DurableConceptScanResult.Stale
-            owner.advanceExistingConceptWork(ticket, record, sources, verifier, limit, restart,
+            val scanned = owner.advanceExistingConceptWork(ticket, record, sources, verifier, limit, restart,
                 verifierCurrent = { topicSupportIdentity() == verifier }) { request ->
                 runtime.verifyTopicSupport(request) {
                     mayContinueWork() && owner.isCatalogTicketCurrent(ticket) && topicSupportIdentity() == verifier
                 }
             }
+            reportWork(mapOf("membershipScanResult" to when (scanned) {
+                DurableConceptScanResult.Pending -> 1L
+                is DurableConceptScanResult.AwaitingValidation -> 2L
+                DurableConceptScanResult.Incomplete -> 3L
+                DurableConceptScanResult.Stale -> 4L
+                DurableConceptScanResult.Deferred -> 5L
+                is DurableConceptScanResult.StorageFailure -> 6L
+                is DurableConceptScanResult.Failure -> 7L
+            }))
+            scanned
         }
 
     internal suspend fun replayExistingConceptWorkForNote(pageId: String, saved: ExistingConceptScanRecord,
@@ -208,6 +218,15 @@ class DiscoveryController(
         if (!current() || !owner.isCatalogTicketCurrent(ticket)) return@withContext CanonicalMembershipUpdateResult.Stale
         val result = owner.advanceCanonicalMembershipUpdate(ticket, record, sources, verifier, saved, replay, limit, ::current)
         if (result == CanonicalMembershipUpdateResult.Updated && runtime.validity.isCurrent(token)) owner.invalidate(runtime.validity.eligibleRevisions())
+        reportWork(mapOf("membershipCommitResult" to when (result) {
+            CanonicalMembershipUpdateResult.Updated -> 1L
+            CanonicalMembershipUpdateResult.Unchanged -> 2L
+            is CanonicalMembershipUpdateResult.Pending -> 3L
+            CanonicalMembershipUpdateResult.Stale -> 4L
+            CanonicalMembershipUpdateResult.Deferred -> 5L
+            CanonicalMembershipUpdateResult.Incomplete -> 6L
+            is CanonicalMembershipUpdateResult.StorageFailure -> 7L
+        }))
         result
     }
 
@@ -740,6 +759,44 @@ class DiscoveryController(
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
         checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
         corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null,
+        windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null): EvidenceFirstNoteStep {
+        val result = advanceEvidenceFirstNoteImpl(pageId, replay, explicitPageIds, structureComplete, anchorOffset,
+            maxRecords, restart, generateIndex, assessEvidenceIndex, summarizeEvidence, retrievePageId,
+            retrieveCursor, retrieveScan, checkpointPendingScan, replayPendingScan, corpusReplay,
+            expectedGenerationKey, windowContinue, knownCatalogScan)
+        reportWork(mapOf("evidenceStage" to when (result) {
+            EvidenceFirstNoteStep.PendingScan -> 1L
+            is EvidenceFirstNoteStep.PendingReplay -> 2L
+            is EvidenceFirstNoteStep.PendingKnownCatalog -> 3L
+            is EvidenceFirstNoteStep.Proposals -> if (result.window.scanPending) 4L else 5L
+            is EvidenceFirstNoteStep.Generated -> 6L
+            is EvidenceFirstNoteStep.Assessed -> 7L
+            is EvidenceFirstNoteStep.CitationCoverage -> 8L
+            is EvidenceFirstNoteStep.Retrieved -> 9L
+            is EvidenceFirstNoteStep.NoteRetrievalScan -> 10L
+            is EvidenceFirstNoteStep.PendingNoteReplay -> 11L
+            is EvidenceFirstNoteStep.CorpusReplay -> 12L
+            EvidenceFirstNoteStep.Deferred -> 13L
+            EvidenceFirstNoteStep.Stale -> 14L
+            EvidenceFirstNoteStep.Incomplete -> 15L
+            is EvidenceFirstNoteStep.GenerationFailure -> 20L
+            is EvidenceFirstNoteStep.AssessmentFailure -> 21L
+            is EvidenceFirstNoteStep.RetrievalFailure -> 22L
+            is EvidenceFirstNoteStep.ScanFailure -> 23L
+            is EvidenceFirstNoteStep.ProposalFailure -> 24L
+            is EvidenceFirstNoteStep.PendingNoteStorageFailure -> 25L
+            else -> 99L
+        }))
+        if (result is EvidenceFirstNoteStep.Generated) reportWork(mapOf("proposalGenerationCompleted" to 1L))
+        return result
+    }
+    private suspend fun advanceEvidenceFirstNoteImpl(pageId: String, replay: ConceptScanReplay? = null,
+        explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
+        maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
+        assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
+        retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
+        checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
+        corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null,
         windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
@@ -790,11 +847,15 @@ class DiscoveryController(
         fun mayWork() = mayContinueWork() && windowContinue() && runtime.foregroundQueries.get() == 0
         val sources = runtime.validity.eligibleRevisions()
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
-        val record = runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } ?: return@withContext EvidenceFirstNoteStep.Incomplete
+        val record = measureWork("noteRecordReadNanos") {
+            runtime.bulkStep { index.read(canonicalSemanticId(pageId)) }
+        } ?: return@withContext EvidenceFirstNoteStep.Incomplete
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
-        val scan = owner.advanceExistingConceptWork(ticket, record, sources, verifier, maxRecords, restart,
-            verifierCurrent = { topicSupportIdentity() == verifier }) { request ->
-            runtime.verifyTopicSupport(request) { current() && mayWork() }
+        val scan = measureWork("existingConceptScanNanos") {
+            owner.advanceExistingConceptWork(ticket, record, sources, verifier, maxRecords, restart,
+                verifierCurrent = { topicSupportIdentity() == verifier }) { request ->
+                runtime.verifyTopicSupport(request) { current() && mayWork() }
+            }
         }
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
         if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
@@ -806,8 +867,10 @@ class DiscoveryController(
             DurableConceptScanResult.Deferred -> return@withContext EvidenceFirstNoteStep.Deferred
             else -> return@withContext EvidenceFirstNoteStep.ScanFailure(scan)
         }
-        val checked = owner.replayExistingConceptWork(ticket, record, sources, verifier, saved,
-            if (restart) ConceptScanReplay.start() else replay ?: ConceptScanReplay.start(), maxRecords) { topicSupportIdentity() == verifier }
+        val checked = measureWork("conceptReplayNanos") {
+            owner.replayExistingConceptWork(ticket, record, sources, verifier, saved,
+                if (restart) ConceptScanReplay.start() else replay ?: ConceptScanReplay.start(), maxRecords) { topicSupportIdentity() == verifier }
+        }
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
         if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
         val supported = when (checked) {
@@ -820,21 +883,41 @@ class DiscoveryController(
             ConceptScanReplayResult.Deferred -> return@withContext EvidenceFirstNoteStep.Deferred
             else -> return@withContext EvidenceFirstNoteStep.Incomplete
         }
-        val result = advancePendingProposalWindow(record, supported, sources, explicitPageIds, structureComplete,
-            anchorOffset, store, maxRecords, ::current, ::mayWork) { id -> runtime.bulkStep { index.read(id) } }
+        val earlyWorkKeys = (checked as? ConceptScanReplayResult.Validated)?.earlyWorkKeys.orEmpty()
+        val deferredAnchors = if (earlyWorkKeys.isEmpty()) emptySet() else measureWork("deferredAnchorsNanos") {
+            owner.deferredProposalAnchors(ticket, record, sources, verifier, earlyWorkKeys, saved.assessments,
+                maxCandidates = saved.retrievedCandidates)
+        }
+        if (!current()) return@withContext EvidenceFirstNoteStep.Stale
+        if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
+        val result = measureWork("proposalWindowNanos") {
+            advancePendingProposalWindow(record, supported, sources, explicitPageIds, structureComplete,
+                anchorOffset, store, maxRecords, ::current, ::mayWork,
+                deferredPassageIds = deferredAnchors, nowEpochMillis = clock().toEpochMilli(),
+                read = { id -> runtime.bulkStep { index.read(id) } })
+        }
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
         if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
         if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
             return@withContext EvidenceFirstNoteStep.Stale
         when (result) {
             is PendingProposalStepResult.Ready -> {
-                if (generateIndex == null) return@withContext EvidenceFirstNoteStep.Proposals(result.step)
+                reportWork(mapOf("proposalWindowReady" to 1L))
+                reportWork(mapOf("proposalWindowProposals" to result.step.window.proposals.size.toLong()))
+                if (result.step.window.proposals.isEmpty()) reportWork(mapOf("proposalWindowEmpty" to 1L))
+                if (generateIndex == null) {
+                    reportWork(mapOf("proposalWindowEmitted" to 1L))
+                    return@withContext EvidenceFirstNoteStep.Proposals(result.step)
+                }
                 val proposal = result.step.window.proposals.getOrNull(generateIndex) ?: return@withContext EvidenceFirstNoteStep.Incomplete
                 val guardedIndex = object : SemanticIndexStore by index {
                     override suspend fun read(pageId: String): SemanticRecord? = runtime.bulkStep { index.read(pageId) }
                 }
-                val generated = generateProposal(proposal, guardedIndex, ticket.identity, checkNotNull(generator), ticket.epoch,
-                    sources, ::current, store) { request -> runtime.proposeTopic(request) { current() && mayWork() } }
+                reportWork(mapOf("proposalGenerationAttempts" to 1L))
+                val generated = measureWork("proposalGenerationNanos") {
+                    generateProposal(proposal, guardedIndex, ticket.identity, checkNotNull(generator), ticket.epoch,
+                        sources, ::current, store) { request -> runtime.proposeTopic(request) { current() && mayWork() } }
+                }
                 if (!current()) return@withContext EvidenceFirstNoteStep.Stale
                 if (!mayWork()) return@withContext EvidenceFirstNoteStep.Deferred
                 if (runtime.bulkStep { index.read(canonicalSemanticId(pageId)) } != record || !current())
@@ -936,16 +1019,22 @@ class DiscoveryController(
             try {
                 if (topicStore?.resetPending() == true && recoverPendingReset())
                     return@withContext
-                indexing.reconcileInBackground(entries, mayIndex)
-                advanceDomainWork(mayIndex)
+                measureWork("reconcileNanos") {
+                    indexing.reconcileInBackground(entries, mayIndex)
+                    advanceDomainWork(mayIndex)
+                }
             } finally { mutable.update { it.copy(workPending = hasPendingWork) } }
         }
     }
 
     private suspend fun advanceDomainWork(mayIndex: Boolean) {
-        if (!mayIndex || !mayContinueWork() || state.value.paused ||
+        val mayWork = mayContinueWork()
+        if (!mayIndex || !mayWork || state.value.paused ||
             runtime.foregroundQueries.get() > 0 || topics?.sourceAcceptancePending == true) {
             reportWork(mapOf("domainDeferred" to 1L, "mayIndex" to if (mayIndex) 1L else 0L,
+                "domainMayWork" to if (mayWork) 1L else 0L,
+                "domainPaused" to if (state.value.paused) 1L else 0L,
+                "domainForegroundQueries" to runtime.foregroundQueries.get().toLong(),
                 "sourceAcceptancePending" to if (topics?.sourceAcceptancePending == true) 1L else 0L))
             return
         }
@@ -1036,11 +1125,18 @@ class DiscoveryController(
             if (it.schedulingFailure == DiscoverySchedulingFailure.MembershipIncomplete ||
                 it.schedulingFailure == DiscoverySchedulingFailure.VerifierChanged) clearSchedulingFailure(it) else it
         }
-        val result = membershipScheduler.step(ticket.snapshot, sources, verifier,
-            retrievalPolicyIdentity = topicRetrievalPolicy.toString(),
-            scan = { page, restart -> advanceExistingConceptWorkForNote(page, 8, restart) },
-            commit = { page, saved, replay, limit -> advanceCanonicalMembershipWork(page, saved, replay, limit) })
+        val result = measureWork("membershipSchedulerTurnNanos") {
+            membershipScheduler.step(ticket.snapshot, sources, verifier,
+                retrievalPolicyIdentity = topicRetrievalPolicy.toString(),
+                scan = { page, restart -> measureWork("membershipScanNanos") {
+                    advanceExistingConceptWorkForNote(page, 8, restart)
+                } },
+                commit = { page, saved, replay, limit -> measureWork("membershipCommitNanos") {
+                    advanceCanonicalMembershipWork(page, saved, replay, limit)
+                } })
+        }
         logDiag("EvidenceScheduler", "membership result=${result.name}")
+        reportWork(mapOf("membershipSchedulerResult" to result.ordinal.toLong()))
         when (result) {
             CanonicalMembershipScheduleResult.Idle -> membershipWorkPending = false
             CanonicalMembershipScheduleResult.Progress,
@@ -1151,9 +1247,13 @@ class DiscoveryController(
             sources.toSortedMap().flatMap { listOf(it.key, it.value) }
         val scope = semanticHash(fields.joinToString("") { "${it.length}:$it" })
         mutable.update { clearSchedulingFailure(it.copy(topicBlock = null)) }
-        val result = evidenceScheduler.step(scope, sources.keys.sorted(),
+        val result = measureWork("evidenceSchedulerTurnNanos") {
+            evidenceScheduler.step(scope, sources.keys.sorted(),
             inspect = { page, offset, replay, restart ->
-                advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart).also {
+                val step = measureWork("evidenceInspectNanos") {
+                    advanceEvidenceFirstNote(page, replay = replay, anchorOffset = offset, restart = restart)
+                }
+                step.also {
                     logDiag("EvidenceScheduler", "inspect offset=$offset restart=$restart result=${it::class.simpleName}" +
                         if (it is EvidenceFirstNoteStep.Proposals)
                             " proposals=${it.window.window.proposals.size} scanPending=${it.window.scanPending}"
@@ -1170,7 +1270,7 @@ class DiscoveryController(
             },
             process = { work ->
                 val started = System.nanoTime()
-                advancePendingCorpusWork(work).also {
+                measureWork("evidenceProcessNanos") { advancePendingCorpusWork(work) }.also {
                 if (it is PendingCorpusWorkResult.Stopped)
                     logDiag("EvidenceScheduler", "proposal stopped reason=${it.reason::class.simpleName}")
                 val nextCorpusOffset = (it as? PendingCorpusWorkResult.Pending)?.work?.corpus?.offset
@@ -1206,7 +1306,7 @@ class DiscoveryController(
             })) } },
             admit = { done, replay -> admitScheduledCandidate(done, replay) },
             catalogEpoch = ticket.snapshot.generation,
-            catalogIdentity = evidenceCatalogIdentity(ticket.snapshot))
+            catalogIdentity = evidenceCatalogIdentity(ticket.snapshot)) }
         logDiag("EvidenceScheduler", "stepResult: ${result.name}")
         reportWork(mapOf("evidenceScheduler" to result.ordinal.toLong()))
         when (result) {

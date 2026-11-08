@@ -39,6 +39,29 @@ internal fun existingConceptScanScope(snapshot: TopicSnapshot, record: SemanticR
     return semanticHash(fields.joinToString("") { "${it.length}:$it" })
 }
 
+internal suspend fun pendingConceptCandidatePassages(query: TopicQueryEmbedding, record: SemanticRecord,
+    sources: Map<String, String>, assessedPassageIds: Set<String>, limit: Int = 8,
+    maxCandidates: Int = 256): Set<String>? {
+    require(limit in 1..128 && maxCandidates in 1..4096)
+    val id = canonicalSemanticId(record.pageId)
+    if (sources[id] != record.revision || query.query.embedding != record.identity) return null
+    val context = currentCoroutineContext()
+    val out = linkedSetOf<String>()
+    var cursor: TopicCandidateCursor? = null
+    while (out.size + assessedPassageIds.size < maxCandidates) {
+        val page = when (val candidate = topicCandidatePage(query, record, sources[id], limit, cursor,
+            checkActive = { context.ensureActive() })) {
+            is TopicCandidatePage.Ready -> candidate
+            TopicCandidatePage.Stale, TopicCandidatePage.Invalid -> return null
+        }
+        page.candidates.forEach { candidate ->
+            if (candidate.passageId !in assessedPassageIds) out += candidate.passageId
+        }
+        cursor = page.next ?: break
+    }
+    return out
+}
+
 internal suspend fun scanExistingConceptPage(snapshot: TopicSnapshot, record: SemanticRecord, identity: EmbeddingIdentity,
     policy: TopicRetrievalPolicy, verifier: TopicLabelIdentity, epoch: Long, sources: Map<String, String>,
     retrievals: TopicRetrievalStore, index: SemanticIndexStore, progress: ProposalProgressStore,
@@ -102,11 +125,13 @@ internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: 
     currentCoroutineContext().ensureActive()
     if (!current()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
+    val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics]
     val queryTicket = retrievals.queryTicket() ?: return DurableConceptScanResult.Deferred
     fun valid() = current() && retrievals.queryTicket() == queryTicket
     val id = canonicalSemanticId(record.pageId)
     if (sources[id] != record.revision) return DurableConceptScanResult.Stale
-    val saved = progress.readConceptScan(id, sources)
+    val saved = if (diagnostics != null) diagnostics.timed("checkpointReadNanos") { progress.readConceptScan(id, sources) }
+        else progress.readConceptScan(id, sources)
     if (!valid()) return DurableConceptScanResult.Stale
     if (!mayWork()) return DurableConceptScanResult.Deferred
     // A completed early-support checkpoint with a pending unchecked tail is not a finished tail
@@ -120,12 +145,19 @@ internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: 
         saved.completion == ConceptScanCompletion.SUPPORTED_EARLY
     // A finished record is intentionally untrusted until its assessments and scope are revalidated.
     if (!restart && saved != null && saved.next == null && saved.formatVersion == CONCEPT_SCAN_FORMAT_VERSION &&
-        !completedEarlyWithTail)
+        !completedEarlyWithTail) {
+        diagnostics?.record("conceptScanCompletedReuse")
         return DurableConceptScanResult.AwaitingValidation(saved)
+    }
     // A checkpoint from an older derived-state contract is rebuilt under the current one. Its
     // exact-input support decisions stay in their own store and are reused without inference.
     val resumableSaved = if (!restart && saved != null && saved.formatVersion == CONCEPT_SCAN_FORMAT_VERSION &&
         !completedEarlyWithTail) saved else null
+    if (diagnostics != null) {
+        diagnostics.record(if (restart) "conceptScanRestarts"
+        else if (resumableSaved != null) "conceptScanResumes" else "conceptScanStarts")
+        if (completedEarlyWithTail) diagnostics.record("conceptScanEarlyTailRestarts")
+    }
     val result = scanExistingConceptPage(snapshot, record, identity, policy, verifier, epoch, sources,
         retrievals, index, progress, resumableSaved?.next, limit, ::valid, mayWork, verify = verify)
     if (!valid()) return DurableConceptScanResult.Stale
@@ -147,12 +179,26 @@ internal suspend fun advanceDurableConceptScan(snapshot: TopicSnapshot, record: 
             val next = ExistingConceptScanRecord(id, record.revision, sources.toMap(), result.scopeKey, result.next,
                 assessments, formatVersion = CONCEPT_SCAN_FORMAT_VERSION, completion = completion, earlyConceptWorkKeys = early.toSet(),
                 retrievedCandidates = retrieved, examinedCandidates = examined)
-            val written = progress.replaceConceptScan(saved, next) { valid() && mayWork() }
+            val written = if (diagnostics != null)
+                diagnostics.timed("checkpointWriteNanos") { progress.replaceConceptScan(saved, next) { valid() && mayWork() } }
+            else progress.replaceConceptScan(saved, next) { valid() && mayWork() }
             if (!valid()) return DurableConceptScanResult.Stale
             if (!mayWork()) return DurableConceptScanResult.Deferred
             when (written) {
-                ProposalProgressWriteResult.Written -> if (next.next == null) DurableConceptScanResult.AwaitingValidation(next)
+                ProposalProgressWriteResult.Written -> {
+                    if (diagnostics != null) {
+                        if (next.next == null) {
+                            diagnostics.record("conceptScanTerminalCommits")
+                            if (next.completion == ConceptScanCompletion.SUPPORTED_EARLY)
+                                diagnostics.record("conceptScanTerminalEarly")
+                            else diagnostics.record("conceptScanTerminalExhausted")
+                        } else diagnostics.record("conceptScanCheckpointAdvances")
+                        diagnostics.record("conceptScanAssessments", next.assessments.size.toLong())
+                        diagnostics.record("conceptScanPartialCommit", if (next.next != null) 1L else 0L)
+                    }
+                    if (next.next == null) DurableConceptScanResult.AwaitingValidation(next)
                     else DurableConceptScanResult.Pending
+                }
                 ProposalProgressWriteResult.Stale -> DurableConceptScanResult.Stale
                 else -> DurableConceptScanResult.StorageFailure(written)
             }

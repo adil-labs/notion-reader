@@ -1,6 +1,7 @@
 package com.example.notionreader.application
 
 import com.example.notionreader.domain.document.CacheRemovalReason
+import com.example.notionreader.domain.document.CachedDocument
 import com.example.notionreader.domain.document.DocumentCache
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.currentCoroutineContext
@@ -155,7 +156,7 @@ internal class TopicCoordinator(
             val revision = cache.revision.value
             val events = cache.invalidations.value.toList()
             val model = identity()
-            val snapshots = cache.snapshot()
+            val snapshots = cacheSnapshot()
             val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
             fun sourceCurrent() = cache.revision.value == revision && cache.invalidations.value == events && identity() == model
             if (sourceCurrent() && model == ticket.identity && revisions.size == snapshots.size) {
@@ -298,7 +299,7 @@ internal class TopicCoordinator(
         val order = priorContinuity?.createdOrder ?: (maxOrder + 1)
         val id = priorContinuity?.id ?: java.util.UUID.randomUUID().toString()
         val member = TopicMembership(citation.pageId, record.metadata, anchor.passage, 1f, anchor.passage, citation.revision)
-        val allSources = cache.snapshot().associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        val allSources = sourceRevisions().map
         // Coverage is derived from validated terminal outcomes, never from which Notes happened
         // to support the concept. A Note that was checked and did not support the concept still
         // counts toward membership coverage.
@@ -384,6 +385,32 @@ internal class TopicCoordinator(
         CanonicalAdmissionResult.Admitted(id)
     }
 
+    /**
+     * Candidate passages that this Note's early-supported existing-concept scans deliberately
+     * left unchecked. They are pending verification evidence, never explained or supported
+     * evidence. Enumeration is retrieval-only and deterministic, so it reconstructs after
+     * process death instead of depending on volatile scheduler state.
+     */
+    suspend fun deferredProposalAnchors(ticket: TopicCatalogTicket, record: SemanticRecord,
+        sources: Map<String, String>, verifier: TopicLabelIdentity, earlyWorkKeys: Set<String>,
+        assessments: List<TopicSupportAssessment>, maxCandidates: Int = 256): Set<String> {
+        if (earlyWorkKeys.isEmpty()) return emptySet()
+        val matching = retrievals ?: return emptySet()
+        val deferred = linkedSetOf<String>()
+        for (topic in ticket.snapshot.topics) {
+            val concept = topic.canonicalConcept ?: continue
+            if (concept.workKey !in earlyWorkKeys || concept.verifier != verifier) continue
+            val entry = currentExistingConcept(topic, ticket.identity, matching.existingConceptPolicy(), sources,
+                matching.existingConceptStore()) { isCatalogTicketCurrent(ticket) }
+            val ready = entry as? ExistingConceptCatalogResult.Ready ?: continue
+            val assessed = assessments.filter { it.conceptWorkKey == concept.workKey }
+                .mapTo(hashSetOf()) { it.evidence.passageId }
+            pendingConceptCandidatePassages(ready.query, record, sources, assessed,
+                maxCandidates = maxCandidates.coerceAtLeast(1))?.let(deferred::addAll)
+        }
+        return deferred
+    }
+
     suspend fun advanceExistingConceptWork(ticket: TopicCatalogTicket, record: SemanticRecord,
         sources: Map<String, String>, verifier: TopicLabelIdentity, limit: Int, restart: Boolean = false,
         verifierCurrent: () -> Boolean = { true }, verify: suspend (TopicSupportRequest) -> TopicSupportRun): DurableConceptScanResult {
@@ -392,11 +419,11 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
         val matching = retrievals ?: return DurableConceptScanResult.Incomplete
         val pending = proposalProgress ?: return DurableConceptScanResult.Incomplete
-        val snapshots = bulk { cache.snapshot() }
+        val inventory = sourceRevisions(withinBulk = true)
         if (!current()) return DurableConceptScanResult.Stale
         if (!mayWork() || shouldYield()) return DurableConceptScanResult.Deferred
-        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-        if (revisions.size != snapshots.size ||
+        val revisions = inventory.map
+        if (!inventory.unique ||
             if (ticket.snapshot.acceptedRevisions == sources)
                 sources.any { (id, revision) -> revisions[id] != revision }
             else revisions != sources) return DurableConceptScanResult.Stale
@@ -419,11 +446,11 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
         val matching = retrievals ?: return ExistingConceptScanResult.Incomplete
         val pending = proposalProgress ?: return ExistingConceptScanResult.Incomplete
-        val snapshots = bulk { cache.snapshot() }
+        val inventory = sourceRevisions(withinBulk = true)
         if (!current()) return ExistingConceptScanResult.Stale
         if (!mayWork() || shouldYield()) return ExistingConceptScanResult.Deferred
-        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-        if (revisions.size != snapshots.size ||
+        val revisions = inventory.map
+        if (!inventory.unique ||
             if (ticket.snapshot.acceptedRevisions == sources)
                 sources.any { (id, revision) -> revisions[id] != revision }
             else revisions != sources) return ExistingConceptScanResult.Stale
@@ -443,11 +470,11 @@ internal class TopicCoordinator(
         if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
         val matching = retrievals ?: return ConceptScanReplayResult.Incomplete
         val pending = proposalProgress ?: return ConceptScanReplayResult.Incomplete
-        val snapshots = bulk { cache.snapshot() }
+        val inventory = sourceRevisions(withinBulk = true)
         if (!current()) return ConceptScanReplayResult.Stale
         if (!mayWork() || shouldYield()) return ConceptScanReplayResult.Deferred
-        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-        if (revisions.size != snapshots.size ||
+        val revisions = inventory.map
+        if (!inventory.unique ||
             if (ticket.snapshot.acceptedRevisions == sources)
                 sources.any { (id, revision) -> revisions[id] != revision }
             else revisions != sources) return ConceptScanReplayResult.Stale
@@ -480,9 +507,9 @@ internal class TopicCoordinator(
             if (!current()) return@withLock CanonicalMembershipUpdateResult.Stale
             if (!mayWork() || shouldYield()) return@withLock CanonicalMembershipUpdateResult.Deferred
             if (latest.acceptedRevisions != sources) return@withLock CanonicalMembershipUpdateResult.Incomplete
-            val cached = cache.snapshot()
-            val allSources = cached.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
-            if (allSources.size != cached.size || !current() || sources.any { (id, revision) -> allSources[id] != revision }) return@withLock CanonicalMembershipUpdateResult.Stale
+            val inventory = sourceRevisions()
+            val allSources = inventory.map
+            if (!inventory.unique || !current() || sources.any { (id, revision) -> allSources[id] != revision }) return@withLock CanonicalMembershipUpdateResult.Stale
             val fullCoverage = allSources == sources
             val progress = proposalProgress ?: return@withLock CanonicalMembershipUpdateResult.Incomplete
             if (progress.readConceptScan(canonicalSemanticId(record.pageId), sources) != saved || !current())
@@ -561,7 +588,35 @@ internal class TopicCoordinator(
         waitForQueries()
         return bulkGate.withLock { action() }
     }
-    private suspend fun readRecord(id: String) = bulk { index.read(id) }
+    private suspend fun <T> timedPhase(name: String, action: suspend () -> T): T {
+        val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics] ?: return action()
+        return diagnostics.timed(name, action)
+    }
+    private suspend fun cacheSnapshot(): List<CachedDocument> = timedPhase("cacheSnapshotNanos") { cache.snapshot() }
+    private data class SourceRevisions(val revision: Long, val map: Map<String, String>, val unique: Boolean)
+    @Volatile private var revisionsMemo: SourceRevisions? = null
+    /**
+     * Source revisions for the current cache generation. Membership scans, replays and commits
+     * validate the same unchanged sources several times per scheduler turn; decoding every
+     * cached Note each time is pure repeated work. Only the revision map is retained, never the
+     * Note content, and a changed cache generation is never served from the memo.
+     */
+    private suspend fun sourceRevisions(withinBulk: Boolean = false): SourceRevisions {
+        val revision = cache.revision.value
+        revisionsMemo?.takeIf { it.revision == revision }?.let {
+            currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("cacheRevisionsHit")
+            return it
+        }
+        val snapshots = if (withinBulk) bulk { cacheSnapshot() } else cacheSnapshot()
+        val revisions = snapshots.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
+        val result = SourceRevisions(revision, revisions, revisions.size == snapshots.size)
+        if (cache.revision.value == revision) revisionsMemo = result
+        return result
+    }
+    private suspend fun readRecord(id: String): SemanticRecord? {
+        currentCoroutineContext()[DiscoveryWorkDiagnostics]?.record("indexRecordReads")
+        return timedPhase("indexReadNanos") { bulk { index.read(id) } }
+    }
 
     private suspend fun <T> restoreStep(name: String, action: suspend () -> T): T {
         fun report(values: Map<String, Long>) {
@@ -674,7 +729,7 @@ internal class TopicCoordinator(
                 currentTitles[canonicalSemanticId(id)] = record.metadata.title
             }
             // Cache titles can be fresher than unchanged embedded content metadata.
-            cache.snapshot().forEach { cached ->
+            cacheSnapshot().forEach { cached ->
                 val id = canonicalSemanticId(cached.document.pageId)
                 if (id in sources) currentTitles[id] = cached.document.title
             }
@@ -862,7 +917,7 @@ internal class TopicCoordinator(
         val snapshot = ticket.snapshot
         val observedInputs = connectionInputs
         val capturedInputs = observedInputs?.takeIf { it.cacheRevision == ticket.cacheRevision && it.sources == sources }
-        val documents = cache.snapshot()
+        val documents = cacheSnapshot()
         if (!isCatalogTicketCurrent(ticket) || connectionInputs != observedInputs) return IncrementalConnectionsResult.Deferred
         val actual = documents.associate { canonicalSemanticId(it.document.pageId) to semanticRevision(it.document) }
         if (actual.size != documents.size || actual != sources) return IncrementalConnectionsResult.Deferred
@@ -1023,6 +1078,7 @@ internal class TopicCoordinator(
             needsMoreWork = false
         }
         sourceAcceptance = null; sourceAcceptancePending = false; connectionInputs = null
+        revisionsMemo = null
         store.clear(); checkpoint?.clear(); labels?.clear(); retrievals?.clear(); namingStatus = null; naming = null
         // An explicit index clear authorizes an empty catalog even when follows remain.
         // Persist it so a recreated coordinator can resume after the user requests rebuilding.
@@ -1041,6 +1097,7 @@ internal class TopicCoordinator(
     /** Drop the sole retained generation. In-flight locals observe the epoch change and unwind cooperatively. */
     fun releaseMemory() = synchronized(workspaceLock) {
         epoch.incrementAndGet()
+        revisionsMemo = null
     }
 }
 
