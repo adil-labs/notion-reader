@@ -407,6 +407,7 @@ resolved by lowering a cutoff or accepting uncertain citations.
 | I-15 | Complete corpus coverage does not require every Note to support the topic. |
 | I-16 | Source and catalog writes stay atomic and guarded against stale identities. |
 | I-17 | Bulk work never blocks reading, playback or accessibility interactions. |
+| I-18 | A scheduler turn with unchanged source revisions, model identity and browse metadata advances domain cursors without rebuilding the corpus inventory. |
 
 Release-blocking correctness conditions: I-01, I-04, I-06, I-08, I-11, I-12,
 I-15, I-16.
@@ -502,6 +503,12 @@ value.
 
  Automatic continuation resumes Ready and Deferred only.
 ```
+
+Inventory refresh is idempotent: when the cache revision, embedding identity and
+browse metadata match the last completed inventory, an automatic continuation
+resumes the membership, tail and proposal cursors without re-reading every index
+record, decoding every cached Note or revalidating every proposal-progress file.
+Source acceptance and a changed input still run the full bounded pass.
 
 ## 15. Relationship to existing documents
 

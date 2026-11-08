@@ -15825,3 +15825,332 @@ cleanup if desired; it is not done implicitly.
   (~192% CPU, membership/evidence progress, no crash); the three persisted topics
   remain, including the pre-fix duplicate that the new guards prevent recurring.
   The S25 remains unavailable.
+
+## 255. Discovery turn throughput: unchanged inventory and Note records were rebuilt every step (2026-11-08)
+
+### What was observed
+
+Pixel 8 Pro (API 37, debug build, existing 109-Note corpus) was measured with
+bounded numeric diagnostics only (no Note text, title, query text or evidence
+excerpt). The first clean live window (23:47:34–23:51:08) showed
+`reconcileNanos=218.6s` against a 237.6s window (92%), with 258 cached support
+checks and no fresh decisions. Membership and evidence turns were only 29.9s and
+33.8s of that time, so the missing cost was inside the inventory pass that runs
+before domain work.
+
+A second instrumented window (122.9s) attributed the gap:
+
+- `indexingIndexReadNanos=31.0s` for 1,090 full index-record reads;
+- `topicsInvalidateNanos=19.4s` for 10 topic-inventory reloads;
+- `cacheSnapshotNanos=14.9s` for 25 full Note-cache decodes;
+- `proposalReconcileNanos=5.9s` for 11 scans of all 780 proposal-progress files;
+- `passageDeltaNanos=6.5s` for 981 passage-delta checks.
+
+All of it ran on every `reconcile` step even though the cache revision, embedding
+identity and browse metadata were unchanged. Separately, support verification
+re-read the **same Note record once per candidate** (207 decisions, 7.0s of
+`index.read`), although the scan already held that record. Both are pure repeated
+work, not evidence that the corpus needed more processing.
+
+### Fixes
+
+1. **Idempotent inventory turn.** `DiscoveryIndexing.reconcileInBackground` now
+   returns early when the cache revision, model identity, browse-entry hash,
+   index failure state and completed inventory all match the last successful
+   pass. `reconciliationPending` is no longer set unconditionally just because a
+   proposal store exists, and a completed inventory clears it even while domain
+   work remains. The guard is disabled while topic source acceptance is pending
+   or indexing is not allowed, so acceptance and the existing bounded tests still
+   run. The full pass records the inputs it completed against.
+2. **Source-revision memo.** `TopicCoordinator.sourceRevisions()` retains only the
+   page→revision map for the current cache generation (never Note content). A
+   scan, replay and commit in the same generation reuse it; a changed generation
+   is never served from the memo, and unload/clear drops it.
+3. **Known-record verification.** `verifyRetrievedPassage` accepts the record the
+   scan already validated (`knownRecord`). It still re-checks page id, revision
+   and embedding identity, and the scan's existing start/end record checks
+   discard a mid-scan source change; the per-candidate duplicate read is gone.
+
+### Failing-first regressions
+
+- `DiscoveryReconciliationIdempotenceTest.anUnchangedCorpusIsNotFullyRereadOnEveryReconciliationStep`
+  (before: 3 cache snapshots and 36 index reads over 3 repeated steps; after:
+  ≤1 each).
+- `DiscoveryReconciliationIdempotenceTest.repeatedMembershipTurnsDoNotReDecodeTheUnchangedCorpus`
+  (before: 15 cache snapshots over 4 steps; after: ≤2).
+- `ExistingConceptScanTest.aConceptScanDoesNotRereadTheSameNoteRecordForEveryCandidate`
+  (before: 6 record reads for 4 candidates; after: 2).
+
+### Measured result
+
+The 118.6s window immediately after installing the fixes:
+
+| Top-level phase | Wall time | Share |
+| --- | ---: | ---: |
+| `reconcile` total | 62.4s | 52.6% |
+| — membership turn | 25.2s | 21.2% |
+| — evidence inspect + corpus process | 14.7s | 12.4% |
+| — inventory (2 startup passes) | 21.5s | 18.1% |
+| — admission | 0.2s | 0.2% |
+| Outside `reconcile` (scheduler loop, logging, GC) | 56.2s | 47.4% |
+
+Nested work inside the domain turns: support decisions 23.9s (191/193 cached,
+median 3ms; the two fresh model runs were only 3.7s), candidate retrieval 8.8s
+for 44 scans and 16,054 passages, checkpoint writes 4.4s, concept replay 3.2s,
+proposal window 2.5s, corpus replay 1.1s, proposal generation 0.3s.
+
+Durable progress in that window: 2 terminal scan commits, 29 partial checkpoint
+advances, 1,322 persisted assessments, 13 completed checkpoints reused, 40
+proposal records across 5 windows, 2 windows emitted to corpus work, 7 corpus
+steps, and 1 admission. The admission was the already-known `33400ccf` Chess
+concept (`AdmitCandidate: already admitted`), so **no new topic** was published.
+Membership pending remained ~107 Notes across the window.
+
+### What this establishes
+
+1. Existing-concept work genuinely remains: 107 Notes still need at least one
+   membership scan, and 1,322 assessments advanced.
+2. Previously completed work was also being revisited: the inventory, cache
+   snapshot and per-candidate record reads above. Those are fixed.
+3. Proposal scheduling received equal turns (22 membership / 22 evidence) and
+   emitted two proposal windows; it was not starved by the scheduler.
+4. Cross-Note passage retrieval did not dominate. Candidate retrieval is per-Note
+   passage scoring (16,054 passages in 8.8s); no Note-level embedding was added.
+5. No resource/foreground gate deferred work in the measured window (one evidence
+   step deferred at window close). The one admission was a duplicate concept
+   caught after corpus replay, not a liveness failure.
+
+### Remaining limits (not changed here)
+
+- A steady-state follow-up window showed fresh support decisions taking
+  8.5–14.9s while the timed model run itself was 1.4–2.3s. The new
+  `inferenceGateWaitNanos` (sub-millisecond) and `providerReleaseNanos` (~0.3s)
+  diagnostics rule out the inference mutex and provider release as the cause.
+  The remaining gap lies between decision entry and the timed native run and is
+  most likely model loading/GC or debug-log transport under the instrumented
+  build; it is not cache lookup (0.4–2.9ms) or scheduler starvation. This is the
+  next thing to measure with in-process aggregation rather than per-event
+  logcat, but it is not a confirmed lock/redundancy defect.
+- Proposals still re-propose the already-admitted Chess concept
+  (`proposalExplainedPassages` was 1 while 106 anchors remained eligible), and the
+  duplicate is rejected only during admission after corpus replay. The existing
+  duplicate guard is authoritative; pre-generation suppression was not added.
+- The S25 was unavailable during this round, so real-device validation is
+  Pixel-only.
+- Diagnostics are debug-only (`DiscoveryWork`, `DiscoveryTiming`) and remain
+  numeric/opaque-hash only.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,758 tests, 0 failures, 0 errors, 0 skipped**
+  (184 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- Pixel 8 Pro live session: app remained active at ~100% CPU, advanced 1,322
+  assessments and 29 checkpoints, and did not crash; the existing catalog
+  remained intact. No new topic was published in the measured window.
+
+## 256. Redundant Chess proposal and support-session overhead: diagnosis, aggregation and next limits (2026-11-08)
+
+### Redundant proposal trace
+
+The existing catalog already contains two Chess Calculation Strategy topics
+(`cb4c73b2`, work key `3e86569a…`, 20 supported passages; and the pre-fix
+duplicate `33400ccf`, work key `e6c9f7cd…`, 24 supported passages). On page
+`3dac9345…` the persisted existing-concept scan is:
+
+- `retrievedCandidates=16`, `examinedCandidates=2`, `completion=SUPPORTED_EARLY`;
+- two assessments, one `SUPPORTED` for each Chess work key, both on passage
+  `85b42672…`;
+- `earlyConceptWorkKeys` contains both Chess work keys;
+- the checkpoint has no continuation cursor because early support sets
+  `next=null`.
+
+The local proposal-progress record for the same page has eight anchors. A
+privacy-safe local sample (never written to production logs) mapped them to one
+“Core idea” quote and seven “Practical sequence” list items; all eight are Chess
+calculation material. The stored proposal concepts for that page are four Chess
+Calculation Strategy variants plus “Order of Calculation in Tactics” and
+“Tactical decision-making…”; none is a distinct subject.
+
+The duplicate is therefore regenerated because:
+
+1. the existing-concept scan deliberately stops after the first verified support
+   and leaves the remaining 14 of 16 retrieved candidates unchecked;
+2. the proposal window receives only the **verified supported** passages as
+   `explainedPassageIds` (16 explained passages across 14 windows in the clean
+   session; 1–2 in earlier windows), not the unchecked candidate tail and not the
+   canonical topic’s 20/24 supported references;
+3. `advancePendingProposalWindow` treats every changed passage outside
+   `explainedPassageIds` as an eligible anchor, so the same Note still reports
+   roughly 96–121 eligible anchors per window;
+4. the model regenerates a Chess concept from the unverified list items, and the
+   normalized-label/embedding duplicate guard rejects it only at admission, after
+   proposal generation and corpus replay.
+
+This is not a scheduler-starvation or similarity-threshold problem. It is a
+coverage-propagation/ordering problem: **unchecked existing-concept evidence is
+still eligible proposal evidence**.
+
+### What preserves distinct subjects
+
+The same Note does not contain a sampled distinct subject; the separate Notion
+Workspace/Note Management topic comes from page `3dec9345…`. Per-Note multiple
+topics are already represented. Any fix must keep unsupported or uncertain tail
+passages eligible after the tail resolves, because one of them may be a genuinely
+different subject.
+
+### Evaluated narrow options
+
+- **Use canonical supported refs as explained** — helpful but insufficient: they
+  do not cover the 14 unchecked candidates.
+- **Exclude the scan’s unchecked candidate IDs only while that concept’s tail is
+  pending** — the narrowest evidence-preserving option. It requires the early-stop
+  checkpoint to retain a tail cursor/candidate IDs and a durable deferred-anchor
+  set released when the tail resolves. This was implemented in §257 by
+  reconstructing the exact retrieved candidate tail from the current query and
+  record, without model inference.
+- **Gate the whole Note’s proposals on tail completion** — bounded and
+  evidence-preserving, but it delays genuinely distinct subjects in that Note and
+  can starve proposal work while a long tail runs. Not chosen.
+- **Prompt, threshold or heuristic semantic dedup** — rejected: no evidence, and
+  it would bypass independent support verification or suppress similar subjects.
+
+No proposal behavior was changed in this round. The next implementation should
+persist the early-stop tail cursor/candidate IDs and exclude only those anchors
+until the tail is resolved.
+
+### Support-call wall time
+
+The 8.5–14.9s support-decision times were decomposed with new `DiscoveryInference`
+metrics (numeric only):
+
+| Phase | Calls | Total | Mean | Max |
+| --- | ---: | ---: | ---: | ---: |
+| `supportOpenNanos` | 4 | 16.2s | 4.1s | 5.6s |
+| `supportConversationNanos` | 56 | 136.3s | 2.43s | 2.54s |
+| `supportTokenizeNanos` | 56 | 0.15s | ~2.6ms | 3.3ms |
+| `supportNanos` (native run) | 56 | 56.3s | 1.01s | 1.78s |
+| `inferenceGateWaitNanos` | 56 | 0.4ms | ~7µs | 0.04ms |
+| `providerReleaseNanos` | 56 | 1.2ms | ~21µs | — |
+
+The native inference interval is ~1s, not 1.4–2.6s in this sample. The rest is
+**session construction**: opening the label engine when it is closed (~4–5.5s)
+and creating a native conversation for every support request (~2.4–2.5s). The
+inference gate is not the bottleneck (sub-millisecond). The engine is opened four
+times in the window, consistent with label-session closure at bounded-window
+boundaries or failure release; reducing that is a model-lifecycle change with
+memory trade-offs and was not made.
+
+### Bounded in-process diagnostics
+
+`DiscoveryWorkLogAggregator` replaces per-event `DiscoveryWork` logging at the
+debug edge. It sums numeric events and counts them in memory, emitting a
+`DiscoveryWorkSummary` map at most every 128 events or 2 seconds, plus a 5-second
+timer flush. The clean 128.5s follow-up produced 484 log lines, versus thousands
+with per-event logging. A JVM test proves the per-event observer is not called,
+sums/counts are correct, and a flush drains the remainder.
+
+### Follow-up measurement
+
+Clean 128.5s foreground session on the 109-Note Pixel corpus:
+
+- **56 fresh support model sessions**, 60 reused support decisions;
+- **636 persisted assessments**, 14 partial checkpoint advances, 16 completed
+  checkpoints reused;
+- **112 proposal records across 14 windows**, 14 emitted; **0 admissions and 0
+  new topics**;
+- eligible proposal anchors ~121 per window; explained passages ~1.1 per window;
+- model phases: 136.3s conversation creation + 56.3s native run + 16.2s engine
+  open (aggregated sums overlap the 128.5s wall because many phases are nested or
+  concurrent across turns; per-call means are the reliable figures);
+- membership pending remained ~108–113 Notes.
+
+The follow-up did not publish a topic, but it did advance durable assessments and
+checkpoints and confirmed the support-session cost. The remaining uncertainties
+are the engine-open cycle and the unimplemented tail-anchor deferral.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,760 tests, 0 failures, 0 errors, 0 skipped**
+  (185 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- Pixel 8 Pro foreground session completed without crash; production logs contain
+  no Note text.
+
+## 257. Defer exact unchecked early-support anchors, with bounded release (2026-11-08)
+
+### Correction
+
+Early-support membership termination is unchanged. The correction applies only to
+proposal anchors:
+
+1. after a validated `SUPPORTED_EARLY` concept scan, the controller reconstructs
+   the exact candidate passages the scan retrieved but did not assess;
+2. only candidates for a concept whose scan has a pending verification
+   dependency (`earlyWorkKeys`) are deferred;
+3. deferred passages are passed separately from `supported`/`explained`; they are
+   never marked as supported or explained;
+4. other anchors in the same Note remain proposal-eligible;
+5. the deferral set and a durable `deferralKey`/`deferralSince` are persisted with
+   the bounded proposal checkpoint; the set is deterministic and reconstructed
+   after process death;
+6. a changed deferral key resets the anchor window to zero, so released anchors
+   are offered again;
+7. a ten-minute bounded expiry releases the anchors even if tail work is blocked
+   or deferred; an expired key is persisted as `released:<key>` so the release is
+   not undone on the next step.
+
+Candidate reconstruction (`pendingConceptCandidatePassages`) is retrieval-only:
+it walks the same canonical query pages, subtracts the scan’s assessments, and
+caps the result to the scan’s `retrievedCandidates`. It invokes no model and never
+marks a passage as verified. `currentExistingConcept` still enforces catalog,
+projection, query, identity, policy and source-revision checks.
+
+`proposeDiscoveryWindow` excludes the deferred IDs from anchor selection and
+includes them in its scope/context identity, so a deferral change invalidates the
+old checkpoint instead of silently reusing it. `ProposalProgressRecord` gained
+optional `deferralKey`/`deferralSinceEpochMillis` fields; old records decode with
+nulls.
+
+### Failing-first tests
+
+- `DeferredProposalAnchorTest.uncheckedTailAnchorsAreDeferredWhileAnUnrelatedAnchorStillProducesAProposal`
+  — without the filter it proposes `note:p1`/`note:p2`; with the correction it
+  proposes only the unrelated `note:p3`.
+- `deferralIsPersistedAcrossARestartAndReleasedByTheBoundedExpiry` — reopens the
+  progress store, keeps the deferral, then releases it after the TTL.
+- `candidateTailReconstructionExcludesOnlyAssessedPassagesAndNeedsNoStoredTailState`
+  — exact tail reconstruction; resolved assessments leave nothing deferred.
+
+The first test was disabled by removing the deferred-ID filter and failed for the
+expected reason before the filter was restored.
+
+### Bounded run result
+
+On the Pixel corpus the exact deferral was **20 anchors on the observed page**
+(the unbounded prototype enumerated 231, which was too broad and was rejected).
+The 130s follow-up recorded 30 proposal windows, 240 proposal records, 26 windows
+emitted and 4 proposal-generation attempts; no new topic was published. The
+existing support-session overhead remains: 112 reused support decisions and 2
+fresh decisions, with session construction still dominating fresh calls.
+
+### Remaining limits
+
+- Proposals outside the scan’s retrieved candidate set (for example, passages
+  below the existing concept’s retrieval threshold) stay eligible; the correction
+  deliberately does not use a fuzzy semantic rule to suppress them.
+- The Note still emitted many proposal windows because the eligible anchor pool
+  remains large; the deferral reduces only the exact pending tail. A separate
+  proposal-window progress/liveness check is still warranted.
+- The engine-open/session-construction cost identified in §256 is unchanged.
+- The follow-up `SupportFirstDeviceTest` passed on the now-attached S25
+  (`SM-S931B`, API 37); the earlier full-corpus sessions remain Pixel-only.
+
+### Verification
+
+- `:app:testDebugUnitTest`: **1,763 tests, 0 failures, 0 errors, 0 skipped**
+  (186 result files).
+- `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` pass.
+- `SupportFirstDeviceTest` passed on the S25 (`SM-S931B`, API 37).
+- Pixel 8 Pro session completed without crash; production logs remain free of
+  Note text.
