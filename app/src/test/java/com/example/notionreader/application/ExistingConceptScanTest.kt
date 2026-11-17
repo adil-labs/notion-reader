@@ -3,6 +3,7 @@ package com.example.notionreader.application
 import com.example.notionreader.data.local.*
 import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -522,5 +523,39 @@ class ExistingConceptScanTest {
         var epoch = 6L
         while (result is DurableConceptScanResult.Pending) result = step(epoch++)
         assertTrue("The resumed scan must finish with a terminal checkpoint", result is DurableConceptScanResult.AwaitingValidation)
+    }
+    @Test fun theSupportedCandidateRankIsReportedInRetrievalOrder() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        val text = "Moisture and suitable temperature allow seeds to germinate and begin sprouting."
+        fun passage(id: String, suffix: String, order: Int, vector: List<Float>) = EmbeddedPassage(
+            SemanticPassage(id, "note", "s$suffix", "Summary", "b$suffix", "c$suffix", 0, text.length, text, text, order), vector)
+        val note = SemanticRecord("note", "r1", identity, SemanticMetadata("note"), listOf(
+            passage("note:high", "high", 0, listOf(1f, 0f)),
+            passage("note:mid", "mid", 1, listOf(0.95f, 0.3122f)),
+            passage("note:low", "low", 2, listOf(0.85f, 0.5268f))))
+        assertTrue(index.write(note))
+        val retrievals = FileTopicRetrievalStore(root.resolve("retrieval")); val progress = FileProposalProgressStore(root.resolve("progress"))
+        val original = topic("canonical", 1); val label = original.currentGeneratedLabel!!
+        val query = TopicQueryEmbedding(TopicRetrievalQuery(original.id, label.workKey, topicConceptQuery(label)!!, identity, policy), listOf(1f, 0f))
+        val concept = CanonicalConceptEvidence(label.workKey, label.text, label.definition, "Listen about seeds.",
+            verifier, verifier, emptyList(), emptyList(), queryEmbedding = query)
+        val projection = CanonicalTopicProjection(label.workKey, label.text, label.definition, "Listen about seeds.", emptyList(), emptyList())
+        val canonical = original.copy(generatedLabel = null, canonicalConcept = concept, canonicalProjection = projection)
+        val snapshot = TopicSnapshot(topics = listOf(canonical), identity = identity, complete = true)
+        val sources = mapOf("seed" to "r1", "note" to "r1")
+        val events = mutableListOf<Map<String, Long>>()
+        val diagnostics = DiscoveryWorkDiagnostics({ values -> events += values })
+        withContext(diagnostics) {
+            val result = scanExistingConceptPage(snapshot, note, identity, policy, verifier, 4, sources, retrievals,
+                index, progress, null, 3, { true }, { true }) { request ->
+                TopicSupportRun.Completed(if (request.evidence.passageId == "note:low") SupportDecision.SUPPORTED
+                    else SupportDecision.UNSUPPORTED)
+            } as ExistingConceptScanResult.Page
+            assertEquals(setOf("note:low"), result.supported)
+        }
+        assertEquals("Two higher-scoring candidates preceded the supported one",
+            2L, events.sumOf { it["supportSupportedRank"] ?: 0 })
+        assertEquals(1, events.count { "supportSupportedRank" in it })
+        assertEquals(1L, events.sumOf { it["supportSupportedRankBucket2"] ?: 0 })
     }
 }

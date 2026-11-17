@@ -85,6 +85,13 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
                 when (result.assessment.decision) {
                     SupportDecision.SUPPORTED -> {
                         supported += candidate.passageId
+                        // Report-only: how deep in retrieval order the first support appeared.
+                        // A passage budget cannot reach support sooner than this rank; it can only
+                        // defer a supported Note until a continuation.
+                        if (diagnostics != null) {
+                            diagnostics.record("supportSupportedRank", candidateIndex.toLong())
+                            diagnostics.record("supportSupportedRankBucket${candidateIndex.coerceAtMost(3)}", 1L)
+                        }
                         // Stop unless this verified support was the final eligible candidate.
                         if (stopAfterSupport && (candidateIndex < candidates.candidates.lastIndex || candidates.next != null)) {
                             termination = ConceptScanTermination.SUPPORTED_EARLY
@@ -114,7 +121,12 @@ internal suspend fun verifyExistingConceptPage(concept: SupportConcept, query: T
         diagnostics.record("supportCandidatesChecked", examined.toLong())
         when (termination) {
             ConceptScanTermination.SUPPORTED_EARLY -> diagnostics.record("conceptScanEarlyStopped")
-            ConceptScanTermination.EXHAUSTED -> diagnostics.record("conceptScanExhausted")
+            ConceptScanTermination.EXHAUSTED -> {
+                diagnostics.record("conceptScanExhausted")
+                // Report-only: checks an exhausted scan needed, i.e. what an initial passage
+                // budget would defer rather than save on a supported Note.
+                if (examined > 0) diagnostics.record("supportExhaustedChecked", examined.toLong())
+            }
         }
         if (uncertain.isNotEmpty()) diagnostics.record("conceptScanUncertain")
     }

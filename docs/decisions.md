@@ -16403,3 +16403,33 @@ as an unproven behavior change. The counters remain, and the benchmark report
 for the batched run is under `build/discovery-benchmark/`. P2's next candidate
 is batching actual generation work across the retrieval boundary, not adding a
 scheduler turn.
+
+## 263. Verification order is already score-descending; a passage budget has no measured headroom (2026-11-17)
+
+`topicCandidatePage` ranks candidates by descending retrieval score, then passage
+order, then passage id. The support scan consumes that order and already asks for
+a small page (`limit = 1` in the observed schedule), continuing the rest through
+the durable cursor. So "rerank by retrieval score" is the current behaviour, not
+an alternative, and an initial passage budget cannot make the first supported
+passage arrive sooner: it can only defer candidates.
+
+To measure that rather than assert it, `verifyExistingConceptPage` now records
+`supportSupportedRank` plus rank buckets 0-3 and `supportExhaustedChecked` for
+scans that exhausted their candidates. The failing-first test
+`theSupportedCandidateRankIsReportedInRetrievalOrder` places support on the third
+of three score-ordered candidates and failed before the capture existed.
+
+`tools/analyze-discovery-support-order.ps1` replays a benchmark report. A 300 s
+repeat measurement on the S25 (31 Notes indexed, one existing topic) observed:
+
+- 2 supported scans, both at rank 0 (the highest-scoring candidate);
+- 4 exhausted scans, each checking 1 candidate (the configured page limit);
+- budgets of 1, 2 and 3 passages would delay 0 supported Notes and defer 0
+  exhausted-scan checks in this sample.
+
+This is a small sample and no cold run, so it establishes the mechanism and the
+absence of measured headroom, not a population estimate. It also rules out
+"similarity-only acceptance": support decisions are still independent Gemma
+verdicts, and the retrieval threshold is not a calibrated acceptance threshold.
+A verification-ordering change is therefore not justified; the next useful
+measurement is a larger supported-scan sample from longer or chunked runs.

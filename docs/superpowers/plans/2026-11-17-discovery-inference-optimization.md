@@ -88,11 +88,16 @@ model identity, cancellation, foreground priority and catalog commit guards.
 
 ## P1. Evaluate faster verification ordering
 
-- [ ] Replay observed Note–concept candidates with labeled decisions. Measure
+- [x] Replay observed Note–concept candidates with labeled decisions. Measure
   whether reranking or an initial passage budget reaches the first independently
   supported passage sooner than the current ordering. Account for early support
   and cached decisions already saving work. Report missed and delayed supported
-  Notes separately from unsupported ones.
+  Notes separately from unsupported ones. Candidate order is already
+  score-descending and the scan pages one candidate at a time, so reranking is
+  the current order and a budget can only defer. A 300 s S25 repeat sample saw
+  2 supported scans both at rank 0 and 4 exhausted scans with 1 check each;
+  budgets 1-3 delayed nothing. Small sample; more supported scans needed.
+  Decision §263.
 - [ ] If the result supports a change, test and implement it around
   `ExistingConceptScan.kt` and `CanonicalMembershipScheduler.kt`. Keep Gemma
   as independent verifier; defer lower-priority candidates with a continuation.
@@ -100,10 +105,10 @@ model identity, cancellation, foreground priority and catalog commit guards.
   false positive stays out of membership, and that coverage stays incomplete
   until the relevant work is resolved. Any retrieval ordering change must be
   reflected in the checkpoint/retrieval identity.
-- [ ] Keep similarity-only acceptance in offline evaluation. Publishing those
+- [x] Keep similarity-only acceptance in offline evaluation. Publishing those
   memberships would require an explicit product-contract amendment and a
   separate validation plan. The current retrieval threshold is not a calibrated
-  acceptance threshold.
+  acceptance threshold. No similarity-only acceptance was shipped.
 
 ## P2. Batch engine work if transitions dominate
 
