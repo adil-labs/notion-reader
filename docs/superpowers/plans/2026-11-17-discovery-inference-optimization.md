@@ -118,9 +118,9 @@ model identity, cancellation, foreground priority and catalog commit guards.
   same-engine work within the existing window. Keep the single inference gate,
   end-of-window release, cancellation and foreground preemption. Measure
   opens per request, memory, query latency and cancellation latency on the S25.
-  Attribution confirms reopens are material and caused by an embedding between
-  evidence steps; a two-evidence-step batch is the target. It remains open
-  pending a failing-first scheduling test.
+  A two-evidence-step batch was tested and produced zero reuse (4 attempts /
+  5 opens cold), so it was reverted; the retrieval embedding, not only the
+  membership step, ends the engine window. Decision §262.
 - [ ] Keep checkpoint simplification out of this performance round. Revisit
   only after evidence establishes that a path is unused or redundant and
   restart, withdrawal and source-change tests can prove equivalence.

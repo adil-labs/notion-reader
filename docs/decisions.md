@@ -16372,3 +16372,34 @@ sessions); it is "run two already-eligible evidence steps before yielding to the
 membership step", which removes one embedding switch while still running
 membership every reconcile. This needs a failing-first scheduling test before it
 can ship, so it remains open rather than being folded into this round.
+
+## 262. The two-evidence-step engine batch did not reduce opens and was reverted (2026-11-17)
+
+Attribution in §261 pointed at an embedding between evidence steps as the cause
+of proposal engine reopens. The candidate fix was a bounded same-engine batch:
+when the evidence-first turn made progress, run one further evidence step
+before the membership step, leaving membership in every reconcile. A
+failing-first integration test required a reconcile to run two evidence steps
+and still run membership; it failed before the change and passed after.
+
+Measured on the S25 with the same 150 s paired benchmark:
+
+| run | proposal attempts | opens | reused | engine closes | embeddings |
+| --- | --- | --- | --- | --- | --- |
+| cold (before) | 6 | 6 | 0 | 8 | 11 |
+| cold (batched) | 4 | 5 | 0 | 5 | 5 |
+| repeat (batched) | 3 | 3 | 0 | 8 | 10 |
+
+No reuse appeared. Opens per request did not fall (1.25 cold against 1.0
+before), and every embedding still closed a live engine. The assumption behind
+the batch was too narrow: the embedding that closes the engine is not only the
+membership/retrieval step — a retrieval embedding can end an evidence step
+itself, so two consecutive evidence steps rarely both finish with the engine
+open. The second step also spent time on inspect/admission work that does not
+use the generator.
+
+The production change and its failing-first test were reverted rather than kept
+as an unproven behavior change. The counters remain, and the benchmark report
+for the batched run is under `build/discovery-benchmark/`. P2's next candidate
+is batching actual generation work across the retrieval boundary, not adding a
+scheduler turn.
