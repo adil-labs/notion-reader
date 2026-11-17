@@ -19,6 +19,18 @@ class MembershipLivenessIntegrationTest {
     @get:Rule val files = TemporaryFolder()
 
     @Test fun aNewConceptIsPublishedWhileAnExistingMembershipCheckIsUncertain() = runBlocking {
+        publishesIndependentProposal(rejectFirstCitation = false)
+    }
+
+    @Test fun aRejectedCitationDoesNotPreventTheNextProposalInTheNoteFromPublishing() = runBlocking {
+        publishesIndependentProposal(rejectFirstCitation = true)
+    }
+
+    @Test fun aLargeCorpusCanPublishFromLocalEvidenceBeforeCrossNoteProposalFormation() = runBlocking {
+        publishesIndependentProposal(rejectFirstCitation = true, largeCorpus = true)
+    }
+
+    private suspend fun publishesIndependentProposal(rejectFirstCitation: Boolean, largeCorpus: Boolean = false) {
         val root = files.newFolder()
         val cache = FileDocumentCache(root.resolve("cache"))
         val index = FileSemanticIndexStore(root.resolve("index"))
@@ -32,14 +44,22 @@ class MembershipLivenessIntegrationTest {
             val doc = ReaderDocument.fromChunkTexts(id, id, listOf(text))
             cache.put(CachedDocument(doc, null, Instant.EPOCH))
             val passage = SemanticPassage("$id:p", id, "$id:s", section, "$id:b", "$id:c", 0, text.length, text, text, 0)
-            val record = SemanticRecord(id, semanticRevision(doc), model, SemanticMetadata(id), listOf(EmbeddedPassage(passage, listOf(1f, 0f))))
+            val passages = if (id == "later" && rejectFirstCitation)
+                listOf(EmbeddedPassage(passage.copy(id = "$id:rejected", order = 0), listOf(1f, 0f)),
+                    EmbeddedPassage(passage.copy(order = 1), listOf(0f, 1f)))
+            else listOf(EmbeddedPassage(passage, listOf(1f, 0f)))
+            val record = SemanticRecord(id, semanticRevision(doc), model, SemanticMetadata(id), passages)
             assertTrue(index.write(record))
             return doc to record
         }
         val (_, seed) = add("seed", seedText, "Seeds")
         val (_, later) = add("later", laterText, "Chess calculation")
         index.setPaused(false)
-        val sources = mapOf("seed" to seed.revision, "later" to later.revision)
+        val sources = mutableMapOf("seed" to seed.revision, "later" to later.revision)
+        if (largeCorpus) repeat(9) { n ->
+            val (_, extra) = add("other$n", "A separate note about studying for an exam.", "Study")
+            sources[extra.pageId] = extra.revision
+        }
 
         val seedPassage = seed.passages.single()
         val ref = ProposalEvidenceRef("seed", seed.revision, seedPassage.passage.id)
@@ -62,17 +82,27 @@ class MembershipLivenessIntegrationTest {
             canonicalCatalogReady = true, acceptedRevisions = sources, connectionPassComplete = true,
             policyVersion = TopicPolicy().version)))
 
+        var rejectedCitationChecked = false
+        var corpusFormationReads = 0L
+        var corpusFormationReadsAtFirstProposal: Long? = null
         val runtime = object : TopicLabelRuntime, TopicSupportRuntime, DiscoveryProposalRuntime {
             override suspend fun label(request: TopicLabelRequest): TopicLabelRun = error("No legacy naming")
-            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun =
-                if (request.topicId.startsWith("pending:")) TopicSupportRun.Completed(SupportDecision.SUPPORTED)
+            override suspend fun verifySupport(request: TopicSupportRequest): TopicSupportRun {
+                if (request.evidence.passageId == "later:rejected" && request.topicId.startsWith("pending:")) {
+                    rejectedCitationChecked = true
+                    return TopicSupportRun.Completed(SupportDecision.UNCERTAIN)
+                }
+                return if (request.topicId.startsWith("pending:")) TopicSupportRun.Completed(SupportDecision.SUPPORTED)
                 // The existing concept's later Note cannot be resolved. This is terminal for the
                 // automatic window, but must not block a different subject's proposal.
                 else TopicSupportRun.Completed(SupportDecision.UNCERTAIN)
+            }
             override suspend fun propose(request: DiscoveryProposalRequest): DiscoveryProposalRun {
                 if (request.evidence.first().pageId != "later") return DiscoveryProposalRun.Completed(
                     DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
-                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Chess calculation targets",
+                if (corpusFormationReadsAtFirstProposal == null) corpusFormationReadsAtFirstProposal = corpusFormationReads
+                val name = if (request.evidence.first().passageId == "later:rejected") "Rejected candidate" else "Chess calculation targets"
+                return DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept(name,
                     "Identify targets before candidate moves.", "Listen about chess calculation.",
                     listOf(request.evidence.first().passageId)))
             }
@@ -91,14 +121,19 @@ class MembershipLivenessIntegrationTest {
             topicStore = graph, topicLabelRuntime = runtime, topicLabelModelAvailable = { true },
             topicRetrievalStore = FileTopicRetrievalStore(root.resolve("queries")), topicRetrievalPolicy = policy,
             proposalProgressStore = progress, topicSupportIdentity = { verifier }, topicProposalIdentity = { generator },
+            workDiagnostics = { corpusFormationReads += it["proposalCorpusRecordsRead"] ?: 0 },
             diagnosticLog = { tag, message -> logs += "$tag: $message" })
         controller.reconcile(emptyList(), false)
-        val direct = controller.advanceEvidenceFirstNote("later")
-        assertTrue("The later Note must be able to propose directly; logs=$logs result=$direct",
-            direct is EvidenceFirstNoteStep.Proposals && direct.window.window.proposals.isNotEmpty())
+        if (!largeCorpus) {
+            val direct = controller.advanceEvidenceFirstNote("later")
+            assertTrue("The later Note must be able to propose directly; logs=$logs result=$direct",
+                direct is EvidenceFirstNoteStep.Proposals && direct.window.window.proposals.isNotEmpty())
+        }
         repeat(80) { controller.reconcile(emptyList(), true) }
 
         val names = graph.readMetadata()!!.topics.map { it.label }
+        if (largeCorpus) assertEquals("The first generation should use local evidence", 0L, corpusFormationReadsAtFirstProposal)
+        if (rejectFirstCitation) assertTrue("The first candidate must reach citation verification", rejectedCitationChecked)
         assertTrue("A blocked membership check must not starve new topics; names=$names state=${controller.state.value}",
             names.any { it == "Chess calculation targets" })
         assertEquals("Only the blocked existing concept plus the independent new subject are expected", 2, names.size)

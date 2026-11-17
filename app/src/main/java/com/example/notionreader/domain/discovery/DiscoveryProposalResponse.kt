@@ -46,6 +46,23 @@ fun discoveryProposalWorkKey(request: DiscoveryProposalRequest): String {
     return semanticHash(fields.joinToString("") { "${it.length}:$it" })
 }
 
+/**
+ * Identity of the exact model input: the evidence in the order the wire prompt emits it, plus the
+ * complete generator identity. Unlike [discoveryProposalWorkKey] it deliberately excludes the
+ * formation key, because the prompt cannot observe which pass proposed the same ordered evidence.
+ * A response looked up by this key carries no admission authority and is revalidated against the
+ * current request before use.
+ */
+fun discoveryProposalModelKey(request: DiscoveryProposalRequest): String {
+    val identity = request.identity
+    val fields = listOf("discovery-proposal-model-input-v1", identity.artifact,
+        identity.tokenizer, identity.template, identity.prompt, identity.schema, identity.policy,
+        identity.effectiveBackend) + request.evidence.flatMap {
+        listOf(it.passageId, canonicalSemanticId(it.pageId), it.revision, it.body)
+    }
+    return semanticHash(fields.joinToString("") { "${it.length}:$it" })
+}
+
 fun validateDiscoveryProposal(request: DiscoveryProposalRequest, response: DiscoveryProposalResponse,
     currentEpoch: Long, currentRevisions: Map<String, String>): DiscoveryProposalValidation {
     if (request.sourceEpoch != currentEpoch) return DiscoveryProposalValidation.Stale

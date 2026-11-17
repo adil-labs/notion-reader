@@ -24,14 +24,14 @@ class FileProposalProgressStoreTest {
 
     @Test fun pendingConceptSurvivesRestartAndWithdrawalRemovesAllDerivedText() = runBlocking {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
-        val concept = ProposalConceptRecord(abstention.workKey, abstention.evidence, "Seed germination",
+        val concept = ProposalConceptRecord(abstention.key, abstention.evidence, "Seed germination",
             "Conditions for seeds to germinate.", "Listen to germination conditions.", listOf("anchor"))
         assertEquals(ProposalProgressWriteResult.Written, store.writeConcept(concept) { true })
-        assertEquals(concept, FileProposalProgressStore(dir).readConcept(concept.workKey, sources))
-        assertNull(store.readConcept(concept.workKey, sources - "older"))
+        assertEquals(concept, FileProposalProgressStore(dir).readConcept(concept.key, sources))
+        assertNull(store.readConcept(concept.key, sources - "older"))
         assertEquals(ProposalProgressWriteResult.Invalid, store.writeAbstention(abstention) { true })
         store.reconcile(sources - "older")
-        assertNull(store.readConcept(concept.workKey, sources))
+        assertNull(store.readConcept(concept.key, sources))
         assertEquals(0L, store.bytes())
     }
 
@@ -122,11 +122,11 @@ class FileProposalProgressStoreTest {
         val dir = files.newFolder(); val store = FileProposalProgressStore(dir)
         assertEquals(ProposalProgressWriteResult.Written, store.writeAbstention(abstention) { true })
         val restored = FileProposalProgressStore(dir)
-        assertEquals(abstention, restored.readAbstention(abstention.workKey, sources))
+        assertEquals(abstention, restored.readAbstention(abstention.key, sources))
         assertNull(restored.readAbstention(semanticHash("changed-evidence"), sources))
-        assertNull(restored.readAbstention(abstention.workKey, sources + ("older" to "r3")))
+        assertNull(restored.readAbstention(abstention.key, sources + ("older" to "r3")))
         store.reconcile(sources - "older")
-        assertNull(restored.readAbstention(abstention.workKey, sources))
+        assertNull(restored.readAbstention(abstention.key, sources))
         assertEquals(0L, store.bytes())
     }
 
@@ -136,7 +136,7 @@ class FileProposalProgressStoreTest {
         assertEquals(ProposalProgressWriteResult.Invalid, store.writeAbstention(abstention.copy(evidence = listOf(abstention.evidence.first(), abstention.evidence.first()))) { true })
         var checks = 0
         assertEquals(ProposalProgressWriteResult.Stale, store.writeAbstention(abstention) { ++checks == 1 })
-        assertNull(store.readAbstention(abstention.workKey, sources))
+        assertNull(store.readAbstention(abstention.key, sources))
         assertFalse(dir.listFiles()!!.any { it.extension == "tmp" })
     }
 

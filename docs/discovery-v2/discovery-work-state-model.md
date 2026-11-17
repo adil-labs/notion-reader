@@ -290,6 +290,17 @@ Fairness is bidirectional:
 Bound turns come from the existing scheduling mechanism. Foreground search, reading, playback and accessibility keep
 existing priority over all bulk work.
 
+When the accepted corpus exceeds one bounded formation batch, the scheduler
+offers each Note an initial window of local evidence before exhaustive
+cross-Note proposal formation. The first pass can admit Emerging topics through
+the same citation, catalog and duplicate checks. A locally grounded candidate
+does not establish cross-Note coverage. After each Note's initial window, the
+scheduler yields to other Notes, then resumes ordinary formation and its
+durable checkpoints. Exact proposal responses and support decisions remain
+reusable across either pass when the ordered offered evidence and generator
+identity match; the formation key is not part of that cache identity, while
+support, scheduling and admission keep consuming the work key.
+
 ## 9. Uncertainty scoping
 
 An `UNCERTAIN` result is evidence state for one Note–concept pair.
@@ -303,6 +314,12 @@ An `UNCERTAIN` result is evidence state for one Note–concept pair.
 
 This scoping is the §248 fix: a page-level uncertainty previously ended the
 whole page's proposal work.
+
+A completed unsupported or uncertain citation rejects its proposal. The
+scheduler continues with the next independent proposal in the Note. A saved
+rejection for current evidence also settles that proposal without assessing
+its other missing citations. Missing or invalid data and runtime failures
+retain their own work states.
 
 ## 10. Required scenarios
 

@@ -40,7 +40,15 @@ class PendingConceptCoverageTest {
         suspend fun load() = readPendingConceptCoverage(proposal, generated, index, embedding, generator, verifier, 5, sources, store) { true }
         assertEquals(PendingConceptCoverage.Pending(setOf("two:p")), load())
         assertEquals(ProposalProgressWriteResult.Written, store.writeSupport(two) { true })
-        assertEquals(PendingConceptCoverage.Complete(listOf(one, two)), load())
+        val onlyRejected = object : ProposalProgressStore by store {
+            override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
+                store.readSupport(workKey, sources)?.takeIf { it.decision == SupportDecision.UNSUPPORTED }
+        }
+        val withMissingCitation = readPendingConceptCoverage(proposal, generated, index, embedding, generator,
+            verifier, 5, sources, onlyRejected) { true }
+        assertFalse("An existing rejection must settle the candidate without more inference",
+            withMissingCitation is PendingConceptCoverage.Pending)
+        assertEquals(PendingConceptCoverage.Rejected(two), load())
         val forged = object : ProposalProgressStore by store {
             override suspend fun readSupport(workKey: String, sources: Map<String, String>): TopicSupportAssessment? =
                 store.readSupport(workKey, sources)?.copy(topicId = "unrelated")

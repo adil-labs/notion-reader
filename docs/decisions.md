@@ -5,7 +5,9 @@ verification results. It does not override the governing specifications. Start w
 [multiple verified Notes and deferred passage reconciliation (§245)](#245-publish-multiple-verified-notes-before-source-completion-and-resume-tails-2026-11-07)
 and the [documentation guide](README.md); read [the historical record from §0](#0-what-revision-2-changed)
 when investigating rationale or past failures. Earlier status and completion labels
-apply to their recorded round, not automatically to the current product.
+apply to their recorded round, not automatically to the current product. The
+latest Discovery fix is [candidate-level citation rejection and local-first
+formation (§259)](#259-continue-after-rejected-discovery-citations-and-offer-a-bounded-local-first-pass-2026-11-17).
 
 ### Initial historical record — revision 3
 
@@ -16154,3 +16156,188 @@ fresh decisions, with session construction still dominating fresh calls.
 - `SupportFirstDeviceTest` passed on the S25 (`SM-S931B`, API 37).
 - Pixel 8 Pro session completed without crash; production logs remain free of
   Note text.
+
+## 258. Discovery audit: citation rejection blocks the remaining proposals in a Note (2026-11-17)
+
+Read-only audit of the S25 installation (version 0.1, package update November 8)
+and archived Pixel traces against source at `16cc928`. The installed binary's
+commit was not independently identified. No app data was reset or APK installed.
+
+- **S25, November 17, 09:18–09:21 device time.** The filtered capture recorded
+  35 checkpoint advances, 2,275 assessment events, 408 reused support decisions,
+  and three proposal-generation entry calls totaling 172 ms. It recorded no
+  timed native support or proposal generation calls. At 09:18:46 admission
+  logged `already admitted` and returned the existing topic. At 09:19:05
+  `process phase=CORPUS result=Stopped` logged reason `CitationCoverage` and the
+  work summary recorded one page block. There was no new admission.
+- **S25 foreground follow-up.** After bringing the existing app forward, the
+  09:23 sample repeatedly returned `PendingReplay` at offset zero, then
+  reached eight proposals with `scanPending=true` at 09:23:52. Concept replay
+  validates saved decisions in bounded batches without calling the model.
+  The logged offset identifies the proposal window, independent of the
+  internal replay cursor.
+- **Pixel, November 8 after anchor deferral.** The corpus gate returned
+  `scanPending=false` with eight proposals at 02:06:11.271. One native proposal
+  generation completed at 02:06:36.492, after 7.56 s engine opening, 2.98 s
+  conversation creation and 10.87 s native generation. At 02:06:43.742 the
+  completed citation assessment returned `Stopped` with reason `Assessed`.
+- **Pixel support timing.** Both archived captures contain a duplicate copy of
+  each line. Counting unique timestamped lines in
+  `build/discovery-aggregated-clean.log` gives 28 timed support calls and two
+  opens. Means were 2.43 s conversation creation, 1.00 s native execution,
+  2.64 ms tokenization, about 7 µs inference-gate wait, and 4.06 s per engine
+  open. This corrects the raw event counts for this file in §256. The
+  `build/discovery-deferral-2.log` capture has 12 distinct pending proposal
+  inspections at offset zero and one completed inspection, showing that the
+  pre-generation corpus scan did eventually finish.
+
+`advancePendingCorpusWork` resumes after `Assessed` only if the citation is
+`SUPPORTED`. `CitationCoverage` schedules another assessment only when there
+is a missing citation to check. Otherwise both results fall through to
+`Stopped`. `EvidenceFirstScheduler.step` handles those stops by blocking the
+page without incrementing its proposal index. The candidate must remain
+ineligible for publication, but blocking the Note also prevents independent
+proposals in the same window from being attempted. That conflicts with the
+work-state model's candidate-level uncertainty scoping. The captured stop
+reasons do not distinguish an uncertain citation from an unsupported one.
+
+The observed publication stop is an implementation issue. Cold inference
+adds latency, with different cost profiles for support and proposal generation.
+The capture does not establish how often other Notes encounter the same stop,
+or that any remaining candidate would pass verification. Numeric device
+captures are under `build/discovery-audit-20261117/`.
+
+## 259. Continue after rejected Discovery citations and offer a bounded local first pass (2026-11-17)
+
+- A current `UNCERTAIN` or `UNSUPPORTED` citation now yields a candidate-level
+  rejection. The scheduler advances the proposal index, preserving work on the
+  remaining candidates in the Note. A revalidated saved rejection also ends
+  the candidate without scheduling checks for missing citations. Stale,
+  invalid, missing and deferred work keep their distinct handling.
+- When there are more other indexed Notes than fit in one formation batch
+  (eight records), the automatic scheduler processes up to two local proposals
+  per Note before full cross-Note formation. It uses the current passage delta,
+  stable anchor order, and the same existing-concept, citation and admission
+  guards. Local proposals carry `SOURCE_SCAN`; Emerging publication does not
+  represent complete corpus matching. The full pass retains its disk
+  checkpoints. The local pass cursor is process-local and can be rebuilt using
+  saved exact-input proposals and support decisions.
+- Engine ownership and window cleanup follow the existing resource policy.
+  The inference reduction comes from skipping additional calls for a proposal
+  that already has a rejected citation.
+
+Failing-first evidence from `MembershipLivenessIntegrationTest`: the original
+code checked the first candidate's citation and published only the seed topic;
+the separate large-corpus case read ten other Notes before first generation.
+The regressions require the independent second candidate to publish and the
+large-corpus first generation to perform zero cross-Note formation reads.
+Removing only the saved-rejection guard failed the assertion that an existing
+rejection must settle a candidate with a missing citation. Restoring the guard
+restored the verified result.
+
+Verification:
+
+- `:app:testDebugUnitTest` passed with 1,765 tests, zero failures, errors or
+  skips. `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` passed.
+- The repository wrapper ran `SupportFirstDeviceTest` on the S25
+  (SM-S931B, API 37), one pass with no skips. Real Gemma admitted a two-member
+  topic on purpose-built input with both matching and passage coverage complete.
+- The updated APK also admitted a new concept on the existing S25 corpus at
+  09:37:52 device time, about 52 seconds after the first inventory event in
+  that process. The capture records local-first inspections and
+  `topicsAdmitted=1`. The cold proposal took 4.77 s to open the engine,
+  2.67 s to create the conversation and 6.91 s of native inference. This is a
+  single observed admission, with no controlled before/after wall-time or
+  TalkBack claim. Numeric logs are in
+  `build/discovery-fixes-s25-foreground.log`.
+
+## 260. Reuse the exact proposal model input and measure a bounded S25 baseline (2026-11-17)
+
+The proposal cache keyed by `discoveryProposalWorkKey` included the formation
+key, while the wire prompt emits the offered evidence in input order. A local
+first pass and a later full formation pass therefore paid for the same prompt
+again whenever they offered the same ordered evidence, even though the model
+could not observe which pass proposed it.
+
+- `discoveryProposalModelKey` (versioned `discovery-proposal-model-input-v1`)
+  hashes the evidence in prompt order (canonical page, revision, passage id,
+  body) plus the complete generator identity, and deliberately omits the
+  formation key. Concept and abstention records are now stored under it
+  (`ProposalAbstentionRecord.key` / `ProposalConceptRecord.key`).
+- The old work-keyed concept/abstention lookup was removed rather than kept.
+  Discovery checkpoints are derived state with one current format; an
+  incompatible store is rebuilt, not migrated. `discoveryProposalWorkKey` still
+  governs support, scheduling and admission, and a cached response is
+  revalidated against the current request and returns the current proposal's
+  completeness. It never supplies admission authority by itself.
+- New numeric counters `proposalModelCacheHit`, `proposalModelCacheMiss` and
+  `proposalNativeRequest` sit at the cache boundary. They reconcile with the
+  labeler's existing `proposalAttempts`: a miss and a native request must agree
+  with one actual native attempt.
+- The first visible publication is now measured where the topic becomes
+  publishable, not only in the admission callback:
+  `firstVisiblePublishedTopicNanos` fires once for a topic admitted in this
+  process. The admission-side `firstPublishedTopicNanos` remains; exactly one of
+  the two reports for the first topic, so a later projection or Refresh cannot
+  silently replace admission as the only observation point.
+
+Failing-first evidence in `DiscoveryProposalEvidenceTest`: before the change,
+four cases failed for the intended reasons — a different formation key around
+the same ordered evidence made two model calls, a validated abstention was not
+reused across formation keys, reordered evidence was reused when it must miss,
+and a reordered persisted record answered the wrong prompt. The order, body,
+revision, generator-identity, cancellation, invalid-output and storage-failure
+cases either already failed closed or remained retryable after the change.
+
+Verification:
+
+- `:app:testDebugUnitTest` passed with 1,774 tests, zero failures, errors or
+  skips. `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` passed.
+- `tools/run-discovery-benchmark.ps1` runs a frozen purpose-built 100-Note
+  corpus (`DiscoveryBenchmarkCorpus`, ten subjects in ten Notes each) in an
+  isolated app-file root, records numeric diagnostics only and writes an
+  fsynced JSONL report plus a run manifest with APK hashes, model identity,
+  backend, device, battery/thermal state and animation scales.
+- Three clean 150 s paired measurements on the S25 (SM-S931B, API 37, GPU) at
+  the exact-reuse wiring:
+
+  | run | cold first publication | cold indexed | cold logical/native | repeat new topic |
+  | --- | --- | --- | --- | --- |
+  | A | 143.2 s | 9 | 22 / 6 | none |
+  | B | 146.5 s | 9 | 22 / 6 | none |
+  | C | none (window) | 4 | 11 / 5 | 95.7 s |
+
+- A pre-change variant (same tree with `modelKey = workKey`, i.e. no exact
+  reuse across formation keys) measured 150 s cold then repeat on the same
+  corpus: cold published nothing (5 indexed, 13 logical / 6 native), repeat
+  published at 30.2 s (20 indexed, 14 logical / 3 native).
+- At a fixed 150 s window the exact-reuse variant did **not** reduce native
+  proposal calls: both variants made six cold calls. Reuse raised logical
+  requests from 13 to 22 and let the run index 9 instead of 5 Notes, so the
+  benefit is progress per window, not calls per window. The plan's 50-70%
+  call-reduction hypothesis is therefore **not demonstrated**; comparing calls
+  and runtime requires runs that reach the same terminal state, which none of
+  these bounded runs did.
+- A single 600 s cold measurement reached 37 indexed Notes with 26 native
+  proposal calls against 42 logical requests (16 hits) and first publication at
+  185.5 s. Repeating that measurement in the same process crashed.
+
+Native crash: a 600 s paired run and later 300 s pre-change runs died with
+SIGSEGV in the LiteRT GPU path (`libOpenCL.so clEnqueueMapBuffer` through
+`liblitertlm_jni.so`), after 682 s of process uptime and again inside a 300 s
+measurement. The wrapper now pulls any partial report before judging and fails
+the run when instrumentation crashes; the measurement report moved to
+app-internal storage and is fsynced per record so a native crash cannot delete
+completed measurements. Long uninterrupted GPU windows are not yet a stable
+measurement environment, and this is a P2-relevant constraint rather than a
+benchmark bug.
+
+Cost attribution from the same native diagnostics (six cold proposal requests):
+proposal engine open 38.3-39.4 s, conversation creation 21.2-23.3 s, native
+generation 31.4-35.2 s; support ran five requests with only two engine opens,
+so an engine can be retained across support requests. Proposal requests reopened
+the engine every time, consistent with the embedding/generation engine switch in
+`DiscoveryRuntime.embedInput`, which closes the labeler before an embedding.
+
+Open: usefulness grading (the report carries the ten-subject denominator but no
+labels), a near-duplicate formation experiment, and a terminal-state comparison.

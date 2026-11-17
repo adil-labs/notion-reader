@@ -7,6 +7,7 @@ import kotlinx.coroutines.ensureActive
 internal sealed interface PendingConceptCoverage {
     data class Complete(val assessments: List<TopicSupportAssessment>) : PendingConceptCoverage
     data class Pending(val missingEvidenceIds: Set<String>) : PendingConceptCoverage
+    data class Rejected(val assessment: TopicSupportAssessment) : PendingConceptCoverage
     data object Stale : PendingConceptCoverage
     data object Invalid : PendingConceptCoverage
     data object Unavailable : PendingConceptCoverage
@@ -41,6 +42,7 @@ internal suspend fun readPendingConceptCoverage(proposal: IncrementalProposal, g
             if (saved == null) { missing += evidenceId; continue }
             val checked = validateTopicSupport(request, saved.decision, epoch, generated.workKey, sources)
             if (checked !is TopicSupportValidation.Accepted || checked.assessment != saved) return PendingConceptCoverage.Invalid
+            if (saved.decision != SupportDecision.SUPPORTED) return PendingConceptCoverage.Rejected(saved)
             assessments += saved
         }
         if (!current()) return PendingConceptCoverage.Stale

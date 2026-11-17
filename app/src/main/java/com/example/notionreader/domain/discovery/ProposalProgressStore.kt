@@ -11,13 +11,17 @@ data class ProposalProgressRecord(val pageId: String, val revision: String, val 
     /** First time this deferral key was observed; bounds suppression if the tail never resolves. */
     val deferralSinceEpochMillis: Long? = null)
 
-/** Key covers the exact offered bodies and complete generator identity; bodies are not stored. */
+/**
+ * Storage key for one exact model response: [discoveryProposalModelKey], covering the offered
+ * evidence in prompt order and the complete generator identity. Bodies are not stored.
+ */
 @Serializable
-data class ProposalAbstentionRecord(val workKey: String, val evidence: List<ProposalEvidenceRef>,
+data class ProposalAbstentionRecord(val key: String, val evidence: List<ProposalEvidenceRef>,
     val reason: DiscoveryAbstentionReason)
 
+/** Storage key semantics match [ProposalAbstentionRecord]; the offered evidence order is preserved. */
 @Serializable
-data class ProposalConceptRecord(val workKey: String, val evidence: List<ProposalEvidenceRef>,
+data class ProposalConceptRecord(val key: String, val evidence: List<ProposalEvidenceRef>,
     val name: String, val definition: String, val listeningDescription: String, val evidenceIds: List<String>)
 
 /**

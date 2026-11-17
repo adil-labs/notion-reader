@@ -15,6 +15,16 @@ support reuse across admission, the implemented bounded per-Note rule (strongest
 candidate first, stop on verified support, explicit early/exhausted completion),
 the synthetic 20,000-passage exhaustive-vs-support-first comparison and the audit
 metrics still to collect, with remaining measurement gaps explicit.
+For larger accepted corpora, Discovery first offers up to two proposals per Note
+from local evidence, then resumes cross-Note formation. Eligible topics can appear
+as Emerging with incomplete matching while the remaining work continues. A
+rejected citation ends its candidate's attempt, so independent proposals in the
+same Note can still be checked. A saved rejection avoids checking additional
+citations for that candidate. Proposal responses are cached by the exact ordered
+model input and generator identity, so a local evidence pass and a later full
+formation pass share one generation when they offer the same ordered evidence;
+the formation key still governs support, scheduling and admission.
+
 Storage presentation is coordinated across Discovery and Offline & storage: usage-first accounting,
 radio-selected Automatic vs custom maximums, separate model file reporting, truthful consequences and
 accessible expandable policy explanations with discoverable shared larger-limit preferences.

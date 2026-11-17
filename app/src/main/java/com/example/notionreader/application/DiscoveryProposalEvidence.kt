@@ -35,22 +35,32 @@ internal suspend fun generateProposal(proposal: IncrementalProposal, index: Sema
     currentCoroutineContext().ensureActive()
     if (!current()) return ProposalGenerationResult.Stale
     val workKey = discoveryProposalWorkKey(prepared.request)
+    val modelKey = discoveryProposalModelKey(prepared.request)
+    val diagnostics = currentCoroutineContext()[DiscoveryWorkDiagnostics]
     val expectedRefs = prepared.request.evidence.map { ProposalEvidenceRef(canonicalSemanticId(it.pageId), it.revision, it.passageId) }
-    val concept = store?.readConcept(workKey, sources)
-    if (concept != null && concept.evidence.size == expectedRefs.size && concept.evidence.toSet() == expectedRefs.toSet()) {
+    suspend fun accepted(concept: ProposalConceptRecord): ProposalGenerationResult? {
+        if (concept.evidence != expectedRefs) return null
         val response = DiscoveryProposalResponse.Concept(concept.name, concept.definition, concept.listeningDescription, concept.evidenceIds)
         val validation = validateDiscoveryProposal(prepared.request, response, epoch, sources)
         currentCoroutineContext().ensureActive()
         if (!current()) return ProposalGenerationResult.Stale
-        if (validation is DiscoveryProposalValidation.Accepted && validation.workKey == workKey)
-            return ProposalGenerationResult.Completed(response, workKey, prepared.incomplete)
+        if (validation !is DiscoveryProposalValidation.Accepted || validation.workKey != workKey) return null
+        diagnostics?.record("proposalModelCacheHit")
+        return ProposalGenerationResult.Completed(response, workKey, prepared.incomplete)
     }
-    val saved = store?.readAbstention(workKey, sources)
-    currentCoroutineContext().ensureActive()
-    if (!current()) return ProposalGenerationResult.Stale
-    if (saved != null && saved.evidence.size == expectedRefs.size && saved.evidence.toSet() == expectedRefs.toSet())
+    suspend fun acceptedAbstention(saved: ProposalAbstentionRecord): ProposalGenerationResult? {
+        if (saved.evidence != expectedRefs) return null
+        diagnostics?.record("proposalModelCacheHit")
         return ProposalGenerationResult.Completed(DiscoveryProposalResponse.Abstained(saved.reason), workKey, prepared.incomplete)
+    }
+    // The local first pass and a later full formation pass can offer the same ordered evidence
+    // under different formation keys, and the prompt cannot tell them apart. The work key is
+    // still what support, scheduling and admission consume; it is not the cache identity.
+    store?.readConcept(modelKey, sources)?.let { concept -> accepted(concept)?.let { return it } }
+    store?.readAbstention(modelKey, sources)?.let { saved -> acceptedAbstention(saved)?.let { return it } }
+    diagnostics?.record("proposalModelCacheMiss")
     val result = generate(prepared.request)
+    diagnostics?.record("proposalNativeRequest")
     currentCoroutineContext().ensureActive()
     if (!current()) return ProposalGenerationResult.Stale
     return when (result) {
@@ -62,13 +72,13 @@ internal suspend fun generateProposal(proposal: IncrementalProposal, index: Sema
             is DiscoveryProposalValidation.Accepted -> {
                 val abstention = validated.response as? DiscoveryProposalResponse.Abstained
                 if (abstention != null && store != null) {
-                    val written = store.writeAbstention(ProposalAbstentionRecord(validated.workKey, expectedRefs, abstention.reason), current)
+                    val written = store.writeAbstention(ProposalAbstentionRecord(modelKey, expectedRefs, abstention.reason), current)
                     if (!current() || written == ProposalProgressWriteResult.Stale) return ProposalGenerationResult.Stale
                     if (written != ProposalProgressWriteResult.Written) return ProposalGenerationResult.StorageFailure(written)
                 }
                 val conceptResponse = validated.response as? DiscoveryProposalResponse.Concept
                 if (conceptResponse != null && store != null) {
-                    val written = store.writeConcept(ProposalConceptRecord(validated.workKey, expectedRefs, conceptResponse.name,
+                    val written = store.writeConcept(ProposalConceptRecord(modelKey, expectedRefs, conceptResponse.name,
                         conceptResponse.definition, conceptResponse.listeningDescription, conceptResponse.evidenceIds), current)
                     if (!current() || written == ProposalProgressWriteResult.Stale) return ProposalGenerationResult.Stale
                     if (written != ProposalProgressWriteResult.Written) return ProposalGenerationResult.StorageFailure(written)

@@ -131,6 +131,152 @@ class DiscoveryProposalEvidenceTest {
         assertEquals(2, calls)
     }
 
+    @Test fun sameOrderedEvidenceWithADifferentFormationKeyReusesOneModelCall() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(key: String): ProposalGenerationResult =
+            generateProposal(proposal.copy(proposalKey = key), index, embedding, generator, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                    "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+            }
+        assertTrue(run("local-first-pass") is ProposalGenerationResult.Completed)
+        assertTrue(run("full-formation-pass") is ProposalGenerationResult.Completed)
+        assertEquals(1, calls)
+    }
+
+    @Test fun aValidatedAbstentionIsReusedAcrossFormationKeysForIdenticalInputs() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(key: String): ProposalGenerationResult =
+            generateProposal(proposal.copy(proposalKey = key), index, embedding, generator, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Abstained(DiscoveryAbstentionReason.MIXED_EVIDENCE))
+            }
+        assertTrue(run("local-first-pass") is ProposalGenerationResult.Completed)
+        assertTrue(run("full-formation-pass") is ProposalGenerationResult.Completed)
+        assertEquals(1, calls)
+    }
+
+    @Test fun reorderedEvidenceIsNotReusedEvenWhenTheFormationKeyIsUnchanged() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(evidence: List<ProposalEvidenceRef>): ProposalGenerationResult =
+            generateProposal(proposal.copy(evidence = evidence), index, embedding, generator, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                    "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf(evidence.first().passageId)))
+            }
+        assertTrue(run(proposal.evidence) is ProposalGenerationResult.Completed)
+        assertTrue(run(proposal.evidence.reversed()) is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+    }
+
+    @Test fun changedPassageBodyIsNotReusedAsAModelResponse() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(): ProposalGenerationResult =
+            generateProposal(proposal, index, embedding, generator, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                    "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+            }
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        val changed = record("two")
+        index.write(changed.copy(passages = changed.passages.map { embedded ->
+            embedded.copy(passage = embedded.passage.copy(excerpt = "A different passage with sufficient content to explain seed germination clearly."))
+        }))
+        assertTrue(run() is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+    }
+
+    @Test fun changedGeneratorIdentityIsNotReusedAsAModelResponse() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        suspend fun run(identity: TopicLabelIdentity): ProposalGenerationResult =
+            generateProposal(proposal, index, embedding, identity, 5, sources, { true },
+                FileProposalProgressStore(root.resolve("proposals"))) {
+                calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                    "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+            }
+        assertTrue(run(generator) is ProposalGenerationResult.Completed)
+        assertTrue(run(generator.copy(effectiveBackend = "GPU")) is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+    }
+
+    @Test fun cancelledGenerationLeavesTheModelResponseRetryable() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        val result = generateProposal(proposal, index, embedding, generator, 5, sources, { true },
+            FileProposalProgressStore(root.resolve("proposals"))) {
+            calls++; DiscoveryProposalRun.Cancelled
+        }
+        assertEquals(ProposalGenerationResult.Cancelled, result)
+        assertTrue(generateProposal(proposal, index, embedding, generator, 5, sources, { true },
+            FileProposalProgressStore(root.resolve("proposals"))) {
+            calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+        } is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+    }
+
+    @Test fun invalidOutputLeavesTheModelResponseRetryable() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        var calls = 0
+        val invalid = generateProposal(proposal, index, embedding, generator, 5, sources, { true },
+            FileProposalProgressStore(root.resolve("proposals"))) {
+            calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("invented")))
+        }
+        assertEquals(ProposalGenerationResult.Invalid, invalid)
+        assertTrue(generateProposal(proposal, index, embedding, generator, 5, sources, { true },
+            FileProposalProgressStore(root.resolve("proposals"))) {
+            calls++; DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+        } is ProposalGenerationResult.Completed)
+        assertEquals(2, calls)
+    }
+
+    @Test fun aConceptIsPersistedUnderTheModelInputKeyRatherThanTheFormationKey() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        val store = FileProposalProgressStore(root.resolve("proposals"))
+        assertTrue(generateProposal(proposal, index, embedding, generator, 5, sources, { true }, store) {
+            DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+        } is ProposalGenerationResult.Completed)
+        val request = (prepareProposalEvidence(proposal, index, embedding, generator, 5, sources) { true }
+            as ProposalEvidenceResult.Ready).request
+        assertNotNull(store.readConcept(discoveryProposalModelKey(request), sources))
+        assertNull(store.readConcept(discoveryProposalWorkKey(request), sources))
+    }
+
+    @Test fun modelReuseAndFreshCallsAreSeparatelyObservableInNumericDiagnostics() = runBlocking {
+        val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
+        index.write(record("one")); index.write(record("two"))
+        val events = HashMap<String, Long>()
+        val diagnostics = DiscoveryWorkDiagnostics({ values -> values.forEach { (key, value) -> events.merge(key, value, Long::plus) } })
+        kotlinx.coroutines.withContext(diagnostics) {
+            suspend fun run(key: String) = generateProposal(proposal.copy(proposalKey = key), index, embedding,
+                generator, 5, sources, { true }, FileProposalProgressStore(root.resolve("proposals"))) {
+                DiscoveryProposalRun.Completed(DiscoveryProposalResponse.Concept("Seed germination",
+                    "Conditions for seeds to germinate.", "Listen to seed germination conditions.", listOf("one:p")))
+            }
+            assertTrue(run("first") is ProposalGenerationResult.Completed)
+            assertTrue(run("second") is ProposalGenerationResult.Completed)
+        }
+        assertEquals(1L, events["proposalModelCacheMiss"])
+        assertEquals(1L, events["proposalNativeRequest"])
+        assertEquals(1L, events["proposalModelCacheHit"])
+    }
+
     @Test fun refusedAbstentionPersistenceIsNotReportedAsCompleted() = runBlocking {
         val root = files.newFolder(); val index = FileSemanticIndexStore(root.resolve("index"))
         index.write(record("one")); index.write(record("two"))

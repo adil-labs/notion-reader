@@ -55,6 +55,9 @@ class DiscoveryController(
     }
     private var firstWorkStartedNanos: Long? = null
     private var firstNewTopicReported = false
+    private var firstVisibleTopicReported = false
+    /** A topic admitted in this process, so a restored catalog cannot claim the visible-publication measure. */
+    private var newTopicAdmittedInProcess = false
     private fun logDiag(tag: String, msg: String) {
         try { diagnosticLog(tag, msg) } catch (_: Exception) {}
     }
@@ -111,10 +114,21 @@ class DiscoveryController(
             currentCoroutineContext().ensureActive()
         }, changed = { view -> mutable.update {
             // Publication belongs to the background runtime.generation, never to detail navigation.
+            val priorIds = it.publishedTopics.map { published -> published.topic.id }.toSet()
             val published = if (it.topicSnapshot.topics == view.snapshot.topics) it.publishedTopics
                 else publishableDiscoveryTopics(view.snapshot.topics).mapNotNull { topic ->
                     discoveryTopicPublicationStatus(topic)?.let { status -> PublishedTopic(topic, status) }
                 }
+            // Admission is not visibility: a candidate can be committed and still be withheld by
+            // projection. The first topic that actually becomes publishable is the surface measure,
+            // but a catalog restored from disk must not claim it.
+            if (!firstVisibleTopicReported && !firstNewTopicReported && newTopicAdmittedInProcess &&
+                published.any { published -> published.topic.id !in priorIds }) {
+                firstVisibleTopicReported = true
+                firstWorkStartedNanos?.let { started ->
+                    reportWork(mapOf("firstVisiblePublishedTopicNanos" to (monotonicNanos() - started).coerceAtLeast(0)))
+                }
+            }
             it.copy(topicSnapshot = view.snapshot, publishedTopics = published,
                 topicsUpdated = view.updated, topicStatus = view.status,
                 topicFailure = view.failure ?: it.topicFailure?.takeIf { _ -> it.topicFailureSource == TopicFailureSource.Scheduling },
@@ -398,19 +412,19 @@ class DiscoveryController(
         val result = when (work.phase) {
             PendingCorpusWorkPhase.CORPUS -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
-                explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = work.pageId, corpusReplay = work.corpus)
+                explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = work.pageId, corpusReplay = work.corpus, localFirstPass = work.localFirstPass)
             PendingCorpusWorkPhase.ASSESS_CITATION -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset,
-                assessEvidenceIndex = checkNotNull(work.citationIndex))
+                assessEvidenceIndex = checkNotNull(work.citationIndex), localFirstPass = work.localFirstPass)
             PendingCorpusWorkPhase.REPLAY_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
-                retrieveScan = work.note, replayPendingScan = true)
+                retrieveScan = work.note, replayPendingScan = true, localFirstPass = work.localFirstPass)
             PendingCorpusWorkPhase.SCAN_NOTE -> advanceEvidenceFirstNote(work.pageId, replay = work.existingReplay,
                 generateIndex = work.proposalIndex, expectedGenerationKey = work.generationKey, maxRecords = maxRecords, windowContinue = windowContinue, knownCatalogScan = work.knownCatalogScan,
                 explicitPageIds = work.explicitPageIds, structureComplete = work.structureComplete, anchorOffset = work.anchorOffset, retrievePageId = checkNotNull(work.target),
-                retrieveScan = work.note, checkpointPendingScan = true)
+                retrieveScan = work.note, checkpointPendingScan = true, localFirstPass = work.localFirstPass)
         }
         logDiag("PendingCorpus", "advancePendingCorpusWork start: phase=${work.phase} citation=${work.citationIndex} corpusOffset=${work.corpus.offset} stepResult=${result::class.simpleName}")
         if (result is EvidenceFirstNoteStep.PendingKnownCatalog)
@@ -430,6 +444,8 @@ class DiscoveryController(
                 }
             }
             is EvidenceFirstNoteStep.CitationCoverage -> {
+                val rejected = result.coverage as? PendingConceptCoverage.Rejected
+                if (rejected != null) return PendingCorpusWorkResult.RejectedCitation(rejected.assessment.decision)
                 val pending = result.coverage as? PendingConceptCoverage.Pending
                 val concept = result.generation.response as? DiscoveryProposalResponse.Concept
                 val citation = concept?.evidenceIds?.indexOfFirst { it in pending?.missingEvidenceIds.orEmpty() } ?: -1
@@ -439,6 +455,7 @@ class DiscoveryController(
             is EvidenceFirstNoteStep.Assessed -> {
                 if (result.assessment.decision == SupportDecision.SUPPORTED)
                     return PendingCorpusWorkResult.Pending(work.copy(phase = PendingCorpusWorkPhase.CORPUS, citationIndex = null))
+                return PendingCorpusWorkResult.RejectedCitation(result.assessment.decision)
             }
             is EvidenceFirstNoteStep.CorpusReplay -> when (val replay = result.replay) {
                 is PendingCorpusReplayResult.Pending -> return PendingCorpusWorkResult.Pending(work.copy(corpus = replay.replay, generationKey = result.candidate.generation.workKey))
@@ -754,16 +771,17 @@ class DiscoveryController(
     }
     internal suspend fun advanceEvidenceFirstNote(pageId: String, replay: ConceptScanReplay? = null,
         explicitPageIds: Set<String> = emptySet(), structureComplete: Boolean = false, anchorOffset: Int = 0,
-        maxRecords: Int = 8, restart: Boolean = false, generateIndex: Int? = null,
+        maxRecords: Int = PROPOSAL_RECORD_BATCH, restart: Boolean = false, generateIndex: Int? = null,
         assessEvidenceIndex: Int? = null, summarizeEvidence: Boolean = false, retrievePageId: String? = null,
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
         checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
         corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null,
-        windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null): EvidenceFirstNoteStep {
+        windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null,
+        localFirstPass: Boolean = false): EvidenceFirstNoteStep {
         val result = advanceEvidenceFirstNoteImpl(pageId, replay, explicitPageIds, structureComplete, anchorOffset,
             maxRecords, restart, generateIndex, assessEvidenceIndex, summarizeEvidence, retrievePageId,
             retrieveCursor, retrieveScan, checkpointPendingScan, replayPendingScan, corpusReplay,
-            expectedGenerationKey, windowContinue, knownCatalogScan)
+            expectedGenerationKey, windowContinue, knownCatalogScan, localFirstPass)
         reportWork(mapOf("evidenceStage" to when (result) {
             EvidenceFirstNoteStep.PendingScan -> 1L
             is EvidenceFirstNoteStep.PendingReplay -> 2L
@@ -797,7 +815,8 @@ class DiscoveryController(
         retrieveCursor: PendingRetrievalCursor? = null, retrieveScan: PendingConceptNoteScan? = null,
         checkpointPendingScan: Boolean = false, replayPendingScan: Boolean = false,
         corpusReplay: PendingCorpusReplay? = null, expectedGenerationKey: String? = null,
-        windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null): EvidenceFirstNoteStep = withContext(workDispatcher) {
+        windowContinue: () -> Boolean = { true }, knownCatalogScan: KnownCatalogScan? = null,
+        localFirstPass: Boolean = false): EvidenceFirstNoteStep = withContext(workDispatcher) {
         require(maxRecords in 1..128 && anchorOffset >= 0 && (generateIndex == null || generateIndex >= 0) &&
             (assessEvidenceIndex == null || assessEvidenceIndex >= 0 && generateIndex != null) &&
             (!summarizeEvidence || generateIndex != null && assessEvidenceIndex == null && retrievePageId == null) &&
@@ -894,6 +913,7 @@ class DiscoveryController(
             advancePendingProposalWindow(record, supported, sources, explicitPageIds, structureComplete,
                 anchorOffset, store, maxRecords, ::current, ::mayWork,
                 deferredPassageIds = deferredAnchors, nowEpochMillis = clock().toEpochMilli(),
+                localFirstPass = localFirstPass,
                 read = { id -> runtime.bulkStep { index.read(id) } })
         }
         if (!current()) return@withContext EvidenceFirstNoteStep.Stale
@@ -1198,6 +1218,7 @@ class DiscoveryController(
         return measureWork("canonicalAdmissionNanos") { advanceCanonicalAdmission(done, replay) }.also {
             if (it is CanonicalAdmissionResult.Admitted && it.topicId !in priorIds) {
                 reportWork(mapOf("topicsAdmitted" to 1L))
+                newTopicAdmittedInProcess = true
                 if (!firstNewTopicReported && mutable.value.publishedTopics.any { published -> published.topic.id == it.topicId }) {
                     firstWorkStartedNanos?.let { started ->
                         reportWork(mapOf("firstPublishedTopicNanos" to (monotonicNanos() - started).coerceAtLeast(0)))
@@ -1281,6 +1302,10 @@ class DiscoveryController(
                 is PendingCorpusWorkResult.Done -> 2L
                 is PendingCorpusWorkResult.Abstained -> 3L
                 is PendingCorpusWorkResult.Incomplete -> 4L
+                is PendingCorpusWorkResult.RejectedCitation -> {
+                    reportWork(mapOf("evidenceRejectedCitationDecision" to it.decision.ordinal.toLong()))
+                    6L
+                }
                 is PendingCorpusWorkResult.Stopped -> {
                     reportWork(mapOf("evidenceStop" to when (val reason = it.reason) {
                         EvidenceFirstNoteStep.Stale -> 1L
@@ -1306,7 +1331,12 @@ class DiscoveryController(
             })) } },
             admit = { done, replay -> admitScheduledCandidate(done, replay) },
             catalogEpoch = ticket.snapshot.generation,
-            catalogIdentity = evidenceCatalogIdentity(ticket.snapshot)) }
+            catalogIdentity = evidenceCatalogIdentity(ticket.snapshot),
+            inspectFirstPass = if (sources.size - 1 > PROPOSAL_RECORD_BATCH) ({ page, replay, restart ->
+                measureWork("evidenceLocalInspectNanos") {
+                    advanceEvidenceFirstNote(page, replay = replay, restart = restart, localFirstPass = true)
+                }
+            }) else null) }
         logDiag("EvidenceScheduler", "stepResult: ${result.name}")
         reportWork(mapOf("evidenceScheduler" to result.ordinal.toLong()))
         when (result) {

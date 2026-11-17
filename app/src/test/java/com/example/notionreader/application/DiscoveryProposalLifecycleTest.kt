@@ -172,7 +172,7 @@ class DiscoveryProposalLifecycleTest {
             topicStore = FileTopicStore(root.resolve("topics")), proposalProgressStore = store)
         cache.remove("two"); cache.put(CachedDocument(two, null, Instant.EPOCH))
         controller.reconcile(emptyList(), false)
-        assertNull(store.readAbstention(record.workKey, sources))
+        assertNull(store.readAbstention(record.key, sources))
         assertEquals(0L, store.bytes())
     }
 

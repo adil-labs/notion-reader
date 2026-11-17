@@ -53,7 +53,8 @@ internal class EvidenceFirstScheduler {
         var blocked: Boolean = false, var replay: ConceptScanReplay? = null,
         var work: PendingCorpusWork? = null, var candidate: PendingCorpusWorkResult.Done? = null,
         var admissionReplay: PendingCorpusReplay = PendingCorpusReplay.start(), var restart: Boolean = false, var staleRetries: Int = 0,
-        val admittedProposals: MutableSet<String> = mutableSetOf())
+        val admittedProposals: MutableSet<String> = mutableSetOf(), var localFirstPass: Boolean = false,
+        var localAttempts: Int = 0)
     private var scope: String? = null
     private val pages = sortedMapOf<String, Page>()
     private var current: String? = null
@@ -80,7 +81,8 @@ internal class EvidenceFirstScheduler {
         process: suspend (PendingCorpusWork) -> PendingCorpusWorkResult,
         admit: suspend (PendingCorpusWorkResult.Done, PendingCorpusReplay) -> CanonicalAdmissionResult,
         catalogEpoch: Long? = null,
-        catalogIdentity: String? = null
+        catalogIdentity: String? = null,
+        inspectFirstPass: (suspend (String, ConceptScanReplay?, Boolean) -> EvidenceFirstNoteStep)? = null
     ): EvidenceFirstScheduleResult {
         val diagnostics = kotlinx.coroutines.currentCoroutineContext()[DiscoveryWorkDiagnostics]
         diagnostics?.record("evidenceSchedulerTurns")
@@ -88,7 +90,8 @@ internal class EvidenceFirstScheduler {
         if (seenReset != resetToken) { scope = null; pages.clear(); current = null; last = null; seenReset = resetToken }
         if (scope != scopeKey || pages.keys != sourceIds.toSet()) {
             if (scope != null) diagnostics?.record("schedulerRestarts")
-            scope = scopeKey; pages.clear(); sourceIds.distinct().sorted().forEach { pages[it] = Page() }
+            scope = scopeKey; pages.clear()
+            sourceIds.distinct().sorted().forEach { pages[it] = Page(localFirstPass = inspectFirstPass != null) }
             current = null; last = null
         }
         if (this.catalogEpoch != catalogEpoch) {
@@ -107,17 +110,38 @@ internal class EvidenceFirstScheduler {
         }
         val retryGeneration = retry.get()
         if (seenRetry != retryGeneration) { pages.values.forEach { if (it.blocked) { it.blocked = false; it.staleRetries = 0; it.restart = false } }; seenRetry = retryGeneration }
-        val available = pages.filterValues { !it.done && !it.blocked }.keys
+        val eligible = pages.filterValues { !it.done && !it.blocked }
+        val available = eligible.filterValues { it.localFirstPass }.keys.ifEmpty { eligible.keys }
         if (available.isEmpty()) return if (pages.values.any { it.blocked && !it.done })
             EvidenceFirstScheduleResult.Blocked else EvidenceFirstScheduleResult.Idle
         val id = current?.takeIf { it in available } ?: (available.firstOrNull { it > (last ?: "") } ?: available.first())
         current = id
         val page = pages.getValue(id)
+        fun finishFirstPass(): EvidenceFirstScheduleResult {
+            page.localFirstPass = false
+            page.index = 0
+            page.replay = null
+            page.work = null
+            page.candidate = null
+            page.admissionReplay = PendingCorpusReplay.start()
+            page.staleRetries = 0
+            current = null
+            last = id
+            diagnostics?.record("evidenceLocalPassCompleted")
+            return EvidenceFirstScheduleResult.Progress
+        }
         fun block(): EvidenceFirstScheduleResult {
+            if (page.localFirstPass) return finishFirstPass()
             page.blocked = true; page.work = null; page.candidate = null; page.replay = null
             page.admissionReplay = PendingCorpusReplay.start(); current = null; last = id
             diagnostics?.record("evidencePageBlocks")
             return if (pages.values.any { !it.done && !it.blocked }) EvidenceFirstScheduleResult.Progress else EvidenceFirstScheduleResult.Blocked
+        }
+        fun nextProposal(): EvidenceFirstScheduleResult {
+            page.work = null
+            page.index++
+            return if (page.localFirstPass && ++page.localAttempts >= LOCAL_PROPOSAL_LIMIT) finishFirstPass()
+                else EvidenceFirstScheduleResult.Progress
         }
         fun stale(): EvidenceFirstScheduleResult {
             diagnostics?.record("staleResultDiscards")
@@ -136,6 +160,7 @@ internal class EvidenceFirstScheduler {
                     page.candidate = null
                     page.admissionReplay = PendingCorpusReplay.start()
                     page.admittedProposals += candidate.candidate.proposal.proposalKey
+                    if (page.localFirstPass && ++page.localAttempts >= LOCAL_PROPOSAL_LIMIT) return finishFirstPass()
                     // Admission can remove explained anchors from the next proposal window.
                     // Numeric offsets belong to the old window, so rebuild once for this
                     // admission and skip its exact proposal if it remains eligible.
@@ -156,8 +181,13 @@ internal class EvidenceFirstScheduler {
             return when (result) {
                 is PendingCorpusWorkResult.Pending -> { page.work = result.work; EvidenceFirstScheduleResult.Progress }
                 is PendingCorpusWorkResult.Done -> { page.candidate = result; page.work = null; EvidenceFirstScheduleResult.Progress }
-                is PendingCorpusWorkResult.Abstained -> if (result.scanPending || result.reasons.any { it.blocksConceptAdmission() }) block()
-                    else { page.work = null; page.index++; EvidenceFirstScheduleResult.Progress }
+                is PendingCorpusWorkResult.Abstained -> if (result.scanPending || result.reasons.any {
+                        it.blocksConceptAdmission() && !(page.localFirstPass && it == ProposalIncompleteReason.SOURCE_SCAN)
+                    }) block() else nextProposal()
+                is PendingCorpusWorkResult.RejectedCitation -> {
+                    diagnostics?.record("evidenceCitationRejected")
+                    nextProposal()
+                }
                 is PendingCorpusWorkResult.Stopped -> when (result.reason) {
                     EvidenceFirstNoteStep.Deferred -> EvidenceFirstScheduleResult.Deferred
                     EvidenceFirstNoteStep.Stale -> stale()
@@ -168,7 +198,8 @@ internal class EvidenceFirstScheduler {
         }
         val restart = page.restart
         page.restart = false
-        val result = inspect(id, page.offset, page.replay, restart)
+        val result = if (page.localFirstPass && inspectFirstPass != null) inspectFirstPass(id, page.replay, restart)
+            else inspect(id, page.offset, page.replay, restart)
         if (resetGeneration.get() != resetToken) return EvidenceFirstScheduleResult.Deferred
         return when (result) {
             EvidenceFirstNoteStep.PendingScan -> EvidenceFirstScheduleResult.Progress
@@ -178,10 +209,11 @@ internal class EvidenceFirstScheduler {
                     result.window.window.proposals[page.index].proposalKey in page.admittedProposals) page.index++
                 if (result.window.scanPending) EvidenceFirstScheduleResult.Progress
                 else if (page.index < result.window.window.proposals.size) {
-                    page.work = PendingCorpusWork.start(id, page.index, anchorOffset = page.offset)
+                    page.work = PendingCorpusWork.start(id, page.index, anchorOffset = page.offset, localFirstPass = page.localFirstPass)
                     diagnostics?.record("evidenceProposalWindows")
                     EvidenceFirstScheduleResult.Progress
                 } else {
+                    if (page.localFirstPass) return finishFirstPass()
                     val next = result.window.window.nextAnchorOffset
                     if (next != null && next <= page.offset) block()
                     else { if (next == null) { page.done = true; current = null; last = id; diagnostics?.record("evidencePagesCompleted") }

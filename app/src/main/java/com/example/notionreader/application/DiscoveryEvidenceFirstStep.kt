@@ -89,14 +89,14 @@ internal data class PendingCorpusWork(val pageId: String, val proposalIndex: Int
     val phase: PendingCorpusWorkPhase, val corpus: PendingCorpusReplay, val target: String?,
     val note: PendingConceptNoteScan, val existingReplay: ConceptScanReplay?, val generationKey: String?,
     val explicitPageIds: Set<String>, val structureComplete: Boolean, val anchorOffset: Int, val citationIndex: Int?,
-    val knownCatalogScan: KnownCatalogScan?) {
+    val knownCatalogScan: KnownCatalogScan?, val localFirstPass: Boolean) {
     companion object {
         fun start(pageId: String, proposalIndex: Int, explicitPageIds: Set<String> = emptySet(),
-            structureComplete: Boolean = false, anchorOffset: Int = 0): PendingCorpusWork {
+            structureComplete: Boolean = false, anchorOffset: Int = 0, localFirstPass: Boolean = false): PendingCorpusWork {
             require(pageId.isNotBlank() && proposalIndex >= 0 && anchorOffset >= 0)
             return PendingCorpusWork(pageId, proposalIndex, PendingCorpusWorkPhase.CORPUS,
                 PendingCorpusReplay.start(), null, PendingConceptNoteScan.start(), null, null,
-                explicitPageIds.toSet(), structureComplete, anchorOffset, null, null)
+                explicitPageIds.toSet(), structureComplete, anchorOffset, null, null, localFirstPass)
         }
     }
 }
@@ -111,6 +111,7 @@ internal sealed interface PendingCorpusWorkResult {
     data class Abstained(val reason: com.example.notionreader.domain.discovery.DiscoveryAbstentionReason,
         val reasons: Set<com.example.notionreader.domain.discovery.ProposalIncompleteReason>,
         val scanPending: Boolean) : PendingCorpusWorkResult
+    data class RejectedCitation(val decision: com.example.notionreader.domain.discovery.SupportDecision) : PendingCorpusWorkResult
     data class Stopped(val reason: EvidenceFirstNoteStep, val work: PendingCorpusWork) : PendingCorpusWorkResult
 }
 

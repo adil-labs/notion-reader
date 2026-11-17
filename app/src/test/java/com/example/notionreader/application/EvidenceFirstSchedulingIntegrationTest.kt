@@ -76,7 +76,11 @@ class EvidenceFirstSchedulingIntegrationTest {
         assertEquals(supportChecks.toLong(), metrics.sumOf { it["supportFreshDecisions"] ?: 0 })
         assertTrue(metrics.any { (it["supportReused"] ?: 0) > 0 })
         assertEquals(1L, metrics.sumOf { it["topicsAdmitted"] ?: 0 })
-        assertEquals(1, metrics.count { "firstPublishedTopicNanos" in it })
+        // Admission and projection are independent observation points: whichever sees the first
+        // publishable topic reports the single visible-publication measure, never both and never none.
+        assertEquals("A newly publishable topic must establish exactly one publication measure",
+            1, metrics.count { "firstPublishedTopicNanos" in it || "firstVisiblePublishedTopicNanos" in it })
+        assertFalse(metrics.any { "firstPublishedTopicNanos" in it && "firstVisiblePublishedTopicNanos" in it })
         assertTrue(metrics.any { "canonicalAdmissionNanos" in it })
         assertTrue(metrics.any { "corpusReplayNanos" in it })
         assertTrue("A fully checked concept must not be blocked by a full proposal bundle", topics.isNotEmpty())

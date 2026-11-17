@@ -65,12 +65,12 @@ class FileProposalProgressStore(private val directory: File,
     } }
     private fun validId(id: String) = id.length in 1..512 && id == canonicalSemanticId(id)
     private fun validRevision(value: String) = value.length in 1..1024
-    private fun valid(record: ProposalAbstentionRecord): Boolean = Regex("[0-9a-f]{64}").matches(record.workKey) &&
+    private fun valid(record: ProposalAbstentionRecord): Boolean = Regex("[0-9a-f]{64}").matches(record.key) &&
         record.evidence.size in 1..16 && record.evidence.map { it.passageId }.toSet().size == record.evidence.size &&
         record.evidence.all { validId(it.pageId) && validRevision(it.revision) && it.passageId.length in 1..512 } &&
         record.evidence.groupBy { it.pageId }.values.all { refs -> refs.map { it.revision }.toSet().size == 1 }
     private fun valid(record: ProposalConceptRecord): Boolean =
-        valid(ProposalAbstentionRecord(record.workKey, record.evidence, DiscoveryAbstentionReason.NO_USEFUL_TOPIC)) &&
+        valid(ProposalAbstentionRecord(record.key, record.evidence, DiscoveryAbstentionReason.NO_USEFUL_TOPIC)) &&
         record.name.isNotBlank() && record.name.length <= 96 && record.definition.isNotBlank() && record.definition.length <= 512 &&
         record.listeningDescription.isNotBlank() && record.listeningDescription.length <= 512 &&
         record.evidenceIds.isNotEmpty() && record.evidenceIds.size == record.evidenceIds.toSet().size &&
@@ -175,13 +175,13 @@ class FileProposalProgressStore(private val directory: File,
     private fun readAbstentionFile(file: File): ProposalAbstentionRecord? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredProposalAbstention>(file.readText(Charsets.UTF_8))
-            stored.decision.takeIf { stored.version == 1 && valid(it) && abstentionTarget(it.workKey).name == file.name }
+            stored.decision.takeIf { stored.version == 1 && valid(it) && abstentionTarget(it.key).name == file.name }
         }
     } catch (_: Exception) { null }
     private fun readConceptFile(file: File): ProposalConceptRecord? = try {
         if (!file.isFile || file.length() !in 1..maxBytes) null else {
             val stored = json.decodeFromString<StoredProposalConcept>(file.readText(Charsets.UTF_8))
-            stored.concept.takeIf { stored.version == 1 && valid(it) && conceptTarget(it.workKey).name == file.name }
+            stored.concept.takeIf { stored.version == 1 && valid(it) && conceptTarget(it.key).name == file.name }
         }
     } catch (_: Exception) { null }
     private fun readDeltaFile(file: File): PassageDeltaRecord? = try {
@@ -228,9 +228,9 @@ class FileProposalProgressStore(private val directory: File,
 
     override suspend fun writeConcept(record: ProposalConceptRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
         withContext(Dispatchers.IO) { lock.withLock {
-            if (!valid(record) || abstentionTarget(record.workKey).exists()) return@withLock ProposalProgressWriteResult.Invalid
+            if (!valid(record) || abstentionTarget(record.key).exists()) return@withLock ProposalProgressWriteResult.Invalid
             if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
-            writeAtomic(conceptTarget(record.workKey), json.encodeToString(StoredProposalConcept(concept = record)).toByteArray(Charsets.UTF_8), stillCurrent)
+            writeAtomic(conceptTarget(record.key), json.encodeToString(StoredProposalConcept(concept = record)).toByteArray(Charsets.UTF_8), stillCurrent)
         } }
 
     override suspend fun readDelta(pageId: String, revision: String, embedding: EmbeddingIdentity): PassageDeltaRecord? =
@@ -297,10 +297,10 @@ class FileProposalProgressStore(private val directory: File,
 
     override suspend fun writeAbstention(record: ProposalAbstentionRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =
         withContext(Dispatchers.IO) { lock.withLock {
-            if (!valid(record) || conceptTarget(record.workKey).exists()) return@withLock ProposalProgressWriteResult.Invalid
+            if (!valid(record) || conceptTarget(record.key).exists()) return@withLock ProposalProgressWriteResult.Invalid
             if (!stillCurrent()) return@withLock ProposalProgressWriteResult.Stale
             val payload = json.encodeToString(StoredProposalAbstention(decision = record)).toByteArray(Charsets.UTF_8)
-            writeAtomic(abstentionTarget(record.workKey), payload, stillCurrent)
+            writeAtomic(abstentionTarget(record.key), payload, stillCurrent)
         } }
 
     override suspend fun write(record: ProposalProgressRecord, stillCurrent: () -> Boolean): ProposalProgressWriteResult =

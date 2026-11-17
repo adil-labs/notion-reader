@@ -4,6 +4,9 @@ import com.example.notionreader.domain.discovery.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
+internal const val LOCAL_PROPOSAL_LIMIT = 2
+internal const val PROPOSAL_RECORD_BATCH = 8
+
 internal sealed interface PendingProposalStepResult {
     data class Ready(val step: IncrementalProposalStepResult.Ready) : PendingProposalStepResult
     data object Missing : PendingProposalStepResult
@@ -18,6 +21,7 @@ internal suspend fun advancePendingProposalWindow(record: SemanticRecord, explai
     deferredPassageIds: Set<String> = emptySet(),
     nowEpochMillis: Long = System.currentTimeMillis(),
     deferralTtlMillis: Long = 10 * 60 * 1000L,
+    localFirstPass: Boolean = false,
     read: suspend (String) -> SemanticRecord?): PendingProposalStepResult {
     currentCoroutineContext().ensureActive()
     if (!current()) return PendingProposalStepResult.Stale
@@ -77,6 +81,17 @@ internal suspend fun advancePendingProposalWindow(record: SemanticRecord, explai
         else if (expired) diagnostics.record("proposalDeferralExpired")
     }
     if (effectiveOffset < 0 || effectiveOffset > eligibleCount) return PendingProposalStepResult.Stale
+    if (localFirstPass) {
+        val context = currentCoroutineContext()
+        val window = proposeDiscoveryWindow(record, delta.delta.changed, explainedPassageIds, emptySequence(),
+            sources, explicitPageIds, structureComplete, scanComplete = false,
+            maxAnchors = LOCAL_PROPOSAL_LIMIT, checkActive = { context.ensureActive() },
+            deferredPassageIds = effectiveDeferred)
+        if (!current() || window.stale) return PendingProposalStepResult.Stale
+        if (!mayWork()) return PendingProposalStepResult.Deferred
+        // Local evidence is ready for verification. SOURCE_SCAN remains on the proposal.
+        return PendingProposalStepResult.Ready(IncrementalProposalStepResult.Ready(window, scanPending = false))
+    }
     val result = advanceIncrementalProposalWindow(record, delta.delta.changed, explainedPassageIds, sources,
         explicitPageIds, structureComplete, effectiveOffset, store, maxRecords, { current() && mayWork() }, mayWork,
         deferredPassageIds = effectiveDeferred, deferralKey = effectiveKey, deferralSinceEpochMillis = effectiveSince,

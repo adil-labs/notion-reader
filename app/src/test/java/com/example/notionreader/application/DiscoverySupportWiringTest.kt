@@ -188,6 +188,7 @@ class DiscoverySupportWiringTest {
                 is PendingCorpusWorkResult.Incomplete -> terminal = step
                 is PendingCorpusWorkResult.Stopped -> fail("Unexpected stop: ${step.reason}")
                 is PendingCorpusWorkResult.Abstained -> fail("Unexpected abstention: ${step.reason}")
+                is PendingCorpusWorkResult.RejectedCitation -> fail("Unexpected citation rejection: ${step.decision}")
             }
         }
         val incomplete = terminal as PendingCorpusWorkResult.Done
@@ -216,13 +217,15 @@ class DiscoverySupportWiringTest {
         val pending = controller.advanceEvidenceFirstNote("note", restart = true, generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
         assertEquals(PendingConceptCoverage.Pending(setOf("p")), pending.coverage)
         val unsupportedWork = (controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)) as PendingCorpusWorkResult.Pending).work
-        val unsupportedStop = controller.advancePendingCorpusWork(unsupportedWork) as PendingCorpusWorkResult.Stopped
-        assertEquals(SupportDecision.UNSUPPORTED, (unsupportedStop.reason as EvidenceFirstNoteStep.Assessed).assessment.decision)
+        assertEquals(PendingCorpusWorkResult.RejectedCitation(SupportDecision.UNSUPPORTED),
+            controller.advancePendingCorpusWork(unsupportedWork))
+        assertEquals(PendingCorpusWorkResult.RejectedCitation(SupportDecision.UNSUPPORTED),
+            controller.advancePendingCorpusWork(PendingCorpusWork.start("note", 0)))
         val rejected = controller.advanceEvidenceFirstNote("note", generateIndex = 0, assessEvidenceIndex = 0) as EvidenceFirstNoteStep.Assessed
         assertEquals(SupportDecision.UNSUPPORTED, rejected.assessment.decision)
         assertEquals(2, pendingSupportCalls)
         val rejectedCoverage = controller.advanceEvidenceFirstNote("note", generateIndex = 0, summarizeEvidence = true) as EvidenceFirstNoteStep.CitationCoverage
-        assertEquals(listOf(SupportDecision.UNSUPPORTED), (rejectedCoverage.coverage as PendingConceptCoverage.Complete).assessments.map { it.decision })
+        assertEquals(SupportDecision.UNSUPPORTED, (rejectedCoverage.coverage as PendingConceptCoverage.Rejected).assessment.decision)
         assertEquals(listOf("topic"), controller.state.value.topicSnapshot.topics.map { it.id })
         activeSupportIdentity = supportIdentity.copy(policy = "uncertain-v3")
         decision = SupportDecision.UNCERTAIN
@@ -378,21 +381,20 @@ class DiscoverySupportWiringTest {
         assertEquals(publishedBefore, controller.state.value.publishedTopics)
         var citationWork = PendingCorpusWork.start("note", 0)
         val phases = mutableListOf<PendingCorpusWorkPhase>()
-        var provisionalStop: PendingCorpusWorkResult.Stopped? = null
+        var rejection: PendingCorpusWorkResult.RejectedCitation? = null
         repeat(10) {
-            if (provisionalStop == null) {
+            if (rejection == null) {
                 val next = controller.advancePendingCorpusWork(citationWork, maxRecords = 1)
                 when (next) {
                     is PendingCorpusWorkResult.Pending -> { citationWork = next.work; phases += next.work.phase }
-                    is PendingCorpusWorkResult.Stopped -> provisionalStop = next
+                    is PendingCorpusWorkResult.RejectedCitation -> rejection = next
                     else -> fail("Expected an assessed citation: $next")
                 }
             }
         }
         assertTrue("Citation assessment phase was skipped: $phases", PendingCorpusWorkPhase.ASSESS_CITATION in phases)
-        val assessed = checkNotNull(provisionalStop).reason as EvidenceFirstNoteStep.Assessed
-        assertEquals(SupportDecision.UNSUPPORTED, assessed.assessment.decision)
-        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in assessed.generation.incomplete)
+        assertEquals(PendingCorpusWorkResult.RejectedCitation(SupportDecision.UNSUPPORTED), rejection)
+        assertTrue(ProposalIncompleteReason.EXISTING_CONCEPT_CATALOG in originalGeneration.generation.incomplete)
         pendingDecision = SupportDecision.SUPPORTED; activeVerifier = verifier.copy(policy = "provisional-supported-v3")
         var supportedWork = PendingCorpusWork.start("note", 0)
         var supportedResult: PendingCorpusWorkResult.Incomplete? = null
