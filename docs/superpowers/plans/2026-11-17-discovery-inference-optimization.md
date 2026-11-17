@@ -118,16 +118,21 @@ model identity, cancellation, foreground priority and catalog commit guards.
   same-engine work within the existing window. Keep the single inference gate,
   end-of-window release, cancellation and foreground preemption. Measure
   opens per request, memory, query latency and cancellation latency on the S25.
+  Attribution confirms reopens are material and caused by an embedding between
+  evidence steps; a two-evidence-step batch is the target. It remains open
+  pending a failing-first scheduling test.
 - [ ] Keep checkpoint simplification out of this performance round. Revisit
   only after evidence establishes that a path is unused or redundant and
   restart, withdrawal and source-change tests can prove equivalence.
 
 ## Verification and decision gates
 
-- [ ] Run failing-first regressions, then `:app:testDebugUnitTest`,
+- [x] Run failing-first regressions, then `:app:testDebugUnitTest`,
   `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin`. Run the
   targeted `SupportFirstDeviceTest` through `tools/run-accessibility-tests.ps1`,
   plus the comparable 100-Note benchmark for behavioral or performance claims.
+  All passed; the benchmark and its crash limits are recorded in decisions
+  §260-§261.
 - [ ] Report call reduction separately for cold and repeat runs. Treat 50–70%
   fewer native Gemma calls, under 10 s to first useful topic and at least 80%
   usefulness as hypotheses. Under 10 s is a warm-path stretch target given the

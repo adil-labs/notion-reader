@@ -38,6 +38,7 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
                 val opened = engine == null
                 val runtime = engine ?: open().also { engine = it }
                 if (opened) metric("supportOpenNanos", (System.nanoTime() - openStarted).coerceAtLeast(0))
+                else metric("supportEngineReused", 1)
                 currentCoroutineContext().ensureActive()
                 val promptStarted = System.nanoTime()
                 val prompt = topicSupportPrompt(request)
@@ -73,6 +74,7 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
                 val opened = engine == null
                 val runtime = engine ?: open().also { engine = it }
                 if (opened) metric("proposalOpenNanos", (System.nanoTime() - openStarted).coerceAtLeast(0))
+                else metric("proposalEngineReused", 1)
                 currentCoroutineContext().ensureActive()
                 val result = inferProposal(runtime, request)
                 if (result is DiscoveryProposalRun.Completed) metric("proposalSuccesses", 1)
@@ -269,6 +271,7 @@ class GemmaTopicLabeler internal constructor(private val identity: TopicLabelIde
     private fun release() {
         val old = engine
         engine = null
+        if (old != null) metric("engineClosed", 1)
         old?.close()
     }
 }

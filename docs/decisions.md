@@ -16293,6 +16293,11 @@ Verification:
 
 - `:app:testDebugUnitTest` passed with 1,774 tests, zero failures, errors or
   skips. `:app:assembleDebug` and `:app:compileDebugAndroidTestKotlin` passed.
+- `tools/run-accessibility-tests.ps1 -Class ...SupportFirstDeviceTest` passed on
+  the unlocked S25 (SM-S931B, API 37): 1 test, 0 failures, expected 1. Real
+  Gemma recorded 3 proposal attempts, 5 support attempts, 6 early stops and 16
+  checked candidates; the admitted concept finished with matching and passage
+  coverage complete and two members.
 - `tools/run-discovery-benchmark.ps1` runs a frozen purpose-built 100-Note
   corpus (`DiscoveryBenchmarkCorpus`, ten subjects in ten Notes each) in an
   isolated app-file root, records numeric diagnostics only and writes an
@@ -16341,3 +16346,29 @@ the engine every time, consistent with the embedding/generation engine switch in
 
 Open: usefulness grading (the report carries the ten-subject denominator but no
 labels), a near-duplicate formation experiment, and a terminal-state comparison.
+
+## 261. Confirm the device verification and attribute Discovery engine churn (2026-11-17)
+
+- The targeted `SupportFirstDeviceTest` passed through
+  `tools/run-accessibility-tests.ps1` on the unlocked S25 (SM-S931B, API 37):
+  1 test, 0 failures, expected 1. Real Gemma recorded 3 proposal attempts, 5
+  support attempts, 6 early stops and 16 checked candidates; the admitted
+  concept finished with matching and passage coverage complete and two members.
+- A fourth clean 150 s paired benchmark reproduced the §260 shape: cold first
+  publication 143.0 s, 9 Notes indexed, 22 logical proposal requests / 6 native;
+  repeat added no new topic in 150 s. The 1,774-test JVM suite, `assembleDebug`
+  and `compileDebugAndroidTestKotlin` still pass.
+- Engine attribution counters (`engineClosed`, `proposalEngineReused`,
+  `supportEngineReused`) now make the churn explicit. Cold run: 6 proposal
+  attempts opened the engine 6 times and reused it 0 times; 5 support attempts
+  opened it twice and reused it 4 times; 11 embeddings closed a live engine 8
+  times, and 8 opens matched 8 closes. The engine is therefore not lost between
+  proposals by the proposal path itself: it is closed by the embedding that the
+  interleaved membership/retrieval step performs between evidence steps.
+
+That last point fixes the P2 target. A useful bounded batch is not "keep the
+engine while embedding" (the single-engine policy forbids two live native
+sessions); it is "run two already-eligible evidence steps before yielding to the
+membership step", which removes one embedding switch while still running
+membership every reconcile. This needs a failing-first scheduling test before it
+can ship, so it remains open rather than being folded into this round.
